@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% set nav = 'customers' %}
+{% block title %}Onboard — amlkit{% endblock %}
+{% block body %}
+
+<form method="post" action="/customers">
+<div class="panel">
+  <h2>Customer</h2>
+  <div class="row">
+    <div><label>Reference *</label><input type="text" name="reference" required></div>
+    <div><label>Type</label>
+      <select name="customer_type">
+        <option value="natural">Natural person</option>
+        <option value="legal">Legal person</option>
+      </select></div>
+  </div>
+  <div class="row">
+    <div><label>Full name *</label>
+      <input type="text" name="full_name" dir="auto" required></div>
+    <div><label>Name in Arabic</label>
+      <input type="text" name="name_arabic" dir="auto" placeholder="اختياري"></div>
+  </div>
+  <p class="muted small">
+    Both scripts are screened when supplied. The matcher reconciles them, but a
+    listed party is sometimes recorded under only one — providing both widens
+    coverage at no cost.
+  </p>
+  <div class="row">
+    <div><label>Nationality (ISO)</label><input type="text" name="nationality" maxlength="2"></div>
+    <div><label>Date of birth</label><input type="date" name="birth_date"></div>
+    <div><label>Gender</label>
+      <select name="gender"><option value="">—</option>
+        <option value="male">Male</option><option value="female">Female</option></select></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Risk factors</h2>
+  <div class="row">
+    <div><label>Sector</label><select name="sector">
+      {% for s in sectors %}<option value="{{ s }}">{{ s.replace('_',' ') }}</option>{% endfor %}
+    </select></div>
+    <div><label>Legal structure</label><select name="structure">
+      {% for s in structures %}<option value="{{ s }}">{{ s.replace('_',' ') }}</option>{% endfor %}
+    </select></div>
+  </div>
+  <div class="row">
+    <div><label>Delivery channel</label><select name="delivery_channel">
+      {% for c in channels %}<option value="{{ c }}">{{ c.replace('_',' ') }}</option>{% endfor %}
+    </select></div>
+    <div><label>Cash intensity</label><select name="cash_level">
+      <option value="non_cash">Non-cash</option><option value="mixed">Mixed</option>
+      <option value="predominantly_cash">Predominantly cash</option></select></div>
+    <div><label>Country risk tier</label><select name="jurisdiction_tier">
+      {% for t in tiers %}<option value="{{ t }}">{{ t.replace('_',' ') }}</option>{% endfor %}
+    </select></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Beneficial owners</h2>
+  <p class="muted small" style="margin-top:-6px">
+    Identified at the 25% threshold, with fallback to the senior managing
+    official where nobody meets it. Every owner listed here is screened —
+    a company can screen clean while its owner does not, and that is the case
+    most often missed.
+  </p>
+  {% for i in range(3) %}
+  <div class="row">
+    <div><label>{{ 'Name' if loop.first else '' }}</label>
+      <input type="text" name="ubo_names" dir="auto" placeholder="Full name"></div>
+    <div><label>{{ 'Ownership %' if loop.first else '' }}</label>
+      <input type="number" name="ubo_pcts" step="0.01" min="0" max="100" placeholder="0"></div>
+    <div><label>{{ 'Control' if loop.first else '' }}</label>
+      <select name="ubo_controls">
+        <option value="ownership">Ownership</option>
+        <option value="senior_official">Senior managing official</option>
+        <option value="nominee">Nominee</option>
+        <option value="other">Other</option>
+      </select></div>
+  </div>
+  {% endfor %}
+  <p class="muted small">
+    Leaving this empty for a legal person is recorded as <strong>UBO
+    undisclosed</strong> and scores as opacity — absence of ownership data is a
+    risk indicator, not a neutral default.
+  </p>
+</div>
+
+<button type="submit">Onboard &amp; screen</button>
+<a class="btn ghost" href="/customers">Cancel</a>
+</form>
+
+{% endblock %}

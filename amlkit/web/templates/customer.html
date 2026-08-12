@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% from "_macros.html" import name, score_breakdown, aliases, review_trail, disposition_form %}
+{% set nav = 'customers' %}
+{% set c = customer %}
+{% block title %}{{ c.full_name }} — amlkit{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <div class="alert-head">
+    <div>
+      <h2 style="margin:0">{{ name(c.full_name) }}</h2>
+      {% if c.name_arabic %}<div>{{ name(c.name_arabic) }}</div>{% endif %}
+      <div class="muted small">{{ c.reference }} · {{ c.customer_type }} · {{ c.sector }}</div>
+    </div>
+    <div>
+      {% if risk %}<span class="tag {{ risk.rating }}">{{ risk.rating }} risk</span>{% endif %}
+      {% if c.status != 'active' %}<span class="tag other">{{ c.status }}</span>{% endif %}
+    </div>
+  </div>
+  <div style="margin-top:12px">
+    <a class="btn small" href="/customers/{{ c.id }}/evidence">Evidence pack</a>
+    {% if c.status == 'active' %}
+    <form method="post" action="/customers/{{ c.id }}/close" style="display:inline">
+      <button class="small ghost" type="submit">Close relationship</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if c.retention_until %}
+    <p class="muted small">Records retained until <strong>{{ c.retention_until }}</strong>
+      (five years after the relationship ended).</p>
+  {% endif %}
+</div>
+
+{% if alerts %}
+<div class="panel">
+  <h2>Alerts</h2>
+  {% for a in alerts %}
+    <div class="alert-card {{ a.category }}">
+      <div class="alert-head">
+        <h3>{{ name(a.caption) }}</h3>
+        <div><span class="tag {{ a.category }}">{{ a.category }}</span>
+          <span class="score">{{ '%.3f'|format(a.score) }}</span></div>
+      </div>
+      <div class="muted small">
+        {{ a.dataset_title }}
+        {% if a.via_ubo %} · matched via beneficial owner
+          <strong>{{ a.matched_party }}</strong>{% endif %}
+      </div>
+      {{ aliases(a.aliases) }}
+      <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
+      <details class="evidence"><summary>Why this matched</summary>
+        {{ score_breakdown(a.detail) }}</details>
+      {{ review_trail(a.reviews) }}
+      {{ disposition_form(a, reason_codes, '/customers/' ~ c.id) }}
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="grid two">
+  <div class="panel">
+    <h2>Beneficial owners</h2>
+    {% if ubos %}
+      <table>
+        <tr><th>Name</th><th>%</th><th>Control</th><th>UBO</th></tr>
+        {% for u in ubos %}
+        <tr>
+          <td>{{ name(u.person_name) }}</td>
+          <td class="score">{{ u.ownership_pct if u.ownership_pct is not none else '—' }}</td>
+          <td class="small">{{ u.control_type.replace('_',' ') }}</td>
+          <td>{% if u.is_ubo %}<span class="tag low">yes</span>
+              {% else %}<span class="muted small">below threshold</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="muted small">None recorded.
+        {% if c.customer_type == 'legal' %}
+          This scores as <strong>UBO undisclosed</strong> — the regulation treats
+          inability to identify a beneficial owner as a risk indicator.
+        {% endif %}</p>
+    {% endif %}
+    <form method="post" action="/customers/{{ c.id }}/ubo" class="row" style="margin-top:12px">
+      <div><label>Add owner</label><input type="text" name="person_name" dir="auto" required></div>
+      <div><label>%</label><input type="number" name="ownership_pct" step="0.01" min="0" max="100"></div>
+      <div><label>Control</label>
+        <select name="control_type">
+          <option value="ownership">Ownership</option>
+          <option value="senior_official">Senior managing official</option>
+          <option value="nominee">Nominee</option>
+        </select></div>
+      <div style="align-self:end"><button class="small" type="submit">Add &amp; screen</button></div>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Risk assessment</h2>
+    {% if risk %}
+      <p>
+        <span class="tag {{ risk.rating }}">{{ risk.rating }}</span>
+        <span class="score">score {{ risk.score|int }}</span>
+        {% if risk.requires_edd %}<span class="tag sanction">EDD required</span>{% endif %}
+      </p>
+      <table>
+        {% for k, v in risk.factors.items() %}
+          {% if v.points %}
+          <tr><td>{{ k.replace('_',' ') }}</td>
+              <td class="muted small">{{ v.value }}</td>
+              <td class="right score">+{{ v.points|int }}</td></tr>
+          {% endif %}
+        {% endfor %}
+      </table>
+      <p class="muted small">
+        Ruleset <code class="mono">{{ risk.ruleset_version }}</code> ·
+        assessed {{ risk.assessed_at[:10] }} · next review {{ risk.next_review }}
+      </p>
+    {% else %}<p class="muted">Not assessed.</p>{% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Screening history</h2>
+  <p class="muted small" style="margin-top:-6px">
+    Clear results are kept as well as matches — evidence that a customer
+    <em>was</em> screened and came back clean is what an examiner asks for.
+  </p>
+  <table>
+    <tr><th>Run</th><th>Name screened</th><th>Trigger</th><th class="right">Candidates</th><th class="right">Hits</th></tr>
+    {% for s in screenings %}
+    <tr>
+      <td class="small nowrap">{{ s.run_at[:16].replace('T',' ') }}</td>
+      <td>{{ name(s.query_name) }}</td>
+      <td class="small">{{ s.trigger.replace('_',' ') }}</td>
+      <td class="right score">{{ s.candidates }}</td>
+      <td class="right">{% if s.hits %}<span class="tag proliferation">{{ s.hits }}</span>
+          {% else %}<span class="tag low">clear</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Audit trail</h2>
+  <table>
+    <tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th></tr>
+    {% for e in audit %}
+    <tr>
+      <td class="small nowrap">{{ e.ts[:16].replace('T',' ') }}</td>
+      <td class="small">{{ e.actor }}</td>
+      <td class="small mono">{{ e.action }}</td>
+      <td class="small muted">{{ e.detail }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+{% endblock %}

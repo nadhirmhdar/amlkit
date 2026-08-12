@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% from "_macros.html" import name, score_breakdown, aliases %}
+{% set nav = 'customers' %}
+{% set c = customer %}
+{% block title %}Evidence pack — {{ c.full_name }}{% endblock %}
+{% block body %}
+
+<div class="no-print" style="margin-bottom:16px">
+  <button onclick="window.print()">Print / save as PDF</button>
+  <a class="btn ghost" href="/customers/{{ c.id }}">Back to case file</a>
+  <p class="muted small">
+    Everything below prints, including the reasoning behind each alert decision.
+    Thin disposition records are what generate inspection findings even when the
+    decisions themselves were correct.
+  </p>
+</div>
+
+<div class="panel">
+  <h2>Customer due diligence record</h2>
+  <table>
+    <tr><td style="width:200px" class="muted">Reference</td><td class="mono">{{ c.reference }}</td></tr>
+    <tr><td class="muted">Name</td><td>{{ name(c.full_name) }}</td></tr>
+    {% if c.name_arabic %}<tr><td class="muted">Name (Arabic)</td><td>{{ name(c.name_arabic) }}</td></tr>{% endif %}
+    <tr><td class="muted">Type</td><td>{{ c.customer_type }}</td></tr>
+    <tr><td class="muted">Sector</td><td>{{ c.sector }}</td></tr>
+    {% if c.nationality %}<tr><td class="muted">Nationality</td><td>{{ c.nationality|upper }}</td></tr>{% endif %}
+    {% if c.birth_date %}<tr><td class="muted">Date of birth</td><td>{{ c.birth_date }}</td></tr>{% endif %}
+    <tr><td class="muted">Onboarded</td><td>{{ c.onboarded_at[:10] }}</td></tr>
+    <tr><td class="muted">Status</td><td>{{ c.status }}</td></tr>
+    {% if c.retention_until %}
+      <tr><td class="muted">Retention until</td><td>{{ c.retention_until }}</td></tr>{% endif %}
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Beneficial ownership</h2>
+  {% if ubos %}
+    <table>
+      <tr><th>Name</th><th>Ownership %</th><th>Basis of control</th><th>Treated as UBO</th></tr>
+      {% for u in ubos %}
+      <tr>
+        <td>{{ name(u.person_name) }}</td>
+        <td>{{ u.ownership_pct if u.ownership_pct is not none else '—' }}</td>
+        <td>{{ u.control_type.replace('_',' ') }}</td>
+        <td>{{ 'Yes' if u.is_ubo else 'No — below 25% threshold' }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="muted small">Threshold: 25%, with fallback to the senior managing
+      official where no natural person meets it.</p>
+  {% else %}
+    <p>No beneficial owners recorded.
+      {% if c.customer_type == 'legal' %}Scored as UBO undisclosed.{% endif %}</p>
+  {% endif %}
+</div>
+
+{% if risk %}
+<div class="panel">
+  <h2>Risk assessment</h2>
+  <p><strong>{{ risk.rating|upper }}</strong> — score {{ risk.score|int }}
+     {% if risk.requires_edd %}— Enhanced Due Diligence required{% endif %}</p>
+  <table>
+    <tr><th>Factor</th><th>Value</th><th class="right">Points</th></tr>
+    {% for k, v in risk.factors.items() %}
+      {% if v.points %}
+      <tr><td>{{ k.replace('_',' ') }}</td><td>{{ v.value }}</td>
+          <td class="right">+{{ v.points|int }}</td></tr>
+      {% endif %}
+    {% endfor %}
+  </table>
+  <p class="muted small">
+    Ruleset version <strong>{{ risk.ruleset_version }}</strong>, assessed
+    {{ risk.assessed_at[:19].replace('T',' ') }}. Next review {{ risk.next_review }}.
+  </p>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Screening record</h2>
+  <table>
+    <tr><th>Date &amp; time (UTC)</th><th>Name screened</th><th>Trigger</th>
+        <th>Lists</th><th class="right">Candidates</th><th>Result</th></tr>
+    {% for s in screenings %}
+    <tr>
+      <td class="nowrap">{{ s.run_at[:19].replace('T',' ') }}</td>
+      <td>{{ name(s.query_name) }}</td>
+      <td>{{ s.trigger.replace('_',' ') }}</td>
+      <td class="small">{{ s.datasets_used|join(', ') or 'all loaded' }}</td>
+      <td class="right">{{ s.candidates }}</td>
+      <td>{{ (s.hits ~ ' match(es)') if s.hits else 'Clear' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+{% if alerts %}
+<div class="panel">
+  <h2>Alerts and decisions</h2>
+  {% for a in alerts %}
+    <div class="alert-card {{ a.category }}">
+      <div class="alert-head">
+        <h3>{{ name(a.caption) }}</h3>
+        <div><span class="tag {{ a.category }}">{{ a.category }}</span>
+          <span class="score">{{ '%.3f'|format(a.score) }}</span></div>
+      </div>
+      <div class="muted small">
+        {{ a.dataset_title }}{% if a.programs %} · programme {{ a.programs|join(', ') }}{% endif %}
+        {% if a.via_ubo %} · matched via beneficial owner {{ a.matched_party }}{% endif %}
+      </div>
+      {{ aliases(a.aliases) }}
+      <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
+
+      <div style="margin-top:8px"><strong>Basis of the match</strong></div>
+      {{ score_breakdown(a.detail) }}
+
+      <div style="margin-top:10px"><strong>Decision</strong>:
+        {{ a.status.replace('_',' ')|title }}
+        {% if a.reason_code %} — {{ a.reason_code.replace('_',' ') }}{% endif %}
+      </div>
+      {% if a.reviews %}
+        <table style="margin-top:6px">
+          <tr><th>Step</th><th>Operator</th><th>Reason</th><th>Narrative</th><th>When</th></tr>
+          {% for r in a.reviews %}
+          <tr>
+            <td>{{ r.action }}</td><td>{{ r.operator }}</td>
+            <td class="small">{{ r.reason_label }}</td>
+            <td class="small">{{ r.narrative or '—' }}</td>
+            <td class="small nowrap">{{ r.created_at[:19].replace('T',' ') }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      {% endif %}
+
+      {# The control gap is printed, not hidden. A supervisor seeing this stated
+         plainly is a far better outcome than one discovering it themselves. #}
+      {% if a.independent_review == 'single_operator' %}
+        <div class="review-note">
+          <strong>No independent review.</strong> This firm operates with a
+          single compliance officer, so the dismissal of this match was recorded
+          without second-operator confirmation.
+        </div>
+      {% elif a.independent_review == 'completed' %}
+        <p class="small">Independent review completed by a second operator.</p>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Audit trail</h2>
+  <table>
+    <tr><th>When (UTC)</th><th>Operator</th><th>Action</th><th>Detail</th></tr>
+    {% for e in audit %}
+    <tr>
+      <td class="nowrap small">{{ e.ts[:19].replace('T',' ') }}</td>
+      <td class="small">{{ e.actor }}</td>
+      <td class="small">{{ e.action }}</td>
+      <td class="small">{{ e.detail }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted small">
+    Append-only, enforced at database level. Generated
+    {{ customer.updated_at[:19].replace('T',' ') }} UTC.
+    Screening performed against sanctions data current as at the times shown above.
+  </p>
+</div>
+
+{% endblock %}

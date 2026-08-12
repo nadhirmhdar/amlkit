@@ -1,0 +1,141 @@
+{# Shared fragments. Alert rendering lives here because it appears on the queue,
+   the customer case file and the evidence pack, and those three must never
+   drift apart -- an alert that reads differently in the evidence pack than it
+   did on screen is exactly the inconsistency an examiner picks up on. #}
+
+{% macro name(value) %}
+  {# dir="auto" lets the browser pick direction per string, so Arabic renders
+     right-to-left without mirroring the surrounding layout. #}
+  <span dir="auto" {% if has_arabic(value|string) %}lang="ar" class="name-ar"{% endif %}>{{ value }}</span>
+{% endmacro %}
+
+{% macro score_breakdown(detail) %}
+  {% set f = detail.get('features', {}) %}
+  {% set n = f.get('name', {}) %}
+  <div class="breakdown">
+    {% if n.get('exact_canonical') %}
+      Exact canonical match on {{ n.get('tokens') }} name token(s) — every token
+      of the query matched a token of the listed name after normalisation.
+    {% else %}
+      <div>
+        recall <code>{{ n.get('recall') }}</code>
+        &nbsp; precision <code>{{ n.get('precision') }}</code>
+      </div>
+      {% if n.get('matched_pairs') %}
+        <div style="margin-top:6px">Matched tokens:
+          {% for pair in n.get('matched_pairs') %}
+            <span class="pair"><code>{{ pair[0] }}</code> → <code>{{ pair[1] }}</code>
+              ({{ pair[2] }})</span>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% if n.get('query_tokens') %}
+        <div class="muted small" style="margin-top:6px">
+          query <code>{{ n.get('query_tokens')|join(' ') }}</code> ·
+          listed <code>{{ n.get('candidate_tokens')|join(' ') }}</code>
+        </div>
+      {% endif %}
+    {% endif %}
+    {% if f.get('identifier_match') %}
+      <div style="margin-top:6px"><strong>Identifier match:</strong>
+        {{ f.get('identifier_match')|join(', ') }} — an exact identifier hit is
+        not a coincidence.</div>
+    {% endif %}
+    {% if f.get('adjustments') %}
+      <div style="margin-top:6px">Contradicting features:
+        {% for k, v in f.get('adjustments').items() %}
+          <span class="pair"><code>{{ k }} {{ v }}</code></span>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if n.get('low_confidence_query') %}
+      <div class="review-note" style="margin-top:8px">{{ n.get('low_confidence_query') }}</div>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{% macro aliases(list) %}
+  {% if list %}
+    <div class="small muted" style="margin-top:5px">
+      Also listed as:
+      {% for a in list[1:8] %}{{ name(a.name) }}{% if not loop.last %} · {% endif %}{% endfor %}
+      {% if list|length > 8 %} <em>+{{ list|length - 8 }} more</em>{% endif %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro review_trail(reviews) %}
+  {% if reviews %}
+    <div class="small" style="margin-top:8px">
+      {% for r in reviews %}
+        <div class="muted">
+          <strong>{{ r.action }}</strong> — {{ r.status.replace('_',' ') }} ·
+          {{ r.reason_label }} · <em>{{ r.operator }}</em> · {{ r.created_at }}
+          {% if r.narrative %}<div style="margin-left:12px">“{{ r.narrative }}”</div>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro disposition_form(alert, reason_codes, back_to) %}
+  {% if alert.status == 'pending_review' %}
+    <div class="review-note">
+      Awaiting independent review. Proposed by
+      <strong>{{ alert.dispositioned_by }}</strong>. A <em>different</em> operator
+      must confirm — dismissing a sanctions or proliferation match is the decision
+      that carries the most risk.
+    </div>
+    <form method="post" action="/alerts/{{ alert.id }}/confirm" class="stack">
+      <input type="hidden" name="back_to" value="{{ back_to }}">
+      <div class="field">
+        <label>Reviewer note (optional if you agree)</label>
+        <textarea name="narrative" placeholder="Basis for confirming or overriding"></textarea>
+      </div>
+      <button type="submit" name="agree" value="yes">Confirm dismissal</button>
+      <button type="submit" name="agree" value="no" class="danger">Override &amp; escalate</button>
+    </form>
+  {% elif alert.status == 'open' %}
+    <form method="post" action="/alerts/{{ alert.id }}/disposition" class="stack">
+      <input type="hidden" name="back_to" value="{{ back_to }}">
+      <div class="row">
+        <div>
+          <label>Decision</label>
+          <select name="status">
+            <option value="false_positive">Not a match — dismiss</option>
+            <option value="true_positive">Confirmed match</option>
+            <option value="escalated">Escalate to MLRO</option>
+          </select>
+        </div>
+        <div>
+          <label>Reason</label>
+          <select name="reason_code">
+            {% for code, label in reason_codes.items() %}
+              <option value="{{ code }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Narrative — required for a confirmed match or an escalation</label>
+        <textarea name="narrative" placeholder="What was checked, and what it showed"></textarea>
+      </div>
+      <button type="submit">Record decision</button>
+    </form>
+  {% else %}
+    <div class="small muted" style="margin-top:8px">
+      <strong>{{ alert.status.replace('_',' ')|title }}</strong>
+      {% if alert.reason_code %} · {{ alert.reason_code.replace('_',' ') }}{% endif %}
+      {% if alert.dispositioned_by %} · by {{ alert.dispositioned_by }}{% endif %}
+      {% if alert.dispositioned_at %} · {{ alert.dispositioned_at }}{% endif %}
+      {% if alert.independent_review == 'single_operator' %}
+        <div class="review-note">
+          No independent review — firm operating in single-operator mode. This gap
+          is recorded deliberately so it is visible at inspection.
+        </div>
+      {% elif alert.independent_review == 'completed' %}
+        <div class="muted">Independent review completed.</div>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endmacro %}

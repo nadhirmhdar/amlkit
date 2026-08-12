@@ -1,0 +1,192 @@
+/* amlkit — single stylesheet, no framework.
+   Dense and plain on purpose: this is a working tool for someone reviewing
+   alerts all day, not a marketing page. Legibility beats decoration. */
+
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #16191d;
+  --muted: #5d6672;
+  --line: #dfe3e8;
+  --accent: #1f4e79;
+
+  /* Category colours. Proliferation is the most severe and the least
+     familiar to an operator, so it gets the strongest signal. */
+  --pf: #8b1a1a;
+  --pf-bg: #fdeaea;
+  --tf: #a34700;
+  --tf-bg: #fdf0e3;
+  --sanction: #7a5c00;
+  --sanction-bg: #fdf6de;
+  --pep: #1f4e79;
+  --pep-bg: #e8f0f8;
+  --ok: #1c6b3f;
+  --ok-bg: #e6f4ec;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+/* Arabic renders in a face with proper glyph coverage; the [dir] attribute on
+   the element does the directional work. */
+[dir="auto"], .name-ar {
+  font-family: "Segoe UI", "Tahoma", "Arial", sans-serif;
+}
+.name-ar { font-size: 1.05em; }
+
+a { color: var(--accent); }
+
+header.top {
+  background: var(--accent);
+  color: #fff;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+header.top h1 { font-size: 17px; margin: 14px 0; letter-spacing: .5px; }
+header.top nav { display: flex; gap: 18px; flex: 1; }
+header.top nav a {
+  color: #dce7f2; text-decoration: none; padding: 15px 0; font-size: 14px;
+  border-bottom: 3px solid transparent;
+}
+header.top nav a:hover { color: #fff; }
+header.top nav a.on { color: #fff; border-bottom-color: #fff; }
+
+.operator-box { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.operator-box input {
+  padding: 5px 8px; border: 0; border-radius: 3px; width: 130px; font-size: 13px;
+}
+.operator-box .who { background: rgba(255,255,255,.15); padding: 4px 10px; border-radius: 3px; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 60px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+.panel > h2 {
+  margin: 0 0 14px; font-size: 15px; text-transform: uppercase;
+  letter-spacing: .6px; color: var(--muted);
+}
+
+.grid { display: grid; gap: 16px; }
+.grid.tiles { grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); }
+.grid.two { grid-template-columns: 1fr 1fr; }
+@media (max-width: 800px) { .grid.two { grid-template-columns: 1fr; } }
+
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 16px; }
+.tile .n { font-size: 30px; font-weight: 600; line-height: 1.1; }
+.tile .l { color: var(--muted); font-size: 13px; margin-top: 3px; }
+.tile.good { border-left: 4px solid var(--ok); }
+.tile.bad  { border-left: 4px solid var(--pf); }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th {
+  text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--muted); border-bottom: 2px solid var(--line); padding: 8px 10px 8px 0;
+}
+td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+
+.tag {
+  display: inline-block; padding: 2px 8px; border-radius: 3px;
+  font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+}
+.tag.proliferation { background: var(--pf-bg); color: var(--pf); }
+.tag.terrorism     { background: var(--tf-bg); color: var(--tf); }
+.tag.sanction      { background: var(--sanction-bg); color: var(--sanction); }
+.tag.pep           { background: var(--pep-bg); color: var(--pep); }
+.tag.other         { background: #eef0f2; color: var(--muted); }
+.tag.high   { background: var(--pf-bg); color: var(--pf); }
+.tag.medium { background: var(--sanction-bg); color: var(--sanction); }
+.tag.low    { background: var(--ok-bg); color: var(--ok); }
+
+.score { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.banner { padding: 12px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px; }
+.banner.err  { background: var(--pf-bg); color: var(--pf); border: 1px solid #e8bcbc; }
+.banner.ok   { background: var(--ok-bg); color: var(--ok); border: 1px solid #b9dcc8; }
+.banner.warn { background: var(--sanction-bg); color: var(--sanction); border: 1px solid #e6d79a; }
+
+.obligation {
+  background: var(--pf-bg); border-left: 4px solid var(--pf); color: var(--pf);
+  padding: 10px 14px; font-size: 13.5px; font-weight: 500; margin: 10px 0;
+}
+.obligation.terrorism { background: var(--tf-bg); border-left-color: var(--tf); color: var(--tf); }
+.obligation.sanction  { background: var(--sanction-bg); border-left-color: var(--sanction); color: var(--sanction); }
+
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+input[type=text], input[type=date], input[type=number], select, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 4px; font: inherit; font-size: 14px; background: #fff;
+}
+textarea { min-height: 68px; resize: vertical; }
+.field { margin-bottom: 13px; }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 13px; }
+
+button, .btn {
+  padding: 8px 16px; border: 1px solid var(--accent); background: var(--accent);
+  color: #fff; border-radius: 4px; font: inherit; font-size: 14px; cursor: pointer;
+  text-decoration: none; display: inline-block;
+}
+button:hover { background: #163d5e; }
+button.ghost { background: #fff; color: var(--accent); }
+button.ghost:hover { background: #eef3f8; }
+button.danger { background: var(--pf); border-color: var(--pf); }
+button.small, .btn.small { padding: 5px 11px; font-size: 13px; }
+
+details.evidence { margin-top: 8px; }
+details.evidence summary {
+  cursor: pointer; color: var(--accent); font-size: 13px; user-select: none;
+}
+.breakdown {
+  background: #fafbfc; border: 1px solid var(--line); border-radius: 4px;
+  padding: 10px 12px; margin-top: 8px; font-size: 13px;
+}
+.breakdown code {
+  background: #eef0f2; padding: 1px 5px; border-radius: 3px;
+  font-family: Consolas, monospace; font-size: 12.5px;
+}
+.pair { display: inline-block; margin: 2px 6px 2px 0; }
+
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.mono { font-family: Consolas, monospace; font-size: 12.5px; }
+.right { text-align: right; }
+.nowrap { white-space: nowrap; }
+.stack > * + * { margin-top: 9px; }
+
+.alert-card { border: 1px solid var(--line); border-radius: 5px; padding: 15px 17px; margin-bottom: 14px; background: #fff; }
+.alert-card.proliferation { border-left: 5px solid var(--pf); }
+.alert-card.terrorism     { border-left: 5px solid var(--tf); }
+.alert-card.sanction      { border-left: 5px solid var(--sanction); }
+.alert-head { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+.alert-head h3 { margin: 0; font-size: 16px; }
+
+.review-note {
+  border: 1px dashed #c9a227; background: #fffdf3; color: #6b5200;
+  padding: 8px 12px; border-radius: 4px; font-size: 13px; margin: 8px 0;
+}
+
+/* Evidence pack: the browser's print engine is the PDF generator. */
+@media print {
+  header.top, nav, .no-print, button, .btn { display: none !important; }
+  body { background: #fff; font-size: 11.5pt; }
+  main { max-width: none; padding: 0; }
+  .panel { border: 1px solid #999; break-inside: avoid; page-break-inside: avoid; margin-bottom: 12px; }
+  .alert-card { break-inside: avoid; page-break-inside: avoid; }
+  a { color: #000; text-decoration: none; }
+  details.evidence[open] summary { display: none; }
+  details.evidence { display: block; }
+}

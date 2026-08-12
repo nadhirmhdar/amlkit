@@ -41,10 +41,55 @@ This is a hard line, not a formality.
 Measured on the real UAE list: 12/12 Latin self-match, 12/12 Arabic-script
 self-match, **0 false positives** across the benign-name suite.
 
+- **CDD case management** — onboarding that screens the whole ownership graph,
+  UBO capture at the 25% threshold with senior-official fallback, versioned risk
+  model, five-year retention
+- **Proliferation-financing classification** — PF is a standalone offence under
+  Law 10/2025; designations are classified by sanctions programme
+- **Web interface** — dashboard, ad-hoc screening, alert triage, case files and
+  a printable evidence pack
+
+Measured on the real UAE list: 12/12 Latin self-match, 12/12 Arabic-script
+self-match, **0 false positives** across the benign-name suite. 149 tests.
+
 ## Not built yet
 
-CDD/EDD case file · risk model · adverse media · goAML STR export · web UI.
-See `research/` for the analysis these are designed against.
+Adverse media · goAML STR/SAR export · identity-document verification.
+See `research/compliance-traceability.md` for the full gap list.
+
+---
+
+## Running the interface
+
+```bash
+python scripts/refresh.py      # load sanctions lists (also re-screens customers)
+python scripts/serve.py        # http://127.0.0.1:8000
+```
+
+Binds to **localhost only**. There is no authentication — the database file and
+physical access to the machine are the security boundary. Do not change
+`AMLKIT_BIND_HOST` without adding authentication first; the app warns loudly if
+you do.
+
+### Alert disposition
+
+Routine closes take a **structured reason code**; a written narrative is
+required only for confirmed matches and escalations. Mandatory free text on
+every alert sounds more rigorous but degrades into "FP" typed a hundred times at
+false-positive volume — the same thin record, reached more slowly.
+
+**Dismissing** a sanctions or proliferation match requires a second operator.
+Confirming one does not: that path leads to freezing and reporting, which
+carries its own scrutiny. Firms with one compliance officer set:
+
+```bash
+set AMLKIT_SINGLE_OPERATOR_MODE=1
+```
+
+which records **"no independent review"** on the alert and in the evidence pack
+rather than pretending the review happened. Note that without authentication,
+four-eyes is a *procedural* control — nothing stops one person entering two
+operator names.
 
 ---
 

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "_macros.html" import name, score_breakdown, aliases, review_trail, disposition_form %}
+{% set nav = 'alerts' %}
+{% block title %}Alerts — amlkit{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Alert queue</h2>
+  <p class="muted small" style="margin-top:-6px">
+    Ordered by category then score. Proliferation first: it is a standalone
+    offence under Law 10/2025 and the least familiar category, so it is never
+    buried under ordinary sanctions hits.
+  </p>
+  <div>
+    {% for s, label in [('open','Open'), ('pending_review','Awaiting review'),
+                        ('false_positive','Dismissed'), ('true_positive','Confirmed'),
+                        ('escalated','Escalated'), ('all','All')] %}
+      <a class="btn small {{ '' if status == s else 'ghost' }}"
+         href="/alerts?status={{ s }}"
+         style="{{ '' if status == s else 'background:#fff;color:var(--accent)' }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if not alerts %}
+  <div class="panel"><p class="muted" style="margin:0">No alerts with this status.</p></div>
+{% endif %}
+
+{% for a in alerts %}
+<div class="alert-card {{ a.category }}">
+  <div class="alert-head">
+    <h3>{{ name(a.caption) }}</h3>
+    <div>
+      <span class="tag {{ a.category }}">{{ a.category }}</span>
+      <span class="score">{{ '%.3f'|format(a.score) }}</span>
+    </div>
+  </div>
+
+  <div class="muted small">
+    {{ a.schema_type }} · {{ a.dataset_title }}
+    {% if a.programs %} · programme {{ a.programs|join(', ') }}{% endif %}
+    {% if a.birth_date %} · DOB {{ a.birth_date }}{% endif %}
+    {% if a.countries %} · {{ a.countries|join(', ')|upper }}{% endif %}
+  </div>
+
+  <div style="margin-top:8px">
+    Matched against:
+    {% if a.customer_id %}
+      <a href="/customers/{{ a.customer_id }}">{{ name(a.matched_party) }}</a>
+      {% if a.via_ubo %}
+        <span class="tag sanction">beneficial owner</span>
+        <span class="muted small">of {{ a.customer_name }}</span>
+      {% endif %}
+      <span class="muted small">· {{ a.reference }}</span>
+    {% else %}
+      {{ name(a.matched_party) }} <span class="muted small">(ad-hoc screening)</span>
+    {% endif %}
+  </div>
+
+  {{ aliases(a.aliases) }}
+  <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
+
+  <details class="evidence" {% if a.status in ('open','pending_review') %}open{% endif %}>
+    <summary>Why this matched</summary>
+    {{ score_breakdown(a.detail) }}
+  </details>
+
+  {{ review_trail(a.reviews) }}
+  {{ disposition_form(a, reason_codes, '/alerts?status=' ~ status) }}
+</div>
+{% endfor %}
+
+{% endblock %}

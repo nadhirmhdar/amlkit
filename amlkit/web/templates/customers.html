@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_macros.html" import name %}
+{% set nav = 'customers' %}
+{% block title %}Customers — amlkit{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Customers</h2>
+  <a class="btn" href="/customers/new">Onboard a customer</a>
+</div>
+
+<div class="panel">
+{% if customers %}
+<table>
+  <tr>
+    <th>Reference</th><th>Name</th><th>Type</th><th>Risk</th>
+    <th>Alerts</th><th>Last screened</th><th>Review due</th><th></th>
+  </tr>
+  {% for c in customers %}
+  <tr>
+    <td class="mono">{{ c.reference }}</td>
+    <td>
+      <a href="/customers/{{ c.id }}">{{ name(c.full_name) }}</a>
+      {% if c.name_arabic %}<div>{{ name(c.name_arabic) }}</div>{% endif %}
+      {% if c.status != 'active' %}<span class="tag other">{{ c.status }}</span>{% endif %}
+    </td>
+    <td class="small">{{ c.customer_type }}<div class="muted">{{ c.sector }}</div></td>
+    <td>
+      {% if c.rating %}
+        <span class="tag {{ c.rating }}">{{ c.rating }}</span>
+        {% if c.requires_edd %}<div class="muted small">EDD</div>{% endif %}
+      {% else %}<span class="muted">—</span>{% endif %}
+    </td>
+    <td>{% if c.open_alerts %}
+        <a href="/alerts"><span class="tag proliferation">{{ c.open_alerts }}</span></a>
+      {% else %}<span class="muted">0</span>{% endif %}</td>
+    <td class="small nowrap">{{ (c.last_screened or '—')[:10] }}</td>
+    <td class="small nowrap">
+      {% if c.review_overdue %}<span class="tag proliferation">overdue</span>
+      {% else %}{{ c.next_review or '—' }}{% endif %}
+    </td>
+    <td><a class="btn small ghost" href="/customers/{{ c.id }}/evidence">Evidence</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+  <p class="muted" style="margin:0">No customers yet.</p>
+{% endif %}
+</div>
+
+{% endblock %}

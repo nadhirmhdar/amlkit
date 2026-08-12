@@ -168,6 +168,32 @@ CREATE TABLE IF NOT EXISTS alerts (
 CREATE INDEX IF NOT EXISTS ix_alert_status ON alerts(status);
 CREATE INDEX IF NOT EXISTS ix_alert_scr    ON alerts(screening_id);
 
+-- Operators. Identity is a name only in v1: the app binds to localhost and
+-- physical machine access is the security boundary. The table exists so that
+-- adding password hashing later is a column, not a redesign.
+CREATE TABLE IF NOT EXISTS operators (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    role       TEXT NOT NULL DEFAULT 'officer',   -- officer | mlro
+    is_active  INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+-- Each review step is a row rather than an overwritten field. Four-eyes is
+-- meaningless if the first reviewer's proposal disappears when the second
+-- confirms it -- the whole point is that both decisions survive.
+CREATE TABLE IF NOT EXISTS alert_reviews (
+    id          INTEGER PRIMARY KEY,
+    alert_id    INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+    action      TEXT NOT NULL,       -- propose | confirm | override
+    status      TEXT NOT NULL,       -- the disposition being proposed/applied
+    reason_code TEXT NOT NULL,
+    narrative   TEXT,
+    operator    TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_review_alert ON alert_reviews(alert_id);
+
 -- ---------------------------------------------------------------- risk & CDD
 CREATE TABLE IF NOT EXISTS risk_assessments (
     id           INTEGER PRIMARY KEY,
@@ -243,6 +269,13 @@ def utcnow() -> str:
 # column added explicitly rather than silently lacking it.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("entities", "programs", "ALTER TABLE entities ADD COLUMN programs TEXT"),
+    ("alerts", "reason_code", "ALTER TABLE alerts ADD COLUMN reason_code TEXT"),
+    # How the four-eyes requirement was satisfied, or why it was not:
+    #   completed          - a second operator confirmed the dismissal
+    #   not_required       - risk category did not call for independent review
+    #   single_operator    - firm runs one compliance officer; gap RECORDED
+    # Stored rather than inferred so the evidence pack can state it plainly.
+    ("alerts", "independent_review", "ALTER TABLE alerts ADD COLUMN independent_review TEXT"),
 )
 
 
