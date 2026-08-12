@@ -80,12 +80,21 @@ def single_operator_mode() -> bool:
     )
 
 
-def _alert_categories(conn: sqlite3.Connection, alert_id: int) -> tuple[set[str], list[str]]:
-    """Risk categories and topics for the entity behind an alert."""
+def _alert_categories(
+    conn: sqlite3.Connection, alert_id: int, org_id: int
+) -> tuple[set[str], list[str]]:
+    """Risk categories and topics for the entity behind an alert.
+
+    Filters on `a.org_id=?` as part of the fetch itself, not as a separate
+    check afterward -- an alert belonging to a different org is
+    indistinguishable from one that does not exist, by design (see the
+    equivalent "404, not filtered-empty" rule applied to every ID-in-URL
+    route in api/app.py).
+    """
     row = conn.execute(
         """SELECT e.topics, e.programs FROM alerts a
-           JOIN entities e ON e.id = a.entity_id WHERE a.id = ?""",
-        (alert_id,),
+           JOIN entities e ON e.id = a.entity_id WHERE a.id=? AND a.org_id=?""",
+        (alert_id, org_id),
     ).fetchone()
     if row is None:
         raise ReviewError(f"alert {alert_id} not found")
@@ -94,7 +103,9 @@ def _alert_categories(conn: sqlite3.Connection, alert_id: int) -> tuple[set[str]
     return classify_programs(programs), topics
 
 
-def needs_independent_review(conn: sqlite3.Connection, alert_id: int, status: str) -> bool:
+def needs_independent_review(
+    conn: sqlite3.Connection, alert_id: int, org_id: int, status: str
+) -> bool:
     """True when dismissing this alert requires a second pair of eyes.
 
     Only dismissal of a sanctions, PF or TF match qualifies. Confirming a match
@@ -103,7 +114,7 @@ def needs_independent_review(conn: sqlite3.Connection, alert_id: int, status: st
     """
     if status != "false_positive":
         return False
-    categories, topics = _alert_categories(conn, alert_id)
+    categories, topics = _alert_categories(conn, alert_id, org_id)
     return bool(categories) or "sanction" in topics
 
 
@@ -130,6 +141,7 @@ def propose_disposition(
     conn: sqlite3.Connection,
     alert_id: int,
     *,
+    org_id: int,
     status: str,
     reason_code: str,
     operator: str,
@@ -145,7 +157,13 @@ def propose_disposition(
         raise ReviewError("an operator identity is required to disposition an alert")
     _validate(status, reason_code, narrative)
 
-    second_review = needs_independent_review(conn, alert_id, status)
+    # needs_independent_review() only checks alert ownership when status is
+    # false_positive (it short-circuits for the others) -- so the UPDATE
+    # below carries its own "AND org_id=?" and checks rowcount, which is the
+    # actual ownership enforcement point for true_positive/escalated/open.
+    # A cross-tenant alert_id ends up indistinguishable from a nonexistent
+    # one either way, which is the property that matters.
+    second_review = needs_independent_review(conn, alert_id, org_id, status)
     solo = single_operator_mode()
 
     if second_review and not solo:
@@ -170,19 +188,24 @@ def propose_disposition(
     with conn:
         conn.execute(
             """INSERT INTO alert_reviews
-               (alert_id, action, status, reason_code, narrative, operator, created_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            (alert_id, "propose", status, reason_code, narrative.strip() or None, operator, now),
+               (org_id, alert_id, action, status, reason_code, narrative, operator, created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (org_id, alert_id, "propose", status, reason_code,
+             narrative.strip() or None, operator, now),
         )
-        conn.execute(
+        cur = conn.execute(
             """UPDATE alerts SET status=?, disposition=?, reason_code=?,
-               independent_review=?, dispositioned_by=?, dispositioned_at=? WHERE id=?""",
+               independent_review=?, dispositioned_by=?, dispositioned_at=?
+               WHERE id=? AND org_id=?""",
             (applied_status, narrative.strip() or REASON_CODES[reason_code],
-             reason_code, independent, operator, now, alert_id),
+             reason_code, independent, operator, now, alert_id, org_id),
         )
+        if cur.rowcount == 0:
+            raise ReviewError(f"alert {alert_id} not found")
         audit(conn, operator, "alert.propose", "alert", alert_id,
               {"status": status, "reason_code": reason_code,
-               "awaiting_second_review": awaiting, "independent_review": independent})
+               "awaiting_second_review": awaiting, "independent_review": independent},
+              org_id=org_id)
 
     return ReviewOutcome(alert_id, applied_status, awaiting, independent, message)
 
@@ -191,6 +214,7 @@ def confirm_disposition(
     conn: sqlite3.Connection,
     alert_id: int,
     *,
+    org_id: int,
     operator: str,
     agree: bool = True,
     reason_code: str | None = None,
@@ -206,13 +230,15 @@ def confirm_disposition(
 
     proposal = conn.execute(
         """SELECT status, reason_code, narrative, operator FROM alert_reviews
-           WHERE alert_id=? AND action='propose' ORDER BY id DESC LIMIT 1""",
-        (alert_id,),
+           WHERE alert_id=? AND org_id=? AND action='propose' ORDER BY id DESC LIMIT 1""",
+        (alert_id, org_id),
     ).fetchone()
     if proposal is None:
         raise ReviewError(f"alert {alert_id} has no proposed disposition to confirm")
 
-    current = conn.execute("SELECT status FROM alerts WHERE id=?", (alert_id,)).fetchone()
+    current = conn.execute(
+        "SELECT status FROM alerts WHERE id=? AND org_id=?", (alert_id, org_id)
+    ).fetchone()
     if current is None:
         raise ReviewError(f"alert {alert_id} not found")
     if current["status"] != PENDING:
@@ -243,19 +269,21 @@ def confirm_disposition(
     with conn:
         conn.execute(
             """INSERT INTO alert_reviews
-               (alert_id, action, status, reason_code, narrative, operator, created_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            (alert_id, action, status, code, note or None, operator, now),
+               (org_id, alert_id, action, status, reason_code, narrative, operator, created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (org_id, alert_id, action, status, code, note or None, operator, now),
         )
-        conn.execute(
+        cur = conn.execute(
             """UPDATE alerts SET status=?, disposition=?, reason_code=?,
                independent_review='completed', dispositioned_by=?, dispositioned_at=?
-               WHERE id=?""",
-            (status, note or REASON_CODES.get(code, code), code, operator, now, alert_id),
+               WHERE id=? AND org_id=?""",
+            (status, note or REASON_CODES.get(code, code), code, operator, now, alert_id, org_id),
         )
+        if cur.rowcount == 0:
+            raise ReviewError(f"alert {alert_id} not found")
         audit(conn, operator, f"alert.{action}", "alert", alert_id,
               {"status": status, "reason_code": code,
-               "proposed_by": proposal["operator"]})
+               "proposed_by": proposal["operator"]}, org_id=org_id)
 
     return ReviewOutcome(
         alert_id, status, False, "completed",
@@ -263,11 +291,11 @@ def confirm_disposition(
     )
 
 
-def review_history(conn: sqlite3.Connection, alert_id: int) -> list[dict]:
+def review_history(conn: sqlite3.Connection, alert_id: int, org_id: int) -> list[dict]:
     rows = conn.execute(
         """SELECT action, status, reason_code, narrative, operator, created_at
-           FROM alert_reviews WHERE alert_id=? ORDER BY id""",
-        (alert_id,),
+           FROM alert_reviews WHERE alert_id=? AND org_id=? ORDER BY id""",
+        (alert_id, org_id),
     ).fetchall()
     return [dict(r) | {"reason_label": REASON_CODES.get(r["reason_code"], r["reason_code"])}
             for r in rows]

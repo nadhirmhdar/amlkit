@@ -117,6 +117,9 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
             object_type="dataset",
             object_id=adapter.key,
             detail={"entities": len(entities), "names": n_names, "licence": adapter.licence},
+            # Shared reference data, not tenant-owned -- visible to every
+            # org, so org_id is explicitly None rather than any one firm's id.
+            org_id=None,
         )
 
     return LoadResult(adapter.key, len(entities), n_names, n_tokens, n_ids, now)

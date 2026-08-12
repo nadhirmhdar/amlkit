@@ -35,6 +35,16 @@ WATCHLIST = [
 
 
 @pytest.fixture()
+def org_id(conn) -> int:
+    row = conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?) RETURNING id",
+        ("Test Firm", "test-firm", "active", utcnow()),
+    ).fetchone()
+    conn.commit()
+    return row["id"]
+
+
+@pytest.fixture()
 def conn():
     c = connect(":memory:")
     ds = upsert_dataset(c, "test_list", "Synthetic Test List", is_mandatory=True)
@@ -129,8 +139,8 @@ class TestFeatureAdjustments:
 
 class TestScreeningEngine:
     @pytest.mark.parametrize("query", [w[2] for w in WATCHLIST])
-    def test_exact_listed_names_alert(self, conn, query: str) -> None:
-        res = screen(conn, query, persist=False)
+    def test_exact_listed_names_alert(self, conn, org_id, query: str) -> None:
+        res = screen(conn, query, org_id=org_id, persist=False)
         assert res.hits, f"listed name produced no hit: {query}"
         assert max(h.score for h in res.hits) >= 0.95
 
@@ -143,12 +153,12 @@ class TestScreeningEngine:
             "Ahmed Abd Aljaleel Alhasnawi",     # particles fused
         ],
     )
-    def test_mangled_variants_still_alert(self, conn, query: str) -> None:
-        res = screen(conn, query, persist=False)
+    def test_mangled_variants_still_alert(self, conn, org_id, query: str) -> None:
+        res = screen(conn, query, org_id=org_id, persist=False)
         assert res.hits, f"variant missed: {query}"
 
-    def test_arabic_query_finds_latin_record(self, conn) -> None:
-        res = screen(conn, "أحمد عبد الجليل الحسناوي", persist=False)
+    def test_arabic_query_finds_latin_record(self, conn, org_id) -> None:
+        res = screen(conn, "أحمد عبد الجليل الحسناوي", org_id=org_id, persist=False)
         assert res.hits
         assert res.hits[0].caption == "AHMED ABD AL-JALEEL AL-HASNAWI"
 
@@ -167,17 +177,17 @@ class TestScreeningEngine:
             "Noura Sultan Al Qassimi",
         ],
     )
-    def test_false_positive_suite(self, conn, name: str) -> None:
+    def test_false_positive_suite(self, conn, org_id, name: str) -> None:
         """Common UAE names that share tokens with listed entities but are not them."""
-        res = screen(conn, name, persist=False)
+        res = screen(conn, name, org_id=org_id, persist=False)
         assert not res.hits, (
             f"false positive on {name!r}: "
             f"{[(h.caption, round(h.score, 3)) for h in res.hits]}"
         )
 
-    def test_screening_is_persisted_with_evidence(self, conn) -> None:
+    def test_screening_is_persisted_with_evidence(self, conn, org_id) -> None:
         """A clear result must still be recorded -- it is the compliance evidence."""
-        res = screen(conn, "Ahmed Al Mansoori", trigger="onboarding")
+        res = screen(conn, "Ahmed Al Mansoori", org_id=org_id, trigger="onboarding")
         assert res.screening_id is not None
         row = conn.execute(
             "SELECT trigger, hits, candidates FROM screenings WHERE id=?", (res.screening_id,)
@@ -185,24 +195,32 @@ class TestScreeningEngine:
         assert row["trigger"] == "onboarding"
         assert row["hits"] == 0
 
-    def test_alert_stores_score_breakdown(self, conn) -> None:
+    def test_alert_stores_score_breakdown(self, conn, org_id) -> None:
         """An examiner must be able to see why an alert fired."""
-        res = screen(conn, "FOAD SALEHI", trigger="onboarding")
+        res = screen(conn, "FOAD SALEHI", org_id=org_id, trigger="onboarding")
         row = conn.execute(
             "SELECT score_detail FROM alerts WHERE screening_id=?", (res.screening_id,)
         ).fetchone()
         assert row and "features" in row["score_detail"]
 
-    def test_invalid_trigger_rejected(self, conn) -> None:
+    def test_invalid_trigger_rejected(self, conn, org_id) -> None:
         with pytest.raises(ValueError):
-            screen(conn, "Ahmed Al Hasnawi", trigger="whenever", persist=False)
+            screen(conn, "Ahmed Al Hasnawi", org_id=org_id, trigger="whenever", persist=False)
 
-    def test_audit_log_written(self, conn) -> None:
-        screen(conn, "FOAD SALEHI", trigger="periodic")
+    def test_audit_log_written(self, conn, org_id) -> None:
+        screen(conn, "FOAD SALEHI", org_id=org_id, trigger="periodic")
         n = conn.execute(
-            "SELECT COUNT(*) c FROM audit_log WHERE action='screening.run'"
+            "SELECT COUNT(*) c FROM audit_log WHERE action='screening.run' AND org_id=?",
+            (org_id,),
         ).fetchone()["c"]
         assert n >= 1
+
+    def test_screening_requires_org_id(self, conn) -> None:
+        """org_id has no default -- an unpersisted ad-hoc screening is still
+        shown to one specific firm's operator, and must not silently accept a
+        caller that forgot which firm it is running for."""
+        with pytest.raises(TypeError):
+            screen(conn, "Ahmed Al Hasnawi", persist=False)  # type: ignore[call-arg]
 
 
 class TestAuditImmutability:

@@ -7,6 +7,7 @@
 <div class="panel">
   <h2>Screen a name</h2>
   <form method="post" action="/screen">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
       <label>Name — Arabic or Latin script</label>
       <input type="text" name="name" dir="auto" value="{{ query }}" autofocus

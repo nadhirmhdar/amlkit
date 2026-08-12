@@ -88,6 +88,7 @@
     </div>
     <form method="post" action="/alerts/{{ alert.id }}/confirm" class="stack">
       <input type="hidden" name="back_to" value="{{ back_to }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="field">
         <label>Reviewer note (optional if you agree)</label>
         <textarea name="narrative" placeholder="Basis for confirming or overriding"></textarea>
@@ -98,6 +99,7 @@
   {% elif alert.status == 'open' %}
     <form method="post" action="/alerts/{{ alert.id }}/disposition" class="stack">
       <input type="hidden" name="back_to" value="{{ back_to }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="row">
         <div>
           <label>Decision</label>

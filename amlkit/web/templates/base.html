@@ -3,41 +3,36 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}amlkit{% endblock %}</title>
+<title>{% block title %}Grovisor amlkit{% endblock %}</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 
 <header class="top no-print">
-  <h1>amlkit</h1>
+  <h1>Grovisor <span class="subbrand">amlkit</span></h1>
+  {% if session %}
   <nav>
     <a href="/"          class="{{ 'on' if nav=='dash' }}">Dashboard</a>
     <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
     <a href="/alerts"    class="{{ 'on' if nav=='alerts' }}">Alerts</a>
     <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
     <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
-  </nav>
-  <form method="post" action="/operator" class="operator-box">
-    {% if operator %}
-      <span class="who">{{ operator }}</span>
+    {% if session.operator_role == 'mlro' %}
+      <a href="/admin" class="{{ 'on' if nav=='admin' }}">Admin</a>
     {% endif %}
-    <input type="text" name="name" placeholder="operator name" value="" aria-label="Operator name">
-    <button class="small ghost" type="submit">Set</button>
+  </nav>
+  <form method="post" action="/logout" class="operator-box">
+    <span class="who">{{ session.operator_name }} · {{ session.operator_role }}</span>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="small ghost" type="submit">Sign out</button>
   </form>
+  {% endif %}
 </header>
 
 <main>
 
   {% if security_warning %}
     <div class="banner err"><strong>{{ security_warning }}</strong></div>
-  {% endif %}
-
-  {% if not operator %}
-    <div class="banner warn">
-      No operator selected. Every action is written to the audit log and must be
-      attributable to a person, so screening and disposition are disabled until
-      you set a name above.
-    </div>
   {% endif %}
 
   {% if msg %}<div class="banner ok">{{ msg }}</div>{% endif %}
@@ -49,12 +44,12 @@
 
 <footer class="no-print" style="max-width:1180px;margin:0 auto;padding:0 20px 40px">
   <p class="muted small">
-    Operator identity is a name only — there is no authentication, so
-    independent review is a <strong>procedural</strong> control, not a technical
-    one. Anyone with access to this machine can act as any operator.
     {% if single_operator %}
       Single-operator mode is <strong>on</strong>: dismissals of sanctions and
       proliferation matches are recorded as having had no independent review.
+    {% else %}
+      Independent review is required before dismissing a sanctions or
+      proliferation match — a different operator must confirm.
     {% endif %}
   </p>
   <p class="muted small">

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Complete setup — Grovisor amlkit{% endblock %}
+{% block body %}
+
+<div class="panel" style="max-width:460px;margin:40px auto">
+  <h2>Complete setup</h2>
+
+  {% if not valid %}
+    <p>{{ err }}</p>
+    <p class="muted small">
+      This link is printed once, to the console, the first time amlkit
+      upgrades an existing single-firm database to the multi-tenant model.
+      If you don't have it, ask whoever ran the upgrade to check the server
+      console output.
+    </p>
+  {% else %}
+    <p class="muted small">
+      Creating the first login for <strong>{{ org_name }}</strong>. This
+      link can only be used once.
+    </p>
+    <form method="post" action="/setup">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <div class="field">
+        <label>Your name</label>
+        <input type="text" name="name" autofocus required>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="text" name="email" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label>Password — at least 10 characters</label>
+        <input type="password" name="password" autocomplete="new-password" required minlength="10">
+      </div>
+      <button type="submit" style="width:100%">Create login &amp; sign in</button>
+    </form>
+    <p class="muted small" style="margin-top:16px;margin-bottom:0">
+      This account is created with the MLRO role, so it can manage other
+      operators afterward.
+    </p>
+  {% endif %}
+</div>
+
+{% endblock %}

@@ -13,7 +13,6 @@ from amlkit.cases.manager import (  # noqa: E402
     UBO_THRESHOLD_PCT,
     add_ubo,
     close_relationship,
-    disposition_alert,
     onboard,
     ownership_state,
 )
@@ -22,6 +21,26 @@ from amlkit.names.arabic import blocking_keys, canonical_key  # noqa: E402
 from amlkit.risk.model import CustomerProfile, assess, ruleset  # noqa: E402
 
 LISTED = "AHMED ABD AL-JALEEL AL-HASNAWI"
+
+# disposition_alert() and its tests were removed: cases/manager.py's
+# single-shot disposition function was superseded by the four-eyes workflow
+# in cases/review.py (propose_disposition/confirm_disposition), which is what
+# every route actually calls. Nothing in the application called the old
+# function any more -- keeping it around meant a weaker, bypass-capable
+# disposition path sitting next to the real one, which is worse than no
+# fallback at all. Its two properties (score never rewritten; invalid status
+# rejected) are covered against the real workflow in test_api.py.
+
+
+@pytest.fixture()
+def org_id(conn) -> int:
+    row = conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+        " RETURNING id",
+        ("Test Firm", "test-firm", "active", utcnow()),
+    ).fetchone()
+    conn.commit()
+    return row["id"]
 
 
 @pytest.fixture()
@@ -104,15 +123,18 @@ class TestOwnershipState:
         """Absence of UBO data must not default to transparent."""
         assert ownership_state(conn, 999, "legal") == "ubo_undisclosed"
 
-    def test_sub_threshold_holder_is_not_a_ubo(self, conn) -> None:
-        res = onboard(conn, reference="C-1", full_name="Test LLC", customer_type="legal")
-        add_ubo(conn, res.customer_id, person_name="Minor Holder", ownership_pct=15.0)
+    def test_sub_threshold_holder_is_not_a_ubo(self, conn, org_id) -> None:
+        res = onboard(conn, org_id=org_id, reference="C-1", full_name="Test LLC",
+                      customer_type="legal")
+        add_ubo(conn, res.customer_id, org_id=org_id, person_name="Minor Holder",
+               ownership_pct=15.0)
         assert ownership_state(conn, res.customer_id, "legal") == "ubo_undisclosed"
 
-    def test_senior_official_fallback_counts(self, conn) -> None:
+    def test_senior_official_fallback_counts(self, conn, org_id) -> None:
         """Cabinet Res. 134/2025 fallback when nobody meets the 25% test."""
-        res = onboard(conn, reference="C-2", full_name="Test LLC 2", customer_type="legal")
-        uid = add_ubo(conn, res.customer_id, person_name="The Director",
+        res = onboard(conn, org_id=org_id, reference="C-2", full_name="Test LLC 2",
+                      customer_type="legal")
+        uid = add_ubo(conn, res.customer_id, org_id=org_id, person_name="The Director",
                       control_type="senior_official")
         row = conn.execute("SELECT is_ubo FROM ubo_links WHERE id=?", (uid,)).fetchone()
         assert row["is_ubo"] == 1
@@ -122,21 +144,22 @@ class TestOwnershipState:
 
 
 class TestOnboarding:
-    def test_clean_customer_not_blocked(self, conn) -> None:
-        res = onboard(conn, reference="C-100", full_name="Ahmed Al Mansoori",
+    def test_clean_customer_not_blocked(self, conn, org_id) -> None:
+        res = onboard(conn, org_id=org_id, reference="C-100", full_name="Ahmed Al Mansoori",
                       customer_type="natural", nationality="ae")
         assert not res.blocked
         assert res.screening.clear
 
-    def test_listed_customer_is_blocked(self, conn) -> None:
-        res = onboard(conn, reference="C-101", full_name=LISTED, customer_type="natural")
+    def test_listed_customer_is_blocked(self, conn, org_id) -> None:
+        res = onboard(conn, org_id=org_id, reference="C-101", full_name=LISTED,
+                      customer_type="natural")
         assert res.blocked
         assert res.risk.rating == "high"
 
-    def test_listed_ubo_blocks_clean_company(self, conn) -> None:
+    def test_listed_ubo_blocks_clean_company(self, conn, org_id) -> None:
         """The gap cheap tools leave: the company screens clean, the owner does not."""
         res = onboard(
-            conn, reference="C-102", full_name="Falcon Holdings FZE",
+            conn, org_id=org_id, reference="C-102", full_name="Falcon Holdings FZE",
             customer_type="legal", sector="real_estate",
             ubos=[{"person_name": LISTED, "ownership_pct": 60.0, "nationality": "ly"}],
         )
@@ -144,42 +167,39 @@ class TestOnboarding:
         assert res.blocked, "listed UBO must block the relationship"
         assert res.risk.rating == "high"
 
-    def test_onboarding_is_audited(self, conn) -> None:
-        onboard(conn, reference="C-103", full_name="Test Person", actor="mlro@firm.ae")
+    def test_onboarding_is_audited(self, conn, org_id) -> None:
+        onboard(conn, org_id=org_id, reference="C-103", full_name="Test Person",
+               actor="mlro@firm.ae")
         n = conn.execute(
             "SELECT COUNT(*) c FROM audit_log WHERE action='customer.onboard'"
         ).fetchone()["c"]
         assert n >= 1
 
-    def test_clear_screening_still_recorded(self, conn) -> None:
+    def test_clear_screening_still_recorded(self, conn, org_id) -> None:
         """Evidence that a customer WAS screened matters even when clean."""
-        res = onboard(conn, reference="C-104", full_name="Ahmed Al Mansoori")
+        res = onboard(conn, org_id=org_id, reference="C-104", full_name="Ahmed Al Mansoori")
         n = conn.execute(
             "SELECT COUNT(*) c FROM screenings WHERE customer_id=?", (res.customer_id,)
         ).fetchone()["c"]
         assert n >= 1
 
-
-class TestDisposition:
-    def test_disposition_preserves_original_score(self, conn) -> None:
-        res = onboard(conn, reference="C-200", full_name=LISTED)
-        alert = conn.execute("SELECT id, score FROM alerts ORDER BY id DESC LIMIT 1").fetchone()
-        disposition_alert(conn, alert["id"], "false_positive", by="mlro", notes="different DOB")
-        after = conn.execute("SELECT score, status FROM alerts WHERE id=?", (alert["id"],)).fetchone()
-        assert after["score"] == alert["score"], "score must never be rewritten"
-        assert after["status"] == "false_positive"
-
-    def test_invalid_disposition_rejected(self, conn) -> None:
-        res = onboard(conn, reference="C-201", full_name=LISTED)
-        alert = conn.execute("SELECT id FROM alerts ORDER BY id DESC LIMIT 1").fetchone()
-        with pytest.raises(ValueError):
-            disposition_alert(conn, alert["id"], "probably_fine", by="mlro")
+    def test_second_org_can_reuse_the_same_reference(self, conn, org_id) -> None:
+        """References are unique per firm, not globally -- two different
+        firms will plausibly both pick the same first reference."""
+        onboard(conn, org_id=org_id, reference="C-DUP", full_name="Firm One Customer")
+        other_org = conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+            " RETURNING id",
+            ("Other Firm", "other-firm", "active", utcnow()),
+        ).fetchone()["id"]
+        res = onboard(conn, org_id=other_org, reference="C-DUP", full_name="Firm Two Customer")
+        assert res.reference == "C-DUP"
 
 
 class TestRetention:
-    def test_five_year_retention_recorded(self, conn) -> None:
-        res = onboard(conn, reference="C-300", full_name="Ahmed Al Mansoori")
-        until = close_relationship(conn, res.customer_id)
+    def test_five_year_retention_recorded(self, conn, org_id) -> None:
+        res = onboard(conn, org_id=org_id, reference="C-300", full_name="Ahmed Al Mansoori")
+        until = close_relationship(conn, res.customer_id, org_id=org_id)
         row = conn.execute(
             "SELECT status, retention_until FROM customers WHERE id=?", (res.customer_id,)
         ).fetchone()

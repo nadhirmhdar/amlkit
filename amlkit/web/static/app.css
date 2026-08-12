@@ -52,6 +52,7 @@ header.top {
   flex-wrap: wrap;
 }
 header.top h1 { font-size: 17px; margin: 14px 0; letter-spacing: .5px; }
+header.top h1 .subbrand { opacity: .6; font-weight: 400; font-size: 14px; }
 header.top nav { display: flex; gap: 18px; flex: 1; }
 header.top nav a {
   color: #dce7f2; text-decoration: none; padding: 15px 0; font-size: 14px;

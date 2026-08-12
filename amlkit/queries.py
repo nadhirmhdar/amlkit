@@ -2,6 +2,17 @@
 
 Kept separate from the engine modules, which are concerned with deciding things
 rather than displaying them. Nothing here mutates state.
+
+Every function that touches a tenant-owned table (customers, ubo_links,
+screenings, alerts, alert_reviews, risk_assessments, documents, reports,
+audit_log) takes `org_id` as a required argument, with no default. This is
+deliberate and structural: per-route discipline ("remember to filter by
+org") is exactly the kind of rule a future route can forget, so instead there
+is no code path through this module that can query tenant data without an
+org_id -- the function signature itself is the enforcement. `entities` and
+its supporting tables (datasets, entity_names, name_tokens,
+entity_identifiers) are shared sanctions/PEP reference data and are the only
+exception.
 """
 
 from __future__ import annotations
@@ -34,24 +45,32 @@ def _category(topics: list[str], programs: list[str]) -> str:
     return "other"
 
 
-def dashboard(conn: sqlite3.Connection) -> dict[str, Any]:
-    """Everything the 'am I compliant right now' view needs."""
+def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
+    """Everything the 'am I compliant right now' view needs, for one org.
+
+    `entities` (the shared sanctions/PEP corpus) is the one count here that is
+    NOT org-scoped -- deliberately: every firm screens against the same
+    underlying data, so its size is informative to all of them, not a
+    property of any one org's book.
+    """
     staleness = staleness_report(conn)
     breaches = [d for d in staleness if d["breach"]]
 
-    alerts = alert_queue(conn, status="open") + alert_queue(conn, status="pending_review")
+    alerts = (alert_queue(conn, org_id, status="open")
+              + alert_queue(conn, org_id, status="pending_review"))
     by_category: dict[str, int] = {}
     for a in alerts:
         by_category[a["category"]] = by_category.get(a["category"], 0) + 1
 
-    reviews = due_for_review(conn)
+    reviews = due_for_review(conn, org_id)
 
     counts = conn.execute(
         """SELECT
-             (SELECT COUNT(*) FROM customers WHERE status='active')   AS customers,
-             (SELECT COUNT(*) FROM entities)                          AS entities,
-             (SELECT COUNT(*) FROM screenings)                        AS screenings,
-             (SELECT COUNT(*) FROM alerts)                            AS alerts_total"""
+             (SELECT COUNT(*) FROM customers WHERE status='active' AND org_id=?) AS customers,
+             (SELECT COUNT(*) FROM entities)                                     AS entities,
+             (SELECT COUNT(*) FROM screenings WHERE org_id=?)                    AS screenings,
+             (SELECT COUNT(*) FROM alerts WHERE org_id=?)                        AS alerts_total""",
+        (org_id, org_id, org_id),
     ).fetchone()
 
     return {
@@ -68,9 +87,10 @@ def dashboard(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def alert_queue(
-    conn: sqlite3.Connection, status: str | None = "open", limit: int = 200
+    conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200
 ) -> list[dict[str, Any]]:
-    """Alerts with the entity and customer context needed to triage them."""
+    """Alerts with the entity and customer context needed to triage them,
+    scoped to one organization."""
     sql = """
         SELECT a.id, a.score, a.score_detail, a.matched_name, a.status,
                a.disposition, a.reason_code, a.independent_review,
@@ -87,11 +107,12 @@ def alert_queue(
         JOIN screenings s ON s.id = a.screening_id
         LEFT JOIN customers c ON c.id = s.customer_id
         LEFT JOIN ubo_links u ON u.id = s.ubo_id
+        WHERE a.org_id = ?
     """
-    params: tuple = ()
+    params: list[Any] = [org_id]
     if status:
-        sql += " WHERE a.status = ?"
-        params = (status,)
+        sql += " AND a.status = ?"
+        params.append(status)
     sql += " ORDER BY a.score DESC LIMIT ?"
 
     out: list[dict[str, Any]] = []
@@ -130,8 +151,9 @@ def entity_names(conn: sqlite3.Connection, entity_id: int) -> list[dict[str, str
     ]
 
 
-def customer_list(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Customers with their latest risk rating and screening activity."""
+def customer_list(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
+    """Customers of one organization, with their latest risk rating and
+    screening activity."""
     rows = conn.execute(
         """SELECT c.id, c.reference, c.full_name, c.name_arabic, c.customer_type,
                   c.nationality, c.sector, c.status, c.onboarded_at,
@@ -145,7 +167,9 @@ def customer_list(conn: sqlite3.Connection) -> list[dict[str, Any]]:
            LEFT JOIN risk_assessments r ON r.id = (
                 SELECT id FROM risk_assessments WHERE customer_id=c.id
                 ORDER BY assessed_at DESC LIMIT 1)
-           ORDER BY c.created_at DESC"""
+           WHERE c.org_id = ?
+           ORDER BY c.created_at DESC""",
+        (org_id,),
     ).fetchall()
     today = datetime.now(timezone.utc).date().isoformat()
     return [
@@ -154,26 +178,33 @@ def customer_list(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     ]
 
 
-def customer(conn: sqlite3.Connection, customer_id: int) -> dict[str, Any] | None:
-    """Full case file for one customer."""
-    row = conn.execute("SELECT * FROM customers WHERE id=?", (customer_id,)).fetchone()
+def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[str, Any] | None:
+    """Full case file for one customer, or None if it does not exist OR
+    belongs to a different organization -- the two cases are deliberately
+    indistinguishable to the caller, so a cross-tenant customer_id in a URL
+    produces the same 404 a nonexistent one would."""
+    row = conn.execute(
+        "SELECT * FROM customers WHERE id=? AND org_id=?", (customer_id, org_id)
+    ).fetchone()
     if row is None:
         return None
 
     ubos = [dict(r) for r in conn.execute(
-        "SELECT * FROM ubo_links WHERE customer_id=? ORDER BY is_ubo DESC, ownership_pct DESC",
-        (customer_id,))]
+        "SELECT * FROM ubo_links WHERE customer_id=? AND org_id=?"
+        " ORDER BY is_ubo DESC, ownership_pct DESC",
+        (customer_id, org_id))]
 
     risk_rows = conn.execute(
-        "SELECT * FROM risk_assessments WHERE customer_id=? ORDER BY assessed_at DESC",
-        (customer_id,)).fetchall()
+        "SELECT * FROM risk_assessments WHERE customer_id=? AND org_id=? ORDER BY assessed_at DESC",
+        (customer_id, org_id)).fetchall()
     risks = [dict(r) | {"factors": json.loads(r["factors"] or "{}")} for r in risk_rows]
 
     screenings = [dict(r) | {"datasets_used": json.loads(r["datasets_used"] or "[]")}
                   for r in conn.execute(
-        "SELECT * FROM screenings WHERE customer_id=? ORDER BY run_at DESC", (customer_id,))]
+        "SELECT * FROM screenings WHERE customer_id=? AND org_id=? ORDER BY run_at DESC",
+        (customer_id, org_id))]
 
-    alerts = [a for a in alert_queue(conn, status=None, limit=500)
+    alerts = [a for a in alert_queue(conn, org_id, status=None, limit=500)
               if a["customer_id"] == customer_id]
 
     return {
@@ -183,18 +214,25 @@ def customer(conn: sqlite3.Connection, customer_id: int) -> dict[str, Any] | Non
         "risk_history": risks,
         "screenings": screenings,
         "alerts": alerts,
-        "audit": audit_trail(conn, "customer", customer_id),
+        "audit": audit_trail(conn, org_id, "customer", customer_id),
     }
 
 
 def audit_trail(
-    conn: sqlite3.Connection, object_type: str | None = None,
+    conn: sqlite3.Connection, org_id: int, object_type: str | None = None,
     object_id: int | str | None = None, limit: int = 200,
 ) -> list[dict[str, Any]]:
-    sql = "SELECT ts, actor, action, object_type, object_id, detail FROM audit_log"
-    params: list[Any] = []
+    """Audit entries for one organization, plus shared/system entries.
+
+    `org_id IS NULL` rows are shared reference-data actions (sanctions-list
+    refreshes) with no PII -- visible alongside this org's own history rather
+    than hidden, since every firm's compliance posture depends on knowing
+    when the lists it screens against last updated.
+    """
+    sql = "SELECT ts, actor, action, object_type, object_id, detail FROM audit_log WHERE (org_id=? OR org_id IS NULL)"
+    params: list[Any] = [org_id]
     if object_type:
-        sql += " WHERE object_type=?"
+        sql += " AND object_type=?"
         params.append(object_type)
         if object_id is not None:
             sql += " AND object_id=?"
@@ -207,12 +245,15 @@ def audit_trail(
     ]
 
 
-def operators(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def operators(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in conn.execute(
-        "SELECT id, name, role FROM operators WHERE is_active=1 ORDER BY name")]
+        "SELECT id, name, email, role, is_active FROM operators WHERE org_id=? ORDER BY name",
+        (org_id,))]
 
 
 def datasets(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    # Not org-scoped: sanctions/PEP datasets are shared reference data,
+    # identical for every firm using this deployment.
     return [dict(r) for r in conn.execute(
         "SELECT key, title, publisher, licence, is_mandatory, last_refresh, entity_count"
         " FROM datasets ORDER BY is_mandatory DESC, key")]

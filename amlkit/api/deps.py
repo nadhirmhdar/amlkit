@@ -1,16 +1,10 @@
-"""Operator identity, request scoping and bind-safety.
+"""Request-scoped identity, database access, and bind-safety.
 
-Authentication is deliberately absent in v1 and deliberately isolated here.
-
-The app binds to 127.0.0.1, so physical access to the machine is the security
-boundary. Operator identity is a name in a cookie: enough to attribute audit
-entries and to enforce that two *different* people signed off a dismissal, but
-nothing stops one person selecting two names. That limitation is stated in the
-UI rather than implied away -- a control described as stronger than it is, is
-worse than an acknowledged gap.
-
-Everything auth-shaped lives in this module so that adding password hashing and
-sessions later touches one file rather than every route.
+Session identity replaces the earlier plain-text-name-in-a-cookie model. That
+model was adequate only when the app bound to 127.0.0.1 and physical machine
+access was the security boundary; it is unsafe the moment the app is
+reachable from a LAN or holds more than one firm's data, so this module was
+rewritten rather than extended.
 """
 
 from __future__ import annotations
@@ -22,14 +16,14 @@ from typing import Iterator
 
 from fastapi import Request
 
-from ..db import DB_PATH, connect, utcnow
+from ..auth import CSRF_COOKIE, SESSION_COOKIE, SessionInfo, csrf_valid, resolve_session
+from ..db import DB_PATH, connect
 
-OPERATOR_COOKIE = "amlkit_operator"
-
-# Bind host. Anything other than loopback exposes customer PII to the network
-# while no authentication exists, so it is opt-in and warned about loudly.
 BIND_HOST = os.environ.get("AMLKIT_BIND_HOST", "127.0.0.1")
 BIND_PORT = int(os.environ.get("AMLKIT_PORT", "8000"))
+TLS_CONFIGURED = bool(
+    os.environ.get("AMLKIT_SSL_KEYFILE") and os.environ.get("AMLKIT_SSL_CERTFILE")
+)
 
 
 def is_network_exposed() -> bool:
@@ -37,13 +31,19 @@ def is_network_exposed() -> bool:
 
 
 def startup_warning() -> str | None:
-    """Warning shown at startup and in the UI banner, or None when safe."""
-    if is_network_exposed():
+    """Warning shown at startup and in the UI banner, or None when safe.
+
+    Now real credentials and multi-tenant regulated data are on the line, so
+    binding beyond loopback without TLS is not merely inadvisable, it sends
+    passwords and customer PII across the LAN in cleartext.
+    """
+    if is_network_exposed() and not TLS_CONFIGURED:
         return (
-            f"SECURITY: bound to {BIND_HOST}, which is reachable from the network, "
-            "while no authentication is enabled. Customer personal data and "
-            "screening results are exposed to anyone who can reach this host. "
-            "Bind to 127.0.0.1 unless you have added authentication."
+            f"SECURITY: bound to {BIND_HOST} (reachable from the network) with no TLS "
+            "configured. Passwords and customer personal data would cross the LAN in "
+            "cleartext. Run behind a reverse proxy that terminates HTTPS (e.g. Caddy), "
+            "or set AMLKIT_SSL_KEYFILE / AMLKIT_SSL_CERTFILE to a certificate this firm "
+            "controls."
         )
     return None
 
@@ -54,12 +54,8 @@ def db_path() -> Path:
 
 
 def get_db() -> Iterator[sqlite3.Connection]:
-    """Per-request connection.
-
-    SQLite connections are not safe to share across threads, and FastAPI runs
-    sync endpoints in a threadpool, so a connection per request is the correct
-    scope rather than a cached global.
-    """
+    """Per-request connection: SQLite connections are not safe to share across
+    threads, and FastAPI runs sync endpoints in a threadpool."""
     conn = connect(db_path())
     try:
         yield conn
@@ -67,35 +63,39 @@ def get_db() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def ensure_operator(conn: sqlite3.Connection, name: str, role: str = "officer") -> str:
-    """Register an operator name if unseen. Returns the canonical name."""
-    name = (name or "").strip()
-    if not name:
-        raise ValueError("operator name cannot be empty")
-    conn.execute(
-        "INSERT OR IGNORE INTO operators (name, role, created_at) VALUES (?,?,?)",
-        (name, role, utcnow()),
-    )
-    conn.commit()
-    return name
+def current_session(request: Request, conn: sqlite3.Connection) -> SessionInfo | None:
+    token = request.cookies.get(SESSION_COOKIE)
+    return resolve_session(conn, token)
 
 
-def current_operator(request: Request) -> str | None:
-    """Operator selected for this browser session, if any."""
-    value = request.cookies.get(OPERATOR_COOKIE)
-    return value.strip() if value and value.strip() else None
+def require_session(request: Request, conn: sqlite3.Connection) -> SessionInfo:
+    """Session for an action that will read or write tenant data.
 
-
-def require_operator(request: Request) -> str:
-    """Operator identity for an action that will be written to the audit log.
-
-    Actions are refused rather than attributed to 'unknown'. An audit trail
-    whose actor column reads 'unknown' fails the purpose it exists for.
+    Raises PermissionError (routes turn this into a redirect to /login)
+    rather than returning None, so a route cannot accidentally proceed with a
+    missing session -- there is no falsy-but-usable value to check.
     """
-    op = current_operator(request)
-    if not op:
+    session = current_session(request, conn)
+    if session is None:
+        raise PermissionError("Sign in to continue.")
+    return session
+
+
+def require_csrf(request: Request, form_csrf: str | None) -> None:
+    """Validate the synchronizer CSRF token on a state-changing POST.
+
+    SameSite=Strict on the session cookie is defense-in-depth, not sufficient
+    alone, once sessions gate access to another firm's regulated data -- see
+    amlkit/auth.py's csrf_valid() docstring for the full reasoning.
+    """
+    cookie_value = request.cookies.get(CSRF_COOKIE)
+    if not csrf_valid(cookie_value, form_csrf):
+        raise PermissionError("Session expired or the form was submitted from a stale page. Reload and try again.")
+
+
+def require_role(session: SessionInfo, *roles: str) -> None:
+    if session.operator_role not in roles:
         raise PermissionError(
-            "Select an operator before recording any action - every entry in the "
-            "audit log must be attributable to a person."
+            f"This action requires the {' or '.join(roles)} role; "
+            f"your account is {session.operator_role}."
         )
-    return op

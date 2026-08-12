@@ -157,15 +157,17 @@ def save(
     conn: sqlite3.Connection,
     customer_id: int,
     assessment: RiskAssessment,
+    org_id: int,
     actor: str = "system",
 ) -> int:
     with conn:
         cur = conn.execute(
             """INSERT INTO risk_assessments
-               (customer_id, score, rating, factors, ruleset_version,
+               (org_id, customer_id, score, rating, factors, ruleset_version,
                 requires_edd, assessed_at, next_review)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?)""",
             (
+                org_id,
                 customer_id,
                 assessment.score,
                 assessment.rating,
@@ -188,5 +190,6 @@ def save(
                 "ruleset": assessment.ruleset_version,
                 "edd": assessment.requires_edd,
             },
+            org_id=org_id,
         )
         return cur.lastrowid

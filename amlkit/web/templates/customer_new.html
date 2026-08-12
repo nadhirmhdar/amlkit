@@ -4,6 +4,7 @@
 {% block body %}
 
 <form method="post" action="/customers">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <div class="panel">
   <h2>Customer</h2>
   <div class="row">

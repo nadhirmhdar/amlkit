@@ -48,13 +48,16 @@ self-match, **0 false positives** across the benign-name suite.
   Law 10/2025; designations are classified by sanctions programme
 - **Web interface** — dashboard, ad-hoc screening, alert triage, case files and
   a printable evidence pack
+- **Multi-tenant, password-authenticated, LAN-ready** — each organization's
+  data (customers, screenings, alerts, audit trail) is isolated from every
+  other's on the same deployment; sanctions/PEP reference data is shared
 
 Measured on the real UAE list: 12/12 Latin self-match, 12/12 Arabic-script
-self-match, **0 false positives** across the benign-name suite. 149 tests.
+self-match, **0 false positives** across the benign-name suite. 165 tests.
 
 ## Not built yet
 
-Adverse media · goAML STR/SAR export · identity-document verification.
+Adverse media · goAML STR/SAR export · identity-document verification · MFA.
 See `research/compliance-traceability.md` for the full gap list.
 
 ---
@@ -62,14 +65,22 @@ See `research/compliance-traceability.md` for the full gap list.
 ## Running the interface
 
 ```bash
-python scripts/refresh.py      # load sanctions lists (also re-screens customers)
+python scripts/refresh.py      # load sanctions lists (also re-screens every org's customers)
 python scripts/serve.py        # http://127.0.0.1:8000
 ```
 
-Binds to **localhost only**. There is no authentication — the database file and
-physical access to the machine are the security boundary. Do not change
-`AMLKIT_BIND_HOST` without adding authentication first; the app warns loudly if
-you do.
+First run: register your organization at `/register-organization`. If you're
+upgrading an existing pre-tenancy database, `serve.py` prints a one-time
+`/setup?token=...` link on first startup instead — use it to claim the first
+login for the organization your existing data was migrated into.
+
+Binds to **localhost only** by default. Real login now gates every action, but
+the deployment is still only as safe as its transport: binding beyond loopback
+(`AMLKIT_BIND_HOST`) **without also configuring TLS** sends passwords and
+customer PII across the LAN in cleartext — the app refuses to stay quiet about
+this and prints a warning at startup. Set `AMLKIT_SSL_KEYFILE` /
+`AMLKIT_SSL_CERTFILE` to a certificate this firm controls, or put a
+TLS-terminating reverse proxy (e.g. Caddy) in front instead.
 
 ### Alert disposition
 
@@ -87,9 +98,7 @@ set AMLKIT_SINGLE_OPERATOR_MODE=1
 ```
 
 which records **"no independent review"** on the alert and in the evidence pack
-rather than pretending the review happened. Note that without authentication,
-four-eyes is a *procedural* control — nothing stops one person entering two
-operator names.
+rather than pretending the review happened.
 
 ---
 
@@ -103,7 +112,7 @@ python -m venv .venv
 Load the mandatory UAE list and screen a name:
 
 ```python
-from amlkit.db import connect
+from amlkit.db import connect, utcnow
 from amlkit.ingest.loader import load
 from amlkit.ingest.opensanctions import uae_local_terrorists
 from amlkit.match.engine import screen
@@ -111,7 +120,15 @@ from amlkit.match.engine import screen
 conn = connect()
 load(conn, uae_local_terrorists())
 
-result = screen(conn, "Mohammed bin Rashid", trigger="onboarding")
+# Screening is tenant-scoped -- org_id is mandatory, not optional, on every
+# call. In the web interface this comes from the signed-in session; scripted
+# use needs a real organization row.
+org_id = conn.execute(
+    "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?) RETURNING id",
+    ("My Firm", "my-firm", "active", utcnow()),
+).fetchone()["id"]
+
+result = screen(conn, "Mohammed bin Rashid", org_id=org_id, trigger="onboarding")
 print(result.summary())
 for hit in result.hits:
     print(hit.score, hit.caption, hit.detail)
@@ -153,6 +170,9 @@ spellings are therefore consulted directly before transliteration — see
 | OpenSanctions `logic-v2` weights | Publicly documented, well tested — better than inventing weights |
 | Replace-on-refresh ingest | A delisted person must actually disappear; merge semantics leave stale hits |
 | Loud adapter failures | A silently-lapsed sanctions feed shows green while coverage is gone |
+| argon2 for passwords | Regulated financial-crime data for multiple firms; the "no new dependency" default doesn't apply here |
+| org_id required on every tenant query | Per-route discipline guarantees an eventual leak; the function signature itself is the enforcement |
+| Sessions snapshot org_id at login | An operator moved between orgs, deactivated, or password-changed has every session explicitly revoked, not left to drift out of sync with a live join |
 
 ## Not legal advice
 

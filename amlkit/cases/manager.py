@@ -74,6 +74,7 @@ class OnboardingResult:
 def onboard(
     conn: sqlite3.Connection,
     *,
+    org_id: int,
     reference: str,
     full_name: str,
     customer_type: str = "natural",
@@ -105,13 +106,13 @@ def onboard(
     with conn:
         cur = conn.execute(
             """INSERT INTO customers
-               (reference, customer_type, full_name, name_arabic, canonical_key,
+               (org_id, reference, customer_type, full_name, name_arabic, canonical_key,
                 nationality, country, birth_date, gender, id_number, id_type,
                 trade_licence, sector, delivery_channel, is_cash_intensive,
                 onboarded_at, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                reference, customer_type, full_name, name_arabic, ck,
+                org_id, reference, customer_type, full_name, name_arabic, ck,
                 nationality, country, birth_date, gender, id_number, id_type,
                 trade_licence, sector, delivery_channel,
                 int(cash_level == "predominantly_cash"),
@@ -120,16 +121,16 @@ def onboard(
         )
         customer_id = cur.lastrowid
         audit(conn, actor, "customer.onboard", "customer", customer_id,
-              {"reference": reference, "name": full_name})
+              {"reference": reference, "name": full_name}, org_id=org_id)
 
     # --- screen the customer, in both scripts where available --------------
     result = screen(
-        conn, full_name, trigger="onboarding", country=nationality,
+        conn, full_name, org_id=org_id, trigger="onboarding", country=nationality,
         birth_date=birth_date, gender=gender, customer_id=customer_id, actor=actor,
     )
     if name_arabic:
         ar = screen(
-            conn, name_arabic, trigger="onboarding", country=nationality,
+            conn, name_arabic, org_id=org_id, trigger="onboarding", country=nationality,
             birth_date=birth_date, gender=gender, customer_id=customer_id, actor=actor,
         )
         # Keep whichever script produced the stronger evidence.
@@ -139,9 +140,9 @@ def onboard(
     # --- beneficial owners --------------------------------------------------
     ubo_results: list[tuple[str, ScreeningResult]] = []
     for ubo in ubos or []:
-        ubo_id = add_ubo(conn, customer_id, actor=actor, **ubo)
+        ubo_id = add_ubo(conn, customer_id, org_id=org_id, actor=actor, **ubo)
         res = screen(
-            conn, ubo["person_name"], trigger="onboarding",
+            conn, ubo["person_name"], org_id=org_id, trigger="onboarding",
             country=ubo.get("nationality"), birth_date=ubo.get("birth_date"),
             customer_id=customer_id, ubo_id=ubo_id, actor=actor,
         )
@@ -164,7 +165,7 @@ def onboard(
             sanctions_hit=sanctions_hit,
         )
     )
-    save_risk(conn, customer_id, risk, actor=actor)
+    save_risk(conn, customer_id, risk, org_id=org_id, actor=actor)
 
     return OnboardingResult(
         customer_id=customer_id,
@@ -180,6 +181,7 @@ def add_ubo(
     conn: sqlite3.Connection,
     customer_id: int,
     *,
+    org_id: int,
     person_name: str,
     name_arabic: str | None = None,
     nationality: str | None = None,
@@ -201,17 +203,17 @@ def add_ubo(
     with conn:
         cur = conn.execute(
             """INSERT INTO ubo_links
-               (customer_id, person_name, name_arabic, canonical_key, nationality,
+               (org_id, customer_id, person_name, name_arabic, canonical_key, nationality,
                 birth_date, ownership_pct, control_type, is_ubo, notes, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                customer_id, person_name, name_arabic, canonical_key(person_name),
+                org_id, customer_id, person_name, name_arabic, canonical_key(person_name),
                 nationality, birth_date, ownership_pct, control_type,
                 int(is_ubo), notes, utcnow(),
             ),
         )
         audit(conn, actor, "ubo.add", "customer", customer_id,
-              {"person": person_name, "pct": ownership_pct, "is_ubo": is_ubo})
+              {"person": person_name, "pct": ownership_pct, "is_ubo": is_ubo}, org_id=org_id)
         return cur.lastrowid
 
 
@@ -248,47 +250,24 @@ def ownership_state(
     return "fully_transparent"
 
 
-def disposition_alert(
-    conn: sqlite3.Connection,
-    alert_id: int,
-    status: str,
-    *,
-    by: str,
-    notes: str = "",
-) -> None:
-    """Record a human decision on an alert.
-
-    Dispositions are the record that a person -- not a threshold -- decided the
-    outcome. The original score and its breakdown are never overwritten.
-    """
-    valid = {"true_positive", "false_positive", "escalated", "open"}
-    if status not in valid:
-        raise ValueError(f"invalid disposition {status!r}; expected one of {sorted(valid)}")
-
-    with conn:
-        conn.execute(
-            """UPDATE alerts SET status=?, disposition=?, dispositioned_by=?,
-               dispositioned_at=? WHERE id=?""",
-            (status, notes, by, utcnow(), alert_id),
-        )
-        audit(conn, by, "alert.disposition", "alert", alert_id,
-              {"status": status, "notes": notes})
-
-
-def close_relationship(conn: sqlite3.Connection, customer_id: int, actor: str = "system") -> str:
+def close_relationship(
+    conn: sqlite3.Connection, customer_id: int, org_id: int, actor: str = "system"
+) -> str:
     """Mark a customer inactive and set the 5-year retention date."""
     until = (date.today() + timedelta(days=365 * RETENTION_YEARS)).isoformat()
     with conn:
         conn.execute(
-            "UPDATE customers SET status='closed', retention_until=?, updated_at=? WHERE id=?",
-            (until, utcnow(), customer_id),
+            "UPDATE customers SET status='closed', retention_until=?, updated_at=?"
+            " WHERE id=? AND org_id=?",
+            (until, utcnow(), customer_id, org_id),
         )
-        audit(conn, actor, "customer.close", "customer", customer_id, {"retention_until": until})
+        audit(conn, actor, "customer.close", "customer", customer_id,
+              {"retention_until": until}, org_id=org_id)
     return until
 
 
-def due_for_review(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Customers whose periodic review date has passed.
+def due_for_review(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
+    """Customers of one organization whose periodic review date has passed.
 
     Periodic review is an obligation, not a nicety: EOCN requires re-screening
     at periodic KYC review as well as on list updates.
@@ -300,8 +279,9 @@ def due_for_review(conn: sqlite3.Connection) -> list[dict[str, Any]]:
            JOIN risk_assessments r ON r.id = (
                SELECT id FROM risk_assessments WHERE customer_id=c.id
                ORDER BY assessed_at DESC LIMIT 1)
-           WHERE c.status='active' AND r.next_review IS NOT NULL AND r.next_review <= ?
+           WHERE c.status='active' AND c.org_id=?
+             AND r.next_review IS NOT NULL AND r.next_review <= ?
            ORDER BY r.next_review""",
-        (today,),
+        (org_id, today),
     ).fetchall()
     return [dict(r) for r in rows]

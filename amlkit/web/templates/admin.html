@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% set nav = 'admin' %}
+{% block title %}Admin — Grovisor amlkit{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>{{ org.name }}</h2>
+  <p class="muted small" style="margin-bottom:0">Workspace slug: <span class="mono">{{ org.slug }}</span></p>
+</div>
+
+<div class="panel">
+  <h2>Operators</h2>
+  <table>
+    <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
+    {% for op in operators %}
+    <tr>
+      <td>{{ op.name }}</td>
+      <td class="small">{{ op.email or '—' }}</td>
+      <td><span class="tag {{ 'high' if op.role == 'mlro' else 'other' }}">{{ op.role }}</span></td>
+      <td>{% if op.is_active %}<span class="tag low">active</span>
+          {% else %}<span class="tag other">deactivated</span>{% endif %}</td>
+      <td>
+        {% if op.is_active %}
+        <details style="display:inline-block">
+          <summary class="small" style="cursor:pointer;color:var(--accent)">Reset password</summary>
+          <form method="post" action="/admin/operators/{{ op.id }}/reset-password" style="margin-top:6px">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="password" name="new_password" placeholder="New password" minlength="10" required
+                   style="width:180px;display:inline-block">
+            <button class="small" type="submit">Set</button>
+          </form>
+        </details>
+        <form method="post" action="/admin/operators/{{ op.id }}/deactivate" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="small ghost" type="submit"
+                  onclick="return confirm('Deactivate {{ op.name }}? They will be signed out of every session immediately.')">
+            Deactivate
+          </button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Add operator</h2>
+  <form method="post" action="/admin/operators" class="row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div><label>Name</label><input type="text" name="name" required></div>
+    <div><label>Email</label><input type="text" name="email" required></div>
+    <div><label>Password</label><input type="password" name="password" minlength="10" required></div>
+    <div><label>Role</label>
+      <select name="role">
+        <option value="officer">Officer</option>
+        <option value="mlro">MLRO</option>
+      </select></div>
+    <div style="align-self:end"><button type="submit">Create</button></div>
+  </form>
+</div>
+
+{% endblock %}

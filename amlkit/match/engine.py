@@ -129,6 +129,7 @@ def screen(
     conn: sqlite3.Connection,
     name: str,
     *,
+    org_id: int,
     trigger: str = "adhoc",
     threshold: float = DEFAULT_THRESHOLD,
     country: str | None = None,
@@ -146,6 +147,13 @@ def screen(
     evidence of compliance even when the result is clear -- being able to show
     that a customer *was* screened and came back clean is exactly what an
     examiner asks for.
+
+    `org_id` is mandatory (not defaulted) even when `persist=False`: an
+    unpersisted ad-hoc screening result is still shown to one specific firm's
+    operator and must not silently accept a caller that forgot which firm it
+    is running for. The datasets screened against (`entities` and friends) are
+    shared reference data and are not themselves org-scoped -- only the
+    resulting screening/alert records are.
     """
     if trigger not in TRIGGERS:
         raise ValueError(f"unknown trigger {trigger!r}; expected one of {TRIGGERS}")
@@ -187,13 +195,14 @@ def screen(
     )
 
     if persist:
-        out.screening_id = _persist(conn, out, customer_id, ubo_id, actor)
+        out.screening_id = _persist(conn, out, org_id, customer_id, ubo_id, actor)
     return out
 
 
 def _persist(
     conn: sqlite3.Connection,
     res: ScreeningResult,
+    org_id: int,
     customer_id: int | None,
     ubo_id: int | None,
     actor: str,
@@ -203,10 +212,11 @@ def _persist(
     with conn:
         cur = conn.execute(
             """INSERT INTO screenings
-               (customer_id, ubo_id, query_name, trigger, algorithm, threshold,
+               (org_id, customer_id, ubo_id, query_name, trigger, algorithm, threshold,
                 candidates, hits, datasets_used, run_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (
+                org_id,
                 customer_id,
                 ubo_id,
                 res.query,
@@ -223,9 +233,10 @@ def _persist(
         for h in res.hits:
             conn.execute(
                 """INSERT INTO alerts
-                   (screening_id, entity_id, score, score_detail, matched_name, created_at)
-                   VALUES (?,?,?,?,?,?)""",
-                (sid, h.entity_id, h.score, json.dumps(h.detail, ensure_ascii=False), h.matched_name, now),
+                   (org_id, screening_id, entity_id, score, score_detail, matched_name, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (org_id, sid, h.entity_id, h.score, json.dumps(h.detail, ensure_ascii=False),
+                 h.matched_name, now),
             )
         audit(
             conn,
@@ -239,30 +250,39 @@ def _persist(
                 "candidates": res.candidates,
                 "hits": len(res.hits),
             },
+            org_id=org_id,
         )
     return sid
 
 
 def rescreen_all(
-    conn: sqlite3.Connection, *, threshold: float = DEFAULT_THRESHOLD, actor: str = "system"
+    conn: sqlite3.Connection, org_id: int, *, threshold: float = DEFAULT_THRESHOLD,
+    actor: str = "system",
 ) -> dict[str, Any]:
-    """Re-screen every active customer and beneficial owner.
+    """Re-screen every active customer and beneficial owner of ONE organization.
 
     This is the control that satisfies the EOCN requirement to act on list
     updates within 24 hours. It is intended to run immediately after every
     dataset refresh, not on a separate schedule -- a refreshed list that nobody
     has been screened against provides no protection.
+
+    Scoped to a single org rather than every customer in the database: a
+    dataset refresh happens once for everyone (the sanctions data is shared),
+    but re-screening is per-firm, and a caller re-screening the whole
+    deployment loops this once per active organization rather than this
+    function reaching across tenant boundaries on its own.
     """
     new_alerts = 0
     screened = 0
 
     for row in conn.execute(
         "SELECT id, full_name, name_arabic, nationality, birth_date, gender"
-        " FROM customers WHERE status='active'"
+        " FROM customers WHERE status='active' AND org_id=?",
+        (org_id,),
     ).fetchall():
         for nm in filter(None, (row["full_name"], row["name_arabic"])):
             res = screen(
-                conn, nm, trigger="list_update", threshold=threshold,
+                conn, nm, org_id=org_id, trigger="list_update", threshold=threshold,
                 country=row["nationality"], birth_date=row["birth_date"],
                 gender=row["gender"], customer_id=row["id"], actor=actor,
             )
@@ -271,11 +291,12 @@ def rescreen_all(
 
     for row in conn.execute(
         "SELECT id, customer_id, person_name, name_arabic, nationality, birth_date"
-        " FROM ubo_links WHERE is_ubo=1"
+        " FROM ubo_links WHERE is_ubo=1 AND org_id=?",
+        (org_id,),
     ).fetchall():
         for nm in filter(None, (row["person_name"], row["name_arabic"])):
             res = screen(
-                conn, nm, trigger="list_update", threshold=threshold,
+                conn, nm, org_id=org_id, trigger="list_update", threshold=threshold,
                 country=row["nationality"], birth_date=row["birth_date"],
                 customer_id=row["customer_id"], ubo_id=row["id"], actor=actor,
             )

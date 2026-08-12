@@ -65,8 +65,9 @@ def main() -> int:
             # exists to prevent.
             print(f"  FAIL  {adapter.key}: {exc}", file=sys.stderr)
             failures.append(adapter.key)
+            # Shared reference data, not tenant-owned -- same as dataset.refresh.
             audit(conn, "scheduled-refresh", "dataset.refresh_failed",
-                  "dataset", adapter.key, {"error": str(exc)})
+                  "dataset", adapter.key, {"error": str(exc)}, org_id=None)
             conn.commit()
 
     print()
@@ -83,14 +84,25 @@ def main() -> int:
             breaches.append(row["key"])
 
     print()
-    print("Re-screening customer book against refreshed lists...")
-    outcome = rescreen_all(conn, actor="scheduled-refresh")
-    print(f"  screened {outcome['screened']} name(s), {outcome['alerts']} alert(s) raised")
+    print("Re-screening each organization's customer book against refreshed lists...")
+    # rescreen_all() is scoped to one org: sanctions data is shared and
+    # refreshed once above, but re-screening is per-firm, so this loops once
+    # per active organization rather than reaching across tenants.
+    orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
+    total_screened = total_alerts = 0
+    for org in orgs:
+        outcome = rescreen_all(conn, org["id"], actor="scheduled-refresh")
+        print(f"  {org['name']:38} screened {outcome['screened']:>4} name(s), "
+              f"{outcome['alerts']} alert(s) raised")
+        total_screened += outcome["screened"]
+        total_alerts += outcome["alerts"]
+    print(f"  total: {total_screened} screened, {total_alerts} alert(s) raised across "
+          f"{len(orgs)} organization(s)")
 
     open_alerts = conn.execute(
         "SELECT COUNT(*) c FROM alerts WHERE status='open'"
     ).fetchone()["c"]
-    print(f"  {open_alerts} alert(s) awaiting MLRO disposition")
+    print(f"  {open_alerts} alert(s) awaiting MLRO disposition across all organizations")
 
     conn.commit()
 
