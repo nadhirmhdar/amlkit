@@ -257,6 +257,17 @@ _register("shaikha", "sheikha", "shaykha")
 _register("latifa", "lateefa", "latifah")
 _register("hind", "hend")
 _register("sara", "sarah", "saara")
+# Registered as canonicals in their own right. Without this they fall through
+# to the consonant skeleton and get absorbed into a similar name -- "Saad"
+# (سعد) was resolving to "Saeed" (سعيد), which is a different person.
+_register("saad", "sad", "saade")
+_register("saleh", "salih", "sale7")
+_register("dawood", "daoud", "dawud", "daud", "davood")
+_register("bilal", "belal", "bilaal")
+_register("fouad", "foad", "fuad", "fouaad")
+_register("salman", "selman", "salmaan")
+_register("majid", "majed", "maged", "magid")
+_register("walid", "waleed", "weleed")
 
 
 def canonical_token(token: str) -> str:
@@ -304,23 +315,56 @@ def consonant_skeleton(token: str) -> str:
     t = re.sub(r"[^a-z]", "", token.lower())
     if not t:
         return ""
+
+    # Nisba (نسبة): a trailing -i/-y is a derivational suffix meaning "of/from",
+    # and it is what turns a given name into a family name. "Mansour" (منصور)
+    # and "Mansoori" (المنصوري) are different names, and Al Mansoori is one of
+    # the most common Emirati surnames -- collapsing the two misfires across a
+    # large share of the population. Stripping it as an ordinary final vowel
+    # loses a genuine morpheme, so it is preserved as an explicit marker.
+    nisba = len(t) > 3 and t.endswith(("i", "y"))
+
     for src, dst in _DIGRAPHS:
         t = t.replace(src, dst)
     head, tail = t[0], t[1:]
-    tail = "".join(ch for ch in tail if ch not in _VOWELS)
+
+    # 'w' is dropped medially. Arabic waw is a consonant word-initially but a
+    # long vowel elsewhere, and Latin transliterations render that same waw as
+    # either "w" ("Hasnawi") or "ou/oo/u" ("Maktoum"). Dropping it medially on
+    # both sides is what keeps the two scripts aligned.
+    tail = "".join(ch for ch in tail if ch not in _VOWELS and ch != "w")
+
     out = head + tail
     # Collapse doubled consonants: "Abdullah" vs "Abdulah".
     out = re.sub(r"(.)\1+", r"\1", out)
+    if nisba:
+        out += "y"
     return out
 
 
-# Reverse index from consonant skeleton back to canonical name. Built once at
-# import so transliterated Arabic can reach the same canonical forms as Latin.
-# Where two canonical names share a skeleton the first registered wins, which
-# is acceptable: the alternative is refusing to canonicalise at all.
+# Reverse index from consonant skeleton back to canonical name, so
+# transliterated Arabic can reach the same canonical forms as Latin.
+#
+# Ambiguous skeletons are deliberately EXCLUDED. "Hassan" and "Hussein" both
+# reduce to h-s-n, as do "Saad" and "Saeed"; a first-registered-wins rule would
+# silently resolve one into the other, which is a wrong-person match -- the
+# worst failure available to a screening system, since it attaches a real
+# person to someone else's designation.
+#
+# The cost is recall on unusual transliterations not present in the variant
+# table: they keep their bare skeleton and will not reach the canonical form.
+# That is the right side to err on, and the variant table covers the spellings
+# that actually occur.
+_AMBIGUOUS_SKELETONS: set[str] = set()
 _SKELETON_INDEX: dict[str, str] = {}
-for _canon in set(VARIANT_TABLE.values()):
-    _SKELETON_INDEX.setdefault(consonant_skeleton(_canon), _canon)
+for _canon in sorted(set(VARIANT_TABLE.values())):
+    _skel = consonant_skeleton(_canon)
+    if _skel in _SKELETON_INDEX and _SKELETON_INDEX[_skel] != _canon:
+        _AMBIGUOUS_SKELETONS.add(_skel)
+    else:
+        _SKELETON_INDEX[_skel] = _canon
+for _skel in _AMBIGUOUS_SKELETONS:
+    _SKELETON_INDEX.pop(_skel, None)
 
 
 # --------------------------------------------------------------------------

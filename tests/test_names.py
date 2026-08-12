@@ -102,7 +102,70 @@ class TestArabicScript:
         assert transliterate_arabic("وليد").startswith("w")
 
 
+class TestOverNormalisation:
+    """Guards against collapsing genuinely different names together.
+
+    A wrong-person match is the worst failure a screening system has: it
+    attaches a real customer to someone else's designation. These cases were
+    all live bugs found against real data.
+    """
+
+    @pytest.mark.parametrize(
+        "a,b,why",
+        [
+            ("Mansour", "Mansoori", "nisba suffix makes a family name"),
+            ("Ahmed Al Mansoori", "Mansoor Ahmed", "common Emirati surname vs given name"),
+            ("Saad", "Saeed", "distinct given names, same consonants"),
+            ("Hassan", "Hussein", "distinct given names, same consonants"),
+            ("Saleh", "Salehi", "nisba suffix"),
+        ],
+    )
+    def test_distinct_names_do_not_merge(self, a: str, b: str, why: str) -> None:
+        assert canonical_key(a) != canonical_key(b), f"{a}/{b} merged: {why}"
+
+    @pytest.mark.parametrize(
+        "a,b",
+        [
+            ("Al Hasnawi", "Al-Hasnawi"),
+            ("Mansoori", "Al Mansouri"),
+            ("Majid", "Majed"),
+        ],
+    )
+    def test_nisba_names_still_self_match(self, a: str, b: str) -> None:
+        """Preserving the suffix must not stop a name matching itself."""
+        assert canonical_key(a) == canonical_key(b)
+
+    def test_ambiguous_skeletons_are_excluded(self) -> None:
+        """Ambiguous skeletons must not silently resolve to a first-registered name."""
+        from amlkit.names.arabic import _AMBIGUOUS_SKELETONS, _SKELETON_INDEX
+
+        assert _AMBIGUOUS_SKELETONS, "expected known collisions to be detected"
+        for skel in _AMBIGUOUS_SKELETONS:
+            assert skel not in _SKELETON_INDEX
+
+    def test_every_arabic_form_target_is_canonical(self) -> None:
+        """An ARABIC_FORMS target absent from the variant table falls through to
+        the skeleton and can be absorbed into a different name."""
+        from amlkit.names.arabic import ARABIC_FORMS, VARIANT_TABLE
+
+        missing = sorted({t for t in ARABIC_FORMS.values() if t not in VARIANT_TABLE})
+        assert not missing, f"unregistered canonical targets: {missing}"
+
+    @pytest.mark.parametrize(
+        "arabic,expected",
+        [("سعد", "saad"), ("سعيد", "saeed"), ("حسن", "hassan"), ("حسين", "hussein")],
+    )
+    def test_arabic_disambiguates_where_latin_cannot(self, arabic: str, expected: str) -> None:
+        """Arabic orthography distinguishes these even though consonants do not."""
+        assert canonical_key(arabic) == expected
+
+
 class TestSkeleton:
+    def test_waw_dropped_medially_for_cross_script_alignment(self) -> None:
+        """Arabic waw romanises as 'w' or 'ou/u' depending on the source;
+        dropping it medially on both sides keeps the scripts aligned."""
+        assert canonical_key("Hasnawi") == canonical_key("حسناوي")
+
     def test_vowel_drift_absorbed(self) -> None:
         assert consonant_skeleton("hussein") == consonant_skeleton("hussain")
 
