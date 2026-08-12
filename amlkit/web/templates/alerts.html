@@ -19,6 +19,8 @@
          href="/alerts?status={{ s }}"
          style="{{ '' if status == s else 'background:#fff;color:var(--accent)' }}">{{ label }}</a>
     {% endfor %}
+    <a class="btn small ghost" href="/alerts.csv?status={{ status }}"
+       style="background:#fff;color:var(--accent)">Export CSV</a>
   </div>
 </div>
 
@@ -41,6 +43,26 @@
     {% if a.programs %} · programme {{ a.programs|join(', ') }}{% endif %}
     {% if a.birth_date %} · DOB {{ a.birth_date }}{% endif %}
     {% if a.countries %} · {{ a.countries|join(', ')|upper }}{% endif %}
+  </div>
+
+  <div class="small" style="margin-top:6px">
+    {% if a.assigned_to %}
+      Assigned to <strong>{{ a.assigned_to }}</strong>
+      <form method="post" action="/alerts/{{ a.id }}/assign" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="back_to" value="/alerts?status={{ status }}">
+        <input type="hidden" name="operator" value="">
+        <button class="small ghost" type="submit">Clear</button>
+      </form>
+    {% else %}
+      <span class="muted">Unassigned</span>
+      <form method="post" action="/alerts/{{ a.id }}/assign" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="back_to" value="/alerts?status={{ status }}">
+        <input type="hidden" name="operator" value="{{ session.operator_name }}">
+        <button class="small ghost" type="submit">Assign to me</button>
+      </form>
+    {% endif %}
   </div>
 
   <div style="margin-top:8px">

@@ -121,6 +121,37 @@
 </div>
 
 <div class="panel">
+  <h2>Notes</h2>
+  <p class="muted small" style="margin-top:-6px">
+    Investigative narrative not tied to any one alert — periodic review
+    commentary, source-of-wealth notes, anything that belongs in the case
+    file but isn't a disposition decision.
+  </p>
+  {% if notes %}
+    <div class="stack">
+      {% for n in notes %}
+      <div class="breakdown">
+        <div class="small">
+          <strong>{{ n.author }}</strong> ·
+          <span class="muted">{{ n.created_at[:16].replace('T',' ') }}</span>
+        </div>
+        <div style="margin-top:4px">{{ n.body }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted small">No notes yet.</p>
+  {% endif %}
+  <form method="post" action="/customers/{{ c.id }}/notes" style="margin-top:12px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field">
+      <textarea name="body" placeholder="Add a note to this case file" required></textarea>
+    </div>
+    <button class="small" type="submit">Add note</button>
+  </form>
+</div>
+
+<div class="panel">
   <h2>Screening history</h2>
   <p class="muted small" style="margin-top:-6px">
     Clear results are kept as well as matches — evidence that a customer

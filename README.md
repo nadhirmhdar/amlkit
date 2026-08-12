@@ -51,13 +51,21 @@ self-match, **0 false positives** across the benign-name suite.
 - **Multi-tenant, password-authenticated, LAN-ready** — each organization's
   data (customers, screenings, alerts, audit trail) is isolated from every
   other's on the same deployment; sanctions/PEP reference data is shared
+- **Alert assignment** — workflow routing to an operator, separate from the
+  four-eyes/reason-code disposition machinery
+- **Case notes** — investigative narrative not tied to any one alert; appears
+  in the case file and the printable evidence pack
+- **CSV export** — alerts and customers, org-scoped, no new dependency
+- **Configurable alert threshold** — one global per-org knob (MLRO-only, in
+  Admin), not per-list-type "screening profiles"
 
 Measured on the real UAE list: 12/12 Latin self-match, 12/12 Arabic-script
-self-match, **0 false positives** across the benign-name suite. 165 tests.
+self-match, **0 false positives** across the benign-name suite. 181 tests.
 
 ## Not built yet
 
-Adverse media · goAML STR/SAR export · identity-document verification · MFA.
+Adverse media · goAML STR/SAR export · identity-document verification · MFA ·
+evidence-document upload · UBO ownership diagram · dedicated monitoring page.
 See `research/compliance-traceability.md` for the full gap list.
 
 ---

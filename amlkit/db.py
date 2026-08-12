@@ -245,6 +245,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     disposition   TEXT,
     dispositioned_by TEXT,
     dispositioned_at TEXT,
+    assigned_to   TEXT,  -- operator name; workflow routing only, not a privilege
     created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_alert_status ON alerts(status);
@@ -321,6 +322,29 @@ CREATE TABLE IF NOT EXISTS documents (
     uploaded_at TEXT NOT NULL
 );
 -- ix_documents_org: created in Python after migration, see note above.
+
+-- Case-level investigative narrative not tied to any one alert -- periodic
+-- review commentary, source-of-wealth notes, anything an officer needs to
+-- record about a customer that isn't a disposition decision.
+CREATE TABLE IF NOT EXISTS case_notes (
+    id          INTEGER PRIMARY KEY,
+    org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    author      TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_notes_cust ON case_notes(customer_id);
+CREATE INDEX IF NOT EXISTS ix_notes_org  ON case_notes(org_id);
+
+-- Per-org configuration. Currently just the alert threshold; deliberately a
+-- single key-value row per org rather than a "screening profiles" system --
+-- that is real complexity with no evidenced need yet (see research notes).
+CREATE TABLE IF NOT EXISTS org_settings (
+    org_id           INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+    alert_threshold  REAL,
+    updated_at       TEXT NOT NULL
+);
 
 -- ---------------------------------------------------------------- reporting
 CREATE TABLE IF NOT EXISTS reports (
@@ -408,6 +432,7 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("documents", "org_id", "ALTER TABLE documents ADD COLUMN org_id INTEGER"),
     ("reports", "org_id", "ALTER TABLE reports ADD COLUMN org_id INTEGER"),
     ("audit_log", "org_id", "ALTER TABLE audit_log ADD COLUMN org_id INTEGER"),
+    ("alerts", "assigned_to", "ALTER TABLE alerts ADD COLUMN assigned_to TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -725,3 +750,17 @@ def upsert_dataset(
 
 def fetch_all(conn: sqlite3.Connection, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
     return conn.execute(sql, tuple(params)).fetchall()
+
+
+def set_org_alert_threshold(conn: sqlite3.Connection, org_id: int, threshold: float | None) -> None:
+    """Set (or clear, with threshold=None) an org's configured alert
+    threshold. Admin-only in practice; enforced by the caller (the route),
+    not here -- this function trusts the org_id it is given, same as every
+    other write path in this module."""
+    conn.execute(
+        """INSERT INTO org_settings (org_id, alert_threshold, updated_at) VALUES (?,?,?)
+           ON CONFLICT(org_id) DO UPDATE SET
+             alert_threshold=excluded.alert_threshold, updated_at=excluded.updated_at""",
+        (org_id, threshold, utcnow()),
+    )
+    conn.commit()

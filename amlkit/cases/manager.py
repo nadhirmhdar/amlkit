@@ -22,7 +22,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from ..db import audit, utcnow
-from ..match.engine import ScreeningResult, screen
+from ..match.engine import DEFAULT_THRESHOLD, ScreeningResult, screen
 from ..names.arabic import canonical_key
 from ..risk.model import CustomerProfile, RiskAssessment, assess, save as save_risk
 
@@ -92,6 +92,7 @@ def onboard(
     jurisdiction_tier: str = "standard",
     structure: str = "natural_person",
     ubos: list[dict[str, Any]] | None = None,
+    threshold: float = DEFAULT_THRESHOLD,
     actor: str = "system",
 ) -> OnboardingResult:
     """Create a customer, screen them and their UBOs, and assign a risk rating.
@@ -127,11 +128,13 @@ def onboard(
     result = screen(
         conn, full_name, org_id=org_id, trigger="onboarding", country=nationality,
         birth_date=birth_date, gender=gender, customer_id=customer_id, actor=actor,
+        threshold=threshold,
     )
     if name_arabic:
         ar = screen(
             conn, name_arabic, org_id=org_id, trigger="onboarding", country=nationality,
             birth_date=birth_date, gender=gender, customer_id=customer_id, actor=actor,
+            threshold=threshold,
         )
         # Keep whichever script produced the stronger evidence.
         if ar.hits and (not result.hits or max(h.score for h in ar.hits) > max(h.score for h in result.hits)):
@@ -145,6 +148,7 @@ def onboard(
             conn, ubo["person_name"], org_id=org_id, trigger="onboarding",
             country=ubo.get("nationality"), birth_date=ubo.get("birth_date"),
             customer_id=customer_id, ubo_id=ubo_id, actor=actor,
+            threshold=threshold,
         )
         ubo_results.append((ubo["person_name"], res))
 
@@ -285,3 +289,37 @@ def due_for_review(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]
         (org_id, today),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def add_case_note(
+    conn: sqlite3.Connection, customer_id: int, org_id: int, *, author: str, body: str,
+) -> int:
+    """Record investigative narrative not tied to any one alert -- periodic
+    review commentary, source-of-wealth notes, anything that belongs in the
+    case file but isn't a disposition decision.
+
+    Verifies the customer belongs to org_id before writing: case_notes.
+    customer_id is a bare foreign key, so an insert with a mismatched org_id
+    would otherwise succeed as long as the customer row exists at all
+    (anywhere), silently creating a note that claims one org's ownership over
+    another org's customer. This is the same "404, not a filtered-empty
+    result" property applied everywhere else in this module -- a cross-tenant
+    customer_id is treated as not found, not merely skipped.
+    """
+    body = (body or "").strip()
+    if not body:
+        raise ValueError("a case note cannot be empty")
+    with conn:
+        owned = conn.execute(
+            "SELECT 1 FROM customers WHERE id=? AND org_id=?", (customer_id, org_id)
+        ).fetchone()
+        if owned is None:
+            raise ValueError(f"customer {customer_id} not found")
+        cur = conn.execute(
+            "INSERT INTO case_notes (org_id, customer_id, author, body, created_at)"
+            " VALUES (?,?,?,?,?)",
+            (org_id, customer_id, author, body, utcnow()),
+        )
+        audit(conn, author, "case_note.add", "customer", customer_id,
+              {"note_id": cur.lastrowid}, org_id=org_id)
+        return cur.lastrowid

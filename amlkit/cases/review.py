@@ -299,3 +299,22 @@ def review_history(conn: sqlite3.Connection, alert_id: int, org_id: int) -> list
     ).fetchall()
     return [dict(r) | {"reason_label": REASON_CODES.get(r["reason_code"], r["reason_code"])}
             for r in rows]
+
+
+def assign_alert(
+    conn: sqlite3.Connection, alert_id: int, org_id: int, *, operator: str | None, actor: str,
+) -> None:
+    """Route an alert to an operator, or clear its assignment with
+    operator=None. Pure workflow routing -- unlike disposition, this does not
+    touch the four-eyes/reason-code machinery at all, since who is looking at
+    an alert is not a decision about it.
+    """
+    with conn:
+        cur = conn.execute(
+            "UPDATE alerts SET assigned_to=? WHERE id=? AND org_id=?",
+            (operator, alert_id, org_id),
+        )
+        if cur.rowcount == 0:
+            raise ReviewError(f"alert {alert_id} not found")
+        audit(conn, actor, "alert.assign", "alert", alert_id,
+              {"assigned_to": operator}, org_id=org_id)

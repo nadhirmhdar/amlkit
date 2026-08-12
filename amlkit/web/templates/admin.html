@@ -45,6 +45,32 @@
 </div>
 
 <div class="panel">
+  <h2>Screening threshold</h2>
+  <p class="muted small" style="margin-top:-6px">
+    Score at or above this clears the alert bar. Default is
+    <strong>{{ default_threshold }}</strong>, tuned against a golden set and
+    a false-positive suite — changing it here is a real decision, not a
+    dial to turn casually. One global value, not per-list-type profiles.
+  </p>
+  <form method="post" action="/admin/threshold" class="row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div>
+      <label>Threshold (0.0–1.0)</label>
+      <input type="number" name="threshold" step="0.001" min="0" max="1"
+             value="{{ threshold if threshold is not none else '' }}"
+             placeholder="{{ default_threshold }} (engine default)">
+    </div>
+    <div style="align-self:end">
+      <button type="submit">Save</button>
+      <span class="muted small">
+        {% if threshold is not none %}Currently overridden: {{ threshold }}
+        {% else %}Currently using the engine default.{% endif %}
+      </span>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
   <h2>Add operator</h2>
   <form method="post" action="/admin/operators" class="row">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

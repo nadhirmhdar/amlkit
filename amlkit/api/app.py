@@ -26,17 +26,18 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import auth, queries
-from ..cases.manager import add_ubo, close_relationship, onboard
+from ..cases.manager import add_case_note, add_ubo, close_relationship, onboard
 from ..cases.review import (
     REASON_CODES,
     ReviewError,
+    assign_alert,
     confirm_disposition,
     propose_disposition,
     review_history,
     single_operator_mode,
 )
-from ..db import utcnow
-from ..match.engine import screen
+from ..db import set_org_alert_threshold, utcnow
+from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
 from .deps import (
@@ -325,6 +326,7 @@ def screen_run(
 
     result = screen(
         db, name, org_id=session.org_id, trigger="adhoc",
+        threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         country=country.strip() or None,
         birth_date=birth_date.strip() or None,
         gender=gender.strip() or None,
@@ -429,6 +431,7 @@ def customer_create(
             delivery_channel=delivery_channel, cash_level=cash_level,
             jurisdiction_tier=jurisdiction_tier, structure=structure,
             ubos=ubos, actor=session.operator_name,
+            threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         )
     except sqlite3.IntegrityError:
         return back("/customers/new", err=f"Reference {reference!r} already exists.")
@@ -506,10 +509,29 @@ def customer_add_ubo(
     ubo_id = add_ubo(db, customer_id, org_id=session.org_id, person_name=person_name.strip(),
                      ownership_pct=pct, control_type=control_type, actor=session.operator_name)
     res = screen(db, person_name.strip(), org_id=session.org_id, trigger="onboarding",
-                 customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name)
+                 customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name,
+                 threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD)
     note = ("Beneficial owner added. MATCH FOUND - review alerts."
             if res.hits else "Beneficial owner added and screened clear.")
     return back(f"/customers/{customer_id}", msg=note)
+
+
+@app.post("/customers/{customer_id}/notes")
+def customer_add_note(
+    request: Request, db: DB, customer_id: int,
+    body: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+        add_case_note(db, customer_id, session.org_id, author=session.operator_name, body=body)
+    except (PermissionError, ValueError) as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    return back(f"/customers/{customer_id}", msg="Note added.")
 
 
 # --------------------------------------------------------------------- alerts
@@ -574,6 +596,84 @@ def alert_confirm(
     return back(back_to, msg=outcome.message)
 
 
+@app.post("/alerts/{alert_id}/assign")
+def alert_assign_route(
+    request: Request, db: DB, alert_id: int,
+    operator: Annotated[str, Form()] = "",
+    back_to: Annotated[str, Form()] = "/alerts",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+        assign_alert(db, alert_id, session.org_id,
+                    operator=operator.strip() or None, actor=session.operator_name)
+    except (PermissionError, ReviewError) as exc:
+        return back(back_to, err=str(exc))
+    msg = f"Assigned to {operator.strip()}." if operator.strip() else "Assignment cleared."
+    return back(back_to, msg=msg)
+
+
+@app.get("/alerts.csv")
+def alerts_csv(request: Request, db: DB, status: str = "all"):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status)
+    return _csv_response(
+        "alerts.csv",
+        ["id", "category", "score", "caption", "matched_party", "status", "reason_code",
+         "assigned_to", "customer_reference", "created_at"],
+        [
+            [a["id"], a["category"], f"{a['score']:.3f}", a["caption"], a["matched_party"],
+             a["status"], a.get("reason_code") or "", a.get("assigned_to") or "",
+             a.get("reference") or "", a["created_at"]]
+            for a in queue
+        ],
+    )
+
+
+@app.get("/customers.csv")
+def customers_csv(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    rows = queries.customer_list(db, session.org_id)
+    return _csv_response(
+        "customers.csv",
+        ["reference", "full_name", "customer_type", "sector", "status", "rating",
+         "risk_score", "open_alerts", "last_screened", "review_overdue"],
+        [
+            [c["reference"], c["full_name"], c["customer_type"], c.get("sector") or "",
+             c["status"], c.get("rating") or "", c.get("risk_score") or "",
+             c["open_alerts"], c.get("last_screened") or "", c["review_overdue"]]
+            for c in rows
+        ],
+    )
+
+
+def _csv_response(filename: str, header: list[str], rows: list[list]):
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    writer.writerows(rows)
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
 def audit_view(request: Request, db: DB):
@@ -599,7 +699,42 @@ def admin_view(request: Request, db: DB):
     return render(request, "admin.html", {
         "session": session, "org": dict(org),
         "operators": queries.operators(db, session.org_id),
+        "threshold": queries.org_alert_threshold(db, session.org_id),
+        "default_threshold": DEFAULT_THRESHOLD,
     })
+
+
+@app.post("/admin/threshold")
+def admin_set_threshold(
+    request: Request, db: DB,
+    threshold: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin", err=str(exc))
+
+    raw = threshold.strip()
+    if not raw:
+        set_org_alert_threshold(db, session.org_id, None)
+        return back("/admin", msg=f"Threshold reset to the engine default ({DEFAULT_THRESHOLD}).")
+    try:
+        value = float(raw)
+    except ValueError:
+        return back("/admin", err="Threshold must be a number.")
+    if not (0.0 <= value <= 1.0):
+        return back("/admin", err="Threshold must be between 0.0 and 1.0.")
+    set_org_alert_threshold(db, session.org_id, value)
+    from ..db import audit
+    audit(db, session.operator_name, "org.threshold_set", "organization", session.org_id,
+          {"threshold": value}, org_id=session.org_id)
+    db.commit()
+    return back("/admin", msg=f"Alert threshold set to {value}.")
 
 
 @app.post("/admin/operators/{operator_id}/reset-password")

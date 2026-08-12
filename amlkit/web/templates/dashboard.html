@@ -30,6 +30,10 @@
     <div class="n">{{ d.due_for_review|length }}</div>
     <div class="l">Customers due for periodic review</div>
   </div>
+  <div class="tile {{ 'bad' if d.high_risk_customers else '' }}">
+    <div class="n">{{ d.high_risk_customers }}</div>
+    <div class="l">High-risk customers</div>
+  </div>
   <div class="tile">
     <div class="n">{{ '{:,}'.format(d.counts.entities) }}</div>
     <div class="l">Listed entities screened against</div>
@@ -51,6 +55,28 @@
       a second operator must confirm before they can close.
     </div>
   {% endif %}
+</div>
+{% endif %}
+
+{% if d.oldest_open %}
+<div class="panel">
+  <h2>Oldest open alerts</h2>
+  <p class="muted small" style="margin-top:-6px">
+    Age matters on its own: an alert sitting open longest is the one most
+    likely to be forgotten, independent of its score.
+  </p>
+  <table>
+    <tr><th>Matched entity</th><th>Category</th><th>Score</th><th>Assigned</th><th>Opened</th></tr>
+    {% for a in d.oldest_open %}
+    <tr>
+      <td>{{ a.caption }}</td>
+      <td><span class="tag {{ a.category }}">{{ a.category }}</span></td>
+      <td class="score">{{ '%.3f'|format(a.score) }}</td>
+      <td class="small">{{ a.assigned_to or '—' }}</td>
+      <td class="small nowrap">{{ a.created_at[:16].replace('T',' ') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
 </div>
 {% endif %}
 

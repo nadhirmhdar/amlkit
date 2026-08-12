@@ -147,6 +147,18 @@
 </div>
 {% endif %}
 
+{% if notes %}
+<div class="panel">
+  <h2>Case notes</h2>
+  {% for n in notes %}
+    <div style="margin-bottom:10px">
+      <div class="small"><strong>{{ n.author }}</strong> · {{ n.created_at[:19].replace('T',' ') }} UTC</div>
+      <div>{{ n.body }}</div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 <div class="panel">
   <h2>Audit trail</h2>
   <table>

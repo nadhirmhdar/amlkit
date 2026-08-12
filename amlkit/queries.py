@@ -73,12 +73,25 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
         (org_id, org_id, org_id),
     ).fetchone()
 
+    high_risk = conn.execute(
+        """SELECT COUNT(*) c FROM customers c
+           WHERE c.org_id=? AND c.status='active' AND EXISTS (
+             SELECT 1 FROM risk_assessments r WHERE r.customer_id=c.id AND r.rating='high'
+             AND r.id = (SELECT id FROM risk_assessments WHERE customer_id=c.id
+                         ORDER BY assessed_at DESC LIMIT 1))""",
+        (org_id,),
+    ).fetchone()["c"]
+
+    oldest_open = sorted(alerts, key=lambda a: a["created_at"])[:5]
+
     return {
         "staleness": staleness,
         "breaches": breaches,
         "compliant": not breaches,
         "open_alerts": alerts,
         "open_by_category": by_category,
+        "oldest_open": oldest_open,
+        "high_risk_customers": high_risk,
         "pending_review": [a for a in alerts if a["status"] == "pending_review"],
         "due_for_review": reviews,
         "counts": dict(counts),
@@ -93,7 +106,7 @@ def alert_queue(
     scoped to one organization."""
     sql = """
         SELECT a.id, a.score, a.score_detail, a.matched_name, a.status,
-               a.disposition, a.reason_code, a.independent_review,
+               a.disposition, a.reason_code, a.independent_review, a.assigned_to,
                a.dispositioned_by, a.dispositioned_at, a.created_at,
                e.id AS entity_id, e.caption, e.schema_type, e.topics, e.programs,
                e.countries, e.birth_date,
@@ -207,6 +220,8 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
     alerts = [a for a in alert_queue(conn, org_id, status=None, limit=500)
               if a["customer_id"] == customer_id]
 
+    notes = case_notes(conn, customer_id, org_id)
+
     return {
         "customer": dict(row),
         "ubos": ubos,
@@ -214,6 +229,7 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
         "risk_history": risks,
         "screenings": screenings,
         "alerts": alerts,
+        "notes": notes,
         "audit": audit_trail(conn, org_id, "customer", customer_id),
     }
 
@@ -257,3 +273,21 @@ def datasets(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [dict(r) for r in conn.execute(
         "SELECT key, title, publisher, licence, is_mandatory, last_refresh, entity_count"
         " FROM datasets ORDER BY is_mandatory DESC, key")]
+
+
+def case_notes(conn: sqlite3.Connection, customer_id: int, org_id: int) -> list[dict[str, Any]]:
+    return [dict(r) for r in conn.execute(
+        "SELECT id, author, body, created_at FROM case_notes"
+        " WHERE customer_id=? AND org_id=? ORDER BY id DESC",
+        (customer_id, org_id))]
+
+
+def org_alert_threshold(conn: sqlite3.Connection, org_id: int) -> float | None:
+    """The org's configured alert threshold, or None to use the engine
+    default. A single global knob, not per-list-type "screening profiles" --
+    see the design note in cases/review.py on deliberately avoiding that
+    complexity without an evidenced need for it."""
+    row = conn.execute(
+        "SELECT alert_threshold FROM org_settings WHERE org_id=?", (org_id,)
+    ).fetchone()
+    return row["alert_threshold"] if row and row["alert_threshold"] is not None else None
