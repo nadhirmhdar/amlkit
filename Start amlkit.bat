@@ -24,6 +24,21 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 
+REM ---------------------------------------------------------------------
+REM  SINGLE-OPERATOR MODE
+REM
+REM  Leave this commented out if two or more people can review alerts.
+REM  Dismissing a sanctions or proliferation match then requires a second
+REM  operator to confirm - that separation is the control.
+REM
+REM  If this firm has only ONE compliance officer, remove the REM below.
+REM  Dismissals are then recorded with "no independent review" stamped on
+REM  the alert and on the printed evidence pack. The gap becomes visible to
+REM  a supervisor rather than silently absent - which is the honest
+REM  treatment, and it stops a solo officer being unable to clear a queue.
+REM ---------------------------------------------------------------------
+REM set AMLKIT_SINGLE_OPERATOR_MODE=1
+
 echo Starting amlkit...
 
 REM Server gets its own titled window so it is obvious what is running and
