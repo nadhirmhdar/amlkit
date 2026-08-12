@@ -1,14 +1,38 @@
 /* amlkit — single stylesheet, no framework.
    Dense and plain on purpose: this is a working tool for someone reviewing
-   alerts all day, not a marketing page. Legibility beats decoration. */
+   alerts all day, not a marketing page. Legibility beats decoration.
+
+   Palette and shape language are Grovisor's, taken from grovisor.ae's live
+   theme CSS (navy/teal, soft rounded surfaces, generous whitespace, subtle
+   hairline borders) -- colours and shape only, per the source guidance to
+   express the same information structure in the real brand rather than a
+   1:1 palette swap of whatever came before. Fonts are deliberately NOT
+   Grovisor's (Manrope/Inter): self-hosting them was considered and declined
+   to keep this app making zero external network calls even at build time,
+   so the system-font stack stays.
+
+   Category alert colours below (--pf/--tf/--sanction/--pep/--ok) are a
+   COMPLIANCE SIGNAL, not decoration, and are deliberately left unchanged by
+   the rebrand -- they must stay visually distinct from the new navy/teal
+   accent, not pulled toward it. */
 
 :root {
-  --bg: #f6f7f9;
+  --bg: #F7F9FB;
   --panel: #ffffff;
+  --panel-alt: #EEF1F6;
   --ink: #16191d;
-  --muted: #5d6672;
-  --line: #dfe3e8;
-  --accent: #1f4e79;
+  --muted: #445571;
+  --muted-2: #8298B8;
+  --line: #E4E7EC;
+  --accent: #0F2140;
+  --accent-mid: #183460;
+  --accent-2: #1E9B8F;
+  --accent-2-light: #38B2A6;
+
+  --shadow-sm: 0 10px 28px rgba(15,33,64,.06);
+  --shadow-md: 0 18px 50px rgba(15,33,64,.09);
+  --radius: 10px;
+  --radius-lg: 16px;
 
   /* Category colours. Proliferation is the most severe and the least
      familiar to an operator, so it gets the strongest signal. */
@@ -40,10 +64,13 @@ body {
 }
 .name-ar { font-size: 1.05em; }
 
-a { color: var(--accent); }
+/* Teal is the brand's CTA/highlight colour; links are exactly that kind of
+   interactive highlight, while navy stays the structural/heading colour. */
+a { color: var(--accent-2); }
+a:hover { color: var(--accent-2-light); }
 
 header.top {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-mid));
   color: #fff;
   padding: 0 20px;
   display: flex;
@@ -63,16 +90,17 @@ header.top nav a.on { color: #fff; border-bottom-color: #fff; }
 
 .operator-box { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .operator-box input {
-  padding: 5px 8px; border: 0; border-radius: 3px; width: 130px; font-size: 13px;
+  padding: 5px 8px; border: 0; border-radius: 999px; width: 130px; font-size: 13px;
 }
-.operator-box .who { background: rgba(255,255,255,.15); padding: 4px 10px; border-radius: 3px; }
+.operator-box .who { background: rgba(255,255,255,.15); padding: 4px 10px; border-radius: 999px; }
 
 main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 60px; }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 18px 20px;
   margin-bottom: 18px;
 }
@@ -86,7 +114,10 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 60px; }
 .grid.two { grid-template-columns: 1fr 1fr; }
 @media (max-width: 800px) { .grid.two { grid-template-columns: 1fr; } }
 
-.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 16px; }
+.tile {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 16px;
+}
 .tile .n { font-size: 30px; font-weight: 600; line-height: 1.1; }
 .tile .l { color: var(--muted); font-size: 13px; margin-top: 3px; }
 .tile.good { border-left: 4px solid var(--ok); }
@@ -101,27 +132,28 @@ td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-ali
 tr:last-child td { border-bottom: 0; }
 
 .tag {
-  display: inline-block; padding: 2px 8px; border-radius: 3px;
+  display: inline-block; padding: 3px 10px; border-radius: 999px;
   font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
 }
 .tag.proliferation { background: var(--pf-bg); color: var(--pf); }
 .tag.terrorism     { background: var(--tf-bg); color: var(--tf); }
 .tag.sanction      { background: var(--sanction-bg); color: var(--sanction); }
 .tag.pep           { background: var(--pep-bg); color: var(--pep); }
-.tag.other         { background: #eef0f2; color: var(--muted); }
+.tag.other         { background: var(--panel-alt); color: var(--muted); }
 .tag.high   { background: var(--pf-bg); color: var(--pf); }
 .tag.medium { background: var(--sanction-bg); color: var(--sanction); }
 .tag.low    { background: var(--ok-bg); color: var(--ok); }
 
 .score { font-variant-numeric: tabular-nums; font-weight: 600; }
 
-.banner { padding: 12px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px; }
+.banner { padding: 12px 16px; border-radius: var(--radius); margin-bottom: 16px; font-size: 14px; }
 .banner.err  { background: var(--pf-bg); color: var(--pf); border: 1px solid #e8bcbc; }
 .banner.ok   { background: var(--ok-bg); color: var(--ok); border: 1px solid #b9dcc8; }
 .banner.warn { background: var(--sanction-bg); color: var(--sanction); border: 1px solid #e6d79a; }
 
 .obligation {
   background: var(--pf-bg); border-left: 4px solid var(--pf); color: var(--pf);
+  border-radius: 0 var(--radius) var(--radius) 0;
   padding: 10px 14px; font-size: 13.5px; font-weight: 500; margin: 10px 0;
 }
 .obligation.terrorism { background: var(--tf-bg); border-left-color: var(--tf); color: var(--tf); }
@@ -130,33 +162,38 @@ tr:last-child td { border-bottom: 0; }
 label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 input[type=text], input[type=date], input[type=number], select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--line);
-  border-radius: 4px; font: inherit; font-size: 14px; background: #fff;
+  border-radius: var(--radius); font: inherit; font-size: 14px; background: #fff;
 }
 textarea { min-height: 68px; resize: vertical; }
 .field { margin-bottom: 13px; }
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 13px; }
 
+/* Pill-shaped per the brand's shape language: buttons and tags share the
+   999px treatment. Primary actions stay navy (the brand's stated primary
+   colour); teal is reserved for links/highlights, matching the source
+   table's "Teal ... CTAs, highlights" -- using it on every button as well
+   would flatten that distinction. */
 button, .btn {
-  padding: 8px 16px; border: 1px solid var(--accent); background: var(--accent);
-  color: #fff; border-radius: 4px; font: inherit; font-size: 14px; cursor: pointer;
+  padding: 8px 18px; border: 1px solid var(--accent); background: var(--accent);
+  color: #fff; border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer;
   text-decoration: none; display: inline-block;
 }
-button:hover { background: #163d5e; }
+button:hover { background: var(--accent-mid); }
 button.ghost { background: #fff; color: var(--accent); }
-button.ghost:hover { background: #eef3f8; }
+button.ghost:hover { background: var(--panel-alt); }
 button.danger { background: var(--pf); border-color: var(--pf); }
-button.small, .btn.small { padding: 5px 11px; font-size: 13px; }
+button.small, .btn.small { padding: 5px 13px; font-size: 13px; }
 
 details.evidence { margin-top: 8px; }
 details.evidence summary {
-  cursor: pointer; color: var(--accent); font-size: 13px; user-select: none;
+  cursor: pointer; color: var(--accent-2); font-size: 13px; user-select: none;
 }
 .breakdown {
-  background: #fafbfc; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel-alt); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 10px 12px; margin-top: 8px; font-size: 13px;
 }
 .breakdown code {
-  background: #eef0f2; padding: 1px 5px; border-radius: 3px;
+  background: var(--panel-alt); padding: 1px 6px; border-radius: 999px;
   font-family: Consolas, monospace; font-size: 12.5px;
 }
 .pair { display: inline-block; margin: 2px 6px 2px 0; }
@@ -168,7 +205,10 @@ details.evidence summary {
 .nowrap { white-space: nowrap; }
 .stack > * + * { margin-top: 9px; }
 
-.alert-card { border: 1px solid var(--line); border-radius: 5px; padding: 15px 17px; margin-bottom: 14px; background: #fff; }
+.alert-card {
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm); padding: 15px 17px; margin-bottom: 14px; background: #fff;
+}
 .alert-card.proliferation { border-left: 5px solid var(--pf); }
 .alert-card.terrorism     { border-left: 5px solid var(--tf); }
 .alert-card.sanction      { border-left: 5px solid var(--sanction); }
@@ -177,7 +217,7 @@ details.evidence summary {
 
 .review-note {
   border: 1px dashed #c9a227; background: #fffdf3; color: #6b5200;
-  padding: 8px 12px; border-radius: 4px; font-size: 13px; margin: 8px 0;
+  padding: 8px 12px; border-radius: var(--radius); font-size: 13px; margin: 8px 0;
 }
 
 /* Evidence pack: the browser's print engine is the PDF generator. */
