@@ -24,8 +24,13 @@ jobs:
     name: Test suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # checkout@v5 / setup-python@v6 are the first majors targeting Node 24.
+      # v4/v5 target Node 20, which GitHub deprecated: the runner force-upgrades
+      # them and warns on every run. Pinning the current majors keeps the
+      # canary's output meaningful -- a workflow whose job is detecting silent
+      # breakage must not itself be noisy, or real warnings get skimmed past.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -39,8 +44,13 @@ jobs:
     name: Verify upstream sources
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # checkout@v5 / setup-python@v6 are the first majors targeting Node 24.
+      # v4/v5 target Node 20, which GitHub deprecated: the runner force-upgrades
+      # them and warns on every run. Pinning the current majors keeps the
+      # canary's output meaningful -- a workflow whose job is detecting silent
+      # breakage must not itself be noisy, or real warnings get skimmed past.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
