@@ -1,0 +1,90 @@
+# Upstream source canary.
+#
+# This workflow is NOT the 24-hour compliance control. Customer data lives on
+# the compliance officer's machine and never reaches CI, so there is nothing
+# here to re-screen -- see scripts/refresh.py, which is the actual control.
+#
+# What this does is catch upstream breakage early: a renamed dataset, a changed
+# export format, a truncated file. Those failures are silent by nature -- the
+# local refresh would keep reporting success against a stale copy -- so finding
+# them here, on a schedule, is worth a job on its own.
+
+name: Source canary
+
+on:
+  schedule:
+    - cron: "0 5 * * *"      # daily, 05:00 UTC (09:00 Gulf Standard Time)
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  tests:
+    name: Test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run tests
+        run: python -m pytest tests -q
+        # Hermetic: the suite builds its own in-memory watchlist and needs no
+        # network, so a failure here is a real regression, not a flaky source.
+
+  sources:
+    name: Verify upstream sources
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Fetch and parse every mandatory source
+        run: |
+          python - <<'PY'
+          import sys
+          from amlkit.db import connect
+          from amlkit.ingest.base import AdapterError
+          from amlkit.ingest.loader import load
+          from amlkit.ingest.opensanctions import uae_local_terrorists, un_sanctions
+
+          # Expected minimum entity counts. A source that suddenly returns far
+          # fewer records has usually changed format rather than been emptied,
+          # and that must fail rather than quietly shrink coverage.
+          EXPECTED = {
+              "ae_local_terrorists": 250,
+              "un_sc_sanctions": 800,
+          }
+
+          conn = connect(":memory:")
+          failed = []
+          for factory in (uae_local_terrorists, un_sanctions):
+              adapter = factory()
+              try:
+                  res = load(conn, adapter, actor="ci")
+                  floor = EXPECTED.get(res.dataset, 1)
+                  if res.entities < floor:
+                      failed.append(
+                          f"{res.dataset}: {res.entities} entities, expected >= {floor}"
+                      )
+                      print(f"::error::{res.dataset} returned only {res.entities} entities")
+                  else:
+                      print(f"OK  {res}")
+              except AdapterError as exc:
+                  failed.append(f"{adapter.key}: {exc}")
+                  print(f"::error::{adapter.key} failed: {exc}")
+
+          if failed:
+              print("\nUPSTREAM SOURCE FAILURE:")
+              for f in failed:
+                  print(f"  - {f}")
+              sys.exit(1)
+          print("\nAll mandatory sources fetched and parsed.")
+          PY
