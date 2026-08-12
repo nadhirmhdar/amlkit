@@ -62,8 +62,9 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
             cur = conn.execute(
                 """INSERT INTO entities
                    (dataset_id, source_id, schema_type, caption, countries,
-                    birth_date, gender, topics, listed_at, raw, first_seen, last_seen)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    birth_date, gender, topics, programs, listed_at, raw,
+                    first_seen, last_seen)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     ds_id,
                     ent.source_id,
@@ -73,6 +74,7 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
                     ent.birth_date,
                     ent.gender,
                     _json(ent.topics),
+                    _json(ent.programs),
                     ent.listed_at,
                     ent.raw_json(),
                     now,

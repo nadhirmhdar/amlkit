@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS entities (
     birth_date   TEXT,
     gender       TEXT,
     topics       TEXT,                       -- json array: sanction, role.pep, ...
+    -- Sanction programme identifiers (UN-SC1718, NPWMD, ...). Retained because
+    -- proliferation financing is a standalone offence under Law 10/2025 and is
+    -- only distinguishable from terrorism financing by the designating regime.
+    programs     TEXT,                       -- json array
     listed_at    TEXT,
     raw          TEXT,                       -- json of the full source record
     first_seen   TEXT NOT NULL,
@@ -234,6 +238,21 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# Columns added after the initial schema. `CREATE TABLE IF NOT EXISTS` will not
+# alter an existing table, so databases created by an earlier version need the
+# column added explicitly rather than silently lacking it.
+_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("entities", "programs", "ALTER TABLE entities ADD COLUMN programs TEXT"),
+)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, ddl in _MIGRATIONS:
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(ddl)
+
+
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
     """Open a connection with sane defaults and the schema applied."""
     target = Path(path) if path else DB_PATH
@@ -241,6 +260,8 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(target)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
+    conn.commit()
     return conn
 
 

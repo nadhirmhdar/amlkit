@@ -89,6 +89,7 @@ class OpenSanctionsAdapter:
                 birth_date=_first(props, "birthDate"),
                 gender=_first(props, "gender"),
                 topics=props.get("topics", []) or [],
+                programs=_collect(props, "programId", "program"),
                 identifiers=_identifiers(props),
                 listed_at=rec.get("first_seen"),
                 raw=rec,

@@ -48,11 +48,27 @@ class OnboardingResult:
             lines.append(f"  UBO {name}: {res.summary()}")
         lines.append("  " + self.risk.explain().replace("\n", "\n  "))
         if self.blocked:
-            lines.append(
-                "  *** BLOCKED: sanctions match. Freeze without delay, do not tip off, "
-                "report to supervisor and FIU. ***"
-            )
+            # State the specific obligation rather than a generic block. PF and
+            # TF are distinct offences under Law 10/2025 and the operator acting
+            # on the alert may not know which regime a designation falls under.
+            for note in sorted(self.obligations):
+                lines.append(f"  *** {note} ***")
         return "\n".join(lines)
+
+    @property
+    def all_hits(self) -> list:
+        hits = list(self.screening.hits)
+        for _, res in self.ubo_screenings:
+            hits.extend(res.hits)
+        return hits
+
+    @property
+    def obligations(self) -> set[str]:
+        return {h.obligation for h in self.all_hits}
+
+    @property
+    def has_proliferation_hit(self) -> bool:
+        return any(h.is_proliferation for h in self.all_hits)
 
 
 def onboard(

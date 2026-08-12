@@ -42,6 +42,10 @@ class SourceEntity:
     birth_date: str | None = None
     gender: str | None = None
     topics: list[str] = field(default_factory=list)
+    # Sanction programme identifiers. The only way to tell a proliferation
+    # designation from a terrorism one, which Law 10/2025 makes distinct
+    # offences.
+    programs: list[str] = field(default_factory=list)
     identifiers: list[tuple[str, str]] = field(default_factory=list)
     listed_at: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)

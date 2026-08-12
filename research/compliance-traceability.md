@@ -49,7 +49,7 @@ concerned.
 |---|---|---|---|
 | Screen against **UNSC Consolidated List** | ◐ | Adapter exists (`un_sanctions()`); not yet loaded by default | — |
 | Screen against **UAE Local Terrorist List** | ✅ | `uae_local_terrorists()` — 335 screenable entities, daily refresh | real-data verification |
-| Screen against **counter-proliferation lists** | ⚠ ⬚ | PF is a standalone offence under Law 10/2025; no dedicated PF path | — |
+| Screen against **counter-proliferation lists** | ✅ | `screening/pf.py` classifies designations by sanctions programme. Of 1,340 loaded entities: **273 proliferation, 809 terrorism, 258 neither** | `test_pf.py` |
 | Implement list updates **within 24 hours** | ◐ | `staleness_report` detects breach; refresh is manual, no scheduler yet | — |
 | Screen at onboarding | ✅ | `trigger="onboarding"` | `test_screening_is_persisted_with_evidence` |
 | Screen on list update | ✅ | `rescreen_all(trigger="list_update")` | — |
@@ -58,9 +58,14 @@ concerned.
 | Freeze **without delay, without tipping off** | ◐ | `blocked` flag and explicit instruction text; no freeze workflow | `test_listed_ubo_blocks_clean_company` |
 | Report matches to supervisor and FIU | ⬚ | M4 | — |
 
-**Gap ⚠ (priority):** proliferation financing was elevated to a standalone
-offence with its own chapter. Folding PF into generic sanctions screening
-understates it. Needs its own dataset path and its own reporting route (PNMR).
+**Resolved.** PF was elevated to a standalone offence with its own chapter, and
+folding it into generic sanctions screening understated it. There is no
+separate PF list to load — PF designations sit inside the UN and OFAC lists and
+are distinguishable only by the **designating programme** (UNSCR 1718 DPRK,
+1737/2231 Iran, OFAC NPWMD), so the fix was classification rather than
+ingestion. Alerts now state the specific obligation, since the operator acting
+on one may not know which regime a designation falls under. The PF-specific
+*reporting route* still depends on M4.
 
 ## 4. Risk-Based Approach
 

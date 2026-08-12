@@ -1,14 +1,15 @@
-"""Screening engine: candidate generation, scoring, alert persistence."""
+﻿"""Screening engine: candidate generation, scoring, alert persistence."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..db import audit, utcnow
 from ..names.arabic import blocking_keys
+from ..screening.pf import classify_programs, obligation_note
 from .scorer import DEFAULT_THRESHOLD, ScoreResult, score_entity
 
 # Valid screening triggers. EOCN requires screening at each of these points,
@@ -27,6 +28,7 @@ class Hit:
     matched_name: str
     topics: list[str]
     detail: dict[str, Any]
+    programs: list[str] = field(default_factory=list)
 
     @property
     def is_sanction(self) -> bool:
@@ -35,6 +37,23 @@ class Hit:
     @property
     def is_pep(self) -> bool:
         return any(t.startswith("role.pep") or t == "role.pep" for t in self.topics)
+
+    @property
+    def categories(self) -> set[str]:
+        return classify_programs(self.programs)
+
+    @property
+    def is_proliferation(self) -> bool:
+        """PF is a standalone offence under Law 10/2025, not a sanctions subtype."""
+        return "proliferation" in self.categories
+
+    @property
+    def is_terrorism(self) -> bool:
+        return "terrorism" in self.categories
+
+    @property
+    def obligation(self) -> str:
+        return obligation_note(self.categories)
 
 
 @dataclass(slots=True)
@@ -75,7 +94,7 @@ def _candidates(conn: sqlite3.Connection, name: str, limit: int = 400) -> list[s
     placeholders = ",".join("?" * len(keys))
     sql = f"""
         SELECT e.id, e.caption, e.schema_type, e.countries, e.birth_date,
-               e.gender, e.topics, d.key AS dataset,
+               e.gender, e.topics, e.programs, d.key AS dataset,
                COUNT(*) AS key_overlap
         FROM name_tokens t
         JOIN entities e ON e.id = t.entity_id
@@ -157,6 +176,7 @@ def screen(
                     score=result.score,
                     matched_name=result.matched_name,
                     topics=json.loads(row["topics"] or "[]"),
+                    programs=json.loads(row["programs"] or "[]"),
                     detail=result.as_dict(),
                 )
             )
@@ -263,3 +283,4 @@ def rescreen_all(
             new_alerts += len(res.hits)
 
     return {"screened": screened, "alerts": new_alerts}
+
