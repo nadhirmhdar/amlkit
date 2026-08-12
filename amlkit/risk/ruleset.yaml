@@ -1,0 +1,126 @@
+# Customer risk-rating ruleset
+#
+# Factors follow the risk-based approach required by Cabinet Resolution No. 134
+# of 2025. Kept in YAML rather than code deliberately: a supervisor may ask why
+# a customer was rated medium in March and high in June, and the answer has to
+# be a dated, reviewable document rather than a diff in a Python file.
+#
+# Scoring: each factor contributes points; the total maps to a band. Any factor
+# marked `mandatory_high` forces a high rating regardless of total -- some
+# conditions (a sanctions hit, a listed jurisdiction) are not averageable.
+
+version: "2025.12.1"
+effective_from: "2025-12-14"   # Cabinet Res. 134/2025 in force
+notes: >
+  Weightings are a defensible starting point, not firm policy. They must be
+  reviewed and signed off by the MLRO against the firm's own business risk
+  assessment before use on real customers.
+
+bands:
+  low:    {min: 0,  max: 24}
+  medium: {min: 25, max: 49}
+  high:   {min: 50, max: 999}
+
+# EDD is required for high risk, and always for PEPs and high-risk
+# jurisdictions regardless of computed band.
+edd_triggers:
+  - rating_high
+  - pep
+  - sanctions_hit
+  - high_risk_jurisdiction
+
+review_months:
+  low: 36
+  medium: 24
+  high: 12
+
+factors:
+
+  sanctions_hit:
+    label: "Confirmed sanctions/terrorist-list match"
+    points: 100
+    mandatory_high: true
+    rationale: >
+      Not a risk factor but a prohibition. Freeze without delay and without
+      tipping off; report to the supervisor and FIU.
+
+  pep:
+    label: "Politically exposed person"
+    points: 40
+    values:
+      foreign_pep: 45
+      domestic_pep: 30
+      international_org_pep: 35
+      rca: 25          # relative or close associate
+    rationale: >
+      PEP status is not itself suspicion; it mandates senior-management
+      approval, source-of-wealth establishment and enhanced monitoring.
+
+  jurisdiction:
+    label: "Country risk (customer nationality / incorporation / funds source)"
+    points_by_tier:
+      fatf_blacklist: 60      # FATF call-for-action
+      fatf_greylist: 35       # increased monitoring
+      high_risk_other: 25
+      standard: 0
+    mandatory_high_tiers: [fatf_blacklist]
+
+  sector:
+    label: "Customer business sector"
+    points_by_sector:
+      # DNFBP-adjacent and cash-intensive sectors carry elevated inherent risk
+      # under the UAE National Risk Assessment.
+      precious_metals_stones: 30
+      real_estate: 25
+      money_exchange: 30
+      virtual_assets: 35        # VASPs explicitly in scope under Law 10/2025
+      corporate_service_provider: 25
+      cash_intensive_retail: 20
+      construction: 15
+      professional_services: 10
+      other: 5
+
+  ownership_opacity:
+    label: "Beneficial ownership transparency"
+    points_by_state:
+      ubo_undisclosed: 45
+      nominee_or_bearer: 40
+      multi_layer_offshore: 30
+      single_layer_foreign: 15
+      fully_transparent: 0
+    rationale: >
+      Cabinet Res. 134/2025 requires BO identification at the 25% threshold
+      with fallback to senior managing official. Inability to identify a UBO is
+      itself a significant risk indicator, not merely a missing field.
+
+  delivery_channel:
+    label: "How the relationship was established"
+    points_by_channel:
+      non_face_to_face_unverified: 25
+      introduced_by_third_party: 15
+      remote_verified: 10
+      face_to_face: 0
+
+  cash_intensity:
+    label: "Cash intensity of the relationship"
+    points_by_level:
+      predominantly_cash: 25
+      mixed: 10
+      non_cash: 0
+
+  adverse_media:
+    label: "Adverse media findings"
+    points_by_severity:
+      financial_crime_alleged: 35
+      regulatory_action: 25
+      reputational_only: 10
+      none: 0
+
+  structure:
+    label: "Legal structure"
+    points_by_type:
+      trust_or_foundation: 20
+      offshore_company: 25
+      free_zone_company: 10
+      mainland_llc: 5
+      natural_person: 0
