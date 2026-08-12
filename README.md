@@ -1,0 +1,115 @@
+# amlkit — UAE AML screening & CDD
+
+Sanctions/PEP screening and customer due diligence for UAE-regulated entities,
+built around the obligations in **Federal Decree-Law No. 10 of 2025** and
+**Cabinet Resolution No. 134 of 2025**.
+
+Built for the segment the market prices out: DNFBPs — real estate brokers,
+precious-metals dealers, corporate service providers, auditors and law firms —
+who carry the same legal obligations as a bank but cannot justify $25k–75k/yr
+of enterprise tooling. Commercial entry floors run $99–$375/month *before*
+per-customer costs, which is the actual barrier for a 40-client firm.
+
+---
+
+## ⚠️ Licence boundary — read before any commercial use
+
+The active data source is **OpenSanctions**, which is free for
+**non-commercial use only**. There are no exemptions for commercial users.
+
+**While the OpenSanctions adapter is in use, this tool must not be sold or used
+to provide a paid service.** Every source sits behind the adapter interface in
+`amlkit/ingest/base.py` precisely so it can be swapped for direct
+primary-source ingestion (OFAC, UN, EU, UK, EOCN — all public domain and free
+to redistribute) before commercial launch.
+
+This is a hard line, not a formality.
+
+---
+
+## What works today
+
+- **Sanctions screening** against the UAE Local Terrorist List (335 screenable
+  entities, refreshed daily from source)
+- **Arabic-aware matching** — the differentiator. Cross-script queries,
+  transliteration variants, patronymic particles, reordered name chains
+- **Scored alerts with full evidence** — every alert stores its per-feature
+  breakdown, because "the algorithm said so" is not an answer to an examiner
+- **Append-only audit log**, enforced by database trigger rather than convention
+- **Staleness monitoring** against the EOCN 24-hour list-update rule
+
+Measured on the real UAE list: 12/12 Latin self-match, 12/12 Arabic-script
+self-match, **0 false positives** across the benign-name suite.
+
+## Not built yet
+
+CDD/EDD case file · risk model · adverse media · goAML STR export · web UI.
+See `research/` for the analysis these are designed against.
+
+---
+
+## Quick start
+
+```bash
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+```
+
+Load the mandatory UAE list and screen a name:
+
+```python
+from amlkit.db import connect
+from amlkit.ingest.loader import load
+from amlkit.ingest.opensanctions import uae_local_terrorists
+from amlkit.match.engine import screen
+
+conn = connect()
+load(conn, uae_local_terrorists())
+
+result = screen(conn, "Mohammed bin Rashid", trigger="onboarding")
+print(result.summary())
+for hit in result.hits:
+    print(hit.score, hit.caption, hit.detail)
+```
+
+Run the tests:
+
+```bash
+.venv\Scripts\python -m pytest tests -q
+```
+
+---
+
+## Why Arabic matching is the wedge
+
+Every major platform treats Arabic as a transliteration problem solved by
+generic cross-script reference data. In the UAE it is *the* matching problem.
+`Mohd` and `Muhammad` are 6 edits apart on an 8-character string — no
+edit-distance threshold catches that without also matching half the database.
+
+`amlkit/names/arabic.py` handles it linguistically instead: orthographic
+normalisation, positional semivowels, theophoric compound rejoining
+(`Abd al-Rahman` → `Abdulrahman`), particle tokenisation, and order-independent
+canonical keys. Arabic-script and Latin queries land in one canonical space.
+
+One consequence worth knowing: `Hassan` (حسن) and `Hussein` (حسين) share a
+consonant skeleton and *will* collapse under skeleton-only logic. Arabic
+spellings are therefore consulted directly before transliteration — see
+`ARABIC_FORMS`.
+
+---
+
+## Design decisions
+
+| Decision | Why |
+|---|---|
+| SQLite, not Postgres | Runs on a compliance officer's laptop. One file, no daemon, backup = copy |
+| Own matcher, not `yente` | yente needs Elasticsearch at 8–16GB; and the Arabic layer needs to be ours |
+| OpenSanctions `logic-v2` weights | Publicly documented, well tested — better than inventing weights |
+| Replace-on-refresh ingest | A delisted person must actually disappear; merge semantics leave stale hits |
+| Loud adapter failures | A silently-lapsed sanctions feed shows green while coverage is gone |
+
+## Not legal advice
+
+Built from published legal sources. Before this touches real client files, a
+UAE-qualified adviser should sign off on the risk model and STR workflow.
