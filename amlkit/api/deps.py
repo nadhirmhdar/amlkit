@@ -37,6 +37,8 @@ def startup_warning() -> str | None:
     binding beyond loopback without TLS is not merely inadvisable, it sends
     passwords and customer PII across the LAN in cleartext.
     """
+    if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
+        return None
     if is_network_exposed() and not TLS_CONFIGURED:
         return (
             f"SECURITY: bound to {BIND_HOST} (reachable from the network) with no TLS "

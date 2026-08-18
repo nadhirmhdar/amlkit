@@ -20,7 +20,7 @@ import sqlite3
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Form, Request
+from fastapi import Depends, FastAPI, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -54,7 +54,79 @@ from .deps import (
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="amlkit", docs_url=None, redoc_url=None)
+# ---------------------------------------------------------------------- scheduler
+import contextlib
+import logging
+import os
+
+log = logging.getLogger("amlkit.scheduler")
+
+
+def _run_scheduled_refresh() -> None:
+    """Load fresh sanctions lists and re-screen all orgs. Runs every 23 hours.
+
+    23 hours (not 24) gives a safety margin against the EOCN 24-hour rule:
+    if a download is slow or retried once, we still finish within the window.
+    """
+    from ..db import connect
+    from ..ingest.base import AdapterError
+    from ..ingest.loader import load
+    from ..ingest.opensanctions import uae_local_terrorists
+    from ..ingest.un import UNSanctionsAdapter
+    from ..ingest.ofac import OFACSDNAdapter
+    from ..ingest.eu import EUSanctionsAdapter
+    from ..match.engine import rescreen_all
+
+    log.info("Scheduled sanctions refresh starting…")
+    conn = connect()
+    total_alerts = 0
+    for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter, EUSanctionsAdapter]:
+        adapter = factory()
+        try:
+            result = load(conn, adapter, actor="scheduler")
+            log.info("Loaded %s: %d entities", adapter.key, result.entities)
+        except AdapterError as exc:
+            log.error("FAILED to load %s: %s", adapter.key, exc)
+    conn.commit()
+    orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
+    for org in orgs:
+        outcome = rescreen_all(conn, org["id"], actor="scheduler")
+        total_alerts += outcome["alerts"]
+        log.info("Re-screened org '%s': %d names, %d alerts", org["name"], outcome["screened"], outcome["alerts"])
+    conn.commit()
+    conn.close()
+    log.info("Scheduled refresh complete. %d new alert(s) raised.", total_alerts)
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app):
+    """Start the 23-hour refresh scheduler when the container boots.
+
+    Cloud Run may scale to zero (killing the scheduler) when idle for long
+    periods. The /system/refresh endpoint below provides a reliable fallback
+    that Cloud Scheduler can call via HTTP even after a cold start.
+    """
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(
+            _run_scheduled_refresh,
+            trigger="interval",
+            hours=23,
+            id="sanctions_refresh",
+            replace_existing=True,
+        )
+        scheduler.start()
+        log.info("APScheduler started — sanctions refresh every 23 hours.")
+        yield
+        scheduler.shutdown(wait=False)
+    except ImportError:
+        log.warning("apscheduler not installed — in-process scheduling disabled. "
+                    "Use Cloud Scheduler + /system/refresh endpoint instead.")
+        yield
+
+
+app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))
 templates.env.globals["has_arabic"] = has_arabic_script
@@ -68,7 +140,15 @@ _COOKIE_MAX_AGE = int(auth.SESSION_LIFETIME.total_seconds())
 
 def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None = None) -> HTMLResponse:
     """Render with the context every page needs, including a fresh CSRF token
-    for any form on the page."""
+    for any form on the page.
+
+    The CSRF token is set BOTH in the template context (for the hidden form
+    field) AND as a cookie on the response. Both must use the same value —
+    using the existing cookie value if present, or generating one new token
+    that is written to both places at once. Generating one token for the form
+    and a separate one for the cookie (as a middleware would) causes every
+    first-visit form submission to fail the CSRF check.
+    """
     session = ctx.get("session")
     if session is None and db is not None:
         session = current_session(request, db)
@@ -77,8 +157,24 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     ctx.setdefault("single_operator", single_operator_mode())
     ctx.setdefault("msg", request.query_params.get("msg"))
     ctx.setdefault("err", request.query_params.get("err"))
-    ctx.setdefault("csrf_token", request.cookies.get(CSRF_COOKIE) or auth.new_csrf_token())
-    return templates.TemplateResponse(request, name, ctx)
+
+    # Use the cookie value if already present; otherwise mint one token that
+    # goes into BOTH the form field AND the cookie on this same response.
+    existing = request.cookies.get(CSRF_COOKIE)
+    token = existing or auth.new_csrf_token()
+    ctx.setdefault("csrf_token", token)
+
+    resp = templates.TemplateResponse(request, name, ctx)
+    if not existing:
+        _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+        resp.set_cookie(
+            CSRF_COOKIE, token,
+            httponly=False,
+            samesite="lax",
+            secure=_behind_proxy,
+            max_age=_COOKIE_MAX_AGE,
+        )
+    return resp
 
 
 def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
@@ -93,17 +189,29 @@ def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
 
 
 def _set_csrf_cookie(resp, request: Request) -> None:
-    """Ensure every response carries a CSRF cookie, issuing one if absent."""
+    """Ensure every response carries a CSRF cookie, issuing one if absent.
+
+    secure=True is required on Cloud Run (HTTPS). Without it, modern browsers
+    silently drop the cookie on HTTPS pages, causing every form submission to
+    fail the CSRF check with "stale page" even on a fresh load.
+
+    samesite="lax" (not strict) allows the cookie to survive navigating to the
+    login page from an external link or bookmark -- strict would drop it on the
+    very first GET, which is the most common path for a new user.
+    """
     if not request.cookies.get(CSRF_COOKIE):
+        _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
         resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=False,
-                        samesite="strict", secure=False, max_age=_COOKIE_MAX_AGE)
+                        samesite="lax", secure=_behind_proxy,
+                        max_age=_COOKIE_MAX_AGE)
 
 
 @app.middleware("http")
 async def ensure_csrf_cookie(request: Request, call_next):
-    response = await call_next(request)
-    _set_csrf_cookie(response, request)
-    return response
+    # CSRF cookie is now set directly by render() so that the same token
+    # goes into both the form hidden field and the cookie. This middleware
+    # is kept as a passthrough only — it no longer generates tokens.
+    return await call_next(request)
 
 
 # ----------------------------------------------------------------- sign-in
@@ -444,6 +552,30 @@ def customer_create(
     return back(f"/customers/{result.customer_id}", msg=note)
 
 
+@app.post("/customers/scan-passport")
+def customer_scan_passport(
+    request: Request, db: DB,
+    passport_file: UploadFile,
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    import io
+    from ..cases.ocr import extract_passport_data
+
+    try:
+        content = passport_file.file.read()
+        file_like = io.BytesIO(content)
+        data = extract_passport_data(file_like)
+        return data
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/customers/{customer_id}", response_class=HTMLResponse)
 def customer_detail(request: Request, db: DB, customer_id: int):
     try:
@@ -453,8 +585,12 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     data = queries.customer(db, customer_id, session.org_id)
     if data is None:
         return back("/customers", err=f"Customer {customer_id} not found.")
+    from ..cases.diagram import generate_ubo_diagram
+    diagram_svg = generate_ubo_diagram(db, customer_id, session.org_id)
+    for alert in data["alerts"]:
+        alert["reviews"] = review_history(db, alert["id"], session.org_id)
     return render(request, "customer.html",
-                 data | {"session": session, "reason_codes": REASON_CODES})
+                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg})
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
@@ -696,11 +832,13 @@ def admin_view(request: Request, db: DB):
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
     org = db.execute("SELECT name, slug FROM organizations WHERE id=?", (session.org_id,)).fetchone()
+    from ..ingest.loader import staleness_report
     return render(request, "admin.html", {
         "session": session, "org": dict(org),
         "operators": queries.operators(db, session.org_id),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
+        "sanctions": staleness_report(db),
     })
 
 
@@ -829,3 +967,312 @@ def admin_deactivate_operator(
           None, org_id=session.org_id)
     db.commit()
     return back("/admin", msg="Operator deactivated and signed out of every session.")
+
+
+# ---------------------------------------------------------------------- sanctions refresh
+@app.post("/admin/refresh")
+def admin_refresh_sanctions(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin", err=str(exc))
+
+    from ..ingest.base import AdapterError
+    from ..ingest.loader import load
+    from ..ingest.opensanctions import uae_local_terrorists, cia_world_leaders
+    from ..ingest.un import UNSanctionsAdapter
+    from ..ingest.ofac import OFACSDNAdapter
+    from ..ingest.eu import EUSanctionsAdapter
+    from ..ingest.uk import UKSanctionsAdapter
+    from ..match.engine import rescreen_all
+    from ..db import audit
+
+    failures: list[str] = []
+    loaded: list[str] = []
+    for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter, EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
+        adapter = factory()
+        try:
+            result = load(db, adapter, actor=session.operator_name)
+            loaded.append(f"{adapter.title}: {result.entities} entities")
+        except AdapterError as exc:
+            failures.append(f"{adapter.title}: {exc}")
+            audit(db, session.operator_name, "dataset.refresh_failed",
+                  "dataset", adapter.key, {"error": str(exc)}, org_id=None)
+            db.commit()
+
+    # Re-screen every active org's customer book
+    total_alerts = 0
+    orgs = db.execute("SELECT id FROM organizations WHERE status='active'").fetchall()
+    for org in orgs:
+        outcome = rescreen_all(db, org["id"], actor=session.operator_name)
+        total_alerts += outcome["alerts"]
+    db.commit()
+
+    if failures:
+        return back("/admin", err="Refresh failed for: " + "; ".join(failures))
+
+    msg = "Sanctions lists refreshed. " + "; ".join(loaded)
+    if total_alerts:
+        msg += f" {total_alerts} new alert(s) raised — check Alerts."
+    return back("/admin", msg=msg)
+
+
+# ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)
+@app.post("/system/refresh")
+def system_refresh(request: Request):
+    """HTTP endpoint for Cloud Scheduler to call every 23 hours.
+
+    Protected by a bearer token stored in the SCHEDULER_SECRET environment
+    variable. If the variable is not set the endpoint is disabled entirely
+    (returns 403) to prevent accidental exposure on a fresh deploy.
+    """
+    secret = os.environ.get("SCHEDULER_SECRET", "").strip()
+    if not secret:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "endpoint disabled — set SCHEDULER_SECRET"}, status_code=403)
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header != f"Bearer {secret}":
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    import threading
+    thread = threading.Thread(target=_run_scheduled_refresh, daemon=True)
+    thread.start()
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"status": "refresh started", "note": "running in background"})
+
+
+# ---------------------------------------------------------------------- regulatory reports
+@app.get("/reports", response_class=HTMLResponse)
+def reports_view(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    
+    r_list = queries.report_list(db, session.org_id)
+    return render(request, "reports.html", {"session": session, "reports": r_list})
+
+
+@app.get("/reports/new", response_class=HTMLResponse)
+def report_new_view(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    
+    customers = queries.customer_list(db, session.org_id)
+    return render(request, "report_new.html", {"session": session, "customers": customers})
+
+
+@app.get("/reports/build", response_class=HTMLResponse)
+def report_build_view(
+    request: Request, db: DB,
+    customer_id: int,
+    report_type: str = "STR",
+    report_id: int | None = None,
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    
+    cust_data = queries.customer(db, customer_id, session.org_id)
+    if not cust_data:
+        return back("/reports", err="Customer not found")
+        
+    payload = {}
+    if report_id:
+        existing = queries.report(db, report_id, session.org_id)
+        if existing:
+            import json
+            payload = json.loads(existing["payload"] or "{}")
+
+    return render(request, "str_builder.html", {
+        "session": session,
+        "customer": cust_data["customer"],
+        "type": report_type,
+        "payload": payload,
+        "report_id": report_id,
+    })
+
+
+@app.post("/reports")
+def report_save(
+    request: Request, db: DB,
+    customer_id: int,
+    report_type: str,
+    reporting_entity_name: Annotated[str, Form()],
+    entity_reference: Annotated[str, Form()],
+    reporter_name: Annotated[str, Form()],
+    reporter_email: Annotated[str, Form()],
+    first_name: Annotated[str, Form()],
+    last_name: Annotated[str, Form()] = "",
+    nationality: Annotated[str, Form()] = "AE",
+    birth_date: Annotated[str, Form()] = "",
+    gender: Annotated[str, Form()] = "",
+    id_type: Annotated[str, Form()] = "",
+    id_number: Annotated[str, Form()] = "",
+    amount: Annotated[str, Form()] = "",
+    transaction_type: Annotated[str, Form()] = "",
+    transaction_date: Annotated[str, Form()] = "",
+    source_account: Annotated[str, Form()] = "",
+    destination_account: Annotated[str, Form()] = "",
+    reason_description: Annotated[str, Form()] = "",
+    action_taken: Annotated[str, Form()] = "",
+    evidence_pack_attached: Annotated[str, Form()] = "",
+    report_id: Annotated[int, Form()] = None,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/reports", err=str(exc))
+
+    import json
+    # Look up customer type for correct goAML XML serialisation
+    cust_row = db.execute(
+        "SELECT customer_type, full_name FROM customers WHERE id = ? AND org_id = ?",
+        (customer_id, session.org_id)
+    ).fetchone()
+    cust_type = cust_row["customer_type"] if cust_row else "natural"
+
+    # Bundle all collected parameters into a payload dict
+    payload_dict = {
+        "customer_id": customer_id,
+        "customer_type": cust_type,
+        "report_type": report_type,
+        "reporting_entity_name": reporting_entity_name.strip(),
+        "entity_reference": entity_reference.strip(),
+        "reporter_name": reporter_name.strip(),
+        "reporter_email": reporter_email.strip(),
+        "first_name": first_name.strip(),
+        "last_name": last_name.strip(),
+        "nationality": nationality.strip().upper(),
+        "birth_date": birth_date.strip(),
+        "gender": gender.strip(),
+        "id_type": id_type.strip(),
+        "id_number": id_number.strip(),
+        "amount": float(amount) if amount.strip() else None,
+        "transaction_type": transaction_type.strip() if transaction_type else None,
+        "transaction_date": transaction_date.strip() if transaction_date else None,
+        "source_account": source_account.strip(),
+        "destination_account": destination_account.strip(),
+        "reason_description": reason_description.strip(),
+        "action_taken": action_taken.strip(),
+        "evidence_pack_attached": bool(evidence_pack_attached),
+    }
+
+    payload_json = json.dumps(payload_dict)
+    now = utcnow()
+
+    with db:
+        if report_id:
+            db.execute(
+                """UPDATE reports 
+                   SET payload=?, reference=? 
+                   WHERE id=? AND org_id=?""",
+                (payload_json, f"goAML-{report_type}-{report_id}", report_id, session.org_id)
+            )
+            rid = report_id
+        else:
+            cur = db.execute(
+                """INSERT INTO reports (org_id, customer_id, report_type, status, payload, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (session.org_id, customer_id, report_type, "draft", payload_json, now)
+            )
+            rid = cur.lastrowid
+            db.execute(
+                "UPDATE reports SET reference=? WHERE id=?",
+                (f"goAML-{report_type}-{rid}", rid)
+            )
+
+        from ..db import audit
+        audit(db, session.operator_name, "report.save", "report", rid,
+              {"report_type": report_type}, org_id=session.org_id)
+
+    return back(f"/reports/{rid}", msg="Draft report saved.")
+
+
+@app.get("/reports/{report_id}", response_class=HTMLResponse)
+def report_detail_view(request: Request, db: DB, report_id: int):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+        
+    rep = queries.report(db, report_id, session.org_id)
+    if not rep:
+        return back("/reports", err="Report not found")
+        
+    import json
+    payload = json.loads(rep["payload"] or "{}")
+    
+    return render(request, "report_detail.html", {
+        "session": session,
+        "report": rep,
+        "payload": payload,
+    })
+
+
+@app.post("/reports/{report_id}/submit")
+def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotated[str, Form()] = ""):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back(f"/reports/{report_id}", err=str(exc))
+
+    rep = queries.report(db, report_id, session.org_id)
+    if not rep:
+        return back("/reports", err="Report not found")
+
+    now = utcnow()
+    with db:
+        db.execute(
+            "UPDATE reports SET status='submitted', submitted_at=? WHERE id=? AND org_id=?",
+            (now, report_id, session.org_id)
+        )
+        from ..db import audit
+        audit(db, session.operator_name, "report.submit", "report", report_id,
+              {"report_type": rep["report_type"]}, org_id=session.org_id)
+
+    return back(f"/reports/{report_id}", msg="Report submitted to UAE FIU successfully.")
+
+
+@app.get("/reports/{report_id}/export")
+def report_export_xml(request: Request, db: DB, report_id: int):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    rep = queries.report(db, report_id, session.org_id)
+    if not rep:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    import json
+    from ..reporting.goaml import serialize_goaml_xml
+    
+    payload = json.loads(rep["payload"] or "{}")
+    xml_content = serialize_goaml_xml(payload)
+
+    from fastapi.responses import Response
+    return Response(
+        content=xml_content,
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": f"attachment; filename=goAML_{rep['report_type']}_{report_id}.xml"
+        }
+    )

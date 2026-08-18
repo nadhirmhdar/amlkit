@@ -676,6 +676,8 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     _migrate_customers_table(conn)
     _migrate(conn)
     _create_org_indexes(conn)
+    from .ingest.fatf import load_fatf_data
+    load_fatf_data(conn)
     setup_token = _migrate_tenancy_data(conn)
     if setup_token:
         conn.execute(

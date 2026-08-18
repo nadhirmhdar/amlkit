@@ -291,3 +291,18 @@ def org_alert_threshold(conn: sqlite3.Connection, org_id: int) -> float | None:
         "SELECT alert_threshold FROM org_settings WHERE org_id=?", (org_id,)
     ).fetchone()
     return row["alert_threshold"] if row and row["alert_threshold"] is not None else None
+
+
+def report_list(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
+    return [dict(r) for r in conn.execute(
+        "SELECT r.id, r.report_type, r.reference, r.status, r.created_at, r.submitted_at, c.full_name AS customer_name "
+        "FROM reports r LEFT JOIN customers c ON c.id = r.customer_id "
+        "WHERE r.org_id=? ORDER BY r.created_at DESC", (org_id,))]
+
+
+def report(conn: sqlite3.Connection, report_id: int, org_id: int) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT r.*, c.full_name AS customer_name FROM reports r "
+        "LEFT JOIN customers c ON c.id = r.customer_id "
+        "WHERE r.id=? AND r.org_id=?", (report_id, org_id)).fetchone()
+    return dict(row) if row else None

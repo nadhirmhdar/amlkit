@@ -6,8 +6,20 @@
 <form method="post" action="/customers">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <div class="panel">
-  <h2>Customer</h2>
-  <div class="row">
+  <div class="step-indicator">1</div>
+  <h2>Customer Identity</h2>
+  <div class="ocr-upload-zone">
+    <div>
+      <h3 class="mt-0 mb-0">Scan Passport (MRZ / OCR)</h3>
+      <p class="muted small mt-0">Upload passport image to auto-fill name, DOB, nationality and gender.</p>
+    </div>
+    <div>
+      <input type="file" id="passport-upload" accept="image/*" class="d-none" onchange="performPassportOCR(this)">
+      <button type="button" class="btn small" onclick="document.getElementById('passport-upload').click()">Upload &amp; Scan</button>
+      <span id="scan-status" class="muted small ml-4" style="display:none"></span>
+    </div>
+  </div>
+  <div class="row mt-4">
     <div><label>Reference *</label><input type="text" name="reference" required></div>
     <div><label>Type</label>
       <select name="customer_type">
@@ -36,6 +48,7 @@
 </div>
 
 <div class="panel">
+  <div class="step-indicator">2</div>
   <h2>Risk factors</h2>
   <div class="row">
     <div><label>Sector</label><select name="sector">
@@ -59,8 +72,9 @@
 </div>
 
 <div class="panel">
+  <div class="step-indicator">3</div>
   <h2>Beneficial owners</h2>
-  <p class="muted small" style="margin-top:-6px">
+  <p class="muted small mt-0">
     Identified at the 25% threshold, with fallback to the senior managing
     official where nobody meets it. Every owner listed here is screened —
     a company can screen clean while its owner does not, and that is the case
@@ -91,5 +105,44 @@
 <button type="submit">Onboard &amp; screen</button>
 <a class="btn ghost" href="/customers">Cancel</a>
 </form>
+
+<script>
+async function performPassportOCR(input) {
+  if (!input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  const statusEl = document.getElementById('scan-status');
+  statusEl.style.display = 'inline';
+  statusEl.textContent = 'Scanning…';
+  
+  const formData = new FormData();
+  formData.append('passport_file', file);
+  
+  try {
+    const res = await fetch('/customers/scan-passport', {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) throw new Error('Scan failed');
+    const data = await res.json();
+    
+    // Auto-fill form fields
+    if (data.full_name) {
+      document.querySelector('input[name="full_name"]').value = data.full_name;
+    }
+    if (data.nationality) {
+      document.querySelector('input[name="nationality"]').value = data.nationality.substring(0, 2);
+    }
+    if (data.birth_date) {
+      document.querySelector('input[name="birth_date"]').value = data.birth_date;
+    }
+    if (data.gender) {
+      document.querySelector('select[name="gender"]').value = data.gender;
+    }
+    statusEl.textContent = 'Scan complete!';
+  } catch (err) {
+    statusEl.textContent = 'Scan failed. Please enter manually.';
+  }
+}
+</script>
 
 {% endblock %}

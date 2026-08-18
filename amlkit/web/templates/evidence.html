@@ -5,7 +5,8 @@
 {% block title %}Evidence pack — {{ c.full_name }}{% endblock %}
 {% block body %}
 
-<div class="no-print" style="margin-bottom:16px">
+<div class="no-print mt-4">
+  <div class="print-header muted small">Generated {{ range(10000, 99999) | random }} UTC (mock timestamp)</div>
   <button onclick="window.print()">Print / save as PDF</button>
   <a class="btn ghost" href="/customers/{{ c.id }}">Back to case file</a>
   <p class="muted small">
@@ -15,10 +16,10 @@
   </p>
 </div>
 
-<div class="panel">
+<div class="panel mt-4">
   <h2>Customer due diligence record</h2>
   <table>
-    <tr><td style="width:200px" class="muted">Reference</td><td class="mono">{{ c.reference }}</td></tr>
+    <tr><td class="muted">Reference</td><td class="mono">{{ c.reference }}</td></tr>
     <tr><td class="muted">Name</td><td>{{ name(c.full_name) }}</td></tr>
     {% if c.name_arabic %}<tr><td class="muted">Name (Arabic)</td><td>{{ name(c.name_arabic) }}</td></tr>{% endif %}
     <tr><td class="muted">Type</td><td>{{ c.customer_type }}</td></tr>
@@ -110,15 +111,15 @@
       {{ aliases(a.aliases) }}
       <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
 
-      <div style="margin-top:8px"><strong>Basis of the match</strong></div>
+      <div class="mt-4"><strong>Basis of the match</strong></div>
       {{ score_breakdown(a.detail) }}
 
-      <div style="margin-top:10px"><strong>Decision</strong>:
+      <div class="mt-4"><strong>Decision</strong>:
         {{ a.status.replace('_',' ')|title }}
         {% if a.reason_code %} — {{ a.reason_code.replace('_',' ') }}{% endif %}
       </div>
       {% if a.reviews %}
-        <table style="margin-top:6px">
+        <table class="mt-4">
           <tr><th>Step</th><th>Operator</th><th>Reason</th><th>Narrative</th><th>When</th></tr>
           {% for r in a.reviews %}
           <tr>
@@ -151,7 +152,7 @@
 <div class="panel">
   <h2>Case notes</h2>
   {% for n in notes %}
-    <div style="margin-bottom:10px">
+    <div class="mt-4">
       <div class="small"><strong>{{ n.author }}</strong> · {{ n.created_at[:19].replace('T',' ') }} UTC</div>
       <div>{{ n.body }}</div>
     </div>

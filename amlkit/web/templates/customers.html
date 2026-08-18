@@ -6,19 +6,24 @@
 
 <div class="panel">
   <h2>Customers</h2>
-  <a class="btn" href="/customers/new">Onboard a customer</a>
-  <a class="btn ghost" href="/customers.csv">Export CSV</a>
+  <div class="mb-4">
+    <a class="btn" href="/customers/new">Onboard a customer</a>
+    <a class="btn ghost" href="/customers.csv">Export CSV</a>
+  </div>
+  <div class="field mt-4">
+    <input type="text" id="customer-search" placeholder="Search customers..." onkeyup="filterCustomers(this.value)">
+  </div>
 </div>
 
 <div class="panel">
 {% if customers %}
-<table>
+<table id="customers-table">
   <tr>
     <th>Reference</th><th>Name</th><th>Type</th><th>Risk</th>
     <th>Alerts</th><th>Last screened</th><th>Review due</th><th></th>
   </tr>
   {% for c in customers %}
-  <tr>
+  <tr class="customer-row">
     <td class="mono">{{ c.reference }}</td>
     <td>
       <a href="/customers/{{ c.id }}">{{ name(c.full_name) }}</a>
@@ -45,8 +50,23 @@
   {% endfor %}
 </table>
 {% else %}
-  <p class="muted" style="margin:0">No customers yet.</p>
+  <div class="empty-state">
+    <div class="empty-state__icon">👥</div>
+    <div class="empty-state__title">No customers yet</div>
+    <p class="empty-state__text mt-0">Onboard your first customer to get started.</p>
+  </div>
 {% endif %}
 </div>
+
+<script>
+function filterCustomers(query) {
+  const q = query.toLowerCase();
+  const rows = document.querySelectorAll('.customer-row');
+  rows.forEach(row => {
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+</script>
 
 {% endblock %}

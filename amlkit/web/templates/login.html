@@ -2,23 +2,41 @@
 {% block title %}Sign in — Grovisor amlkit{% endblock %}
 {% block body %}
 
-<div class="panel" style="max-width:420px;margin:40px auto">
+<div class="panel">
+  <div class="text-center mt-6">amlkit</div>
   <h2>Sign in</h2>
   <form method="post" action="/login">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
       <label>Email</label>
-      <input type="text" name="email" autofocus autocomplete="username">
+      <input type="email" name="email" autofocus autocomplete="username"
+             inputmode="email" spellcheck="false" autocapitalize="off">
     </div>
-    <div class="field">
+    <div class="field position-relative">
       <label>Password</label>
-      <input type="password" name="password" autocomplete="current-password">
+      <input type="password" name="password" id="password-input" autocomplete="current-password">
+      <button type="button" class="btn ghost small position-absolute right-0 top-24" onclick="togglePassword()">👁</button>
     </div>
-    <button type="submit" style="width:100%">Sign in</button>
+    <button type="submit" class="btn mt-4">Sign in</button>
   </form>
-  <p class="muted small" style="margin-top:16px;margin-bottom:0">
+  <p class="muted small mt-4">
+    Forgot your password? Contact your MLRO to reset it.
+  </p>
+  <p class="muted small mt-0">
     New organization? <a href="/register-organization">Register one</a>.
   </p>
 </div>
+<div class="text-center mt-4 muted small">Powered by Grovisor</div>
+
+<script>
+function togglePassword() {
+  const pwd = document.getElementById('password-input');
+  if (pwd.type === 'password') {
+    pwd.type = 'text';
+  } else {
+    pwd.type = 'password';
+  }
+}
+</script>
 
 {% endblock %}

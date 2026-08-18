@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% set nav = 'reports' %}
+{% block title %}Report Detail — amlkit{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <div class="alert-head">
+    <div>
+      <h2 class="mt-0 mb-0">{{ report.report_type }} Report</h2>
+      <div class="muted small">Filing ID: {{ report.id }} · Status: 
+        {% if report.status == 'submitted' %}
+          <span class="tag low">submitted</span>
+        {% else %}
+          <span class="tag other">draft</span>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      {% if report.status == 'draft' %}
+        <a class="btn" href="/reports/build?customer_id={{ report.customer_id }}&report_id={{ report.id }}&report_type={{ report.report_type }}">Edit Draft</a>
+      {% endif %}
+      <a class="btn" href="/reports/{{ report.id }}/export">📥 Download goAML XML</a>
+    </div>
+  </div>
+</div>
+
+<div class="grid two">
+  <!-- Report Metadata & Subject Details -->
+  <div class="panel">
+    <h3>Subject Details</h3>
+    <table>
+      <tr><td>Subject Name</td><td><strong>{{ payload.first_name }} {{ payload.last_name or '' }}</strong></td></tr>
+      <tr><td>Nationality</td><td>{{ payload.nationality or '—' }}</td></tr>
+      <tr><td>Date of Birth</td><td>{{ payload.birth_date or '—' }}</td></tr>
+      <tr><td>Gender</td><td>{{ payload.gender or '—' }}</td></tr>
+      <tr><td>ID Type / Number</td><td>{{ payload.id_type or '—' }} / {{ payload.id_number or '—' }}</td></tr>
+    </table>
+
+    <h3 class="mt-6">Reporting Entity &amp; Officer</h3>
+    <table>
+      <tr><td>Entity Name</td><td>{{ payload.reporting_entity_name }}</td></tr>
+      <tr><td>Licence / Reference</td><td>{{ payload.entity_reference }}</td></tr>
+      <tr><td>Reporter Name</td><td>{{ payload.reporter_name }}</td></tr>
+      <tr><td>Reporter Email</td><td>{{ payload.reporter_email }}</td></tr>
+    </table>
+  </div>
+
+  <!-- Financial Transactions & Suspicion narrative -->
+  <div class="panel">
+    <h3>Transaction / Activity Information</h3>
+    {% if payload.amount or payload.transaction_type %}
+      <table>
+        <tr><td>Amount</td><td><strong>{{ payload.amount }} AED</strong></td></tr>
+        <tr><td>Type</td><td>{{ payload.transaction_type }}</td></tr>
+        <tr><td>Date</td><td>{{ payload.transaction_date or '—' }}</td></tr>
+        <tr><td>Source Account</td><td><code class="mono">{{ payload.source_account or '—' }}</code></td></tr>
+        <tr><td>Destination Account</td><td><code class="mono">{{ payload.destination_account or '—' }}</code></td></tr>
+      </table>
+    {% else %}
+      <p class="muted">No direct financial transactions reported (non-financial/pure match activity).</p>
+    {% endif %}
+
+    <h3 class="mt-6">PDF Narrative Attachment</h3>
+    {% if payload.evidence_pack_attached %}
+      <div class="alert-card evidence mt-4">
+        <span>📄 Comprehensive PDF Evidence Pack is attached.</span>
+        <a class="btn small" href="/customers/{{ report.customer_id }}/evidence" target="_blank">Print/View PDF</a>
+      </div>
+    {% else %}
+      <p class="muted mt-4">No PDF evidence pack attached.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Reason for Suspicion</h3>
+  <div class="narrative-block">{{ payload.reason_description }}</div>
+
+  <h3 class="mt-6">Action Taken</h3>
+  <div class="narrative-block">{{ payload.action_taken }}</div>
+</div>
+
+{% if report.status == 'draft' %}
+  <div class="panel alert-card high">
+    <h3 class="mt-0">Finalize and Submit to UAE FIU</h3>
+    <p class="small muted mt-0">
+      Submitting marks the report as officially filed and freezes the draft from further editing. 
+      Ensure all details match your goAML portal expectations.
+    </p>
+    <form method="post" action="/reports/{{ report.id }}/submit" onsubmit="return confirm('Officially submit this report? This action is irreversible.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn danger mt-4">Confirm Submission</button>
+    </form>
+  </div>
+{% else %}
+  <div class="panel alert-card low">
+    <h3 class="mt-0">Filing Completed</h3>
+    <p class="small muted mt-0">
+      This report was submitted on <strong>{{ report.submitted_at }}</strong>. It is locked and archived.
+    </p>
+  </div>
+{% endif %}
+
+{% endblock %}

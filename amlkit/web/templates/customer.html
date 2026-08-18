@@ -8,7 +8,7 @@
 <div class="panel">
   <div class="alert-head">
     <div>
-      <h2 style="margin:0">{{ name(c.full_name) }}</h2>
+      <h2 class="mt-0 mb-0">{{ name(c.full_name) }}</h2>
       {% if c.name_arabic %}<div>{{ name(c.name_arabic) }}</div>{% endif %}
       <div class="muted small">{{ c.reference }} · {{ c.customer_type }} · {{ c.sector }}</div>
     </div>
@@ -17,17 +17,17 @@
       {% if c.status != 'active' %}<span class="tag other">{{ c.status }}</span>{% endif %}
     </div>
   </div>
-  <div style="margin-top:12px">
+  <div class="mt-4">
     <a class="btn small" href="/customers/{{ c.id }}/evidence">Evidence pack</a>
     {% if c.status == 'active' %}
-    <form method="post" action="/customers/{{ c.id }}/close" style="display:inline">
+    <form method="post" action="/customers/{{ c.id }}/close" class="d-inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button class="small ghost" type="submit">Close relationship</button>
     </form>
     {% endif %}
   </div>
   {% if c.retention_until %}
-    <p class="muted small">Records retained until <strong>{{ c.retention_until }}</strong>
+    <p class="muted small mt-4">Records retained until <strong>{{ c.retention_until }}</strong>
       (five years after the relationship ended).</p>
   {% endif %}
 </div>
@@ -81,7 +81,7 @@
           inability to identify a beneficial owner as a risk indicator.
         {% endif %}</p>
     {% endif %}
-    <form method="post" action="/customers/{{ c.id }}/ubo" class="row" style="margin-top:12px">
+    <form method="post" action="/customers/{{ c.id }}/ubo" class="row mt-4">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div><label>Add owner</label><input type="text" name="person_name" dir="auto" required></div>
       <div><label>%</label><input type="number" name="ownership_pct" step="0.01" min="0" max="100"></div>
@@ -91,7 +91,7 @@
           <option value="senior_official">Senior managing official</option>
           <option value="nominee">Nominee</option>
         </select></div>
-      <div style="align-self:end"><button class="small" type="submit">Add &amp; screen</button></div>
+      <div class="mt-4"><button class="small" type="submit">Add &amp; screen</button></div>
     </form>
   </div>
 
@@ -117,12 +117,20 @@
         assessed {{ risk.assessed_at[:10] }} · next review {{ risk.next_review }}
       </p>
     {% else %}<p class="muted">Not assessed.</p>{% endif %}
+</div>
+
+{% if ubo_diagram %}
+<div class="panel">
+  <h2>UBO Ownership &amp; Control Diagram</h2>
+  <div class="ubo-diagram-container mt-4">
+    {{ ubo_diagram | safe }}
   </div>
 </div>
+{% endif %}
 
 <div class="panel">
   <h2>Notes</h2>
-  <p class="muted small" style="margin-top:-6px">
+  <p class="muted small mt-0">
     Investigative narrative not tied to any one alert — periodic review
     commentary, source-of-wealth notes, anything that belongs in the case
     file but isn't a disposition decision.
@@ -135,14 +143,14 @@
           <strong>{{ n.author }}</strong> ·
           <span class="muted">{{ n.created_at[:16].replace('T',' ') }}</span>
         </div>
-        <div style="margin-top:4px">{{ n.body }}</div>
+        <div class="mt-4">{{ n.body }}</div>
       </div>
       {% endfor %}
     </div>
   {% else %}
     <p class="muted small">No notes yet.</p>
   {% endif %}
-  <form method="post" action="/customers/{{ c.id }}/notes" style="margin-top:12px">
+  <form method="post" action="/customers/{{ c.id }}/notes" class="mt-4">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
       <textarea name="body" placeholder="Add a note to this case file" required></textarea>
@@ -153,7 +161,7 @@
 
 <div class="panel">
   <h2>Screening history</h2>
-  <p class="muted small" style="margin-top:-6px">
+  <p class="muted small mt-0">
     Clear results are kept as well as matches — evidence that a customer
     <em>was</em> screened and came back clean is what an examiner asks for.
   </p>
