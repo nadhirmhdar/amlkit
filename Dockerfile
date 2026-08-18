@@ -11,6 +11,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends google-cloud-cli \
     && rm -rf /var/lib/apt/lists/*
 
+# Litestream: continuous SQLite -> GCS replication. Previously this repo
+# shipped a litestream.yml that nothing ever executed -- entrypoint.sh only
+# restored a snapshot once at container startup, so every write made during
+# a container's lifetime was lost the moment Cloud Run recycled the instance.
+# entrypoint.sh now runs the app under `litestream replicate -exec`.
+RUN curl -fsSL -o /tmp/litestream.deb \
+      https://github.com/benbjohnson/litestream/releases/download/v0.5.16/litestream-0.5.16-linux-x86_64.deb \
+    && dpkg -i /tmp/litestream.deb \
+    && rm /tmp/litestream.deb
+
 WORKDIR /app
 
 # Install Python requirements

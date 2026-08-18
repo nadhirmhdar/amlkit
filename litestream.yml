@@ -2,5 +2,5 @@ dbs:
   - path: /app/data/amlkit.db
     replicas:
       - type: gcs
-        bucket: $GCS_BUCKET
+        bucket: ${GCS_BUCKET}
         path: litestream/amlkit.db
