@@ -1,6 +1,9 @@
 dbs:
   - path: /app/data/amlkit.db
     replicas:
-      - type: gcs
-        bucket: ${GCS_BUCKET}
-        path: litestream/amlkit.db
+      # litestream 0.5.x uses a scheme-prefixed url, not the older
+      # type/bucket/path triplet (that syntax is no longer recognized --
+      # "unknown replica type in config: gcs" is what it fails with).
+      # GCS auth is via Application Default Credentials -- Cloud Run's
+      # attached service account, no separate key needed.
+      - url: gcs://${GCS_BUCKET}/litestream/amlkit.db
