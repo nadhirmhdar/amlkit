@@ -1,11 +1,17 @@
 dbs:
   - path: /app/data/amlkit.db
-    # Singular `replica:`, not a `replicas:` list -- this is the exact
-    # schema shipped in litestream's own etc/litestream.yml template for
-    # this release (v0.5.16). The plural `replicas:` key shown in some of
-    # litestream's own docs does NOT read `url:` in this build -- it still
-    # expects the older `type:` field and fails with "unknown replica type
-    # in config: ''" when `url:` is given instead. Verified by actually
-    # deploying both forms, not assumed from docs alone.
+    # Singular `replica:` (ReplicaConfig.URL/.Type -- cmd/litestream/main.go
+    # in the v0.5.16 tag), not a `replicas:` list -- that key still exists
+    # (deprecated) but wasn't reliably parsed in testing here.
+    #
+    # Scheme is `gs://`, not `gcs://`. litestream's own PROVIDER_COMPATIBILITY.md
+    # documents `gcs://`, but the actual v0.5.16 binary's replica-type switch
+    # (NewReplicaFromConfig in cmd/litestream/main.go) only registers "gs" --
+    # "gcs" falls through to its default case and fails as an unknown type.
+    # Confirmed by reading that switch statement directly, not by guessing
+    # again after three failed deploys.
+    #
+    # Bucket name is a literal, not a ${GCS_BUCKET} placeholder: litestream
+    # does not do shell-style env-var substitution inside config values.
     replica:
-      url: gcs://${GCS_BUCKET}/litestream/amlkit.db
+      url: gs://gen-lang-client-0153967509-aml-data/litestream/amlkit.db
