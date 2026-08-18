@@ -98,3 +98,56 @@ jobs:
               sys.exit(1)
           print("\nAll mandatory sources fetched and parsed.")
           PY
+
+  deploy:
+    name: Deploy to Cloud Run
+    needs: [tests, sources]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      # Workload Identity Federation: GitHub's own OIDC token is exchanged
+      # for short-lived GCP credentials. No service-account key ever exists
+      # anywhere -- see scripts/setup_github_deploy_auth.sh for the one-time
+      # GCP-side setup this depends on.
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build image
+        run: |
+          gcloud builds submit . \
+            --tag "gcr.io/${{ vars.GCP_PROJECT_ID }}/amlkit:${{ github.sha }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}"
+
+      # Same shape as scripts/deploy_gcp.ps1 / scripts/cloud_shell_deploy.sh --
+      # min-instances 0 to keep idle cost at $0, tagged by commit SHA so every
+      # deploy is traceable to the exact commit that produced it.
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy amlkit \
+            --image "gcr.io/${{ vars.GCP_PROJECT_ID }}/amlkit:${{ github.sha }}" \
+            --platform managed \
+            --region "${{ vars.GCP_REGION }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --allow-unauthenticated \
+            --set-env-vars "GCS_BUCKET=${{ vars.GCS_BUCKET }},AMLKIT_BIND_HOST=0.0.0.0,AMLKIT_PORT=8000,AMLKIT_BEHIND_PROXY=1" \
+            --port 8000 \
+            --memory 1Gi \
+            --cpu 1 \
+            --min-instances 0 \
+            --max-instances 10
+
+      - name: Report deployed URL
+        run: |
+          URL=$(gcloud run services describe amlkit --platform managed --region "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" --format "value(status.url)")
+          echo "Deployed: $URL"
+          echo "### Deployed to $URL" >> "$GITHUB_STEP_SUMMARY"
