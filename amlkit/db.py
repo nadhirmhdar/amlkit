@@ -346,6 +346,85 @@ CREATE TABLE IF NOT EXISTS org_settings (
     updated_at       TEXT NOT NULL
 );
 
+-- ------------------------------------------------------------ transaction monitoring (KYT)
+-- amount_aed is a normalized copy of amount for threshold comparisons across
+-- currencies -- the rule engine never has to know exchange rates, and a
+-- transaction recorded in a foreign currency still triggers correctly. The
+-- caller (record_transaction) computes it; this table trusts what it is given.
+CREATE TABLE IF NOT EXISTS transactions (
+    id            INTEGER PRIMARY KEY,
+    org_id        INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id   INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    reference     TEXT,
+    direction     TEXT NOT NULL,             -- inbound | outbound
+    method        TEXT NOT NULL DEFAULT 'other',  -- cash | wire | cheque | crypto | other
+    amount        REAL NOT NULL,
+    currency      TEXT NOT NULL DEFAULT 'AED',
+    amount_aed    REAL NOT NULL,
+    counterparty_name    TEXT,
+    counterparty_country TEXT,               -- ISO-3166 alpha-2, upper-case
+    occurred_at   TEXT NOT NULL,
+    recorded_by   TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_txn_cust     ON transactions(customer_id);
+CREATE INDEX IF NOT EXISTS ix_txn_org      ON transactions(org_id);
+CREATE INDEX IF NOT EXISTS ix_txn_occurred ON transactions(occurred_at);
+
+-- One row per rule that fired, not one row per transaction: a single
+-- transaction can trip more than one rule (e.g. large cash AND a high-risk
+-- counterparty country at once), and each is its own disposition decision --
+-- collapsing them into one alert would let a reviewer clear the obvious one
+-- and silently drop the other. Deliberately a separate table from `alerts`
+-- rather than reusing it: `alerts` structurally requires screening_id and
+-- entity_id (an entity-match alert), which don't exist for a rule trigger on
+-- a transaction. Four-eyes review is NOT applied here (see kyt.py) -- a
+-- narrower scope decision than sanctions/PF alerts, stated explicitly rather
+-- than left to be discovered.
+CREATE TABLE IF NOT EXISTS transaction_alerts (
+    id             INTEGER PRIMARY KEY,
+    org_id         INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    customer_id    INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    rule_key       TEXT NOT NULL,       -- large_cash | structuring | high_risk_country | velocity
+    severity       TEXT NOT NULL DEFAULT 'medium',  -- low | medium | high
+    detail         TEXT NOT NULL,       -- json: what tripped it, threshold vs actual
+    status         TEXT NOT NULL DEFAULT 'open',    -- open | true_positive | false_positive
+    disposition    TEXT,
+    dispositioned_by TEXT,
+    dispositioned_at TEXT,
+    assigned_to    TEXT,
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_txnalert_status ON transaction_alerts(status);
+CREATE INDEX IF NOT EXISTS ix_txnalert_org    ON transaction_alerts(org_id);
+CREATE INDEX IF NOT EXISTS ix_txnalert_cust   ON transaction_alerts(customer_id);
+
+-- ------------------------------------------------------------ electronic signatures
+-- content_hash is computed by the caller over the exact acknowledgment text
+-- shown to the signer at signing time (see cases/manager.py:record_signature).
+-- Storing the hash rather than trusting `purpose` alone means a later change
+-- to a report/acknowledgment template can never be mistaken for what a past
+-- signer actually agreed to -- the hash only matches the text that was
+-- literally on screen at signed_at.
+CREATE TABLE IF NOT EXISTS signatures (
+    id              INTEGER PRIMARY KEY,
+    org_id          INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id     INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    purpose         TEXT NOT NULL,
+    statement       TEXT NOT NULL,
+    signer_name     TEXT NOT NULL,
+    signer_role     TEXT NOT NULL DEFAULT 'customer',  -- customer | operator
+    content_hash    TEXT NOT NULL,
+    ip_address      TEXT,
+    user_agent      TEXT,
+    signed_by       TEXT NOT NULL,       -- operator who captured it (audit actor)
+    signed_at       TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_sig_cust ON signatures(customer_id);
+CREATE INDEX IF NOT EXISTS ix_sig_org  ON signatures(org_id);
+
 -- ---------------------------------------------------------------- reporting
 CREATE TABLE IF NOT EXISTS reports (
     id          INTEGER PRIMARY KEY,

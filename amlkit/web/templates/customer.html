@@ -160,6 +160,136 @@
 </div>
 
 <div class="panel">
+  <h2>Transaction monitoring</h2>
+  <p class="muted small mt-0">
+    Cash transactions at or above AED {{ '{:,.0f}'.format(55000) }} are flagged
+    automatically, along with structuring, high-risk-country counterparties, and
+    unusual velocity. See <code class="mono">amlkit/screening/kyt.py</code> for
+    the rule set.
+  </p>
+  {% if transaction_alerts %}
+    <div class="stack mb-4">
+      {% for ta in transaction_alerts %}
+      <div class="breakdown">
+        <div class="alert-head">
+          <div>
+            <span class="tag {{ ta.severity }}">{{ ta.rule_key.replace('_',' ') }}</span>
+            <span class="muted small">
+              {{ ta.method }} · AED {{ '{:,.2f}'.format(ta.amount_aed) }} ·
+              {{ ta.occurred_at[:16].replace('T',' ') }}
+            </span>
+          </div>
+          <span class="tag {{ 'low' if ta.status == 'false_positive' else ('high' if ta.status == 'true_positive' else 'medium') }}">
+            {{ ta.status.replace('_',' ') }}
+          </span>
+        </div>
+        <div class="small muted mt-4">
+          {% for k, v in ta.detail.items() %}{{ k.replace('_',' ') }}: {{ v }}{% if not loop.last %} · {% endif %}{% endfor %}
+        </div>
+        {% if ta.status == 'open' %}
+        <form method="post" action="/transaction-alerts/{{ ta.id }}/disposition" class="row mt-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="customer_id" value="{{ c.id }}">
+          <div><label>Note</label><input type="text" name="note" placeholder="Rationale for disposition"></div>
+          <div class="mt-4">
+            <button class="small" type="submit" name="status" value="false_positive">Mark false positive</button>
+            <button class="small ghost" type="submit" name="status" value="true_positive">Mark true positive</button>
+          </div>
+        </form>
+        {% elif ta.disposition %}
+          <div class="small muted mt-4">{{ ta.dispositioned_by }} · {{ ta.disposition }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  {% if transactions %}
+    <table>
+      <tr><th>Occurred</th><th>Direction</th><th>Method</th><th class="right">Amount (AED)</th><th>Counterparty</th></tr>
+      {% for t in transactions %}
+      <tr>
+        <td class="small nowrap">{{ t.occurred_at[:16].replace('T',' ') }}</td>
+        <td class="small">{{ t.direction }}</td>
+        <td class="small">{{ t.method }}</td>
+        <td class="right score">{{ '{:,.2f}'.format(t.amount_aed) }}</td>
+        <td class="small">{{ t.counterparty_name or '—' }}
+          {% if t.counterparty_country %}<span class="muted">({{ t.counterparty_country }})</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="muted small">No transactions recorded.</p>
+  {% endif %}
+  <form method="post" action="/customers/{{ c.id }}/transactions" class="row mt-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="currency" value="AED">
+    <div><label>Direction</label>
+      <select name="direction">
+        <option value="inbound">Inbound</option>
+        <option value="outbound">Outbound</option>
+      </select></div>
+    <div><label>Method</label>
+      <select name="method">
+        <option value="cash">Cash</option>
+        <option value="wire">Wire</option>
+        <option value="cheque">Cheque</option>
+        <option value="crypto">Crypto</option>
+        <option value="other">Other</option>
+      </select></div>
+    <div><label>Amount (AED)</label><input type="number" name="amount" step="0.01" min="0.01" required></div>
+    <div><label>Counterparty</label><input type="text" name="counterparty_name" dir="auto"></div>
+    <div><label>Counterparty country</label><input type="text" name="counterparty_country" maxlength="2" placeholder="AE"></div>
+    <div><label>Date</label><input type="date" name="occurred_at"></div>
+    <div class="mt-4"><button class="small" type="submit">Record</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Signatures &amp; acknowledgments</h2>
+  <p class="muted small mt-0">
+    A typed-signature acknowledgment with a tamper-evident hash — an audit-trail
+    record, not a legally-binding UAE e-signature under Federal Decree-Law No. 46
+    of 2021 (that requires a licensed trust service provider).
+  </p>
+  {% if signatures %}
+    <div class="stack mb-4">
+      {% for sig in signatures %}
+      <div class="breakdown">
+        <div class="small">
+          <strong>{{ sig.signer_name }}</strong> ({{ sig.signer_role }}) ·
+          <span class="muted">{{ sig.signed_at[:16].replace('T',' ') }}</span> ·
+          captured by {{ sig.signed_by }}
+        </div>
+        <div class="mt-4"><strong>{{ sig.purpose }}</strong></div>
+        <div class="muted small mt-4">{{ sig.statement }}</div>
+        <div class="small mono muted mt-4">sha256:{{ sig.content_hash[:16] }}…</div>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted small">No signatures recorded.</p>
+  {% endif %}
+  <form method="post" action="/customers/{{ c.id }}/signatures" class="mt-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="row">
+      <div><label>Purpose</label>
+        <input type="text" name="purpose" placeholder="e.g. Risk acknowledgment" required></div>
+      <div><label>Signer name</label><input type="text" name="signer_name" dir="auto" required></div>
+      <div><label>Role</label>
+        <select name="signer_role">
+          <option value="customer">Customer</option>
+          <option value="operator">Operator</option>
+        </select></div>
+    </div>
+    <div class="field mt-4">
+      <label>Statement being acknowledged</label>
+      <textarea name="statement" placeholder="The exact text the signer is agreeing to" required></textarea>
+    </div>
+    <button class="small mt-4" type="submit">Capture signature</button>
+  </form>
+</div>
+
+<div class="panel">
   <h2>Screening history</h2>
   <p class="muted small mt-0">
     Clear results are kept as well as matches — evidence that a customer

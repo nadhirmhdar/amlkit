@@ -291,6 +291,180 @@ def due_for_review(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]
     return [dict(r) for r in rows]
 
 
+def record_transaction(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    *,
+    direction: str,
+    method: str,
+    amount: float,
+    currency: str = "AED",
+    amount_aed: float | None = None,
+    counterparty_name: str | None = None,
+    counterparty_country: str | None = None,
+    occurred_at: str | None = None,
+    actor: str = "system",
+) -> tuple[int, list]:
+    """Record a transaction and evaluate it against the KYT rule set.
+
+    `amount_aed` is required when `currency` is not AED: no FX conversion is
+    performed here, so silently treating a foreign-currency amount as its AED
+    face value would misprice every threshold check against it. The caller
+    (the route) is expected to collect the AED-equivalent from the operator
+    rather than this function guessing an exchange rate.
+
+    Same tenant-ownership check as add_case_note above, for the same reason:
+    transactions.customer_id is a bare foreign key.
+    """
+    from ..screening.kyt import evaluate_transaction
+
+    if amount <= 0:
+        raise ValueError("transaction amount must be positive")
+    currency = (currency or "AED").strip().upper()
+    if amount_aed is None:
+        if currency != "AED":
+            raise ValueError("amount_aed is required when currency is not AED")
+        amount_aed = amount
+    occurred_at = occurred_at or utcnow()
+    now = utcnow()
+
+    with conn:
+        owned = conn.execute(
+            "SELECT 1 FROM customers WHERE id=? AND org_id=?", (customer_id, org_id)
+        ).fetchone()
+        if owned is None:
+            raise ValueError(f"customer {customer_id} not found")
+
+        cur = conn.execute(
+            """INSERT INTO transactions
+               (org_id, customer_id, reference, direction, method, amount, currency,
+                amount_aed, counterparty_name, counterparty_country, occurred_at,
+                recorded_by, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                org_id, customer_id, None, direction, method, amount, currency,
+                amount_aed, counterparty_name,
+                (counterparty_country or "").strip().upper() or None,
+                occurred_at, actor, now,
+            ),
+        )
+        transaction_id = cur.lastrowid
+        audit(conn, actor, "transaction.record", "customer", customer_id,
+              {"transaction_id": transaction_id, "amount_aed": amount_aed, "method": method},
+              org_id=org_id)
+
+        triggered = evaluate_transaction(
+            conn, org_id=org_id, customer_id=customer_id, transaction_id=transaction_id,
+            method=method, amount_aed=amount_aed, counterparty_country=counterparty_country,
+            occurred_at=occurred_at,
+        )
+        for rule in triggered:
+            acur = conn.execute(
+                """INSERT INTO transaction_alerts
+                   (org_id, transaction_id, customer_id, rule_key, severity, detail, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (org_id, transaction_id, customer_id, rule.rule_key, rule.severity,
+                 rule.to_detail_json(), now),
+            )
+            audit(conn, actor, "transaction_alert.raise", "customer", customer_id,
+                  {"transaction_id": transaction_id, "alert_id": acur.lastrowid,
+                   "rule": rule.rule_key, "severity": rule.severity},
+                  org_id=org_id)
+
+    return transaction_id, triggered
+
+
+def disposition_transaction_alert(
+    conn: sqlite3.Connection, alert_id: int, org_id: int, *,
+    status: str, note: str = "", actor: str = "system",
+) -> None:
+    """Close out a transaction alert. No four-eyes here -- see kyt.py's
+    module docstring for why that's a deliberate, narrower scope than the
+    sanctions/PF disposition workflow."""
+    if status not in ("true_positive", "false_positive"):
+        raise ValueError(f"invalid disposition status: {status!r}")
+    with conn:
+        owned = conn.execute(
+            "SELECT 1 FROM transaction_alerts WHERE id=? AND org_id=?", (alert_id, org_id)
+        ).fetchone()
+        if owned is None:
+            raise ValueError(f"transaction alert {alert_id} not found")
+        now = utcnow()
+        conn.execute(
+            """UPDATE transaction_alerts
+               SET status=?, disposition=?, dispositioned_by=?, dispositioned_at=?
+               WHERE id=? AND org_id=?""",
+            (status, note.strip() or None, actor, now, alert_id, org_id),
+        )
+        audit(conn, actor, "transaction_alert.disposition", "transaction_alert", alert_id,
+              {"status": status, "note": note}, org_id=org_id)
+
+
+def record_signature(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    *,
+    purpose: str,
+    statement: str,
+    signer_name: str,
+    signer_role: str = "customer",
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    actor: str = "system",
+) -> int:
+    """Capture a typed-signature acknowledgment with a tamper-evident hash.
+
+    The hash covers `purpose`, `statement` and `signer_name` exactly as shown
+    to the signer -- not the row's own id or timestamp, which are metadata
+    about the act of signing rather than part of what was agreed to. A later
+    edit to a standard acknowledgment template is then immediately visible as
+    a hash mismatch against records signed under the old wording, rather than
+    silently being read as "the same thing was agreed to."
+
+    This is a basic audit-trail acknowledgment, not a legally-binding UAE
+    e-signature under Federal Decree-Law No. 46 of 2021 on Electronic
+    Transactions and Trust Services -- that requires a licensed trust service
+    provider. Stated here rather than left to be assumed.
+    """
+    import hashlib
+
+    purpose = (purpose or "").strip()
+    statement = (statement or "").strip()
+    signer_name = (signer_name or "").strip()
+    if not purpose or not statement or not signer_name:
+        raise ValueError("purpose, statement and signer_name are all required")
+
+    content_hash = hashlib.sha256(
+        "\x1f".join([purpose, statement, signer_name]).encode("utf-8")
+    ).hexdigest()
+    now = utcnow()
+
+    with conn:
+        owned = conn.execute(
+            "SELECT 1 FROM customers WHERE id=? AND org_id=?", (customer_id, org_id)
+        ).fetchone()
+        if owned is None:
+            raise ValueError(f"customer {customer_id} not found")
+        cur = conn.execute(
+            """INSERT INTO signatures
+               (org_id, customer_id, purpose, statement, signer_name, signer_role,
+                content_hash, ip_address, user_agent, signed_by, signed_at, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                org_id, customer_id, purpose, statement, signer_name, signer_role,
+                content_hash, ip_address, user_agent, actor, now, now,
+            ),
+        )
+        signature_id = cur.lastrowid
+        audit(conn, actor, "signature.record", "customer", customer_id,
+              {"signature_id": signature_id, "purpose": purpose, "signer_name": signer_name,
+               "content_hash": content_hash},
+              org_id=org_id)
+        return signature_id
+
+
 def add_case_note(
     conn: sqlite3.Connection, customer_id: int, org_id: int, *, author: str, body: str,
 ) -> int:

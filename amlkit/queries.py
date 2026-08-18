@@ -84,6 +84,9 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
 
     oldest_open = sorted(alerts, key=lambda a: a["created_at"])[:5]
 
+    txn_alerts = transaction_alert_queue(conn, org_id, status="open")
+    oldest_open_txn = sorted(txn_alerts, key=lambda a: a["created_at"])[:5]
+
     return {
         "staleness": staleness,
         "breaches": breaches,
@@ -94,6 +97,8 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
         "high_risk_customers": high_risk,
         "pending_review": [a for a in alerts if a["status"] == "pending_review"],
         "due_for_review": reviews,
+        "open_transaction_alerts": txn_alerts,
+        "oldest_open_transaction_alerts": oldest_open_txn,
         "counts": dict(counts),
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -230,8 +235,63 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
         "screenings": screenings,
         "alerts": alerts,
         "notes": notes,
+        "transactions": transactions_for_customer(conn, customer_id, org_id),
+        "transaction_alerts": [
+            a for a in transaction_alert_queue(conn, org_id, status=None, limit=500)
+            if a["customer_id"] == customer_id
+        ],
+        "signatures": signatures_for_customer(conn, customer_id, org_id),
         "audit": audit_trail(conn, org_id, "customer", customer_id),
     }
+
+
+def transactions_for_customer(
+    conn: sqlite3.Connection, customer_id: int, org_id: int, limit: int = 200
+) -> list[dict[str, Any]]:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM transactions WHERE customer_id=? AND org_id=?"
+        " ORDER BY occurred_at DESC LIMIT ?",
+        (customer_id, org_id, limit))]
+
+
+def transaction_alert_queue(
+    conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200
+) -> list[dict[str, Any]]:
+    """Transaction-monitoring alerts with enough transaction/customer context
+    to triage them, scoped to one organization. Mirrors alert_queue's shape
+    (category-like `rule_key`, `detail`) so the dashboard/alerts templates
+    can render both alert types with similar markup."""
+    sql = """
+        SELECT ta.id, ta.rule_key, ta.severity, ta.detail, ta.status,
+               ta.disposition, ta.dispositioned_by, ta.dispositioned_at,
+               ta.assigned_to, ta.created_at,
+               t.id AS transaction_id, t.amount, t.currency, t.amount_aed,
+               t.method, t.direction, t.counterparty_name, t.counterparty_country,
+               t.occurred_at,
+               c.id AS customer_id, c.reference, c.full_name AS customer_name
+        FROM transaction_alerts ta
+        JOIN transactions t ON t.id = ta.transaction_id
+        JOIN customers c    ON c.id = ta.customer_id
+        WHERE ta.org_id = ?
+    """
+    params: list[Any] = [org_id]
+    if status:
+        sql += " AND ta.status = ?"
+        params.append(status)
+    sql += " ORDER BY ta.created_at DESC LIMIT ?"
+
+    out: list[dict[str, Any]] = []
+    for row in conn.execute(sql, (*params, limit)):
+        out.append(dict(row) | {"detail": json.loads(row["detail"] or "{}")})
+    return out
+
+
+def signatures_for_customer(
+    conn: sqlite3.Connection, customer_id: int, org_id: int
+) -> list[dict[str, Any]]:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM signatures WHERE customer_id=? AND org_id=? ORDER BY signed_at DESC",
+        (customer_id, org_id))]
 
 
 def audit_trail(
