@@ -12,18 +12,6 @@ mkdir -p /app/data
 # replica rather than losing everything since the last manual snapshot.
 LITESTREAM_CFG=/app/litestream.yml
 
-# Temporary diagnostics: two prior deploys failed opaquely with
-# "unknown replica type in config" and no further detail. Print exactly what
-# litestream is actually parsing rather than keep guessing blind. Remove
-# once replication is confirmed working end-to-end.
-echo "--- litestream version ---"
-litestream version || true
-echo "--- litestream.yml as loaded in the image ---"
-cat "$LITESTREAM_CFG" || true
-echo "--- litestream config validation ---"
-litestream databases -config "$LITESTREAM_CFG" || true
-echo "--- end diagnostics ---"
-
 if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
     echo "Restoring from litestream replica at gs://${GCS_BUCKET}/litestream/amlkit.db, if one exists..."
     litestream restore -config "$LITESTREAM_CFG" -if-replica-exists /app/data/amlkit.db
