@@ -7,4 +7,6 @@
 # conversion ships straight into the image). Force LF regardless of the
 # checkout platform so this can't recur.
 *.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
 Dockerfile text eol=lf
