@@ -44,13 +44,13 @@
 <div class="panel">
   <h2>Open alerts by category</h2>
   {% for cat, n in d.open_by_category.items() %}
-    <a href="/alerts" style="text-decoration:none">
+    <a href="/alerts" class="mr-4 text-decoration-none">
       <span class="tag {{ cat }}">{{ cat }}</span>
     </a>
-    <strong style="margin-right:18px">{{ n }}</strong>
+    <strong class="mr-6">{{ n }}</strong>
   {% endfor %}
   {% if d.pending_review %}
-    <div class="review-note" style="margin-top:12px">
+    <div class="review-note mt-4">
       {{ d.pending_review|length }} alert(s) staged for independent review —
       a second operator must confirm before they can close.
     </div>
@@ -61,7 +61,7 @@
 {% if d.oldest_open %}
 <div class="panel">
   <h2>Oldest open alerts</h2>
-  <p class="muted small" style="margin-top:-6px">
+  <p class="muted small mt-0">
     Age matters on its own: an alert sitting open longest is the one most
     likely to be forgotten, independent of its score.
   </p>
@@ -80,73 +80,26 @@
 </div>
 {% endif %}
 
-<div class="grid two">
-  <div class="panel">
-    <h2>Sanctions lists</h2>
+<div class="panel">
+  <h2>Due for periodic review</h2>
+  {% if d.due_for_review %}
     <table>
-      <tr><th>List</th><th>Entities</th><th>Refreshed</th><th></th></tr>
-      {% for s in d.staleness %}
+      <tr><th>Customer</th><th>Rating</th><th>Due</th></tr>
+      {% for c in d.due_for_review %}
       <tr>
-        <td>
-          {{ s.title }}
-          {% if s.mandatory %}<span class="tag sanction">mandatory</span>{% endif %}
-        </td>
-        <td class="score">{{ '{:,}'.format(s.entities) }}</td>
-        <td class="nowrap">
-          {% if s.hours_since_refresh is not none %}{{ s.hours_since_refresh }}h ago
-          {% else %}<span class="muted">never</span>{% endif %}
-        </td>
-        <td>
-          {% if s.breach %}<span class="tag proliferation">breach</span>
-          {% else %}<span class="tag low">current</span>{% endif %}
-        </td>
+        <td><a href="/customers/{{ c.id }}">{{ c.full_name }}</a>
+          <div class="muted small">{{ c.reference }}</div></td>
+        <td><span class="tag {{ c.rating }}">{{ c.rating }}</span></td>
+        <td class="nowrap">{{ c.next_review }}</td>
       </tr>
       {% endfor %}
     </table>
-    <p class="muted small" style="margin-bottom:0">
-      Refresh also re-screens the existing customer book — a refreshed list that
-      nobody has been screened against provides no protection.
-    </p>
-  </div>
-
-  <div class="panel">
-    <h2>Due for periodic review</h2>
-    {% if d.due_for_review %}
-      <table>
-        <tr><th>Customer</th><th>Rating</th><th>Due</th></tr>
-        {% for c in d.due_for_review %}
-        <tr>
-          <td><a href="/customers/{{ c.id }}">{{ c.full_name }}</a>
-            <div class="muted small">{{ c.reference }}</div></td>
-          <td><span class="tag {{ c.rating }}">{{ c.rating }}</span></td>
-          <td class="nowrap">{{ c.next_review }}</td>
-        </tr>
-        {% endfor %}
-      </table>
-    {% else %}
-      <p class="muted">Nothing due. Review intervals are set by risk rating —
-        12 months for high, 24 for medium, 36 for low.</p>
-    {% endif %}
-  </div>
+  {% else %}
+    <p class="muted">Nothing due. Review intervals are set by risk rating —
+      12 months for high, 24 for medium, 36 for low.</p>
+  {% endif %}
 </div>
 
-<div class="panel">
-  <h2>Data sources</h2>
-  <table>
-    <tr><th>Key</th><th>Publisher</th><th>Licence</th><th class="right">Entities</th></tr>
-    {% for ds in datasets %}
-    <tr>
-      <td class="mono">{{ ds.key }}</td>
-      <td>{{ ds.publisher }}</td>
-      <td class="small {{ 'muted' if 'NON-COMMERCIAL' not in (ds.licence or '') }}">
-        {% if 'NON-COMMERCIAL' in (ds.licence or '') %}
-          <strong style="color:var(--tf)">{{ ds.licence }}</strong>
-        {% else %}{{ ds.licence or '—' }}{% endif %}
-      </td>
-      <td class="right score">{{ '{:,}'.format(ds.entity_count) }}</td>
-    </tr>
-    {% endfor %}
-  </table>
 </div>
 
 {% endblock %}

@@ -35,15 +35,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from amlkit.db import audit, connect  # noqa: E402
 from amlkit.ingest.base import AdapterError  # noqa: E402
 from amlkit.ingest.loader import load, staleness_report  # noqa: E402
-from amlkit.ingest.opensanctions import (  # noqa: E402
-    uae_local_terrorists,
-    un_sanctions,
-)
+from amlkit.ingest.opensanctions import uae_local_terrorists, cia_world_leaders  # noqa: E402
+from amlkit.ingest.un import UNSanctionsAdapter  # noqa: E402
+from amlkit.ingest.ofac import OFACSDNAdapter  # noqa: E402
+from amlkit.ingest.eu import EUSanctionsAdapter  # noqa: E402
+from amlkit.ingest.uk import UKSanctionsAdapter  # noqa: E402
 from amlkit.match.engine import rescreen_all  # noqa: E402
 
-# Mandatory under UAE law. Failure to refresh any of these is a compliance
-# breach, not a warning.
-MANDATORY_SOURCES = [uae_local_terrorists, un_sanctions]
+# Mandatory under UAE law or required for screening. Failure to refresh any
+# of these is a compliance breach. Optional lists (is_mandatory=False) will
+# be attempted but their failure won't block the pipeline.
+MANDATORY_SOURCES = [
+    uae_local_terrorists,
+    UNSanctionsAdapter,
+    OFACSDNAdapter,
+    EUSanctionsAdapter,
+    UKSanctionsAdapter,
+    cia_world_leaders,
+]
 
 
 def main() -> int:
@@ -64,8 +73,9 @@ def main() -> int:
             # coverage has lapsed, which is the exact failure the 24-hour rule
             # exists to prevent.
             print(f"  FAIL  {adapter.key}: {exc}", file=sys.stderr)
-            failures.append(adapter.key)
             # Shared reference data, not tenant-owned -- same as dataset.refresh.
+            if adapter.is_mandatory:
+                failures.append(adapter.key)
             audit(conn, "scheduled-refresh", "dataset.refresh_failed",
                   "dataset", adapter.key, {"error": str(exc)}, org_id=None)
             conn.commit()

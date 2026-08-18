@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% set nav = 'reports' %}
+{% block title %}STR Draft Builder — amlkit{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>goAML Draft Report Builder — <span class="tag high">{{ type }}</span></h2>
+  <p class="muted small mt-0">
+    Compiling regulatory filing for <strong>{{ customer.full_name }}</strong> (Ref: {{ customer.reference }}).
+  </p>
+</div>
+
+<form method="post" action="/reports">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="customer_id" value="{{ customer.id }}">
+  <input type="hidden" name="report_type" value="{{ type }}">
+  {% if report_id %}
+    <input type="hidden" name="report_id" value="{{ report_id }}">
+  {% endif %}
+
+  <!-- 1. Reporter Info -->
+  <div class="panel">
+    <div class="step-indicator">1</div>
+    <h3>Reporting Entity &amp; Person</h3>
+    <div class="row">
+      <div>
+        <label>Reporting Entity Name</label>
+        <input type="text" name="reporting_entity_name" value="{{ payload.reporting_entity_name or session.org_name or 'Grovisor Business Consultants' }}" required>
+      </div>
+      <div>
+        <label>Entity Reference / Licence #</label>
+        <input type="text" name="entity_reference" value="{{ payload.entity_reference or 'GROVISOR-LIC-2026' }}" required>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>MLRO / Reporting Officer Name</label>
+        <input type="text" name="reporter_name" value="{{ payload.reporter_name or session.operator_name }}" required>
+      </div>
+      <div>
+        <label>Reporting Officer Email</label>
+        <input type="email" name="reporter_email" value="{{ payload.reporter_email or session.email }}" required>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Subject Info (auto-filled from database customer row, editable) -->
+  <div class="panel">
+    <div class="step-indicator">2</div>
+    <h3>Subject Details</h3>
+    <div class="row">
+      <div>
+        <label>First Name / Entity Name</label>
+        <input type="text" name="first_name" value="{{ payload.first_name or customer.full_name.split()[0] if customer.customer_type == 'natural' else customer.full_name }}" required>
+      </div>
+      {% if customer.customer_type == 'natural' %}
+        <div>
+          <label>Last Name</label>
+          <input type="text" name="last_name" value="{{ payload.last_name or ' '.join(customer.full_name.split()[1:]) }}" required>
+        </div>
+      {% endif %}
+    </div>
+    <div class="row">
+      <div>
+        <label>Nationality (ISO-2/3)</label>
+        <input type="text" name="nationality" value="{{ payload.nationality or customer.nationality or 'AE' }}" required>
+      </div>
+      <div>
+        <label>Date of Birth / Incorporation</label>
+        <input type="text" name="birth_date" placeholder="YYYY-MM-DD" value="{{ payload.birth_date or customer.birth_date or '' }}">
+      </div>
+      {% if customer.customer_type == 'natural' %}
+        <div>
+          <label>Gender</label>
+          <select name="gender">
+            <option value="">—</option>
+            <option value="male" {{ 'selected' if (payload.gender or customer.gender) == 'male' }}>Male</option>
+            <option value="female" {{ 'selected' if (payload.gender or customer.gender) == 'female' }}>Female</option>
+          </select>
+        </div>
+      {% endif %}
+    </div>
+    <div class="row">
+      <div>
+        <label>ID Document Type</label>
+        <input type="text" name="id_type" value="{{ payload.id_type or customer.id_type or 'Passport' }}">
+      </div>
+      <div>
+        <label>ID / Trade Licence Number</label>
+        <input type="text" name="id_number" value="{{ payload.id_number or customer.id_number or customer.trade_licence or '' }}">
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Transaction Details (Required for STR, HRCT, DPMSR, REAR) -->
+  <div class="panel">
+    <div class="step-indicator">3</div>
+    <h3>Transaction / Financial Information (If Applicable)</h3>
+    <p class="muted small mt-0">
+      Required for transaction-type filings. Leave blank if reporting pure activity or sanctions match.
+    </p>
+    <div class="row">
+      <div>
+        <label>Transaction Amount (AED)</label>
+        <input type="number" name="amount" step="0.01" min="0" value="{{ payload.amount or '' }}">
+      </div>
+      <div>
+        <label>Transaction Type</label>
+        <select name="transaction_type">
+          <option value="">— Select Type —</option>
+          <option value="Wire Transfer" {{ 'selected' if payload.transaction_type == 'Wire Transfer' }}>Wire Transfer</option>
+          <option value="Cash Deposit" {{ 'selected' if payload.transaction_type == 'Cash Deposit' }}>Cash Deposit</option>
+          <option value="Real Estate Buy" {{ 'selected' if payload.transaction_type == 'Real Estate Buy' }}>Real Estate Purchase</option>
+          <option value="Virtual Asset" {{ 'selected' if payload.transaction_type == 'Virtual Asset' }}>Virtual Asset Transfer</option>
+        </select>
+      </div>
+      <div>
+        <label>Transaction Date</label>
+        <input type="date" name="transaction_date" value="{{ payload.transaction_date or '' }}">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Source Account (IBAN/Card/Wallet)</label>
+        <input type="text" name="source_account" value="{{ payload.source_account or '' }}">
+      </div>
+      <div>
+        <label>Destination Account (IBAN/Card/Wallet)</label>
+        <input type="text" name="destination_account" value="{{ payload.destination_account or '' }}">
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Suspicion Narrative & Narrative PDF Attachment -->
+  <div class="panel">
+    <div class="step-indicator">4</div>
+    <h3>Suspicion Reason &amp; Action Taken</h3>
+    <div class="field mt-4">
+      <label>Detailed Suspicion Narrative (Reason for filing) *</label>
+      <textarea name="reason_description" rows="6" placeholder="Provide a detailed explanation of why this activity/match is suspicious." required>{{ payload.reason_description or '' }}</textarea>
+    </div>
+    <div class="field mt-4">
+      <label>Compliance Action Taken *</label>
+      <textarea name="action_taken" rows="3" placeholder="e.g. Account suspended, transactions frozen, client onboarding rejected." required>{{ payload.action_taken or '' }}</textarea>
+    </div>
+    
+    <div class="mt-6">
+      <div class="toggle-switch">
+        <input type="checkbox" name="evidence_pack_attached" id="evidence-check" value="yes" checked>
+        <label for="evidence-check">
+          <strong>Attach PDF Evidence Pack</strong> — Include this customer's full screening hits, audit trail, and compliance decisions as a narrative attachment.
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 mb-6">
+    <button type="submit">Save Report Draft</button>
+    <a class="btn ghost" href="/reports">Cancel</a>
+  </div>
+</form>
+
+{% endblock %}

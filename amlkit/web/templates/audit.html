@@ -5,7 +5,7 @@
 
 <div class="panel">
   <h2>Audit log</h2>
-  <p class="muted small" style="margin-top:-6px">
+  <p class="muted small mt-0">
     Append-only, enforced by database trigger rather than by convention: any
     UPDATE or DELETE against this table aborts. Senior-management liability under
     Law 10/2025 makes “we agreed not to edit it” an inadequate control.
@@ -13,7 +13,7 @@
   <table>
     <tr><th>When</th><th>Operator</th><th>Action</th><th>Object</th><th>Detail</th></tr>
     {% for e in entries %}
-    <tr>
+    <tr class="{{ 'alt-row' if loop.index % 2 == 0 else '' }}">
       <td class="small nowrap">{{ e.ts[:19].replace('T',' ') }}</td>
       <td class="small">{{ e.actor }}</td>
       <td class="small mono">{{ e.action }}</td>

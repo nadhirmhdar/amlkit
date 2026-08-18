@@ -4,8 +4,8 @@
 {% block body %}
 
 <div class="panel">
-  <h2>{{ org.name }}</h2>
-  <p class="muted small" style="margin-bottom:0">Workspace slug: <span class="mono">{{ org.slug }}</span></p>
+  <h2 class="mt-0">amlkit Workspace</h2>
+  <p class="muted small mt-0 mb-0">Workspace slug: <span class="mono">{{ org.slug }}</span></p>
 </div>
 
 <div class="panel">
@@ -21,16 +21,16 @@
           {% else %}<span class="tag other">deactivated</span>{% endif %}</td>
       <td>
         {% if op.is_active %}
-        <details style="display:inline-block">
-          <summary class="small" style="cursor:pointer;color:var(--accent)">Reset password</summary>
-          <form method="post" action="/admin/operators/{{ op.id }}/reset-password" style="margin-top:6px">
+        <details class="d-inline">
+          <summary class="small cursor-pointer">Reset password</summary>
+          <form method="post" action="/admin/operators/{{ op.id }}/reset-password" class="mt-4">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="password" name="new_password" placeholder="New password" minlength="10" required
-                   style="width:180px;display:inline-block">
+                   class="d-inline-block w-180">
             <button class="small" type="submit">Set</button>
           </form>
         </details>
-        <form method="post" action="/admin/operators/{{ op.id }}/deactivate" style="display:inline">
+        <form method="post" action="/admin/operators/{{ op.id }}/deactivate" class="d-inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="small ghost" type="submit"
                   onclick="return confirm('Deactivate {{ op.name }}? They will be signed out of every session immediately.')">
@@ -46,7 +46,7 @@
 
 <div class="panel">
   <h2>Screening threshold</h2>
-  <p class="muted small" style="margin-top:-6px">
+  <p class="muted small mt-0">
     Score at or above this clears the alert bar. Default is
     <strong>{{ default_threshold }}</strong>, tuned against a golden set and
     a false-positive suite — changing it here is a real decision, not a
@@ -60,7 +60,7 @@
              value="{{ threshold if threshold is not none else '' }}"
              placeholder="{{ default_threshold }} (engine default)">
     </div>
-    <div style="align-self:end">
+    <div class="mt-4">
       <button type="submit">Save</button>
       <span class="muted small">
         {% if threshold is not none %}Currently overridden: {{ threshold }}
@@ -75,15 +75,66 @@
   <form method="post" action="/admin/operators" class="row">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div><label>Name</label><input type="text" name="name" required></div>
-    <div><label>Email</label><input type="text" name="email" required></div>
+    <div><label>Email</label><input type="email" name="email" required></div>
     <div><label>Password</label><input type="password" name="password" minlength="10" required></div>
     <div><label>Role</label>
       <select name="role">
         <option value="officer">Officer</option>
         <option value="mlro">MLRO</option>
       </select></div>
-    <div style="align-self:end"><button type="submit">Create</button></div>
+    <div class="mt-4"><button type="submit">Create</button></div>
   </form>
+</div>
+
+<div class="panel">
+  <h2>Sanctions Lists</h2>
+  <p class="muted small" style="margin-top:-6px">
+    UAE law requires lists to be refreshed within 24 hours of a new designation.
+    Refreshing downloads the latest UAE Local Terrorist List and UN SC Consolidated
+    List, then re-screens your entire customer book automatically.
+  </p>
+  {% if sanctions %}
+  <table style="margin-bottom:16px">
+    <tr><th>List</th><th>Entities</th><th>Last Refresh</th><th>Status</th></tr>
+    {% for s in sanctions %}
+    <tr>
+      <td>{{ s.title }}</td>
+      <td>{{ s.entities }}</td>
+      <td class="small mono">{{ s.hours_since_refresh ~ 'h ago' if s.hours_since_refresh is not none else '—' }}</td>
+      <td>
+        {% if s.breach %}<span class="tag high">BREACH &gt;24h</span>
+        {% elif s.hours_since_refresh is none %}<span class="tag other">Never loaded</span>
+        {% else %}<span class="tag low">OK</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <form method="post" action="/admin/refresh" class="mt-4"
+        onsubmit="this.querySelector('button').textContent='Refreshing…';this.querySelector('button').disabled=true;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" id="refresh-btn">🔄 Refresh Sanctions Lists Now</button>
+    <span class="muted small ml-4">Takes 30–60 seconds</span>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Data sources</h2>
+  <table>
+    <tr><th>Key</th><th>Publisher</th><th>Licence</th><th class="right">Entities</th></tr>
+    {% for ds in datasets %}
+    <tr>
+      <td class="mono">{{ ds.key }}</td>
+      <td>{{ ds.publisher }}</td>
+      <td class="small {{ 'muted' if 'NON-COMMERCIAL' not in (ds.licence or '') }}">
+        {% if 'NON-COMMERCIAL' in (ds.licence or '') %}
+          <strong class="text-danger">{{ ds.licence }}</strong>
+        {% else %}{{ ds.licence or '—' }}{% endif %}
+      </td>
+      <td class="right score">{{ '{:,}'.format(ds.entity_count) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
 </div>
 
 {% endblock %}

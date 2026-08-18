@@ -6,26 +6,28 @@
 
 <div class="panel">
   <h2>Alert queue</h2>
-  <p class="muted small" style="margin-top:-6px">
+  <p class="muted small mt-0">
     Ordered by category then score. Proliferation first: it is a standalone
     offence under Law 10/2025 and the least familiar category, so it is never
     buried under ordinary sanctions hits.
   </p>
-  <div>
+  <div class="segmented-control mt-4">
     {% for s, label in [('open','Open'), ('pending_review','Awaiting review'),
                         ('false_positive','Dismissed'), ('true_positive','Confirmed'),
                         ('escalated','Escalated'), ('all','All')] %}
-      <a class="btn small {{ '' if status == s else 'ghost' }}"
-         href="/alerts?status={{ s }}"
-         style="{{ '' if status == s else 'background:#fff;color:var(--accent)' }}">{{ label }}</a>
+      <a class="segmented-control__item {{ 'segmented-control__item--active' if status == s else '' }}"
+         href="/alerts?status={{ s }}">{{ label }}</a>
     {% endfor %}
-    <a class="btn small ghost" href="/alerts.csv?status={{ status }}"
-       style="background:#fff;color:var(--accent)">Export CSV</a>
+    <a class="segmented-control__item" href="/alerts.csv?status={{ status }}">Export CSV</a>
   </div>
 </div>
 
 {% if not alerts %}
-  <div class="panel"><p class="muted" style="margin:0">No alerts with this status.</p></div>
+  <div class="panel empty-state">
+    <div class="empty-state__icon">✓</div>
+    <div class="empty-state__title">No alerts</div>
+    <p class="empty-state__text mt-0">No alerts with this status.</p>
+  </div>
 {% endif %}
 
 {% for a in alerts %}
@@ -45,10 +47,10 @@
     {% if a.countries %} · {{ a.countries|join(', ')|upper }}{% endif %}
   </div>
 
-  <div class="small" style="margin-top:6px">
+  <div class="small mt-4">
     {% if a.assigned_to %}
       Assigned to <strong>{{ a.assigned_to }}</strong>
-      <form method="post" action="/alerts/{{ a.id }}/assign" style="display:inline">
+      <form method="post" action="/alerts/{{ a.id }}/assign" class="d-inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="back_to" value="/alerts?status={{ status }}">
         <input type="hidden" name="operator" value="">
@@ -56,7 +58,7 @@
       </form>
     {% else %}
       <span class="muted">Unassigned</span>
-      <form method="post" action="/alerts/{{ a.id }}/assign" style="display:inline">
+      <form method="post" action="/alerts/{{ a.id }}/assign" class="d-inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="back_to" value="/alerts?status={{ status }}">
         <input type="hidden" name="operator" value="{{ session.operator_name }}">
@@ -65,7 +67,7 @@
     {% endif %}
   </div>
 
-  <div style="margin-top:8px">
+  <div class="mt-4">
     Matched against:
     {% if a.customer_id %}
       <a href="/customers/{{ a.customer_id }}">{{ name(a.matched_party) }}</a>

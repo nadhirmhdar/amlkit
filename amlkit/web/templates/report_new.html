@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% set nav = 'reports' %}
+{% block title %}New Regulatory Report — amlkit{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Create Regulatory Report Draft</h2>
+  <p class="muted small mt-0">
+    Select the subject customer and the type of report you wish to compile.
+  </p>
+  <form method="get" action="/reports/build">
+    <div class="field">
+      <label>Subject Customer</label>
+      <select name="customer_id" required>
+        <option value="">— Select Customer —</option>
+        {% for c in customers %}
+          <option value="{{ c.id }}">{{ c.reference }} - {{ c.full_name }} ({{ c.status }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>goAML Report Type</label>
+      <select name="report_type" required>
+        <option value="STR">STR - Suspicious Transaction Report</option>
+        <option value="SAR">SAR - Suspicious Activity Report</option>
+        <option value="PNMR">PNMR - Partial Name Match Report</option>
+        <option value="FFR">FFR - Fund Freeze Report</option>
+        <option value="HRCT">HRCT - High Risk Country Transaction Report</option>
+        <option value="HRCA">HRCA - High Risk Country Activity Report</option>
+        <option value="DPMSR">DPMSR - Dealers in Precious Metals and Stones Report</option>
+        <option value="REAR">REAR - Real Estate Activity Report</option>
+      </select>
+    </div>
+    <div class="mt-6">
+      <button type="submit">Begin Draft Builder</button>
+      <a class="btn ghost" href="/reports">Cancel</a>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

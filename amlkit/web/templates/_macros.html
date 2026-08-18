@@ -22,7 +22,7 @@
         &nbsp; precision <code>{{ n.get('precision') }}</code>
       </div>
       {% if n.get('matched_pairs') %}
-        <div style="margin-top:6px">Matched tokens:
+        <div class="mt-4">Matched tokens:
           {% for pair in n.get('matched_pairs') %}
             <span class="pair"><code>{{ pair[0] }}</code> → <code>{{ pair[1] }}</code>
               ({{ pair[2] }})</span>
@@ -30,33 +30,33 @@
         </div>
       {% endif %}
       {% if n.get('query_tokens') %}
-        <div class="muted small" style="margin-top:6px">
+        <div class="muted small mt-4">
           query <code>{{ n.get('query_tokens')|join(' ') }}</code> ·
           listed <code>{{ n.get('candidate_tokens')|join(' ') }}</code>
         </div>
       {% endif %}
     {% endif %}
     {% if f.get('identifier_match') %}
-      <div style="margin-top:6px"><strong>Identifier match:</strong>
+      <div class="mt-4"><strong>Identifier match:</strong>
         {{ f.get('identifier_match')|join(', ') }} — an exact identifier hit is
         not a coincidence.</div>
     {% endif %}
     {% if f.get('adjustments') %}
-      <div style="margin-top:6px">Contradicting features:
+      <div class="mt-4">Contradicting features:
         {% for k, v in f.get('adjustments').items() %}
           <span class="pair"><code>{{ k }} {{ v }}</code></span>
         {% endfor %}
       </div>
     {% endif %}
     {% if n.get('low_confidence_query') %}
-      <div class="review-note" style="margin-top:8px">{{ n.get('low_confidence_query') }}</div>
+      <div class="review-note mt-4">{{ n.get('low_confidence_query') }}</div>
     {% endif %}
   </div>
 {% endmacro %}
 
 {% macro aliases(list) %}
   {% if list %}
-    <div class="small muted" style="margin-top:5px">
+    <div class="small muted mt-4">
       Also listed as:
       {% for a in list[1:8] %}{{ name(a.name) }}{% if not loop.last %} · {% endif %}{% endfor %}
       {% if list|length > 8 %} <em>+{{ list|length - 8 }} more</em>{% endif %}
@@ -66,12 +66,12 @@
 
 {% macro review_trail(reviews) %}
   {% if reviews %}
-    <div class="small" style="margin-top:8px">
+    <div class="small mt-4">
       {% for r in reviews %}
         <div class="muted">
           <strong>{{ r.action }}</strong> — {{ r.status.replace('_',' ') }} ·
           {{ r.reason_label }} · <em>{{ r.operator }}</em> · {{ r.created_at }}
-          {% if r.narrative %}<div style="margin-left:12px">“{{ r.narrative }}”</div>{% endif %}
+          {% if r.narrative %}<div class="ml-4">“{{ r.narrative }}”</div>{% endif %}
         </div>
       {% endfor %}
     </div>
@@ -125,7 +125,7 @@
       <button type="submit">Record decision</button>
     </form>
   {% else %}
-    <div class="small muted" style="margin-top:8px">
+    <div class="small muted mt-4">
       <strong>{{ alert.status.replace('_',' ')|title }}</strong>
       {% if alert.reason_code %} · {{ alert.reason_code.replace('_',' ') }}{% endif %}
       {% if alert.dispositioned_by %} · by {{ alert.dispositioned_by }}{% endif %}

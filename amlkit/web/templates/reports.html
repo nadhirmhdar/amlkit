@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% set nav = 'reports' %}
+{% block title %}Regulatory Reports — amlkit{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <div class="alert-head">
+    <h2>Regulatory Reports</h2>
+    <div>
+      <a class="btn" href="/reports/new">+ Create Report Draft</a>
+    </div>
+  </div>
+  <p class="muted small mt-0">
+    Suspicious Transaction Reports (STRs), Suspicious Activity Reports (SARs),
+    Partial Name Match Reports (PNMRs), and other UAE FIU regulatory filings.
+  </p>
+
+  {% if reports %}
+    <table>
+      <thead>
+        <tr>
+          <th>Reference</th>
+          <th>Type</th>
+          <th>Subject</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+          <tr>
+            <td><strong>{{ r.reference or 'DRAFT-' ~ r.id }}</strong></td>
+            <td><span class="tag {{ 'high' if r.report_type in ('STR','SAR','FFR') else 'other' }}">{{ r.report_type }}</span></td>
+            <td>{{ r.customer_name or 'No associated customer' }}</td>
+            <td>
+              {% if r.status == 'submitted' %}
+                <span class="tag low">submitted</span>
+              {% else %}
+                <span class="tag other">draft</span>
+              {% endif %}
+            </td>
+            <td class="small">{{ r.created_at[:16].replace('T', ' ') }}</td>
+            <td>
+              <a class="btn small" href="/reports/{{ r.id }}">View &amp; Edit</a>
+              <a class="btn small ghost" href="/reports/{{ r.id }}/export">📥 goAML XML</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty-state mt-6">
+      <div class="empty-state__icon">📄</div>
+      <div class="empty-state__title">No regulatory reports created yet</div>
+      <p class="empty-state__text mt-0">Create a report draft to begin your filing process.</p>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

@@ -161,3 +161,8 @@ def global_sanctions() -> OpenSanctionsAdapter:
 def peps() -> OpenSanctionsAdapter:
     """Politically exposed persons. Not itself a sanctions list; drives EDD."""
     return OpenSanctionsAdapter("peps", "Politically Exposed Persons", False)
+
+
+def cia_world_leaders() -> OpenSanctionsAdapter:
+    """CIA World Leaders (PEP List) -- public domain and free to use commercially."""
+    return OpenSanctionsAdapter("us_cia_world_leaders", "CIA World Leaders (PEPs)", False)

@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Grovisor amlkit{% endblock %}</title>
+<title>{% block title %}amlkit{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -11,17 +14,23 @@
 <header class="top no-print">
   <h1>Grovisor <span class="subbrand">amlkit</span></h1>
   {% if session %}
-  <nav>
+  <input type="checkbox" id="nav-toggle" class="nav-toggle">
+  <label for="nav-toggle" class="nav-hamburger">☰</label>
+  <div class="nav-wrapper">
+    <nav>
     <a href="/"          class="{{ 'on' if nav=='dash' }}">Dashboard</a>
     <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
     <a href="/alerts"    class="{{ 'on' if nav=='alerts' }}">Alerts</a>
     <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
+    <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
     <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
     {% if session.operator_role == 'mlro' %}
       <a href="/admin" class="{{ 'on' if nav=='admin' }}">Admin</a>
     {% endif %}
   </nav>
+  </div>
   <form method="post" action="/logout" class="operator-box">
+    <span class="initials-avatar">{{ session.operator_name[0]|upper }}</span>
     <span class="who">{{ session.operator_name }} · {{ session.operator_role }}</span>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="small ghost" type="submit">Sign out</button>
@@ -42,7 +51,7 @@
 
 </main>
 
-<footer class="no-print" style="max-width:1180px;margin:0 auto;padding:0 20px 40px">
+<footer class="no-print">
   <p class="muted small">
     {% if single_operator %}
       Single-operator mode is <strong>on</strong>: dismissals of sanctions and
