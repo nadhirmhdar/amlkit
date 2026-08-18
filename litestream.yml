@@ -1,9 +1,11 @@
 dbs:
   - path: /app/data/amlkit.db
-    replicas:
-      # litestream 0.5.x uses a scheme-prefixed url, not the older
-      # type/bucket/path triplet (that syntax is no longer recognized --
-      # "unknown replica type in config: gcs" is what it fails with).
-      # GCS auth is via Application Default Credentials -- Cloud Run's
-      # attached service account, no separate key needed.
-      - url: gcs://${GCS_BUCKET}/litestream/amlkit.db
+    # Singular `replica:`, not a `replicas:` list -- this is the exact
+    # schema shipped in litestream's own etc/litestream.yml template for
+    # this release (v0.5.16). The plural `replicas:` key shown in some of
+    # litestream's own docs does NOT read `url:` in this build -- it still
+    # expects the older `type:` field and fails with "unknown replica type
+    # in config: ''" when `url:` is given instead. Verified by actually
+    # deploying both forms, not assumed from docs alone.
+    replica:
+      url: gcs://${GCS_BUCKET}/litestream/amlkit.db
