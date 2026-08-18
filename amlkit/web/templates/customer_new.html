@@ -19,6 +19,7 @@
       <span id="scan-status" class="muted small ml-4" style="display:none"></span>
     </div>
   </div>
+  <div id="scan-authenticity" class="banner err mt-4" style="display:none"></div>
   <div class="row mt-4">
     <div><label>Reference *</label><input type="text" name="reference" required></div>
     <div><label>Type</label>
@@ -138,7 +139,20 @@ async function performPassportOCR(input) {
     if (data.gender) {
       document.querySelector('select[name="gender"]').value = data.gender;
     }
-    statusEl.textContent = 'Scan complete!';
+
+    const warnEl = document.getElementById('scan-authenticity');
+    const flags = (data.authenticity && data.authenticity.flags) || [];
+    if (flags.length > 0) {
+      warnEl.textContent = 'Document authenticity check: ' + flags.join('; ') +
+        '. Verify this document manually before relying on the extracted fields.';
+      warnEl.style.display = 'block';
+      statusEl.textContent = 'Scan complete — authenticity check failed, see warning below.';
+    } else {
+      warnEl.style.display = 'none';
+      statusEl.textContent = data.authenticity
+        ? 'Scan complete. MRZ checksums verified.'
+        : 'Scan complete (MRZ not read — fields extracted via OCR fallback have no authenticity check).';
+    }
   } catch (err) {
     statusEl.textContent = 'Scan failed. Please enter manually.';
   }

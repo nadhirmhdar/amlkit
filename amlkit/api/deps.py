@@ -95,6 +95,22 @@ def require_csrf(request: Request, form_csrf: str | None) -> None:
         raise PermissionError("Session expired or the form was submitted from a stale page. Reload and try again.")
 
 
+def client_ip(request: Request) -> str | None:
+    """Best-effort client IP for the signature audit trail.
+
+    Trusts X-Forwarded-For only when AMLKIT_BEHIND_PROXY=1 is explicitly set
+    (see startup_warning() above) -- otherwise a client could set that header
+    itself and forge the recorded address. Takes the first hop, which is the
+    proxy's own view of the original client; later hops in the chain are
+    other proxies, not the request's origin.
+    """
+    if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
 def require_role(session: SessionInfo, *roles: str) -> None:
     if session.operator_role not in roles:
         raise PermissionError(

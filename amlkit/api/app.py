@@ -26,7 +26,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import auth, queries
-from ..cases.manager import add_case_note, add_ubo, close_relationship, onboard
+from ..cases.manager import (
+    add_case_note,
+    add_ubo,
+    close_relationship,
+    disposition_transaction_alert,
+    onboard,
+    record_signature,
+    record_transaction,
+)
 from ..cases.review import (
     REASON_CODES,
     ReviewError,
@@ -43,6 +51,7 @@ from ..risk.model import ruleset
 from .deps import (
     CSRF_COOKIE,
     SESSION_COOKIE,
+    client_ip,
     current_session,
     db_path,
     get_db,
@@ -668,6 +677,96 @@ def customer_add_note(
     except (PermissionError, ValueError) as exc:
         return back(f"/customers/{customer_id}", err=str(exc))
     return back(f"/customers/{customer_id}", msg="Note added.")
+
+
+@app.post("/customers/{customer_id}/transactions")
+def customer_add_transaction(
+    request: Request, db: DB, customer_id: int,
+    direction: Annotated[str, Form()],
+    method: Annotated[str, Form()],
+    amount: Annotated[str, Form()],
+    currency: Annotated[str, Form()] = "AED",
+    amount_aed: Annotated[str, Form()] = "",
+    counterparty_name: Annotated[str, Form()] = "",
+    counterparty_country: Annotated[str, Form()] = "",
+    occurred_at: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+        amt = float(amount)
+        aed = float(amount_aed) if amount_aed.strip() else None
+        transaction_id, triggered = record_transaction(
+            db, customer_id, session.org_id,
+            direction=direction, method=method, amount=amt, currency=currency,
+            amount_aed=aed, counterparty_name=counterparty_name.strip() or None,
+            counterparty_country=counterparty_country.strip() or None,
+            occurred_at=(occurred_at.strip() + "T00:00:00+00:00") if occurred_at.strip() else None,
+            actor=session.operator_name,
+        )
+    except (PermissionError, ValueError) as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    note = (
+        f"Transaction recorded. {len(triggered)} rule(s) triggered: "
+        + ", ".join(r.rule_key for r in triggered)
+        if triggered else "Transaction recorded. No rules triggered."
+    )
+    return back(f"/customers/{customer_id}", msg=note)
+
+
+@app.post("/transaction-alerts/{alert_id}/disposition")
+def transaction_alert_disposition(
+    request: Request, db: DB, alert_id: int,
+    status: Annotated[str, Form()],
+    note: Annotated[str, Form()] = "",
+    customer_id: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    back_url = f"/customers/{customer_id}" if customer_id.strip() else "/"
+    try:
+        require_csrf(request, csrf_token)
+        disposition_transaction_alert(
+            db, alert_id, session.org_id, status=status, note=note,
+            actor=session.operator_name,
+        )
+    except (PermissionError, ValueError) as exc:
+        return back(back_url, err=str(exc))
+    return back(back_url, msg="Transaction alert dispositioned.")
+
+
+@app.post("/customers/{customer_id}/signatures")
+def customer_add_signature(
+    request: Request, db: DB, customer_id: int,
+    purpose: Annotated[str, Form()],
+    statement: Annotated[str, Form()],
+    signer_name: Annotated[str, Form()],
+    signer_role: Annotated[str, Form()] = "customer",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+        record_signature(
+            db, customer_id, session.org_id,
+            purpose=purpose, statement=statement, signer_name=signer_name,
+            signer_role=signer_role, ip_address=client_ip(request),
+            user_agent=request.headers.get("User-Agent"),
+            actor=session.operator_name,
+        )
+    except (PermissionError, ValueError) as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    return back(f"/customers/{customer_id}", msg=f"Signed by {signer_name.strip()}.")
 
 
 # --------------------------------------------------------------------- alerts

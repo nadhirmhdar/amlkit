@@ -1,4 +1,24 @@
-"""Passport MRZ and OCR extraction using passporteye and pytesseract."""
+"""Passport MRZ and OCR extraction using passporteye and pytesseract.
+
+`extract_passport_data` also surfaces document-authenticity signal: the ICAO
+9303 MRZ format has a checksum digit for each field (number, date of birth,
+expiry, and a composite over the whole line), and passporteye already
+computes whether each one matches. Prior to this, that signal was read from
+the MRZ object and then thrown away. Surfacing it catches a materially
+different failure mode than OCR-quality issues: a checksum mismatch means the
+digits printed on the document are internally inconsistent -- either OCR
+misread something, or the document itself has been altered -- and either way
+it is something an operator should look at before trusting the extracted
+identity, not something to silently accept because a name and number came
+back.
+
+This is authenticity SIGNAL, not authenticity PROOF: it cannot detect a
+well-forged document with internally consistent (but fabricated) checksums,
+and it says nothing about the customer's face matching the photo. Full
+identity verification (liveness, face-match, forgery detection beyond
+checksum consistency) is out of scope here -- see the project notes on the
+Document AI / Vertex AI integration path for that.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +28,49 @@ from PIL import Image
 from passporteye import read_mrz
 
 
+def _authenticity_from_mrz(mrz) -> dict[str, object]:
+    """Pull passporteye's per-field checksum validity off the MRZ object.
+
+    Reads defensively (`getattr(..., None)`) rather than assuming every
+    attribute exists: passporteye's exact field set has drifted across
+    versions, and a missing attribute should degrade to "unknown", not crash
+    a scan that otherwise succeeded.
+    """
+    fields = {
+        "number": getattr(mrz, "valid_number", None),
+        "date_of_birth": getattr(mrz, "valid_date_of_birth", None),
+        "expiration_date": getattr(mrz, "valid_expiration_date", None),
+        "composite": getattr(mrz, "valid_composite", None),
+        "personal_number": getattr(mrz, "valid_personal_number", None),
+    }
+    known = {k: v for k, v in fields.items() if v is not None}
+    failed = [k for k, v in known.items() if not v]
+
+    score = getattr(mrz, "valid_score", None)
+    if score is None and known:
+        # passporteye reports valid_score on a 0-100 scale; derive an
+        # equivalent from the individual field checks when the library
+        # version in use doesn't expose it directly.
+        score = round(100 * sum(1 for v in known.values() if v) / len(known))
+
+    return {
+        "mrz_valid_score": score,
+        "checksum_failures": failed,
+        "flags": (
+            [f"MRZ checksum failed: {f.replace('_', ' ')}" for f in failed]
+            if failed else []
+        ),
+    }
+
+
 def extract_passport_data(image_path_or_file) -> dict[str, str | None]:
     """Extract passport information from image file.
-    
-    Returns a dictionary of extracted fields (standardized).
+
+    Returns a dictionary of extracted fields (standardized), plus an
+    `authenticity` block (see `_authenticity_from_mrz`). `authenticity` is
+    `None` when MRZ reading failed entirely -- there is nothing to check
+    checksums against, which is itself informative (OCR fallback fields
+    below have no authenticity signal at all).
     """
     res = {
         "full_name": None,
@@ -21,8 +80,9 @@ def extract_passport_data(image_path_or_file) -> dict[str, str | None]:
         "gender": None,
         "id_number": None,
         "id_type": "passport",
+        "authenticity": None,
     }
-    
+
     # 1. Try reading MRZ using passporteye
     mrz = None
     try:
@@ -32,7 +92,8 @@ def extract_passport_data(image_path_or_file) -> dict[str, str | None]:
         
     if mrz is not None:
         mrz_data = mrz.to_dict()
-        
+        res["authenticity"] = _authenticity_from_mrz(mrz)
+
         # Extract name (surname + given names)
         names = []
         if mrz_data.get("surname"):

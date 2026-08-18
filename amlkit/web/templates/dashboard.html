@@ -34,6 +34,10 @@
     <div class="n">{{ d.high_risk_customers }}</div>
     <div class="l">High-risk customers</div>
   </div>
+  <div class="tile {{ 'bad' if d.open_transaction_alerts else '' }}">
+    <div class="n">{{ d.open_transaction_alerts|length }}</div>
+    <div class="l">Transaction alerts open</div>
+  </div>
   <div class="tile">
     <div class="n">{{ '{:,}'.format(d.counts.entities) }}</div>
     <div class="l">Listed entities screened against</div>
@@ -82,7 +86,24 @@
 
 <div class="panel">
   <h2>Due for periodic review</h2>
-  {% if d.due_for_review %}
+  {% if d.oldest_open_transaction_alerts %}
+<div class="panel">
+  <h2>Oldest open transaction alerts</h2>
+  <table>
+    <tr><th>Customer</th><th>Rule</th><th>Amount (AED)</th><th>Opened</th></tr>
+    {% for ta in d.oldest_open_transaction_alerts %}
+    <tr>
+      <td><a href="/customers/{{ ta.customer_id }}">{{ ta.customer_name }}</a></td>
+      <td><span class="tag {{ ta.severity }}">{{ ta.rule_key.replace('_',' ') }}</span></td>
+      <td class="score">{{ '{:,.2f}'.format(ta.amount_aed) }}</td>
+      <td class="small nowrap">{{ ta.created_at[:16].replace('T',' ') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% if d.due_for_review %}
     <table>
       <tr><th>Customer</th><th>Rating</th><th>Due</th></tr>
       {% for c in d.due_for_review %}
