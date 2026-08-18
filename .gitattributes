@@ -1,0 +1,10 @@
+# Shell scripts run inside a Linux container/shell and need a real LF
+# shebang line to exec at all -- a CRLF-mangled `#!/bin/sh` fails with
+# "no such file or directory", not a parse error, which is what broke the
+# Cloud Run deploy after scripts/entrypoint.sh silently picked up CRLF on a
+# Windows checkout (core.autocrlf converts on checkout; `gcloud builds
+# submit` uploads the local working tree directly, not a git clone, so that
+# conversion ships straight into the image). Force LF regardless of the
+# checkout platform so this can't recur.
+*.sh text eol=lf
+Dockerfile text eol=lf
