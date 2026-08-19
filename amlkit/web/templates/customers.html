@@ -4,59 +4,58 @@
 {% block title %}Customers — amlkit{% endblock %}
 {% block body %}
 
-<div class="panel">
-  <h2>Customers</h2>
-  <div class="mb-4">
-    <a class="btn" href="/customers/new">Onboard a customer</a>
-    <a class="btn ghost" href="/customers.csv">Export CSV</a>
+<div class="page-head" style="display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap;">
+  <div>
+    <div class="eyebrow">CDD</div>
+    <h1>Customers</h1>
   </div>
-  <div class="field mt-4">
-    <input type="text" id="customer-search" placeholder="Search customers..." onkeyup="filterCustomers(this.value)">
+  <div style="display:flex; gap:10px;">
+    <a class="btn ghost" href="/customers.csv">Export CSV</a>
+    <a class="btn" href="/customers/new">Onboard customer</a>
   </div>
 </div>
 
-<div class="panel">
+<input type="text" id="customer-search" class="input-underline mb-6" style="max-width:320px; font-size:15px; display:block;"
+       placeholder="Search customers…" onkeyup="filterCustomers(this.value)">
+
 {% if customers %}
-<table id="customers-table">
-  <tr>
-    <th>Reference</th><th>Name</th><th>Type</th><th>Risk</th>
-    <th>Alerts</th><th>Last screened</th><th>Review due</th><th></th>
-  </tr>
+<div class="list-head" style="grid-template-columns:110px 1.6fr 1fr 0.8fr 70px 110px 90px;">
+  <div>Reference</div><div>Name</div><div>Type / Sector</div><div>Risk</div><div>Alerts</div><div>Review due</div><div></div>
+</div>
+<div id="customers-table">
   {% for c in customers %}
-  <tr class="customer-row">
-    <td class="mono">{{ c.reference }}</td>
-    <td>
-      <a href="/customers/{{ c.id }}">{{ name(c.full_name) }}</a>
-      {% if c.name_arabic %}<div>{{ name(c.name_arabic) }}</div>{% endif %}
-      {% if c.status != 'active' %}<span class="tag other">{{ c.status }}</span>{% endif %}
-    </td>
-    <td class="small">{{ c.customer_type }}<div class="muted">{{ c.sector }}</div></td>
-    <td>
+  <div class="customer-row list-row" style="display:grid; grid-template-columns:110px 1.6fr 1fr 0.8fr 70px 110px 90px; align-items:center;">
+    <div class="mono small muted">{{ c.reference }}</div>
+    <div>
+      <a href="/customers/{{ c.id }}" class="primary" style="display:block; color:var(--ink);">{{ name(c.full_name) }}</a>
+      {% if c.name_arabic %}<div class="secondary">{{ name(c.name_arabic) }}</div>{% endif %}
+      {% if c.status != 'active' %}<span class="tag other mt-1">{{ c.status }}</span>{% endif %}
+    </div>
+    <div class="small" style="color:var(--ink-2);">{{ c.customer_type }}<div class="muted">{{ c.sector }}</div></div>
+    <div>
       {% if c.rating %}
         <span class="tag {{ c.rating }}">{{ c.rating }}</span>
-        {% if c.requires_edd %}<div class="muted small">EDD</div>{% endif %}
+        {% if c.requires_edd %}<div class="muted small mt-1">EDD</div>{% endif %}
       {% else %}<span class="muted">—</span>{% endif %}
-    </td>
-    <td>{% if c.open_alerts %}
-        <a href="/alerts"><span class="tag proliferation">{{ c.open_alerts }}</span></a>
-      {% else %}<span class="muted">0</span>{% endif %}</td>
-    <td class="small nowrap">{{ (c.last_screened or '—')[:10] }}</td>
-    <td class="small nowrap">
-      {% if c.review_overdue %}<span class="tag proliferation">overdue</span>
+    </div>
+    <div class="num">{% if c.open_alerts %}
+        <a href="/alerts"><span class="tag high">{{ c.open_alerts }}</span></a>
+      {% else %}<span class="muted">0</span>{% endif %}</div>
+    <div class="small nowrap">
+      {% if c.review_overdue %}<span class="tag high">overdue</span>
       {% else %}{{ c.next_review or '—' }}{% endif %}
-    </td>
-    <td><a class="btn small ghost" href="/customers/{{ c.id }}/evidence">Evidence</a></td>
-  </tr>
+    </div>
+    <div><a class="btn small ghost" href="/customers/{{ c.id }}/evidence">Evidence</a></div>
+  </div>
   {% endfor %}
-</table>
+</div>
 {% else %}
-  <div class="empty-state">
+  <div class="panel empty-state">
     <div class="empty-state__icon">👥</div>
     <div class="empty-state__title">No customers yet</div>
     <p class="empty-state__text mt-0">Onboard your first customer to get started.</p>
   </div>
 {% endif %}
-</div>
 
 <script>
 function filterCustomers(query) {

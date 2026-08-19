@@ -2,41 +2,49 @@
 {% block title %}Register an organization — Grovisor amlkit{% endblock %}
 {% block body %}
 
-<div class="panel">
-  <div class="text-center mt-6">amlkit</div>
-  <h2>Register your firm</h2>
-  <p class="muted small mt-0">
-    Creates a new, fully isolated workspace — your firm's screening data is
-    never visible to any other organization using this deployment — and its
-    first login, with the MLRO role.
-  </p>
-  <form method="post" action="/register-organization">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="field">
-      <label>Firm name</label>
-      <input type="text" name="org_name" autofocus required>
+<div style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
+  <div style="width:400px;">
+    <div style="text-align:center; margin-bottom:36px;">
+      <div style="font-size:30px; font-weight:800; letter-spacing:-0.02em; background:linear-gradient(100deg, var(--ink) 55%, oklch(48% 0.14 45)); -webkit-background-clip:text; background-clip:text; color:transparent;">amlkit</div>
     </div>
-    <div class="field">
-      <label>Your name</label>
-      <input type="text" name="name" required>
+
+    <div class="panel">
+      <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Register your firm</h2>
+      <p class="muted small mt-0">
+        Creates a new, fully isolated workspace — your firm's screening data is
+        never visible to any other organization using this deployment — and its
+        first login, with the MLRO role.
+      </p>
+      <form method="post" action="/register-organization">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field">
+          <label>Firm name</label>
+          <input type="text" name="org_name" autofocus required>
+        </div>
+        <div class="field">
+          <label>Your name</label>
+          <input type="text" name="name" required>
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="text" name="email" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label>Password — at least 10 characters</label>
+          <input type="password" name="password" id="reg-password" autocomplete="new-password" required minlength="10" onkeyup="checkStrength()">
+          <div class="progress-track mt-4"><div class="progress-track__fill" id="pwd-strength" style="width:0%; background:var(--danger);"></div></div>
+          <div class="muted small mt-4" id="pwd-feedback">At least 10 characters, 1 uppercase, 1 number</div>
+        </div>
+        <button type="submit" class="btn-glow mt-4">Create organization &amp; sign in</button>
+      </form>
     </div>
-    <div class="field">
-      <label>Email</label>
-      <input type="text" name="email" autocomplete="username" required>
-    </div>
-    <div class="field">
-      <label>Password — at least 10 characters</label>
-      <input type="password" name="password" id="reg-password" autocomplete="new-password" required minlength="10" onkeyup="checkStrength()">
-      <div class="progress-track mt-4"><div class="progress-track__fill" id="pwd-strength" style="width:0%; background:var(--red);"></div></div>
-      <div class="muted small mt-4" id="pwd-feedback">At least 10 characters, 1 uppercase, 1 number</div>
-    </div>
-    <button type="submit" class="btn mt-4">Create organization &amp; sign in</button>
-  </form>
-  <p class="muted small mt-6">
-    Already have a login? <a href="/login">Sign in</a>.
-  </p>
+
+    <p class="text-center muted small mt-4">
+      Already have a login? <a href="/login">Sign in</a>.
+    </p>
+    <div class="text-center mt-6 muted small">Powered by Grovisor</div>
+  </div>
 </div>
-<div class="text-center mt-4 muted small">Powered by Grovisor</div>
 
 <script>
 function checkStrength() {
@@ -46,11 +54,11 @@ function checkStrength() {
   if (pwd.length >= 10) score += 1;
   if (/[A-Z]/.test(pwd)) score += 1;
   if (/[0-9]/.test(pwd)) score += 1;
-  
+
   if (score === 0) { bar.style.width = '0%'; }
-  if (score === 1) { bar.style.width = '33%'; bar.style.background = 'var(--red)'; }
-  if (score === 2) { bar.style.width = '66%'; bar.style.background = 'var(--amber)'; }
-  if (score === 3) { bar.style.width = '100%'; bar.style.background = 'var(--green)'; }
+  if (score === 1) { bar.style.width = '33%'; bar.style.background = 'var(--danger)'; }
+  if (score === 2) { bar.style.width = '66%'; bar.style.background = 'var(--warn)'; }
+  if (score === 3) { bar.style.width = '100%'; bar.style.background = 'var(--good)'; }
 }
 </script>
 

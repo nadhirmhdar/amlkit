@@ -3,9 +3,10 @@
 {% block title %}STR Draft Builder — amlkit{% endblock %}
 {% block body %}
 
-<div class="panel">
-  <h2>goAML Draft Report Builder — <span class="tag high">{{ type }}</span></h2>
-  <p class="muted small mt-0">
+<div class="page-head">
+  <div class="eyebrow">Compliance</div>
+  <h1 style="font-size:28px; display:flex; align-items:center; gap:14px;">goAML draft builder <span class="tag high">{{ type }}</span></h1>
+  <p class="sub">
     Compiling regulatory filing for <strong>{{ customer.full_name }}</strong> (Ref: {{ customer.reference }}).
   </p>
 </div>

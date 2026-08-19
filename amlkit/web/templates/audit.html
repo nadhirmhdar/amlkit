@@ -3,25 +3,31 @@
 {% block title %}Audit — amlkit{% endblock %}
 {% block body %}
 
-<div class="panel">
-  <h2>Audit log</h2>
-  <p class="muted small mt-0">
+<div class="page-head">
+  <div class="eyebrow">Trail</div>
+  <h1>Audit</h1>
+  <p class="sub">
     Append-only, enforced by database trigger rather than by convention: any
     UPDATE or DELETE against this table aborts. Senior-management liability under
-    Law 10/2025 makes “we agreed not to edit it” an inadequate control.
+    Law 10/2025 makes "we agreed not to edit it" an inadequate control.
   </p>
-  <table>
-    <tr><th>When</th><th>Operator</th><th>Action</th><th>Object</th><th>Detail</th></tr>
-    {% for e in entries %}
-    <tr class="{{ 'alt-row' if loop.index % 2 == 0 else '' }}">
-      <td class="small nowrap">{{ e.ts[:19].replace('T',' ') }}</td>
-      <td class="small">{{ e.actor }}</td>
-      <td class="small mono">{{ e.action }}</td>
-      <td class="small">{{ e.object_type or '' }}{% if e.object_id %} #{{ e.object_id }}{% endif %}</td>
-      <td class="small muted">{{ e.detail }}</td>
-    </tr>
-    {% endfor %}
-  </table>
+</div>
+
+<div class="list-head" style="grid-template-columns:160px 150px 1fr;">
+  <div>When</div><div>Operator</div><div>Detail</div>
+</div>
+<div class="flat-list">
+  {% for e in entries %}
+  <div class="list-row" style="display:grid; grid-template-columns:160px 150px 1fr;">
+    <div class="small nowrap mono muted">{{ e.ts[:19].replace('T',' ') }}</div>
+    <div class="small" style="color:var(--ink-2); font-weight:600;">{{ e.actor }}</div>
+    <div class="small">
+      <span class="mono muted">{{ e.action }}</span>
+      {% if e.object_type %} · {{ e.object_type }}{% if e.object_id %} #{{ e.object_id }}{% endif %}{% endif %}
+      {% if e.detail %}<div class="muted mt-1">{{ e.detail }}</div>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
 </div>
 
 {% endblock %}

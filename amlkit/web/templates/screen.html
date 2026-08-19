@@ -4,14 +4,18 @@
 {% block title %}Screen a name — amlkit{% endblock %}
 {% block body %}
 
-<div class="panel">
-  <h2>Screen a name</h2>
+<div style="max-width:640px;">
+  <div class="page-head">
+    <div class="eyebrow">Ad-hoc check</div>
+    <h1>Screen a name</h1>
+  </div>
+
   <form method="post" action="/screen">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
       <label>Name — Arabic or Latin script</label>
-      <input type="text" name="name" dir="auto" value="{{ query }}" autofocus
-             placeholder="e.g. Mohammed bin Rashid  /  محمد بن راشد">
+      <input type="text" name="name" dir="auto" value="{{ query }}" autofocus class="input-underline"
+             placeholder="e.g. Mohammed bin Rashid  /  محمد بن راشد" style="font-size:18px;">
     </div>
     <div class="row">
       <div><label>Nationality (ISO code)</label>
@@ -30,54 +34,54 @@
     </p>
     <button type="submit">Screen</button>
   </form>
-</div>
 
-{% if result %}
-  {% if low_confidence %}
-    <div class="banner warn">
-      Single name token — this is weak evidence whatever it scores. Roughly every
-      third name in this market contains “Mohammed”. Screen with a full name.
-    </div>
-  {% endif %}
-
-  {% if result.hits %}
-    <div class="banner err">
-      <strong>{{ result.hits|length }} match(es)</strong> for
-      {{ name(query) }} — {{ result.candidates }} candidates scored.
-    </div>
-
-    {% for h in hits %}
-      <div class="alert-card {{ h.category }}">
-        <div class="alert-head">
-          <h3>{{ name(h.caption) }}</h3>
-          <div>
-            <span class="tag {{ h.category }}">{{ h.category }}</span>
-            <span class="score">{{ '%.3f'|format(h.score) }}</span>
-          </div>
-        </div>
-        <div class="muted small">
-          {{ h.schema_type }} · {{ h.dataset }}
-          {% if h.programs %} · programme {{ h.programs|join(', ') }}{% endif %}
-        </div>
-        {{ aliases(h.aliases) }}
-
-        <div class="obligation {{ h.category }}">{{ h.obligation }}</div>
-
-        <details class="evidence">
-          <summary>Why this matched</summary>
-          {{ score_breakdown(h.detail) }}
-        </details>
+  {% if result %}
+    {% if low_confidence %}
+      <div class="banner warn mt-6">
+        Single name token — this is weak evidence whatever it scores. Roughly every
+        third name in this market contains "Mohammed". Screen with a full name.
       </div>
-    {% endfor %}
-  {% else %}
-    <div class="banner ok">
-      <strong>No match.</strong> {{ name(query) }} screened against
-      {{ result.candidates }} candidate record(s); nothing scored at or above
-      {{ result.threshold }}.
-      This screening has been recorded — evidence that a check was performed and
-      came back clear is exactly what an examiner asks for.
-    </div>
+    {% endif %}
+
+    {% if result.hits %}
+      <div style="font-size:14.5px; color:var(--ink-2); border-top:1px solid var(--line); padding-top:20px; margin-top:28px;">
+        <strong style="color:var(--danger); font-size:18px;">{{ result.hits|length }}</strong> match(es) for
+        {{ name(query) }} — {{ result.candidates }} candidates scored.
+      </div>
+
+      <div class="stack mt-4">
+        {% for h in hits %}
+          <div class="alert-card">
+            <div class="alert-head">
+              <h3>{{ name(h.caption) }}</h3>
+              <div style="display:flex; gap:12px; align-items:center;">
+                <span class="tag {{ h.category }}">{{ h.category }}</span>
+                <span class="score">{{ '%.3f'|format(h.score) }}</span>
+              </div>
+            </div>
+            <div class="muted small">
+              {{ h.schema_type }} · {{ h.dataset }}
+              {% if h.programs %} · programme {{ h.programs|join(', ') }}{% endif %}
+            </div>
+            {{ aliases(h.aliases) }}
+            <div class="obligation {{ h.category }}">{{ h.obligation }}</div>
+            <details class="evidence">
+              <summary></summary>
+              {{ score_breakdown(h.detail) }}
+            </details>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="font-size:14.5px; color:var(--ink-2); border-top:1px solid var(--line); padding-top:20px; margin-top:28px; line-height:1.6;">
+        <strong style="color:var(--good);">No match.</strong> {{ name(query) }} screened against
+        {{ result.candidates }} candidate record(s); nothing scored at or above
+        {{ result.threshold }}.
+        This screening has been recorded — evidence that a check was performed and
+        came back clear is exactly what an examiner asks for.
+      </div>
+    {% endif %}
   {% endif %}
-{% endif %}
+</div>
 
 {% endblock %}

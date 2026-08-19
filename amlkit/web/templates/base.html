@@ -6,67 +6,83 @@
 <title>{% block title %}amlkit{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 
-<header class="top no-print">
-  <h1>Grovisor <span class="subbrand">amlkit</span></h1>
-  {% if session %}
-  <input type="checkbox" id="nav-toggle" class="nav-toggle">
-  <label for="nav-toggle" class="nav-hamburger">☰</label>
-  <div class="nav-wrapper">
+{% if session %}
+<div class="shell">
+  <input type="checkbox" id="nav-toggle" class="d-none">
+  <label for="nav-toggle" class="nav-hamburger no-print">☰</label>
+  <aside class="sidebar no-print">
+    <div class="brand-block">
+      <img src="/static/img/grovisor-logo.png" alt="Grovisor">
+      <div class="product">amlkit</div>
+    </div>
     <nav>
-    <a href="/"          class="{{ 'on' if nav=='dash' }}">Dashboard</a>
-    <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
-    <a href="/alerts"    class="{{ 'on' if nav=='alerts' }}">Alerts</a>
-    <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
-    <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
-    <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
-    {% if session.operator_role == 'mlro' %}
-      <a href="/admin" class="{{ 'on' if nav=='admin' }}">Admin</a>
+      <a href="/"          class="{{ 'on' if nav=='dash' }}">Dashboard</a>
+      <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
+      <a href="/alerts"    class="{{ 'on' if nav=='alerts' }}">Alerts</a>
+      <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
+      <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
+      <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
+      {% if session.operator_role == 'mlro' %}
+        <a href="/admin" class="{{ 'on' if nav=='admin' }}">Admin</a>
+      {% endif %}
+      <a href="/about" class="{{ 'on' if nav=='about' }}">About</a>
+    </nav>
+    <div class="spacer"></div>
+    <form method="post" action="/logout" class="operator-box">
+      <span class="avatar">{{ session.operator_name[0]|upper }}</span>
+      <span class="who">
+        <div class="op-name">{{ session.operator_name }}</div>
+        <div class="op-role">{{ session.operator_role }}</div>
+      </span>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">Exit</button>
+    </form>
+  </aside>
+
+  <main>
+    {% if security_warning %}
+      <div class="banner err"><strong>{{ security_warning }}</strong></div>
     {% endif %}
-  </nav>
-  </div>
-  <form method="post" action="/logout" class="operator-box">
-    <span class="initials-avatar">{{ session.operator_name[0]|upper }}</span>
-    <span class="who">{{ session.operator_name }} · {{ session.operator_role }}</span>
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button class="small ghost" type="submit">Sign out</button>
-  </form>
-  {% endif %}
-</header>
-
-<main>
-
+    {% if msg %}<div class="banner ok">{{ msg }}</div>{% endif %}
+    {% if err %}<div class="banner err">{{ err }}</div>{% endif %}
+{% else %}
+<div class="fade-in">
   {% if security_warning %}
-    <div class="banner err"><strong>{{ security_warning }}</strong></div>
+    <div class="banner err" style="max-width:600px;margin:16px auto"><strong>{{ security_warning }}</strong></div>
   {% endif %}
+  {% if msg %}<div class="banner ok" style="max-width:600px;margin:16px auto">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="banner err" style="max-width:600px;margin:16px auto">{{ err }}</div>{% endif %}
+{% endif %}
 
-  {% if msg %}<div class="banner ok">{{ msg }}</div>{% endif %}
-  {% if err %}<div class="banner err">{{ err }}</div>{% endif %}
+{% block body %}{% endblock %}
 
-  {% block body %}{% endblock %}
-
-</main>
-
-<footer class="no-print">
-  <p class="muted small">
-    {% if single_operator %}
-      Single-operator mode is <strong>on</strong>: dismissals of sanctions and
-      proliferation matches are recorded as having had no independent review.
-    {% else %}
-      Independent review is required before dismissing a sanctions or
-      proliferation match — a different operator must confirm.
-    {% endif %}
-  </p>
-  <p class="muted small">
-    Screening results are decision support, not legal advice. A UAE-qualified
-    adviser should sign off the risk model and reporting workflow before use on
-    real client files.
-  </p>
-</footer>
+{% if session %}
+    <footer class="no-print mt-6">
+      <p class="muted small">
+        {% if single_operator %}
+          Single-operator mode is <strong>on</strong>: dismissals of sanctions and
+          proliferation matches are recorded as having had no independent review.
+        {% else %}
+          Independent review is required before dismissing a sanctions or
+          proliferation match — a different operator must confirm.
+        {% endif %}
+      </p>
+      <p class="muted small">
+        Screening results are decision support, not legal advice. A UAE-qualified
+        adviser should sign off the risk model and reporting workflow before use on
+        real client files.
+      </p>
+    </footer>
+  </main>
+</div>
+{% else %}
+</div>
+{% endif %}
 
 </body>
 </html>

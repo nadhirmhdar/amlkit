@@ -909,6 +909,16 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
     )
 
 
+# ----------------------------------------------------------------------- about
+@app.get("/about", response_class=HTMLResponse)
+def about_view(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "about.html", {"session": session})
+
+
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
 def audit_view(request: Request, db: DB):

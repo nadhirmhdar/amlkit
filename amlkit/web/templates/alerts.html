@@ -4,22 +4,23 @@
 {% block title %}Alerts — amlkit{% endblock %}
 {% block body %}
 
-<div class="panel">
-  <h2>Alert queue</h2>
-  <p class="muted small mt-0">
-    Ordered by category then score. Proliferation first: it is a standalone
-    offence under Law 10/2025 and the least familiar category, so it is never
-    buried under ordinary sanctions hits.
+<div class="page-head">
+  <div class="eyebrow">Queue</div>
+  <h1>Alerts</h1>
+  <p class="sub">
+    Ordered by category then score. Proliferation surfaces first — the least
+    familiar category, so it is never buried under ordinary sanctions hits.
   </p>
-  <div class="segmented-control mt-4">
-    {% for s, label in [('open','Open'), ('pending_review','Awaiting review'),
-                        ('false_positive','Dismissed'), ('true_positive','Confirmed'),
-                        ('escalated','Escalated'), ('all','All')] %}
-      <a class="segmented-control__item {{ 'segmented-control__item--active' if status == s else '' }}"
-         href="/alerts?status={{ s }}">{{ label }}</a>
-    {% endfor %}
-    <a class="segmented-control__item" href="/alerts.csv?status={{ status }}">Export CSV</a>
-  </div>
+</div>
+
+<div class="tab-filter">
+  {% for s, label in [('open','Open'), ('pending_review','Awaiting review'),
+                      ('false_positive','Dismissed'), ('true_positive','Confirmed'),
+                      ('escalated','Escalated'), ('all','All')] %}
+    <a class="{{ 'on' if status == s else '' }}" href="/alerts?status={{ s }}">{{ label }}</a>
+  {% endfor %}
+  <div style="flex:1;"></div>
+  <a href="/alerts.csv?status={{ status }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Export CSV</a>
 </div>
 
 {% if not alerts %}
@@ -31,10 +32,10 @@
 {% endif %}
 
 {% for a in alerts %}
-<div class="alert-card {{ a.category }}">
+<div class="alert-card">
   <div class="alert-head">
     <h3>{{ name(a.caption) }}</h3>
-    <div>
+    <div style="display:flex; gap:12px; align-items:center; flex-shrink:0;">
       <span class="tag {{ a.category }}">{{ a.category }}</span>
       <span class="score">{{ '%.3f'|format(a.score) }}</span>
     </div>
@@ -67,13 +68,12 @@
     {% endif %}
   </div>
 
-  <div class="mt-4">
-    Matched against:
+  <div class="mt-4" style="font-size:14px;">
+    Matched against
     {% if a.customer_id %}
       <a href="/customers/{{ a.customer_id }}">{{ name(a.matched_party) }}</a>
       {% if a.via_ubo %}
-        <span class="tag sanction">beneficial owner</span>
-        <span class="muted small">of {{ a.customer_name }}</span>
+        <span class="muted small">&middot; beneficial owner of {{ a.customer_name }}</span>
       {% endif %}
       <span class="muted small">· {{ a.reference }}</span>
     {% else %}
@@ -85,7 +85,7 @@
   <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
 
   <details class="evidence" {% if a.status in ('open','pending_review') %}open{% endif %}>
-    <summary>Why this matched</summary>
+    <summary></summary>
     {{ score_breakdown(a.detail) }}
   </details>
 

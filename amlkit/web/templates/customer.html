@@ -5,75 +5,78 @@
 {% block title %}{{ c.full_name }} — amlkit{% endblock %}
 {% block body %}
 
-<div class="panel">
-  <div class="alert-head">
-    <div>
-      <h2 class="mt-0 mb-0">{{ name(c.full_name) }}</h2>
-      {% if c.name_arabic %}<div>{{ name(c.name_arabic) }}</div>{% endif %}
-      <div class="muted small">{{ c.reference }} · {{ c.customer_type }} · {{ c.sector }}</div>
+<a href="/customers" class="back-link">&larr; Customers</a>
+
+<div class="page-head" style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+  <div>
+    <h1 style="font-size:32px;">{{ name(c.full_name) }}</h1>
+    {% if c.name_arabic %}<div style="font-size:15px; color:var(--ink-2); margin-top:4px;">{{ name(c.name_arabic) }}</div>{% endif %}
+    <div class="mono small muted mt-2">{{ c.reference }} &middot; {{ c.customer_type }} &middot; {{ c.sector }}</div>
+    <div class="mt-4">
+      <a class="btn small ghost" href="/customers/{{ c.id }}/evidence">Evidence pack</a>
+      {% if c.status == 'active' %}
+      <form method="post" action="/customers/{{ c.id }}/close" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="small ghost" type="submit">Close relationship</button>
+      </form>
+      {% endif %}
     </div>
-    <div>
-      {% if risk %}<span class="tag {{ risk.rating }}">{{ risk.rating }} risk</span>{% endif %}
-      {% if c.status != 'active' %}<span class="tag other">{{ c.status }}</span>{% endif %}
-    </div>
-  </div>
-  <div class="mt-4">
-    <a class="btn small" href="/customers/{{ c.id }}/evidence">Evidence pack</a>
-    {% if c.status == 'active' %}
-    <form method="post" action="/customers/{{ c.id }}/close" class="d-inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="small ghost" type="submit">Close relationship</button>
-    </form>
+    {% if c.retention_until %}
+      <p class="muted small mt-4">Records retained until <strong>{{ c.retention_until }}</strong>
+        (five years after the relationship ended).</p>
     {% endif %}
   </div>
-  {% if c.retention_until %}
-    <p class="muted small mt-4">Records retained until <strong>{{ c.retention_until }}</strong>
-      (five years after the relationship ended).</p>
-  {% endif %}
+  <div style="flex-shrink:0;">
+    {% if risk %}<span class="tag {{ risk.rating }}" style="font-size:11.5px;">{{ risk.rating }} risk</span>{% endif %}
+    {% if c.status != 'active' %}<span class="tag other ml-4">{{ c.status }}</span>{% endif %}
+  </div>
 </div>
 
 {% if alerts %}
-<div class="panel">
-  <h2>Alerts</h2>
-  {% for a in alerts %}
-    <div class="alert-card {{ a.category }}">
-      <div class="alert-head">
-        <h3>{{ name(a.caption) }}</h3>
-        <div><span class="tag {{ a.category }}">{{ a.category }}</span>
-          <span class="score">{{ '%.3f'|format(a.score) }}</span></div>
+<div class="mb-6">
+  <div class="section-label">Alerts on this customer</div>
+  <div class="stack">
+    {% for a in alerts %}
+      <div class="alert-card">
+        <div class="alert-head">
+          <h3 style="font-size:16px;">{{ name(a.caption) }}</h3>
+          <div style="display:flex; gap:12px; align-items:center;">
+            <span class="tag {{ a.category }}">{{ a.category }}</span>
+            <span class="score">{{ '%.3f'|format(a.score) }}</span>
+          </div>
+        </div>
+        <div class="muted small">
+          {{ a.dataset_title }}
+          {% if a.via_ubo %} · matched via beneficial owner
+            <strong>{{ a.matched_party }}</strong>{% endif %}
+        </div>
+        {{ aliases(a.aliases) }}
+        <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
+        <details class="evidence"><summary></summary>
+          {{ score_breakdown(a.detail) }}</details>
+        {{ review_trail(a.reviews) }}
+        {{ disposition_form(a, reason_codes, '/customers/' ~ c.id) }}
       </div>
-      <div class="muted small">
-        {{ a.dataset_title }}
-        {% if a.via_ubo %} · matched via beneficial owner
-          <strong>{{ a.matched_party }}</strong>{% endif %}
-      </div>
-      {{ aliases(a.aliases) }}
-      <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
-      <details class="evidence"><summary>Why this matched</summary>
-        {{ score_breakdown(a.detail) }}</details>
-      {{ review_trail(a.reviews) }}
-      {{ disposition_form(a, reason_codes, '/customers/' ~ c.id) }}
-    </div>
-  {% endfor %}
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
 
-<div class="grid two">
-  <div class="panel">
-    <h2>Beneficial owners</h2>
+<div class="grid two mb-6">
+  <div>
+    <div class="section-label">Beneficial owners</div>
     {% if ubos %}
-      <table>
-        <tr><th>Name</th><th>%</th><th>Control</th><th>UBO</th></tr>
+      <div class="flat-list mb-4">
         {% for u in ubos %}
-        <tr>
-          <td>{{ name(u.person_name) }}</td>
-          <td class="score">{{ u.ownership_pct if u.ownership_pct is not none else '—' }}</td>
-          <td class="small">{{ u.control_type.replace('_',' ') }}</td>
-          <td>{% if u.is_ubo %}<span class="tag low">yes</span>
-              {% else %}<span class="muted small">below threshold</span>{% endif %}</td>
-        </tr>
+        <div class="list-row">
+          <div class="grow">{{ name(u.person_name) }}</div>
+          <div class="num">{{ u.ownership_pct if u.ownership_pct is not none else '—' }}%</div>
+          <div class="side" style="width:120px; text-align:right;">{{ u.control_type.replace('_',' ') }}</div>
+          <div style="width:70px; text-align:right;">{% if u.is_ubo %}<span class="tag low">UBO</span>
+              {% else %}<span class="muted small">below</span>{% endif %}</div>
+        </div>
         {% endfor %}
-      </table>
+      </div>
     {% else %}
       <p class="muted small">None recorded.
         {% if c.customer_type == 'legal' %}
@@ -91,59 +94,62 @@
           <option value="senior_official">Senior managing official</option>
           <option value="nominee">Nominee</option>
         </select></div>
-      <div class="mt-4"><button class="small" type="submit">Add &amp; screen</button></div>
+      <div><button class="small" type="submit">Add &amp; screen</button></div>
     </form>
   </div>
 
-  <div class="panel">
-    <h2>Risk assessment</h2>
+  <div>
+    <div class="section-label">Risk assessment</div>
     {% if risk %}
-      <p>
+      <div class="mb-4">
         <span class="tag {{ risk.rating }}">{{ risk.rating }}</span>
-        <span class="score">score {{ risk.score|int }}</span>
-        {% if risk.requires_edd %}<span class="tag sanction">EDD required</span>{% endif %}
-      </p>
-      <table>
+        <span class="score ml-4">score {{ risk.score|int }}</span>
+        {% if risk.requires_edd %}<span class="tag sanction ml-4">EDD required</span>{% endif %}
+      </div>
+      <div class="flat-list">
         {% for k, v in risk.factors.items() %}
           {% if v.points %}
-          <tr><td>{{ k.replace('_',' ') }}</td>
-              <td class="muted small">{{ v.value }}</td>
-              <td class="right score">+{{ v.points|int }}</td></tr>
+          <div class="list-row">
+            <div class="grow">{{ k.replace('_',' ') }}</div>
+            <div class="secondary" style="margin-top:0;">{{ v.value }}</div>
+            <div class="num" style="color:var(--accent);">+{{ v.points|int }}</div>
+          </div>
           {% endif %}
         {% endfor %}
-      </table>
-      <p class="muted small">
+      </div>
+      <p class="muted small mt-4">
         Ruleset <code class="mono">{{ risk.ruleset_version }}</code> ·
         assessed {{ risk.assessed_at[:10] }} · next review {{ risk.next_review }}
       </p>
     {% else %}<p class="muted">Not assessed.</p>{% endif %}
+  </div>
 </div>
 
 {% if ubo_diagram %}
-<div class="panel">
-  <h2>UBO Ownership &amp; Control Diagram</h2>
-  <div class="ubo-diagram-container mt-4">
+<div class="mb-6">
+  <div class="section-label">UBO ownership &amp; control diagram</div>
+  <div class="panel ubo-diagram-container">
     {{ ubo_diagram | safe }}
   </div>
 </div>
 {% endif %}
 
-<div class="panel">
-  <h2>Notes</h2>
+<div class="mb-6">
+  <div class="section-label">Notes</div>
   <p class="muted small mt-0">
     Investigative narrative not tied to any one alert — periodic review
     commentary, source-of-wealth notes, anything that belongs in the case
     file but isn't a disposition decision.
   </p>
   {% if notes %}
-    <div class="stack">
+    <div class="flat-list mb-4">
       {% for n in notes %}
-      <div class="breakdown">
+      <div class="list-row" style="align-items:flex-start; display:block;">
         <div class="small">
           <strong>{{ n.author }}</strong> ·
           <span class="muted">{{ n.created_at[:16].replace('T',' ') }}</span>
         </div>
-        <div class="mt-4">{{ n.body }}</div>
+        <div class="mt-2">{{ n.body }}</div>
       </div>
       {% endfor %}
     </div>
@@ -159,22 +165,21 @@
   </form>
 </div>
 
-<div class="panel">
-  <h2>Transaction monitoring</h2>
+<div class="mb-6">
+  <div class="section-label">Transaction monitoring</div>
   <p class="muted small mt-0">
     Cash transactions at or above AED {{ '{:,.0f}'.format(55000) }} are flagged
     automatically, along with structuring, high-risk-country counterparties, and
-    unusual velocity. See <code class="mono">amlkit/screening/kyt.py</code> for
-    the rule set.
+    unusual velocity.
   </p>
   {% if transaction_alerts %}
     <div class="stack mb-4">
       {% for ta in transaction_alerts %}
-      <div class="breakdown">
+      <div class="alert-card">
         <div class="alert-head">
           <div>
             <span class="tag {{ ta.severity }}">{{ ta.rule_key.replace('_',' ') }}</span>
-            <span class="muted small">
+            <span class="muted small ml-4">
               {{ ta.method }} · AED {{ '{:,.2f}'.format(ta.amount_aed) }} ·
               {{ ta.occurred_at[:16].replace('T',' ') }}
             </span>
@@ -191,7 +196,7 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="customer_id" value="{{ c.id }}">
           <div><label>Note</label><input type="text" name="note" placeholder="Rationale for disposition"></div>
-          <div class="mt-4">
+          <div>
             <button class="small" type="submit" name="status" value="false_positive">Mark false positive</button>
             <button class="small ghost" type="submit" name="status" value="true_positive">Mark true positive</button>
           </div>
@@ -204,19 +209,21 @@
     </div>
   {% endif %}
   {% if transactions %}
-    <table>
-      <tr><th>Occurred</th><th>Direction</th><th>Method</th><th class="right">Amount (AED)</th><th>Counterparty</th></tr>
+    <div class="list-head" style="grid-template-columns:150px 90px 90px 1fr 1fr;">
+      <div>Occurred</div><div>Direction</div><div>Method</div><div class="right">Amount (AED)</div><div>Counterparty</div>
+    </div>
+    <div class="flat-list mb-4">
       {% for t in transactions %}
-      <tr>
-        <td class="small nowrap">{{ t.occurred_at[:16].replace('T',' ') }}</td>
-        <td class="small">{{ t.direction }}</td>
-        <td class="small">{{ t.method }}</td>
-        <td class="right score">{{ '{:,.2f}'.format(t.amount_aed) }}</td>
-        <td class="small">{{ t.counterparty_name or '—' }}
-          {% if t.counterparty_country %}<span class="muted">({{ t.counterparty_country }})</span>{% endif %}</td>
-      </tr>
+      <div class="list-row" style="display:grid; grid-template-columns:150px 90px 90px 1fr 1fr;">
+        <div class="small nowrap">{{ t.occurred_at[:16].replace('T',' ') }}</div>
+        <div class="small">{{ t.direction }}</div>
+        <div class="small">{{ t.method }}</div>
+        <div class="right score">{{ '{:,.2f}'.format(t.amount_aed) }}</div>
+        <div class="small">{{ t.counterparty_name or '—' }}
+          {% if t.counterparty_country %}<span class="muted">({{ t.counterparty_country }})</span>{% endif %}</div>
+      </div>
       {% endfor %}
-    </table>
+    </div>
   {% else %}
     <p class="muted small">No transactions recorded.</p>
   {% endif %}
@@ -240,29 +247,29 @@
     <div><label>Counterparty</label><input type="text" name="counterparty_name" dir="auto"></div>
     <div><label>Counterparty country</label><input type="text" name="counterparty_country" maxlength="2" placeholder="AE"></div>
     <div><label>Date</label><input type="date" name="occurred_at"></div>
-    <div class="mt-4"><button class="small" type="submit">Record</button></div>
+    <div><button class="small" type="submit">Record</button></div>
   </form>
 </div>
 
-<div class="panel">
-  <h2>Signatures &amp; acknowledgments</h2>
+<div class="mb-6">
+  <div class="section-label">Signatures &amp; acknowledgments</div>
   <p class="muted small mt-0">
     A typed-signature acknowledgment with a tamper-evident hash — an audit-trail
     record, not a legally-binding UAE e-signature under Federal Decree-Law No. 46
     of 2021 (that requires a licensed trust service provider).
   </p>
   {% if signatures %}
-    <div class="stack mb-4">
+    <div class="flat-list mb-4">
       {% for sig in signatures %}
-      <div class="breakdown">
+      <div class="list-row" style="align-items:flex-start; display:block;">
         <div class="small">
           <strong>{{ sig.signer_name }}</strong> ({{ sig.signer_role }}) ·
           <span class="muted">{{ sig.signed_at[:16].replace('T',' ') }}</span> ·
           captured by {{ sig.signed_by }}
         </div>
-        <div class="mt-4"><strong>{{ sig.purpose }}</strong></div>
-        <div class="muted small mt-4">{{ sig.statement }}</div>
-        <div class="small mono muted mt-4">sha256:{{ sig.content_hash[:16] }}…</div>
+        <div class="mt-2"><strong>{{ sig.purpose }}</strong></div>
+        <div class="muted small mt-2">{{ sig.statement }}</div>
+        <div class="small mono muted mt-2">sha256:{{ sig.content_hash[:16] }}…</div>
       </div>
       {% endfor %}
     </div>
@@ -289,40 +296,43 @@
   </form>
 </div>
 
-<div class="panel">
-  <h2>Screening history</h2>
+<div class="mb-6">
+  <div class="section-label">Screening history</div>
   <p class="muted small mt-0">
     Clear results are kept as well as matches — evidence that a customer
     <em>was</em> screened and came back clean is what an examiner asks for.
   </p>
-  <table>
-    <tr><th>Run</th><th>Name screened</th><th>Trigger</th><th class="right">Candidates</th><th class="right">Hits</th></tr>
+  <div class="list-head" style="grid-template-columns:150px 1fr 130px 100px 80px;">
+    <div>Run</div><div>Name screened</div><div>Trigger</div><div class="right">Candidates</div><div class="right">Hits</div>
+  </div>
+  <div class="flat-list">
     {% for s in screenings %}
-    <tr>
-      <td class="small nowrap">{{ s.run_at[:16].replace('T',' ') }}</td>
-      <td>{{ name(s.query_name) }}</td>
-      <td class="small">{{ s.trigger.replace('_',' ') }}</td>
-      <td class="right score">{{ s.candidates }}</td>
-      <td class="right">{% if s.hits %}<span class="tag proliferation">{{ s.hits }}</span>
-          {% else %}<span class="tag low">clear</span>{% endif %}</td>
-    </tr>
+    <div class="list-row" style="display:grid; grid-template-columns:150px 1fr 130px 100px 80px;">
+      <div class="small nowrap">{{ s.run_at[:16].replace('T',' ') }}</div>
+      <div>{{ name(s.query_name) }}</div>
+      <div class="small">{{ s.trigger.replace('_',' ') }}</div>
+      <div class="right score">{{ s.candidates }}</div>
+      <div class="right">{% if s.hits %}<span class="tag high">{{ s.hits }}</span>
+          {% else %}<span class="tag low">clear</span>{% endif %}</div>
+    </div>
     {% endfor %}
-  </table>
+  </div>
 </div>
 
-<div class="panel">
-  <h2>Audit trail</h2>
-  <table>
-    <tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th></tr>
+<div>
+  <div class="section-label">Audit trail</div>
+  <div class="list-head" style="grid-template-columns:150px 130px 1fr;">
+    <div>When</div><div>Who</div><div>Detail</div>
+  </div>
+  <div class="flat-list">
     {% for e in audit %}
-    <tr>
-      <td class="small nowrap">{{ e.ts[:16].replace('T',' ') }}</td>
-      <td class="small">{{ e.actor }}</td>
-      <td class="small mono">{{ e.action }}</td>
-      <td class="small muted">{{ e.detail }}</td>
-    </tr>
+    <div class="list-row" style="display:grid; grid-template-columns:150px 130px 1fr;">
+      <div class="small nowrap mono muted">{{ e.ts[:16].replace('T',' ') }}</div>
+      <div class="small" style="color:var(--ink-2); font-weight:600;">{{ e.actor }}</div>
+      <div class="small">{{ e.action }}{% if e.detail %} <span class="muted">— {{ e.detail }}</span>{% endif %}</div>
+    </div>
     {% endfor %}
-  </table>
+  </div>
 </div>
 
 {% endblock %}
