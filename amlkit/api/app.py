@@ -910,12 +910,13 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
 
 
 # ----------------------------------------------------------------------- about
+# Deliberately public -- a company-identity page makes more sense reachable
+# without an account (linked externally, or read by an examiner) than gated
+# behind login like every operational page. current_session (not
+# require_session) so a signed-in visitor still gets the sidebar shell.
 @app.get("/about", response_class=HTMLResponse)
 def about_view(request: Request, db: DB):
-    try:
-        session = require_session(request, db)
-    except PermissionError:
-        return RedirectResponse("/login", status_code=303)
+    session = current_session(request, db)
     return render(request, "about.html", {"session": session})
 
 
