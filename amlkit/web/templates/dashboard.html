@@ -17,42 +17,58 @@
   </div>
 {% endif %}
 
-<div class="grid tiles">
-  <div class="tile {{ 'good' if d.compliant else 'bad' }}">
-    <div class="n">{{ 'OK' if d.compliant else 'BREACH' }}</div>
-    <div class="l">24-hour list currency</div>
+<div class="page-head">
+  <div class="eyebrow">Workspace</div>
+  <h1>Overview</h1>
+  <div class="status-line {{ 'bad' if not d.compliant }}">
+    <span class="dot"></span>
+    <span class="text">
+      {% if d.compliant %}Sanctions lists refreshed within the 24-hour window
+      {% else %}Sanctions list refresh is overdue{% endif %}
+      &middot; {{ d.generated_at[:10] }}
+    </span>
   </div>
-  <div class="tile {{ 'bad' if d.open_alerts else 'good' }}">
-    <div class="n">{{ d.open_alerts|length }}</div>
-    <div class="l">Alerts awaiting decision</div>
+</div>
+
+<div class="dashboard-hero">
+  <div class="hero-stat">
+    <div class="eyebrow">Needs a decision</div>
+    <div>
+      <div class="n">{{ d.open_alerts|length }}</div>
+      <div class="l">alerts awaiting decision</div>
+    </div>
   </div>
-  <div class="tile {{ 'bad' if d.due_for_review else '' }}">
-    <div class="n">{{ d.due_for_review|length }}</div>
-    <div class="l">Customers due for periodic review</div>
-  </div>
-  <div class="tile {{ 'bad' if d.high_risk_customers else '' }}">
-    <div class="n">{{ d.high_risk_customers }}</div>
-    <div class="l">High-risk customers</div>
-  </div>
-  <div class="tile {{ 'bad' if d.open_transaction_alerts else '' }}">
-    <div class="n">{{ d.open_transaction_alerts|length }}</div>
-    <div class="l">Transaction alerts open</div>
-  </div>
-  <div class="tile">
-    <div class="n">{{ '{:,}'.format(d.counts.entities) }}</div>
-    <div class="l">Listed entities screened against</div>
+  <div class="stat-list">
+    <div class="row-item">
+      <div class="label">Customers due for periodic review</div>
+      <div class="value" style="color:{{ 'var(--warn)' if d.due_for_review else 'var(--ink)' }}">{{ d.due_for_review|length }}</div>
+    </div>
+    <div class="row-item">
+      <div class="label">High-risk customers</div>
+      <div class="value" style="color:{{ 'var(--warn)' if d.high_risk_customers else 'var(--ink)' }}">{{ d.high_risk_customers }}</div>
+    </div>
+    <div class="row-item">
+      <div class="label">Transaction alerts open</div>
+      <div class="value" style="color:{{ 'var(--danger)' if d.open_transaction_alerts else 'var(--good)' }}">{{ d.open_transaction_alerts|length }}</div>
+    </div>
+    <div class="row-item">
+      <div class="label">Listed entities screened against</div>
+      <div class="value">{{ '{:,}'.format(d.counts.entities) }}</div>
+    </div>
   </div>
 </div>
 
 {% if d.open_by_category %}
-<div class="panel">
-  <h2>Open alerts by category</h2>
-  {% for cat, n in d.open_by_category.items() %}
-    <a href="/alerts" class="mr-4 text-decoration-none">
-      <span class="tag {{ cat }}">{{ cat }}</span>
-    </a>
-    <strong class="mr-6">{{ n }}</strong>
-  {% endfor %}
+<div class="mb-6">
+  <div class="section-label">Open alerts by category</div>
+  <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:center;">
+    {% for cat, n in d.open_by_category.items() %}
+      <a href="/alerts" class="text-decoration-none" style="display:flex; align-items:center; gap:8px;">
+        <span class="tag {{ cat }}">{{ cat }}</span>
+        <strong style="font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--ink);">{{ n }}</strong>
+      </a>
+    {% endfor %}
+  </div>
   {% if d.pending_review %}
     <div class="review-note mt-4">
       {{ d.pending_review|length }} alert(s) staged for independent review —
@@ -63,64 +79,58 @@
 {% endif %}
 
 {% if d.oldest_open %}
-<div class="panel">
-  <h2>Oldest open alerts</h2>
-  <p class="muted small mt-0">
-    Age matters on its own: an alert sitting open longest is the one most
-    likely to be forgotten, independent of its score.
-  </p>
-  <table>
-    <tr><th>Matched entity</th><th>Category</th><th>Score</th><th>Assigned</th><th>Opened</th></tr>
+<div class="mb-6">
+  <div class="section-label">Oldest open alerts</div>
+  <div class="flat-list">
     {% for a in d.oldest_open %}
-    <tr>
-      <td>{{ a.caption }}</td>
-      <td><span class="tag {{ a.category }}">{{ a.category }}</span></td>
-      <td class="score">{{ '%.3f'|format(a.score) }}</td>
-      <td class="small">{{ a.assigned_to or '—' }}</td>
-      <td class="small nowrap">{{ a.created_at[:16].replace('T',' ') }}</td>
-    </tr>
+      <a href="/alerts" class="list-row">
+        <span class="tag {{ a.category }}" style="width:110px; flex-shrink:0;">{{ a.category }}</span>
+        <div class="grow primary">{{ a.caption }}</div>
+        <div class="num">{{ '%.3f'|format(a.score) }}</div>
+        <div class="side" style="width:120px; text-align:right;">{{ a.assigned_to or 'Unassigned' }}</div>
+      </a>
     {% endfor %}
-  </table>
+  </div>
 </div>
 {% endif %}
 
-<div class="panel">
-  <h2>Due for periodic review</h2>
-  {% if d.oldest_open_transaction_alerts %}
-<div class="panel">
-  <h2>Oldest open transaction alerts</h2>
-  <table>
-    <tr><th>Customer</th><th>Rule</th><th>Amount (AED)</th><th>Opened</th></tr>
+{% if d.oldest_open_transaction_alerts %}
+<div class="mb-6">
+  <div class="section-label">Oldest open transaction alerts</div>
+  <div class="flat-list">
     {% for ta in d.oldest_open_transaction_alerts %}
-    <tr>
-      <td><a href="/customers/{{ ta.customer_id }}">{{ ta.customer_name }}</a></td>
-      <td><span class="tag {{ ta.severity }}">{{ ta.rule_key.replace('_',' ') }}</span></td>
-      <td class="score">{{ '{:,.2f}'.format(ta.amount_aed) }}</td>
-      <td class="small nowrap">{{ ta.created_at[:16].replace('T',' ') }}</td>
-    </tr>
+      <a href="/customers/{{ ta.customer_id }}" class="list-row">
+        <div class="grow">
+          <div class="primary">{{ ta.customer_name }}</div>
+        </div>
+        <span class="tag {{ ta.severity }}" style="width:130px; flex-shrink:0;">{{ ta.rule_key.replace('_',' ') }}</span>
+        <div class="num">AED {{ '{:,.2f}'.format(ta.amount_aed) }}</div>
+        <div class="side" style="width:120px; text-align:right;">{{ ta.created_at[:16].replace('T',' ') }}</div>
+      </a>
     {% endfor %}
-  </table>
+  </div>
 </div>
 {% endif %}
 
-{% if d.due_for_review %}
-    <table>
-      <tr><th>Customer</th><th>Rating</th><th>Due</th></tr>
+<div>
+  <div class="section-label">Due for periodic review</div>
+  {% if d.due_for_review %}
+    <div class="flat-list">
       {% for c in d.due_for_review %}
-      <tr>
-        <td><a href="/customers/{{ c.id }}">{{ c.full_name }}</a>
-          <div class="muted small">{{ c.reference }}</div></td>
-        <td><span class="tag {{ c.rating }}">{{ c.rating }}</span></td>
-        <td class="nowrap">{{ c.next_review }}</td>
-      </tr>
+        <a href="/customers/{{ c.id }}" class="list-row">
+          <div class="grow">
+            <div class="primary">{{ c.full_name }}</div>
+            <div class="secondary mono">{{ c.reference }}</div>
+          </div>
+          <span class="tag {{ c.rating }}" style="width:80px; flex-shrink:0;">{{ c.rating }}</span>
+          <div class="side" style="width:110px; text-align:right; font-weight:600; color:var(--ink-2);">{{ c.next_review }}</div>
+        </a>
       {% endfor %}
-    </table>
+    </div>
   {% else %}
     <p class="muted">Nothing due. Review intervals are set by risk rating —
       12 months for high, 24 for medium, 36 for low.</p>
   {% endif %}
-</div>
-
 </div>
 
 {% endblock %}

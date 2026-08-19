@@ -3,26 +3,25 @@
 {% block title %}Admin — Grovisor amlkit{% endblock %}
 {% block body %}
 
-<div class="panel">
-  <h2 class="mt-0">amlkit Workspace</h2>
-  <p class="muted small mt-0 mb-0">Workspace slug: <span class="mono">{{ org.slug }}</span></p>
+<div class="page-head">
+  <div class="eyebrow">Workspace</div>
+  <h1>Admin</h1>
+  <p class="sub">Workspace slug: <span class="mono">{{ org.slug }}</span></p>
 </div>
 
-<div class="panel">
-  <h2>Operators</h2>
-  <table>
-    <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
+<div class="mb-6">
+  <div class="section-label">Operators</div>
+  <div class="flat-list">
     {% for op in operators %}
-    <tr>
-      <td>{{ op.name }}</td>
-      <td class="small">{{ op.email or '—' }}</td>
-      <td><span class="tag {{ 'high' if op.role == 'mlro' else 'other' }}">{{ op.role }}</span></td>
-      <td>{% if op.is_active %}<span class="tag low">active</span>
-          {% else %}<span class="tag other">deactivated</span>{% endif %}</td>
-      <td>
+    <div class="list-row">
+      <div class="grow primary">{{ op.name }}</div>
+      <div class="side" style="flex:1;">{{ op.email or '—' }}</div>
+      <span class="tag {{ 'high' if op.role == 'mlro' else 'other' }}" style="width:60px;">{{ op.role }}</span>
+      <span class="tag {{ 'low' if op.is_active else 'other' }}" style="width:90px;">{{ 'active' if op.is_active else 'deactivated' }}</span>
+      <div style="width:200px; text-align:right;">
         {% if op.is_active %}
         <details class="d-inline">
-          <summary class="small cursor-pointer">Reset password</summary>
+          <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Reset password</summary>
           <form method="post" action="/admin/operators/{{ op.id }}/reset-password" class="mt-4">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="password" name="new_password" placeholder="New password" minlength="10" required
@@ -38,17 +37,17 @@
           </button>
         </form>
         {% endif %}
-      </td>
-    </tr>
+      </div>
+    </div>
     {% endfor %}
-  </table>
+  </div>
 </div>
 
-<div class="panel">
+<div class="panel mb-6">
   <h2>Screening threshold</h2>
   <p class="muted small mt-0">
     Score at or above this clears the alert bar. Default is
-    <strong>{{ default_threshold }}</strong>, tuned against a golden set and
+    <strong class="mono" style="color:var(--ink);">{{ default_threshold }}</strong>, tuned against a golden set and
     a false-positive suite — changing it here is a real decision, not a
     dial to turn casually. One global value, not per-list-type profiles.
   </p>
@@ -60,9 +59,9 @@
              value="{{ threshold if threshold is not none else '' }}"
              placeholder="{{ default_threshold }} (engine default)">
     </div>
-    <div class="mt-4">
+    <div>
       <button type="submit">Save</button>
-      <span class="muted small">
+      <span class="muted small ml-4">
         {% if threshold is not none %}Currently overridden: {{ threshold }}
         {% else %}Currently using the engine default.{% endif %}
       </span>
@@ -70,7 +69,7 @@
   </form>
 </div>
 
-<div class="panel">
+<div class="panel mb-6">
   <h2>Add operator</h2>
   <form method="post" action="/admin/operators" class="row">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -82,59 +81,57 @@
         <option value="officer">Officer</option>
         <option value="mlro">MLRO</option>
       </select></div>
-    <div class="mt-4"><button type="submit">Create</button></div>
+    <div><button type="submit">Create</button></div>
   </form>
 </div>
 
-<div class="panel">
-  <h2>Sanctions Lists</h2>
+<div class="mb-6">
+  <div class="section-label">Sanctions lists</div>
   <p class="muted small" style="margin-top:-6px">
     UAE law requires lists to be refreshed within 24 hours of a new designation.
     Refreshing downloads the latest UAE Local Terrorist List and UN SC Consolidated
     List, then re-screens your entire customer book automatically.
   </p>
   {% if sanctions %}
-  <table style="margin-bottom:16px">
-    <tr><th>List</th><th>Entities</th><th>Last Refresh</th><th>Status</th></tr>
+  <div class="flat-list mb-4">
     {% for s in sanctions %}
-    <tr>
-      <td>{{ s.title }}</td>
-      <td>{{ s.entities }}</td>
-      <td class="small mono">{{ s.hours_since_refresh ~ 'h ago' if s.hours_since_refresh is not none else '—' }}</td>
-      <td>
-        {% if s.breach %}<span class="tag high">BREACH &gt;24h</span>
-        {% elif s.hours_since_refresh is none %}<span class="tag other">Never loaded</span>
-        {% else %}<span class="tag low">OK</span>{% endif %}
-      </td>
-    </tr>
+    <div class="list-row">
+      <div class="grow primary">{{ s.title }}</div>
+      <div class="num" style="width:140px;">{{ s.entities }} entities</div>
+      <div class="side" style="width:90px; text-align:right;">{{ s.hours_since_refresh ~ 'h ago' if s.hours_since_refresh is not none else '—' }}</div>
+      {% if s.breach %}<span class="tag high" style="width:130px;">breach &gt;24h</span>
+      {% elif s.hours_since_refresh is none %}<span class="tag other" style="width:130px;">never loaded</span>
+      {% else %}<span class="tag low" style="width:130px;">OK</span>{% endif %}
+    </div>
     {% endfor %}
-  </table>
+  </div>
   {% endif %}
   <form method="post" action="/admin/refresh" class="mt-4"
         onsubmit="this.querySelector('button').textContent='Refreshing…';this.querySelector('button').disabled=true;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" id="refresh-btn">🔄 Refresh Sanctions Lists Now</button>
+    <button type="submit" id="refresh-btn">Refresh sanctions lists now</button>
     <span class="muted small ml-4">Takes 30–60 seconds</span>
   </form>
 </div>
 
-<div class="panel">
-  <h2>Data sources</h2>
-  <table>
-    <tr><th>Key</th><th>Publisher</th><th>Licence</th><th class="right">Entities</th></tr>
+<div>
+  <div class="section-label">Data sources</div>
+  <div class="list-head" style="grid-template-columns:1fr 1fr 1fr 100px;">
+    <div>Key</div><div>Publisher</div><div>Licence</div><div class="right">Entities</div>
+  </div>
+  <div class="flat-list">
     {% for ds in datasets %}
-    <tr>
-      <td class="mono">{{ ds.key }}</td>
-      <td>{{ ds.publisher }}</td>
-      <td class="small {{ 'muted' if 'NON-COMMERCIAL' not in (ds.licence or '') }}">
-        {% if 'NON-COMMERCIAL' in (ds.licence or '') %}
-          <strong class="text-danger">{{ ds.licence }}</strong>
-        {% else %}{{ ds.licence or '—' }}{% endif %}
-      </td>
-      <td class="right score">{{ '{:,}'.format(ds.entity_count) }}</td>
-    </tr>
+    <div class="list-row" style="display:grid; grid-template-columns:1fr 1fr 1fr 100px;">
+      <div class="mono small">{{ ds.key }}</div>
+      <div class="small">{{ ds.publisher }}</div>
+      <div class="small {{ '' if 'NON-COMMERCIAL' in (ds.licence or '') else 'muted' }}"
+           style="{{ 'color:var(--danger); font-weight:700;' if 'NON-COMMERCIAL' in (ds.licence or '') }}">
+        {{ ds.licence or '—' }}
+      </div>
+      <div class="right score">{{ '{:,}'.format(ds.entity_count) }}</div>
+    </div>
     {% endfor %}
-  </table>
+  </div>
 </div>
 
 {% endblock %}

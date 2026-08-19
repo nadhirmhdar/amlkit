@@ -2,40 +2,52 @@
 {% block title %}Sign in — Grovisor amlkit{% endblock %}
 {% block body %}
 
-<div class="panel">
-  <div class="text-center mt-6">amlkit</div>
-  <h2>Sign in</h2>
-  <form method="post" action="/login">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="field">
-      <label>Email</label>
-      <input type="email" name="email" autofocus autocomplete="username"
-             inputmode="email" spellcheck="false" autocapitalize="off">
+<div style="min-height:100vh; position:relative;">
+  <div style="position:absolute; top:32px; right:40px;">
+    <img src="/static/img/grovisor-logo.png" alt="Grovisor" style="height:48px; width:auto; display:block;">
+  </div>
+  <div style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
+    <div style="width:340px; display:flex; flex-direction:column; gap:44px;">
+      <div style="text-align:center;">
+        <div style="font-size:36px; font-weight:800; letter-spacing:-0.02em; background:linear-gradient(100deg, var(--ink) 55%, oklch(48% 0.14 45)); -webkit-background-clip:text; background-clip:text; color:transparent;">amlkit</div>
+        <div style="font-size:14px; color:var(--ink-3); margin-top:12px;">UAE sanctions screening &amp; CDD</div>
+      </div>
+
+      <form method="post" action="/login" style="display:flex; flex-direction:column; gap:22px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field" style="margin-bottom:0;">
+          <label>Email</label>
+          <input type="email" name="email" class="input-underline" autofocus autocomplete="username"
+                 inputmode="email" spellcheck="false" autocapitalize="off" style="font-size:16px;">
+        </div>
+        <div class="field" style="margin-bottom:0; position:relative;">
+          <label>Password</label>
+          <input type="password" name="password" id="password-input" class="input-underline"
+                 autocomplete="current-password" style="font-size:16px;">
+          <button type="button" onclick="togglePassword()"
+                  style="position:absolute; right:0; top:26px; background:none; border:none; color:var(--ink-3); padding:4px; font-size:15px;">👁</button>
+        </div>
+        <button type="submit" class="btn-glow" style="margin-top:10px;">SIGN IN</button>
+      </form>
+
+      <div style="text-align:center; font-size:12px; color:var(--ink-3);">Single sign-on across your firm's workspace.</div>
+
+      <div style="text-align:center; font-size:12px; color:var(--ink-3); line-height:1.8;">
+        <div>Forgot your password? Contact your MLRO to reset it.</div>
+        <div>New organization? <a href="/register-organization">Register one</a>.</div>
+      </div>
+
+      <div style="text-align:center; font-size:11px; color:var(--ink-3); line-height:1.6; border-top:1px solid var(--line); padding-top:16px;">
+        A product by <a href="/about">Grovisor Business Consultants LLC</a>.
+      </div>
     </div>
-    <div class="field position-relative">
-      <label>Password</label>
-      <input type="password" name="password" id="password-input" autocomplete="current-password">
-      <button type="button" class="btn ghost small position-absolute right-0 top-24" onclick="togglePassword()">👁</button>
-    </div>
-    <button type="submit" class="btn mt-4">Sign in</button>
-  </form>
-  <p class="muted small mt-4">
-    Forgot your password? Contact your MLRO to reset it.
-  </p>
-  <p class="muted small mt-0">
-    New organization? <a href="/register-organization">Register one</a>.
-  </p>
+  </div>
 </div>
-<div class="text-center mt-4 muted small">Powered by Grovisor</div>
 
 <script>
 function togglePassword() {
   const pwd = document.getElementById('password-input');
-  if (pwd.type === 'password') {
-    pwd.type = 'text';
-  } else {
-    pwd.type = 'password';
-  }
+  pwd.type = pwd.type === 'password' ? 'text' : 'password';
 }
 </script>
 
