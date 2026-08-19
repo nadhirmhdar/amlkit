@@ -14,7 +14,23 @@ LITESTREAM_CFG=/app/litestream.yml
 
 if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
     echo "Restoring from litestream replica at gs://${GCS_BUCKET}/litestream/amlkit.db, if one exists..."
-    litestream restore -config "$LITESTREAM_CFG" -if-replica-exists /app/data/amlkit.db
+    # `|| true`: this script runs under `set -e`, so a failed restore -- not
+    # just "no replica exists yet" (which litestream handles gracefully via
+    # -if-replica-exists and leaves no file), but a genuine restore FAILURE
+    # (a corrupted/truncated segment, decode error, etc.) -- would otherwise
+    # kill the whole script right here and crash-loop the container forever,
+    # never reaching the legacy-snapshot fallback below that exists
+    # specifically to handle "there's no usable database yet". A failed
+    # restore and a missing replica must both fall through to that same
+    # fallback, not just one of them.
+    litestream restore -config "$LITESTREAM_CFG" -if-replica-exists /app/data/amlkit.db || {
+        echo "litestream restore failed (corrupted replica?) -- falling through to legacy snapshot."
+        # A failed restore can still have written a partial/corrupt file
+        # before erroring out. Remove it so the check below (which only
+        # asks "does a file exist") isn't fooled into treating a broken
+        # half-written database as a database that's already there.
+        rm -f /app/data/amlkit.db
+    }
 
     if [ ! -f /app/data/amlkit.db ]; then
         echo "No litestream replica yet. Falling back to the legacy flat-file"
