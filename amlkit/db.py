@@ -29,6 +29,14 @@ _UNSET = object()
 SCHEMA = """
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
+-- WAL lets readers and a writer proceed concurrently, but two WRITERS still
+-- serialize -- without a busy_timeout, the second one gets an immediate
+-- "database is locked" OperationalError instead of waiting. Real trigger:
+-- the /system/refresh endpoint now holds a connection open for the whole
+-- duration of a synchronous multi-source refresh (see api/app.py), which
+-- widens the window for an ordinary request's write to land mid-refresh.
+-- 30s is comfortably longer than any single write in this codebase takes.
+PRAGMA busy_timeout = 30000;
 
 -- ---------------------------------------------------------------- sanctions
 CREATE TABLE IF NOT EXISTS datasets (
