@@ -71,40 +71,81 @@ import os
 log = logging.getLogger("amlkit.scheduler")
 
 
-def _run_scheduled_refresh() -> None:
-    """Load fresh sanctions lists and re-screen all orgs. Runs every 23 hours.
+def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
+    """Load every mandatory sanctions source and re-screen every active org.
 
-    23 hours (not 24) gives a safety margin against the EOCN 24-hour rule:
-    if a download is slow or retried once, we still finish within the window.
+    Single source of truth for "what a refresh actually does" -- previously
+    the interactive /admin/refresh button and the automated scheduler path
+    silently drifted apart: the manual button loaded six sources (including
+    UK and the CIA World Leaders PEP list), the automated path only loaded
+    four. An automated refresh that covers less than the button a human
+    would click is exactly the kind of gap that isn't visible until an
+    examiner asks why UK-sanctioned entities weren't being screened against.
+    Both routes, and the scheduler, now call this one function.
     """
-    from ..db import connect
     from ..ingest.base import AdapterError
     from ..ingest.loader import load
-    from ..ingest.opensanctions import uae_local_terrorists
+    from ..ingest.opensanctions import uae_local_terrorists, cia_world_leaders
     from ..ingest.un import UNSanctionsAdapter
     from ..ingest.ofac import OFACSDNAdapter
     from ..ingest.eu import EUSanctionsAdapter
+    from ..ingest.uk import UKSanctionsAdapter
     from ..match.engine import rescreen_all
+    from ..db import audit
 
-    log.info("Scheduled sanctions refresh starting…")
-    conn = connect()
-    total_alerts = 0
-    for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter, EUSanctionsAdapter]:
+    loaded: list[str] = []
+    failures: list[str] = []
+    for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
+                     EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
         adapter = factory()
         try:
-            result = load(conn, adapter, actor="scheduler")
-            log.info("Loaded %s: %d entities", adapter.key, result.entities)
+            result = load(conn, adapter, actor=actor)
+            loaded.append(f"{adapter.title}: {result.entities} entities")
         except AdapterError as exc:
-            log.error("FAILED to load %s: %s", adapter.key, exc)
+            failures.append(f"{adapter.title}: {exc}")
+            audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
+                  {"error": str(exc)}, org_id=None)
     conn.commit()
+
+    total_alerts = 0
+    screened_orgs = 0
     orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
     for org in orgs:
-        outcome = rescreen_all(conn, org["id"], actor="scheduler")
+        outcome = rescreen_all(conn, org["id"], actor=actor)
         total_alerts += outcome["alerts"]
-        log.info("Re-screened org '%s': %d names, %d alerts", org["name"], outcome["screened"], outcome["alerts"])
+        screened_orgs += 1
     conn.commit()
-    conn.close()
-    log.info("Scheduled refresh complete. %d new alert(s) raised.", total_alerts)
+
+    return {
+        "loaded": loaded, "failures": failures,
+        "orgs_screened": screened_orgs, "new_alerts": total_alerts,
+    }
+
+
+def _run_scheduled_refresh() -> None:
+    """APScheduler entry point: opens its own connection (not tied to a
+    request) and delegates to run_sanctions_refresh.
+
+    This in-process scheduler is the RIGHT mechanism when amlkit runs on a
+    compliance officer's own machine, per its core design (see db.py's
+    module docstring) -- a long-lived local process has no scale-to-zero
+    surprises. It is the WRONG (unreliable) mechanism on Cloud Run, where
+    the container can be frozen or killed between requests regardless of
+    in-process timers -- that deployment relies on Cloud Scheduler calling
+    /system/refresh instead (see deploy_gcp.ps1 / cloud_shell_deploy.sh).
+    Kept enabled unconditionally rather than detecting the environment: it
+    is a harmless, idempotent-ish extra refresh if it ever does fire
+    alongside Cloud Scheduler's call, never a correctness risk.
+    """
+    from ..db import connect
+
+    log.info("Scheduled sanctions refresh starting…")
+    conn = connect(db_path())
+    try:
+        result = run_sanctions_refresh(conn, actor="scheduler")
+        log.info("Scheduled refresh complete: %s", result)
+    finally:
+        conn.close()
 
 
 @contextlib.asynccontextmanager
@@ -1094,54 +1135,39 @@ def admin_refresh_sanctions(
             return RedirectResponse("/login", status_code=303)
         return back("/admin", err=str(exc))
 
-    from ..ingest.base import AdapterError
-    from ..ingest.loader import load
-    from ..ingest.opensanctions import uae_local_terrorists, cia_world_leaders
-    from ..ingest.un import UNSanctionsAdapter
-    from ..ingest.ofac import OFACSDNAdapter
-    from ..ingest.eu import EUSanctionsAdapter
-    from ..ingest.uk import UKSanctionsAdapter
-    from ..match.engine import rescreen_all
-    from ..db import audit
+    result = run_sanctions_refresh(db, actor=session.operator_name)
 
-    failures: list[str] = []
-    loaded: list[str] = []
-    for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter, EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
-        adapter = factory()
-        try:
-            result = load(db, adapter, actor=session.operator_name)
-            loaded.append(f"{adapter.title}: {result.entities} entities")
-        except AdapterError as exc:
-            failures.append(f"{adapter.title}: {exc}")
-            audit(db, session.operator_name, "dataset.refresh_failed",
-                  "dataset", adapter.key, {"error": str(exc)}, org_id=None)
-            db.commit()
+    if result["failures"]:
+        return back("/admin", err="Refresh failed for: " + "; ".join(result["failures"]))
 
-    # Re-screen every active org's customer book
-    total_alerts = 0
-    orgs = db.execute("SELECT id FROM organizations WHERE status='active'").fetchall()
-    for org in orgs:
-        outcome = rescreen_all(db, org["id"], actor=session.operator_name)
-        total_alerts += outcome["alerts"]
-    db.commit()
-
-    if failures:
-        return back("/admin", err="Refresh failed for: " + "; ".join(failures))
-
-    msg = "Sanctions lists refreshed. " + "; ".join(loaded)
-    if total_alerts:
-        msg += f" {total_alerts} new alert(s) raised — check Alerts."
+    msg = "Sanctions lists refreshed. " + "; ".join(result["loaded"])
+    if result["new_alerts"]:
+        msg += f" {result['new_alerts']} new alert(s) raised — check Alerts."
     return back("/admin", msg=msg)
 
 
 # ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)
 @app.post("/system/refresh")
 def system_refresh(request: Request):
-    """HTTP endpoint for Cloud Scheduler to call every 23 hours.
+    """HTTP endpoint for Cloud Scheduler to call automatically, on a
+    schedule set in Cloud Scheduler (see scripts/deploy_gcp.ps1) -- not
+    once every 23 hours in-process, which cannot survive Cloud Run scaling
+    the container to zero between calls.
 
     Protected by a bearer token stored in the SCHEDULER_SECRET environment
     variable. If the variable is not set the endpoint is disabled entirely
     (returns 403) to prevent accidental exposure on a fresh deploy.
+
+    Runs SYNCHRONOUSLY rather than spawning a background thread. A prior
+    version fired the refresh in a daemon thread and returned immediately --
+    which meant Cloud Run's autoscaler, which only tracks in-flight HTTP
+    requests, had no signal that work was still happening, and could freeze
+    or tear down the instance mid-refresh with no error and no way to tell
+    whether it had actually finished. Running inline means the instance is
+    guaranteed to stay up for the request's duration (see the deploy
+    script's --timeout, set generously above this refresh's expected
+    duration), and the caller gets a real result back instead of a fire-
+    and-forget acknowledgment.
     """
     secret = os.environ.get("SCHEDULER_SECRET", "").strip()
     if not secret:
@@ -1153,11 +1179,95 @@ def system_refresh(request: Request):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-    import threading
-    thread = threading.Thread(target=_run_scheduled_refresh, daemon=True)
-    thread.start()
+    from ..db import connect
     from fastapi.responses import JSONResponse
-    return JSONResponse({"status": "refresh started", "note": "running in background"})
+
+    conn = connect(db_path())
+    try:
+        result = run_sanctions_refresh(conn, actor="cloud-scheduler")
+    finally:
+        conn.close()
+
+    status_code = 207 if result["failures"] else 200
+    return JSONResponse({"status": "complete", **result}, status_code=status_code)
+
+
+@app.post("/system/create-operator")
+async def system_create_operator(request: Request):
+    """Provision an operator without a browser session.
+
+    For the same reason /system/refresh exists: some trusted, system-level
+    actions need to happen without an interactive login being available --
+    here, provisioning a test/bootstrap operator on a deployment nobody is
+    currently signed into. Protected by its own secret (ADMIN_API_SECRET),
+    deliberately separate from SCHEDULER_SECRET: creating a login is a more
+    sensitive capability than re-running a read-mostly sanctions refresh,
+    and the two shouldn't share a blast radius. Disabled (403) exactly like
+    /system/refresh when its secret isn't configured.
+
+    Reuses the exact insert + hashing amlkit/admin/operators (the real
+    admin-panel route) uses, so a provisioned account is indistinguishable
+    from one an MLRO created by hand.
+    """
+    secret = os.environ.get("ADMIN_API_SECRET", "").strip()
+    if not secret:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "endpoint disabled — set ADMIN_API_SECRET"}, status_code=403)
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header != f"Bearer {secret}":
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    from fastapi.responses import JSONResponse
+
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    email = (body.get("email") or "").strip().lower()
+    password = body.get("password") or ""
+    role = body.get("role") or "officer"
+    org_slug = (body.get("org_slug") or "").strip()
+
+    if not name or not email:
+        return JSONResponse({"error": "name and email are required"}, status_code=400)
+    if len(password) < 10:
+        return JSONResponse({"error": "password must be at least 10 characters"}, status_code=400)
+    if role not in ("officer", "mlro"):
+        return JSONResponse({"error": "role must be 'officer' or 'mlro'"}, status_code=400)
+
+    from ..db import connect, audit, utcnow
+
+    conn = connect(db_path())
+    try:
+        if org_slug:
+            org = conn.execute(
+                "SELECT id, name FROM organizations WHERE slug=? AND status='active'", (org_slug,)
+            ).fetchone()
+        else:
+            org = conn.execute(
+                "SELECT id, name FROM organizations WHERE status='active' ORDER BY id LIMIT 1"
+            ).fetchone()
+        if org is None:
+            return JSONResponse({"error": "no matching active organization"}, status_code=404)
+
+        try:
+            cur = conn.execute(
+                """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
+                   VALUES (?,?,?,?,?,1,?)""",
+                (org["id"], name, email, auth.hash_password(password), role, utcnow()),
+            )
+        except sqlite3.IntegrityError:
+            return JSONResponse({"error": "an operator with that name or email already exists"}, status_code=409)
+
+        audit(conn, "system", "operator.create", "operator", cur.lastrowid,
+              {"email": email, "role": role, "via": "system_create_operator"}, org_id=org["id"])
+        conn.commit()
+        return JSONResponse({
+            "status": "created", "operator_id": cur.lastrowid,
+            "organization": org["name"], "email": email, "role": role,
+        })
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------- regulatory reports
