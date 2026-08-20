@@ -122,11 +122,29 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Build image
+      # 'gcloud builds submit' was tried here first and never worked under WIF:
+      # it uploads the build source through a gsutil-backed path that, per a
+      # confirmed (Google "closed as not planned") upstream report, does not
+      # correctly consume Workload Identity Federation credentials -- it
+      # produces "The user is forbidden from accessing the bucket [..._cloudbuild]"
+      # regardless of how correct the service account's IAM grants are, because
+      # that upload step silently isn't using them. Three different IAM fixes
+      # (objectAdmin, serviceUsageConsumer, storage.admin -- all confirmed
+      # correctly applied) made no difference, which is what exposed this as a
+      # client bug rather than a permissions gap. Building with Docker Buildx
+      # and pushing straight to Artifact Registry avoids that upload path
+      # entirely -- 'docker push' authenticates through the same WIF credential
+      # via 'gcloud auth configure-docker', which is NOT affected by the bug.
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
         run: |
-          gcloud builds submit . \
-            --tag "gcr.io/${{ vars.GCP_PROJECT_ID }}/amlkit:${{ github.sha }}" \
-            --project "${{ vars.GCP_PROJECT_ID }}"
+          docker buildx build --push \
+            -t "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/amlkit/amlkit:${{ github.sha }}" \
+            .
 
       # Same shape as scripts/deploy_gcp.ps1 / scripts/cloud_shell_deploy.sh --
       # min-instances 0 to keep idle cost at $0, tagged by commit SHA so every
@@ -134,7 +152,7 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy amlkit \
-            --image "gcr.io/${{ vars.GCP_PROJECT_ID }}/amlkit:${{ github.sha }}" \
+            --image "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/amlkit/amlkit:${{ github.sha }}" \
             --platform managed \
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \

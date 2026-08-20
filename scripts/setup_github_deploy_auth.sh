@@ -29,13 +29,7 @@ gcloud iam service-accounts create "$SA_NAME" \
   || echo "(already exists, continuing)"
 
 echo "== Granting deploy-only roles (no access to the app's data bucket) =="
-# serviceusage.serviceUsageConsumer: without it, 'gcloud builds submit' fails
-# with "The user is forbidden from accessing the bucket [..._cloudbuild]" --
-# a misleading error text (it reads like a storage permission problem, and
-# the first fix attempted here targeted the bucket's own IAM policy instead)
-# for what the gcloud error message itself actually points at: the SA isn't
-# allowed to "use" enabled services against this project's quota/billing.
-for ROLE in roles/run.admin roles/iam.serviceAccountUser roles/cloudbuild.builds.editor roles/artifactregistry.writer roles/serviceusage.serviceUsageConsumer; do
+for ROLE in roles/run.admin roles/iam.serviceAccountUser roles/artifactregistry.writer; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="$ROLE" \
@@ -43,27 +37,26 @@ for ROLE in roles/run.admin roles/iam.serviceAccountUser roles/cloudbuild.builds
     --quiet
 done
 
-echo "== Granting access to the Cloud Build staging bucket =="
-# 'gcloud builds submit' uploads source to gs://<PROJECT_ID>_cloudbuild before
-# it can build anything. cloudbuild.builds.editor (above) lets the SA queue
-# and watch builds, but grants nothing on that bucket -- confirmed by a real
-# first-deploy failure: "The user is forbidden from accessing the bucket
-# [gen-lang-client-0153967509_cloudbuild]". Two earlier attempts at this grant
-# (storage.objectAdmin on the bucket, then serviceusage.serviceUsageConsumer
-# on the project -- both genuinely required, both still applied above/below)
-# left the exact same error, because 'gcloud builds submit' also calls
-# storage.buckets.get/storage.buckets.list on the staging bucket itself
-# before it uploads anything, and objectAdmin does not include those --
-# only a bucket-*admin* role does. Scoped to this ONE auto-created staging
-# bucket, not project-wide storage, so this stays deploy-only and never
-# touches the app's own data bucket ($BUCKET above).
-CLOUDBUILD_BUCKET="${PROJECT_ID}_cloudbuild"
-gcloud storage buckets add-iam-policy-binding "gs://${CLOUDBUILD_BUCKET}" \
+echo "== Creating the Artifact Registry repo the workflow pushes images to =="
+# The deploy workflow builds with Docker Buildx and pushes straight to
+# Artifact Registry -- NOT 'gcloud builds submit' (tried first; abandoned
+# after three confirmed-correct IAM grants -- storage.objectAdmin,
+# serviceusage.serviceUsageConsumer, storage.admin on the Cloud Build staging
+# bucket -- still left the identical "forbidden from accessing the bucket"
+# error. Root cause was a confirmed gcloud/gsutil client bug, closed
+# "not planned" upstream: that command's source-upload step does not
+# correctly consume Workload Identity Federation credentials, so no amount of
+# IAM on the intended service account could ever fix it). artifactregistry.writer
+# (above) lets the SA push to a repo, but creating the repo itself needs
+# artifactregistry.admin, which this SA deliberately does NOT have -- that's
+# a one-time provisioning step for whoever runs this script, not something
+# routine deploys should be able to do.
+gcloud artifacts repositories create amlkit \
+  --repository-format=docker \
+  --location="$REGION" \
   --project="$PROJECT_ID" \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/storage.admin" \
-  --quiet \
-  || echo "(gs://${CLOUDBUILD_BUCKET} doesn't exist yet -- Cloud Build auto-creates it on someone's first 'gcloud builds submit'. Re-run this script after that first build, or run the binding above manually once the bucket exists.)"
+  --description="amlkit container images" \
+  || echo "(already exists, continuing)"
 
 echo "== Creating Workload Identity Pool =="
 gcloud iam workload-identity-pools create "$POOL_ID" \
