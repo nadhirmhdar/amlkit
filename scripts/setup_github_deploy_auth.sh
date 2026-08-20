@@ -37,6 +37,22 @@ for ROLE in roles/run.admin roles/iam.serviceAccountUser roles/cloudbuild.builds
     --quiet
 done
 
+echo "== Granting access to the Cloud Build staging bucket =="
+# 'gcloud builds submit' uploads source to gs://<PROJECT_ID>_cloudbuild before
+# it can build anything. cloudbuild.builds.editor (above) lets the SA queue
+# and watch builds, but grants nothing on that bucket -- confirmed by a real
+# first-deploy failure: "The user is forbidden from accessing the bucket
+# [gen-lang-client-0153967509_cloudbuild]". Scoped to this ONE auto-created
+# staging bucket, not project-wide storage, so this stays deploy-only and
+# never touches the app's own data bucket ($BUCKET above).
+CLOUDBUILD_BUCKET="${PROJECT_ID}_cloudbuild"
+gcloud storage buckets add-iam-policy-binding "gs://${CLOUDBUILD_BUCKET}" \
+  --project="$PROJECT_ID" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/storage.objectAdmin" \
+  --quiet \
+  || echo "(gs://${CLOUDBUILD_BUCKET} doesn't exist yet -- Cloud Build auto-creates it on someone's first 'gcloud builds submit'. Re-run this script after that first build, or run the binding above manually once the bucket exists.)"
+
 echo "== Creating Workload Identity Pool =="
 gcloud iam workload-identity-pools create "$POOL_ID" \
   --project="$PROJECT_ID" \
