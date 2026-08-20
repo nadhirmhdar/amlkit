@@ -35,11 +35,18 @@ gcloud iam service-accounts create $SaName `
 if ($LASTEXITCODE -ne 0) { Write-Host "(already exists, continuing)" -ForegroundColor Yellow }
 
 Write-Host "== Granting deploy-only roles (no access to the app's data bucket) ==" -ForegroundColor Cyan
+# serviceusage.serviceUsageConsumer: without it, 'gcloud builds submit' fails
+# with "The user is forbidden from accessing the bucket [..._cloudbuild]" --
+# a misleading error text (it reads like a storage permission problem, and
+# the first fix attempted here targeted the bucket's own IAM policy instead)
+# for what the gcloud error message itself actually points at: the SA isn't
+# allowed to "use" enabled services against this project's quota/billing.
 $Roles = @(
     "roles/run.admin",
     "roles/iam.serviceAccountUser",
     "roles/cloudbuild.builds.editor",
-    "roles/artifactregistry.writer"
+    "roles/artifactregistry.writer",
+    "roles/serviceusage.serviceUsageConsumer"
 )
 foreach ($Role in $Roles) {
     gcloud projects add-iam-policy-binding $ProjectId `
