@@ -61,14 +61,20 @@ Write-Host "== Granting access to the Cloud Build staging bucket ==" -Foreground
 # it can build anything. cloudbuild.builds.editor (above) lets the SA queue
 # and watch builds, but grants nothing on that bucket -- confirmed by a real
 # first-deploy failure: "The user is forbidden from accessing the bucket
-# [gen-lang-client-0153967509_cloudbuild]". Scoped to this ONE auto-created
-# staging bucket, not project-wide storage, so this stays deploy-only and
-# never touches the app's own data bucket ($Bucket above).
+# [gen-lang-client-0153967509_cloudbuild]". Two earlier attempts at this grant
+# (storage.objectAdmin on the bucket, then serviceusage.serviceUsageConsumer
+# on the project -- both genuinely required, both still applied above/below)
+# left the exact same error, because 'gcloud builds submit' also calls
+# storage.buckets.get/storage.buckets.list on the staging bucket itself
+# before it uploads anything, and objectAdmin does not include those --
+# only a bucket-*admin* role does. Scoped to this ONE auto-created staging
+# bucket, not project-wide storage, so this stays deploy-only and never
+# touches the app's own data bucket ($Bucket above).
 $CloudBuildBucket = "${ProjectId}_cloudbuild"
 gcloud storage buckets add-iam-policy-binding "gs://$CloudBuildBucket" `
     --project=$ProjectId `
     --member="serviceAccount:$SaEmail" `
-    --role="roles/storage.objectAdmin" `
+    --role="roles/storage.admin" `
     --quiet
 if ($LASTEXITCODE -ne 0) { Write-Host "(gs://$CloudBuildBucket doesn't exist yet -- Cloud Build auto-creates it on someone's first 'gcloud builds submit'. Re-run this script after that first build, or run the binding above manually once the bucket exists.)" -ForegroundColor Yellow }
 
