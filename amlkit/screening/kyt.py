@@ -104,10 +104,11 @@ def evaluate_transaction(
             (customer_id, org_id, window_start, occurred_at, transaction_id),
         ).fetchall()
         recent_amounts = [amount_aed] + [r["amount_aed"] for r in rows]
-        total = sum(recent_amounts)
-        under_threshold_count = sum(1 for a in recent_amounts if a < LARGE_CASH_THRESHOLD_AED)
+        under_threshold_amounts = [a for a in recent_amounts if a < LARGE_CASH_THRESHOLD_AED]
+        under_threshold_total = sum(under_threshold_amounts)
+        under_threshold_count = len(under_threshold_amounts)
         if (
-            total >= LARGE_CASH_THRESHOLD_AED
+            under_threshold_total >= LARGE_CASH_THRESHOLD_AED
             and amount_aed < LARGE_CASH_THRESHOLD_AED
             and under_threshold_count >= STRUCTURING_MIN_COUNT
         ):
@@ -116,8 +117,8 @@ def evaluate_transaction(
                 severity="high",
                 detail={
                     "window_days": STRUCTURING_WINDOW_DAYS,
-                    "transaction_count": len(recent_amounts),
-                    "total_aed": total,
+                    "transaction_count": under_threshold_count,
+                    "total_aed": under_threshold_total,
                     "threshold_aed": LARGE_CASH_THRESHOLD_AED,
                 },
             ))

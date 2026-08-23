@@ -1483,10 +1483,14 @@ def report_export_xml(request: Request, db: DB, report_id: int):
         raise HTTPException(status_code=404, detail="Report not found")
 
     import json
-    from ..reporting.goaml import serialize_goaml_xml
-    
+    from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
+
     payload = json.loads(rep["payload"] or "{}")
-    xml_content = serialize_goaml_xml(payload)
+    try:
+        xml_content = serialize_goaml_xml(payload)
+    except GoAMLValidationError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(exc))
 
     from fastapi.responses import Response
     return Response(

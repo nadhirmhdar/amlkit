@@ -49,15 +49,16 @@
   <div class="panel">
     <div class="step-indicator">2</div>
     <h3>Subject Details</h3>
+    {% set full_name_parts = (customer.full_name or '').split() %}
     <div class="row">
       <div>
         <label>First Name / Entity Name</label>
-        <input type="text" name="first_name" value="{{ payload.first_name or customer.full_name.split()[0] if customer.customer_type == 'natural' else customer.full_name }}" required>
+        <input type="text" name="first_name" value="{{ payload.first_name or (full_name_parts[0] if customer.customer_type == 'natural' and full_name_parts else customer.full_name) }}" required>
       </div>
       {% if customer.customer_type == 'natural' %}
         <div>
           <label>Last Name</label>
-          <input type="text" name="last_name" value="{{ payload.last_name or ' '.join(customer.full_name.split()[1:]) }}" required>
+          <input type="text" name="last_name" value="{{ payload.last_name or ' '.join(full_name_parts[1:]) }}" required>
         </div>
       {% endif %}
     </div>

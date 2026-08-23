@@ -100,6 +100,28 @@ class TestStructuring:
         )
         assert not any(r.rule_key == "structuring" for r in triggered)
 
+    def test_evidence_total_excludes_already_alerted_large_cash(self, conn, org_id, customer_id) -> None:
+        """total_aed in the structuring alert's evidence must reflect only the
+        sub-threshold transactions that make the structuring case -- not a
+        large cash deposit that already fired its own large_cash alert.
+        Regression test for the 2026-08-23 continuous-improvement finding."""
+        record_transaction(
+            conn, customer_id, org_id, direction="inbound", method="cash",
+            amount=LARGE_CASH_THRESHOLD_AED, occurred_at="2026-08-01T09:00:00+00:00",
+            actor="tester",
+        )
+        record_transaction(
+            conn, customer_id, org_id, direction="inbound", method="cash",
+            amount=30000.0, occurred_at="2026-08-02T09:00:00+00:00", actor="tester",
+        )
+        _, triggered = record_transaction(
+            conn, customer_id, org_id, direction="inbound", method="cash",
+            amount=30000.0, occurred_at="2026-08-03T09:00:00+00:00", actor="tester",
+        )
+        structuring = next(r for r in triggered if r.rule_key == "structuring")
+        assert structuring.detail["total_aed"] == pytest.approx(60000.0)
+        assert structuring.detail["transaction_count"] == 2
+
     def test_deposits_outside_window_do_not_combine(self, conn, org_id, customer_id) -> None:
         record_transaction(
             conn, customer_id, org_id, direction="inbound", method="cash",

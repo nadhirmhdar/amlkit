@@ -13,14 +13,34 @@ Generates XML files compliant with goAML 5.x schema requirements for:
 
 from __future__ import annotations
 
+import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+
+
+class GoAMLValidationError(ValueError):
+    """A report payload is missing data required for a regulator-facing filing.
+
+    Raised instead of silently substituting a placeholder: a blank source
+    account or reporting officer exported as "N/A" / "Unknown" looks like a
+    real value to whoever reads the filed XML, and to the FIU.
+    """
+
+
+def _require(report_data: dict, key: str, label: str) -> str:
+    value = (report_data.get(key) or "").strip()
+    if not value:
+        raise GoAMLValidationError(
+            f"Cannot export goAML filing: {label} is required but missing."
+        )
+    return value
 
 
 def serialize_goaml_xml(report_data: dict) -> str:
     """Serialize a report payload into a standard goAML XML format."""
     report_code = report_data.get("report_type", "STR").upper()
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(timezone.utc)
+    now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     root = ET.Element("report")
     
@@ -36,11 +56,16 @@ def serialize_goaml_xml(report_data: dict) -> str:
     ET.SubElement(rep_ent, "reporting_entity_name").text = report_data.get("reporting_entity_name") or "Grovisor Consultants"
     ET.SubElement(rep_ent, "reporting_entity_branch").text = report_data.get("reporting_entity_branch") or "Dubai HQ"
     
-    # Reporter Details
+    # Reporter Details. The reporting officer is legally accountable for this
+    # filing, so their name/email must be the real submitter's, never a
+    # placeholder that would silently misattribute the filing.
+    reporter_name = _require(report_data, "reporter_name", "reporting officer name")
+    reporter_email = _require(report_data, "reporter_email", "reporting officer email")
+    reporter_name_parts = reporter_name.split()
     reporter = ET.SubElement(root, "reporting_person")
-    ET.SubElement(reporter, "first_name").text = report_data.get("reporter_name", "").split()[0] if report_data.get("reporter_name") else "MLRO"
-    ET.SubElement(reporter, "last_name").text = " ".join(report_data.get("reporter_name", "").split()[1:]) if report_data.get("reporter_name") else "Officer"
-    ET.SubElement(reporter, "email").text = report_data.get("reporter_email") or "mlro@grovisor.test"
+    ET.SubElement(reporter, "first_name").text = reporter_name_parts[0]
+    ET.SubElement(reporter, "last_name").text = " ".join(reporter_name_parts[1:]) or reporter_name_parts[0]
+    ET.SubElement(reporter, "email").text = reporter_email
 
     # Reason / Narrative (Narrative attachment reference goes here)
     narrative = ET.SubElement(root, "reason")
@@ -54,8 +79,8 @@ def serialize_goaml_xml(report_data: dict) -> str:
     cust_type = report_data.get("customer_type", "natural")
     if cust_type == "natural":
         person = ET.SubElement(subject, "person")
-        ET.SubElement(person, "first_name").text = report_data.get("first_name") or "Unknown"
-        ET.SubElement(person, "last_name").text = report_data.get("last_name") or "Unknown"
+        ET.SubElement(person, "first_name").text = _require(report_data, "first_name", "subject first name")
+        ET.SubElement(person, "last_name").text = report_data.get("last_name") or ""
         if report_data.get("gender"):
             ET.SubElement(person, "gender").text = "M" if report_data["gender"] == "male" else "F"
         if report_data.get("birth_date"):
@@ -70,8 +95,12 @@ def serialize_goaml_xml(report_data: dict) -> str:
             ET.SubElement(ident, "number").text = report_data["id_number"]
             ET.SubElement(ident, "issue_country").text = report_data.get("nationality") or "UAE"
     else:
+        # The report form (and report_save in api/app.py) collects the legal
+        # entity's name in the same "first_name" field used for a natural
+        # person's given name -- there is no separate "full_name" key in the
+        # saved payload, so that must be the source here too.
         entity = ET.SubElement(subject, "entity")
-        ET.SubElement(entity, "name").text = report_data.get("full_name") or "Unknown Entity"
+        ET.SubElement(entity, "name").text = _require(report_data, "first_name", "subject entity name")
         if report_data.get("trade_licence"):
             ET.SubElement(entity, "incorporation_number").text = report_data["trade_licence"]
         if report_data.get("nationality"):
@@ -81,22 +110,28 @@ def serialize_goaml_xml(report_data: dict) -> str:
     has_txn = report_data.get("amount") or report_data.get("transaction_type")
     if has_txn:
         tx = ET.SubElement(root, "transaction")
-        ET.SubElement(tx, "transactionnumber").text = f"TXN-{int(datetime.now().timestamp())}"
+        # Second-granularity local time let two STRs filed within the same
+        # second collide on transactionnumber. Use the same UTC instant as
+        # every other timestamp in this function, plus a random suffix so
+        # concurrent filings can never collide even within one second.
+        ET.SubElement(tx, "transactionnumber").text = f"TXN-{int(now.timestamp())}-{uuid.uuid4().hex[:8]}"
         ET.SubElement(tx, "internal_ref_number").text = report_data.get("reference") or "TXN-REF-001"
         ET.SubElement(tx, "date_transaction").text = report_data.get("transaction_date") or now_str[:10]
         ET.SubElement(tx, "transmode_code").text = report_data.get("transaction_type") or "Wire Transfer"
         ET.SubElement(tx, "amount_local").text = str(report_data.get("amount") or 0.0)
-        
-        # Source/Destination Accounts
+
+        # Source/Destination Accounts. A blank account number here is not a
+        # harmless gap -- it silently exports as "N/A" in a regulator-facing
+        # filing, so require the real value instead.
         t_from = ET.SubElement(tx, "t_from")
         from_acc = ET.SubElement(t_from, "account")
         ET.SubElement(from_acc, "institution_name").text = "Originating Bank"
-        ET.SubElement(from_acc, "account_number").text = report_data.get("source_account") or "N/A"
-        
+        ET.SubElement(from_acc, "account_number").text = _require(report_data, "source_account", "source account number")
+
         t_to = ET.SubElement(tx, "t_to")
         to_acc = ET.SubElement(t_to, "account")
         ET.SubElement(to_acc, "institution_name").text = "Beneficiary Bank"
-        ET.SubElement(to_acc, "account_number").text = report_data.get("destination_account") or "N/A"
+        ET.SubElement(to_acc, "account_number").text = _require(report_data, "destination_account", "destination account number")
     else:
         # Non-financial reports still need an activity block
         act = ET.SubElement(root, "activity")

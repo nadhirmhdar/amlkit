@@ -33,9 +33,15 @@ PF_PROGRAM_PREFIXES: tuple[str, ...] = (
 #   NPWMD - Non-Proliferation of Weapons of Mass Destruction
 #   DPRK* - North Korea regimes
 #   IFSR / IRAN* - Iran, where proliferation-linked
+# "MBS" was previously listed here with no documented meaning, no other
+# reference anywhere in the codebase, and no test coverage -- it is not a
+# recognised OFAC sanctions programme tag. Keeping an unverified code risks
+# misclassifying an unrelated hit as proliferation financing, which changes
+# the offence and reporting route obligation_note() points the operator to.
+# Removed rather than guessed at; re-add only with a documented source.
 PF_OFAC_CODES: tuple[str, ...] = (
     "NPWMD", "DPRK", "DPRK2", "DPRK3", "DPRK4",
-    "NPWMD-EO13382", "IFSR", "IRAN-TRA", "MBS",
+    "NPWMD-EO13382", "IFSR", "IRAN-TRA",
 )
 
 # Counter-terrorism regimes. Listed explicitly so the two are never conflated
