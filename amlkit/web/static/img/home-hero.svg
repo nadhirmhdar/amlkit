@@ -1,13 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 320">
     <defs>
-      <radialGradient id="heroGlow" cx="47%" cy="28%" r="72%">
-        <stop offset="0%" stop-color="oklch(52% 0.15 250 / 0.4)"/>
-        <stop offset="55%" stop-color="oklch(52% 0.15 250 / 0.08)"/>
-        <stop offset="100%" stop-color="oklch(52% 0.15 250 / 0)"/>
+      <radialGradient id="heroGlow" cx="100%" cy="0%" r="85%">
+        <stop offset="0%" stop-color="oklch(40% 0.1 45 / 0.85)"/>
+        <stop offset="55%" stop-color="oklch(40% 0.1 45 / 0.15)"/>
+        <stop offset="100%" stop-color="oklch(40% 0.1 45 / 0)"/>
       </radialGradient>
       <linearGradient id="gateFill" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="oklch(58% 0.15 250)"/>
-        <stop offset="100%" stop-color="oklch(46% 0.15 250)"/>
+        <stop offset="0%" stop-color="oklch(30% 0.012 250)"/>
+        <stop offset="100%" stop-color="oklch(16% 0.012 250)"/>
       </linearGradient>
       <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
         <stop offset="30%" stop-color="white" stop-opacity="0"/>
@@ -87,11 +87,11 @@
         <line x1="156" y1="100" x2="174" y2="98" transform="rotate(9 165 110)"/>
       </g>
 
-      <!-- ===== the gate: amlkit ===== -->
-      <ellipse cx="227" cy="160" rx="60" ry="130" fill="oklch(52% 0.15 250 / 0.5)" filter="url(#blurGate)"/>
+      <!-- ===== the gate: amlkit (same solid ink as the sign-in / dashboard buttons) ===== -->
+      <ellipse cx="227" cy="160" rx="60" ry="130" fill="oklch(100% 0 0 / 0.08)" filter="url(#blurGate)"/>
       <g filter="url(#dropShadow)">
-        <rect x="194" y="52" width="66" height="216" rx="33" fill="url(#gateFill)"/>
-        <rect x="194" y="52" width="66" height="70" rx="33" fill="white" opacity="0.06"/>
+        <rect x="194" y="52" width="66" height="216" rx="33" fill="url(#gateFill)" stroke="oklch(100% 0 0 / 0.14)" stroke-width="1.5"/>
+        <rect x="194" y="52" width="66" height="70" rx="33" fill="white" opacity="0.05"/>
       </g>
       <g transform="translate(227,122)" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none">
         <path d="M0,-16 L14,-10 V4 C14,16 7,24 0,28 C-7,24 -14,16 -14,4 V-10 Z"/>
