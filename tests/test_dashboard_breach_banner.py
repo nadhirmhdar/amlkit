@@ -60,7 +60,10 @@ def client(tmp_path, monkeypatch):
 
 class TestBreachBanner:
     def test_banner_points_to_admin_refresh_not_local_script(self, client) -> None:
-        r = client.get("/")
+        # The dashboard (where this banner lives) moved from "/" to
+        # "/dashboard" in a later PR -- "/" is now the home/orientation
+        # screen (see test_api.py::TestHomePage).
+        r = client.get("/dashboard")
         assert r.status_code == 200
         assert "24-HOUR RULE BREACHED" in r.text
         assert "scripts/refresh.py" not in r.text
