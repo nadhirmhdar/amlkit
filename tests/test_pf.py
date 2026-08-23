@@ -52,6 +52,15 @@ class TestProgrammeClassification:
     def test_case_insensitive(self) -> None:
         assert is_proliferation(["un-sc1718"])
 
+    def test_mbs_is_not_a_recognised_programme_code(self) -> None:
+        """"MBS" was previously listed in PF_OFAC_CODES with no documented
+        meaning, no other reference in the codebase, and no test coverage.
+        It is not a real OFAC sanctions programme tag; treating it as one
+        risks misclassifying an unrelated hit as proliferation financing.
+        Regression test for the 2026-08-23 continuous-improvement finding."""
+        assert classify_programs(["MBS"]) == set()
+        assert not is_proliferation(["MBS"])
+
     def test_entity_can_be_both(self) -> None:
         cats = classify_programs(["UN-SC1718", "UN-SCISIL"])
         assert cats == {"proliferation", "terrorism"}

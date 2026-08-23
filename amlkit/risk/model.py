@@ -26,13 +26,23 @@ from ..db import audit, utcnow
 RULESET_PATH = Path(__file__).resolve().parent / "ruleset.yaml"
 
 _cache: dict[str, Any] | None = None
+_cache_mtime: float | None = None
 
 
 def ruleset() -> dict[str, Any]:
-    global _cache
-    if _cache is None:
+    """Load `ruleset.yaml`, reloading it whenever the file changes on disk.
+
+    Cached by mtime rather than loaded once per process: a compliance officer
+    editing the ruleset on a long-lived instance (a warm Cloud Run container,
+    a machine left running) must see the new rules on the next assessment,
+    not only after a process restart.
+    """
+    global _cache, _cache_mtime
+    mtime = RULESET_PATH.stat().st_mtime
+    if _cache is None or mtime != _cache_mtime:
         with open(RULESET_PATH, encoding="utf-8") as fh:
             _cache = yaml.safe_load(fh)
+        _cache_mtime = mtime
     return _cache
 
 
