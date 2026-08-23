@@ -446,8 +446,45 @@ def register_org_submit(
     return resp
 
 
-# ------------------------------------------------------------------ dashboard
+# ------------------------------------------------------------------ home
 @app.get("/", response_class=HTMLResponse)
+def home(request: Request, db: DB):
+    """The first screen after sign-in -- an orientation page, not the
+    dashboard. A new or occasional operator needs "what do I do" before
+    "what's outstanding"; the dashboard (queue/stale-list detail) is one
+    click away via the nav or the alerts bar below, not buried."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    from datetime import datetime, timedelta, timezone
+
+    # Gulf Standard Time, fixed UTC+4 (no DST) -- the app is UAE-only and
+    # this greeting is cosmetic, so a fixed offset avoids a per-operator
+    # timezone setting that nothing else in the schema has either.
+    gst_now = datetime.now(timezone.utc) + timedelta(hours=4)
+    if gst_now.hour < 12:
+        greeting = "Good morning"
+    elif gst_now.hour < 18:
+        greeting = "Good afternoon"
+    else:
+        greeting = "Good evening"
+
+    first_name = (session.operator_name or "").split()
+    first_name = first_name[0] if first_name else session.operator_name
+
+    return render(request, "home.html", {
+        "session": session,
+        "d": queries.dashboard(db, session.org_id),
+        "greeting": greeting,
+        "first_name": first_name,
+        "today": gst_now.strftime("%A, %d %B %Y"),
+    })
+
+
+# ------------------------------------------------------------------ dashboard
+@app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: DB):
     try:
         session = require_session(request, db)

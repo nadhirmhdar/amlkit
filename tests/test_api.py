@@ -122,15 +122,46 @@ def _add_operator(client, name: str, email: str, password: str = "a-strong-passw
     })
 
 
+class TestHomePage:
+    """The first screen after sign-in -- an orientation page, not the
+    dashboard (moved to /dashboard). See home.html."""
+
+    def test_shows_greeting_and_action_cards(self, client) -> None:
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "alice" in r.text  # first name from the fixture's registered operator
+        assert "Screen a name" in r.text
+        assert "Onboard a customer" in r.text
+        assert "About us" in r.text
+
+    def test_alerts_bar_shows_clear_state_when_no_open_alerts(self, client) -> None:
+        r = client.get("/")
+        assert "No alerts pending" in r.text
+        assert "is-clear" in r.text
+
+    def test_alerts_bar_shows_pending_state_and_count(self, client) -> None:
+        client.get("/screen")
+        client.post("/screen", data={
+            "name": LISTED, "country": "ly", "csrf_token": _csrf(client),
+        })
+        r = client.get("/")
+        assert "is-pending" in r.text
+        assert "1 alert" in r.text and "your action" in r.text
+
+    def test_alerts_bar_links_to_dashboard(self, client) -> None:
+        r = client.get("/")
+        assert 'href="/dashboard"' in r.text
+
+
 class TestPagesRender:
-    @pytest.mark.parametrize("path", ["/", "/screen", "/alerts", "/customers",
+    @pytest.mark.parametrize("path", ["/", "/dashboard", "/screen", "/alerts", "/customers",
                                       "/customers/new", "/audit", "/admin"])
     def test_page_renders_when_authenticated(self, client, path: str) -> None:
         r = client.get(path)
         assert r.status_code == 200
         assert "amlkit" in r.text
 
-    @pytest.mark.parametrize("path", ["/", "/screen", "/alerts", "/customers", "/admin"])
+    @pytest.mark.parametrize("path", ["/", "/dashboard", "/screen", "/alerts", "/customers", "/admin"])
     def test_page_redirects_when_not_authenticated(self, client, path: str) -> None:
         client.cookies.delete("amlkit_session")
         r = client.get(path, follow_redirects=False)

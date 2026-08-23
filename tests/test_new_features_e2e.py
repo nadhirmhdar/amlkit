@@ -97,7 +97,7 @@ class TestTransactionMonitoringE2E:
             "direction": "inbound", "method": "cash", "amount": "60000",
             "csrf_token": _csrf(client),
         })
-        dash = client.get("/")
+        dash = client.get("/dashboard")
         assert "Transaction alerts open" in dash.text
 
     def test_disposition_clears_the_alert_from_the_customer_page(self, client, customer_id) -> None:
