@@ -146,9 +146,39 @@ jobs:
             -t "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/amlkit/amlkit:${{ github.sha }}" \
             .
 
+      # SCHEDULER_SECRET / ADMIN_API_SECRET gate the /system/* endpoints (see
+      # app.py). Reuse whatever is already deployed rather than regenerating
+      # on every deploy -- `gcloud run deploy --set-env-vars` REPLACES the
+      # entire env var set, so a naive redeploy would otherwise silently
+      # rotate these out from under Cloud Scheduler's existing job. This step,
+      # and the Cloud Scheduler wiring after deploy, port what
+      # scripts/deploy_gcp.ps1 / scripts/cloud_shell_deploy.sh did manually --
+      # switching to this CI deploy path (see the "Build and push image" step
+      # above) dropped both, which is why the /system/refresh Cloud Scheduler
+      # path silently stopped working: the endpoint has been returning 403
+      # (SCHEDULER_SECRET unset) on every deploy since.
+      - name: Resolve scheduler/admin secrets
+        run: |
+          EXISTING_VARS=$(gcloud run services describe amlkit --platform managed \
+            --region "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
+            --format "value(spec.template.spec.containers[0].env)" 2>/dev/null || echo "")
+          extract_existing() {
+            echo "$EXISTING_VARS" | grep -oE "$1=[^,}]+" | head -1 | cut -d= -f2-
+          }
+          SCHEDULER_SECRET=$(extract_existing SCHEDULER_SECRET)
+          [ -z "$SCHEDULER_SECRET" ] && SCHEDULER_SECRET=$(openssl rand -hex 24)
+          ADMIN_API_SECRET=$(extract_existing ADMIN_API_SECRET)
+          [ -z "$ADMIN_API_SECRET" ] && ADMIN_API_SECRET=$(openssl rand -hex 24)
+          echo "::add-mask::$SCHEDULER_SECRET"
+          echo "::add-mask::$ADMIN_API_SECRET"
+          echo "SCHEDULER_SECRET=$SCHEDULER_SECRET" >> "$GITHUB_ENV"
+          echo "ADMIN_API_SECRET=$ADMIN_API_SECRET" >> "$GITHUB_ENV"
+
       # Same shape as scripts/deploy_gcp.ps1 / scripts/cloud_shell_deploy.sh --
       # min-instances 0 to keep idle cost at $0, tagged by commit SHA so every
-      # deploy is traceable to the exact commit that produced it.
+      # deploy is traceable to the exact commit that produced it. --timeout
+      # 900: /system/refresh runs the sanctions refresh synchronously, so the
+      # request needs to be allowed to run long enough.
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy amlkit \
@@ -157,15 +187,51 @@ jobs:
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
-            --set-env-vars "GCS_BUCKET=${{ vars.GCS_BUCKET }},AMLKIT_BIND_HOST=0.0.0.0,AMLKIT_PORT=8000,AMLKIT_BEHIND_PROXY=1" \
+            --set-env-vars "GCS_BUCKET=${{ vars.GCS_BUCKET }},AMLKIT_BIND_HOST=0.0.0.0,AMLKIT_PORT=8000,AMLKIT_BEHIND_PROXY=1,SCHEDULER_SECRET=${SCHEDULER_SECRET},ADMIN_API_SECRET=${ADMIN_API_SECRET}" \
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \
             --min-instances 0 \
-            --max-instances 10
+            --max-instances 10 \
+            --timeout 900
 
       - name: Report deployed URL
         run: |
           URL=$(gcloud run services describe amlkit --platform managed --region "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" --format "value(status.url)")
+          echo "URL=$URL" >> "$GITHUB_ENV"
           echo "Deployed: $URL"
           echo "### Deployed to $URL" >> "$GITHUB_STEP_SUMMARY"
+
+      # Every 20 hours: safely inside the 24-hour EOCN rule with margin for a
+      # slow/retried run, same reasoning as the in-process scheduler's 23-hour
+      # interval (see app.py's _lifespan) but reliable across Cloud Run
+      # scaling to zero, which the in-process one is not. continue-on-error:
+      # the deploy service account may not (yet) hold Cloud Scheduler IAM --
+      # this step's own failure must not block a deploy that otherwise
+      # succeeded; it prints exactly what's missing so it's actionable
+      # instead of a silent gap.
+      - name: Wire up Cloud Scheduler sanctions refresh
+        continue-on-error: true
+        run: |
+          gcloud services enable cloudscheduler.googleapis.com --project "${{ vars.GCP_PROJECT_ID }}"
+          JOB_NAME="amlkit-sanctions-refresh"
+          if gcloud scheduler jobs describe "$JOB_NAME" --location "${{ vars.GCP_REGION }}" \
+              --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
+            gcloud scheduler jobs update http "$JOB_NAME" \
+              --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
+              --schedule "0 */20 * * *" \
+              --uri "${URL}/system/refresh" \
+              --http-method POST \
+              --message-body "{}" \
+              --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
+              --attempt-deadline 900s
+          else
+            gcloud scheduler jobs create http "$JOB_NAME" \
+              --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
+              --schedule "0 */20 * * *" \
+              --uri "${URL}/system/refresh" \
+              --http-method POST \
+              --message-body "{}" \
+              --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
+              --attempt-deadline 900s
+          fi
