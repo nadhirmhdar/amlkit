@@ -231,13 +231,16 @@ jobs:
           JOB_NAME="amlkit-sanctions-refresh"
           if gcloud scheduler jobs describe "$JOB_NAME" --location "${{ vars.GCP_REGION }}" \
               --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
+            # 'scheduler jobs update http' does not accept 'create http''s
+            # --headers flag ("unrecognized arguments... did you mean
+            # '--clear-headers'?") -- it takes --update-headers instead.
             gcloud scheduler jobs update http "$JOB_NAME" \
               --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
               --schedule "0 */20 * * *" \
               --uri "${URL}/system/refresh" \
               --http-method POST \
               --message-body "{}" \
-              --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
+              --update-headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
               --attempt-deadline 900s
           else
             gcloud scheduler jobs create http "$JOB_NAME" \
