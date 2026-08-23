@@ -102,7 +102,10 @@ jobs:
   deploy:
     name: Deploy to Cloud Run
     needs: [tests, sources]
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    # workflow_dispatch alongside push: lets a manual run re-deploy master
+    # on demand (e.g. to verify an IAM change like scripts/grant_scheduler_
+    # iam.sh took effect) without needing a throwaway commit to trigger it.
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read
