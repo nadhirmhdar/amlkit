@@ -13,7 +13,13 @@
     {{ 'has' if d.breaches|length == 1 else 'have' }} not been refreshed within
     24 hours. EOCN requires list updates to be implemented within that window —
     screening against these lists is not currently reliable.
-    Run <code class="mono">scripts/refresh.py</code>.
+    {# scripts/refresh.py only touches the machine it runs on -- on this
+       hosted deployment that is not the same database this page reads, so
+       telling an operator to run it here would look like a fix and do
+       nothing. The in-app action below updates this deployment's actual
+       data, on every deployment (local or hosted) alike. #}
+    An MLRO can fix this now from
+    <a href="/admin">Admin &rarr; Refresh sanctions lists now</a>.
   </div>
 {% endif %}
 
