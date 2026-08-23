@@ -210,10 +210,21 @@ jobs:
       # this step's own failure must not block a deploy that otherwise
       # succeeded; it prints exactly what's missing so it's actionable
       # instead of a silent gap.
+      #
+      # Deliberately does NOT run 'gcloud services enable cloudscheduler
+      # .googleapis.com' here: that call requires serviceusage.services.enable
+      # on every single invocation, enabled or not, and this SA is
+      # intentionally scoped narrowly (see setup_github_deploy_auth.sh --
+      # "no access to the app's data bucket"). Granting that broad an
+      # "enable any API" permission just for a one-time project setting isn't
+      # worth it. Run scripts/grant_scheduler_iam.sh once instead (enables
+      # the API with your own broader access, then grants only
+      # roles/cloudscheduler.admin to this SA) -- also why the bash default
+      # (-e) matters here: if this were left in and failed, it would abort
+      # the whole step before ever reaching the job create/update below.
       - name: Wire up Cloud Scheduler sanctions refresh
         continue-on-error: true
         run: |
-          gcloud services enable cloudscheduler.googleapis.com --project "${{ vars.GCP_PROJECT_ID }}"
           JOB_NAME="amlkit-sanctions-refresh"
           if gcloud scheduler jobs describe "$JOB_NAME" --location "${{ vars.GCP_REGION }}" \
               --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
