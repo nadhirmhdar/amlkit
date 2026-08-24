@@ -210,29 +210,18 @@ main {
 .home-head .sub { font-size: 14.5px; color: var(--ink-2); margin-top: 12px; max-width: 620px; line-height: 1.6; }
 .home-head .status-line { margin-top: 18px; }
 
-/* Two-column row: the action cards keep to their natural width on the
-   left instead of stretching edge-to-edge, and a hero graphic fills the
-   remaining space on the right. Collapses to a single column once that
-   remaining space gets too cramped to hold the art. */
-.home-grid { display: flex; gap: 28px; align-items: stretch; margin-bottom: 40px; }
-.home-hero-art {
-  flex: 1 1 320px; min-width: 260px; border-radius: var(--radius-lg);
-  overflow: hidden; box-shadow: 0 1px 2px oklch(19% 0.012 250 / 0.04), 0 10px 26px -12px oklch(19% 0.012 250 / 0.18);
-}
-.home-hero-art img { width: 100%; height: 100%; display: block; object-fit: cover; }
-@media (max-width: 860px) {
-  .home-grid { flex-direction: column; }
-  .home-hero-art { order: -1; min-height: 220px; }
-}
-
 /* "3D floating" action cards -- layered shadow (not just a border) plus a
    hover lift, so these three read as tappable objects rather than more
    flat-list rows; deliberately distinct from .panel for that reason. */
-.action-cards { display: flex; flex-direction: column; gap: 12px; flex: 0 1 380px; }
+.action-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 40px; }
+@media (max-width: 860px) {
+  .action-cards { grid-template-columns: 1fr; }
+}
 .action-card {
-  display: flex; align-items: center; gap: 16px;
+  display: grid; grid-template-columns: 1fr auto; align-items: start;
+  row-gap: 16px; column-gap: 12px;
   background: var(--surface); border: 1px solid var(--line-soft);
-  border-radius: var(--radius-lg); padding: 18px 20px;
+  border-radius: var(--radius-lg); padding: 22px 24px;
   box-shadow: 0 1px 2px oklch(19% 0.012 250 / 0.04), 0 10px 26px -12px oklch(19% 0.012 250 / 0.18);
   color: var(--ink); text-decoration: none;
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
@@ -244,15 +233,20 @@ main {
 }
 .action-card:active { transform: translateY(-1px); }
 .action-card__icon {
+  grid-column: 1; grid-row: 1;
   flex-shrink: 0; width: 44px; height: 44px; border-radius: var(--radius-sm);
-  background: var(--ink); color: white;
+  background: var(--surface); border: 1.5px solid var(--line);
+  color: var(--ink);
   display: flex; align-items: center; justify-content: center;
 }
 .action-card__icon svg { width: 21px; height: 21px; }
-.action-card__body { flex: 1; min-width: 0; }
-.action-card__title { display: block; font-size: 15.5px; font-weight: 700; }
-.action-card__sub { display: block; font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
-.action-card__arrow { color: var(--ink-3); font-size: 17px; flex-shrink: 0; transition: transform 140ms ease; }
+.action-card__body { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+.action-card__title { display: block; font-size: 16px; font-weight: 700; }
+.action-card__sub { display: block; font-size: 13px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
+.action-card__arrow {
+  grid-column: 2; grid-row: 1; align-self: start;
+  color: var(--ink-3); font-size: 17px; flex-shrink: 0; transition: transform 140ms ease;
+}
 .action-card:hover .action-card__arrow { transform: translateX(3px); color: var(--ink); }
 
 /* Floating alerts bar -- sticky (not fixed) so it clears the sidebar
@@ -262,22 +256,29 @@ main {
   position: sticky; bottom: 20px; z-index: 5;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   border-radius: 999px; padding: 16px 24px; margin-top: 8px;
-  text-decoration: none; color: white;
+  text-decoration: none;
   box-shadow: 0 1px 2px oklch(19% 0.012 250 / 0.06), 0 16px 32px -10px var(--glow-shadow, oklch(19% 0.012 250 / 0.3));
   transition: transform 140ms ease, box-shadow 140ms ease;
 }
-.alerts-float:hover { text-decoration: none; color: white; transform: translateY(-2px); }
+.alerts-float:hover { text-decoration: none; transform: translateY(-2px); }
 .alerts-float.is-pending {
-  background: var(--danger);
-  --glow-shadow: oklch(53% 0.16 25 / 0.45);
-}
-.alerts-float.is-clear {
-  /* Same radial brand glow as the sign-in button and the dashboard's
-     "needs a decision" hero stat -- the calm state reads as "on-brand",
-     not merely "the alarm is off". */
-  background: radial-gradient(circle at 100% 0%, oklch(40% 0.1 45 / 0.85), transparent 55%), var(--ink);
+  /* Same brand glow as the sign-in button, at the same physical size --
+     this pill is much wider than that button, so the radius is a fixed
+     px value rather than a %, which would dilute the color across the
+     whole width and read as pitch black past the first sliver. */
+  color: white;
+  background: radial-gradient(circle 340px at 100% 0%, oklch(40% 0.1 45 / 0.85), var(--ink) 100%);
   --glow-shadow: oklch(19% 0.012 250 / 0.35);
 }
+.alerts-float.is-pending:hover { color: white; }
+.alerts-float.is-clear {
+  /* White, matching the floating action cards above it -- nothing left
+     to act on, so this reads as calm rather than needing attention. */
+  color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line-soft);
+  --glow-shadow: oklch(19% 0.012 250 / 0.16);
+}
+.alerts-float.is-clear:hover { color: var(--ink); }
 .alerts-float__text { display: flex; flex-direction: column; gap: 2px; }
 .alerts-float__text strong { font-size: 14.5px; font-weight: 700; }
 .alerts-float__text span { font-size: 12.5px; opacity: 0.8; }
