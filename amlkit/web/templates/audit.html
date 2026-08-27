@@ -13,21 +13,23 @@
   </p>
 </div>
 
+<div class="grid-table">
 <div class="list-head" style="grid-template-columns:160px 150px 1fr;">
   <div>When</div><div>Operator</div><div>Detail</div>
 </div>
 <div class="flat-list">
   {% for e in entries %}
   <div class="list-row" style="display:grid; grid-template-columns:160px 150px 1fr;">
-    <div class="small nowrap mono muted">{{ e.ts[:19].replace('T',' ') }}</div>
-    <div class="small" style="color:var(--ink-2); font-weight:600;">{{ e.actor }}</div>
-    <div class="small">
+    <div class="small nowrap mono muted" data-label="When">{{ e.ts[:19].replace('T',' ') }}</div>
+    <div class="small" style="color:var(--ink-2); font-weight:600;" data-label="Operator">{{ e.actor }}</div>
+    <div class="small" data-label="Detail">
       <span class="mono muted">{{ e.action }}</span>
       {% if e.object_type %} · {{ e.object_type }}{% if e.object_id %} #{{ e.object_id }}{% endif %}{% endif %}
       {% if e.detail %}<div class="muted mt-1">{{ e.detail }}</div>{% endif %}
     </div>
   </div>
   {% endfor %}
+</div>
 </div>
 
 {% endblock %}

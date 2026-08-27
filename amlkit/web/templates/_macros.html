@@ -93,8 +93,10 @@
         <label>Reviewer note (optional if you agree)</label>
         <textarea name="narrative" placeholder="Basis for confirming or overriding"></textarea>
       </div>
-      <button type="submit" name="agree" value="yes">Confirm dismissal</button>
-      <button type="submit" name="agree" value="no" class="danger">Override &amp; escalate</button>
+      <div class="btn-pair">
+        <button type="submit" name="agree" value="yes">Confirm dismissal</button>
+        <button type="submit" name="agree" value="no" class="danger">Override &amp; escalate</button>
+      </div>
     </form>
   {% elif alert.status == 'open' %}
     <form method="post" action="/alerts/{{ alert.id }}/disposition" class="stack">

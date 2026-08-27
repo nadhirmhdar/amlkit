@@ -209,20 +209,22 @@
     </div>
   {% endif %}
   {% if transactions %}
+    <div class="grid-table">
     <div class="list-head" style="grid-template-columns:150px 90px 90px 1fr 1fr;">
       <div>Occurred</div><div>Direction</div><div>Method</div><div class="right">Amount (AED)</div><div>Counterparty</div>
     </div>
     <div class="flat-list mb-4">
       {% for t in transactions %}
       <div class="list-row" style="display:grid; grid-template-columns:150px 90px 90px 1fr 1fr;">
-        <div class="small nowrap">{{ t.occurred_at[:16].replace('T',' ') }}</div>
-        <div class="small">{{ t.direction }}</div>
-        <div class="small">{{ t.method }}</div>
-        <div class="right score">{{ '{:,.2f}'.format(t.amount_aed) }}</div>
-        <div class="small">{{ t.counterparty_name or '—' }}
+        <div class="small nowrap" data-label="Occurred">{{ t.occurred_at[:16].replace('T',' ') }}</div>
+        <div class="small" data-label="Direction">{{ t.direction }}</div>
+        <div class="small" data-label="Method">{{ t.method }}</div>
+        <div class="right score" data-label="Amount (AED)">{{ '{:,.2f}'.format(t.amount_aed) }}</div>
+        <div class="small" data-label="Counterparty">{{ t.counterparty_name or '—' }}
           {% if t.counterparty_country %}<span class="muted">({{ t.counterparty_country }})</span>{% endif %}</div>
       </div>
       {% endfor %}
+    </div>
     </div>
   {% else %}
     <p class="muted small">No transactions recorded.</p>
@@ -302,36 +304,40 @@
     Clear results are kept as well as matches — evidence that a customer
     <em>was</em> screened and came back clean is what an examiner asks for.
   </p>
+  <div class="grid-table">
   <div class="list-head" style="grid-template-columns:150px 1fr 130px 100px 80px;">
     <div>Run</div><div>Name screened</div><div>Trigger</div><div class="right">Candidates</div><div class="right">Hits</div>
   </div>
   <div class="flat-list">
     {% for s in screenings %}
     <div class="list-row" style="display:grid; grid-template-columns:150px 1fr 130px 100px 80px;">
-      <div class="small nowrap">{{ s.run_at[:16].replace('T',' ') }}</div>
-      <div>{{ name(s.query_name) }}</div>
-      <div class="small">{{ s.trigger.replace('_',' ') }}</div>
-      <div class="right score">{{ s.candidates }}</div>
-      <div class="right">{% if s.hits %}<span class="tag high">{{ s.hits }}</span>
+      <div class="small nowrap" data-label="Run">{{ s.run_at[:16].replace('T',' ') }}</div>
+      <div data-label="Name screened">{{ name(s.query_name) }}</div>
+      <div class="small" data-label="Trigger">{{ s.trigger.replace('_',' ') }}</div>
+      <div class="right score" data-label="Candidates">{{ s.candidates }}</div>
+      <div class="right" data-label="Hits">{% if s.hits %}<span class="tag high">{{ s.hits }}</span>
           {% else %}<span class="tag low">clear</span>{% endif %}</div>
     </div>
     {% endfor %}
+  </div>
   </div>
 </div>
 
 <div>
   <div class="section-label">Audit trail</div>
+  <div class="grid-table">
   <div class="list-head" style="grid-template-columns:150px 130px 1fr;">
     <div>When</div><div>Who</div><div>Detail</div>
   </div>
   <div class="flat-list">
     {% for e in audit %}
     <div class="list-row" style="display:grid; grid-template-columns:150px 130px 1fr;">
-      <div class="small nowrap mono muted">{{ e.ts[:16].replace('T',' ') }}</div>
-      <div class="small" style="color:var(--ink-2); font-weight:600;">{{ e.actor }}</div>
-      <div class="small">{{ e.action }}{% if e.detail %} <span class="muted">— {{ e.detail }}</span>{% endif %}</div>
+      <div class="small nowrap mono muted" data-label="When">{{ e.ts[:16].replace('T',' ') }}</div>
+      <div class="small" style="color:var(--ink-2); font-weight:600;" data-label="Who">{{ e.actor }}</div>
+      <div class="small" data-label="Detail">{{ e.action }}{% if e.detail %} <span class="muted">— {{ e.detail }}</span>{% endif %}</div>
     </div>
     {% endfor %}
+  </div>
   </div>
 </div>
 
