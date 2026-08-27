@@ -702,7 +702,7 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
         return back("/customers", err=f"Customer {customer_id} not found.")
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
-    return render(request, "evidence.html", data | {"session": session})
+    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()})
 
 
 @app.post("/customers/{customer_id}/close")

@@ -116,6 +116,21 @@ def _names_for(conn: sqlite3.Connection, entity_id: int) -> list[str]:
     ]
 
 
+def _active_datasets(conn: sqlite3.Connection) -> list[str]:
+    """Every dataset with at least one loaded entity -- i.e. every list a
+    screening actually had in scope, regardless of whether it produced a
+    candidate or a hit. `_candidates()` joins across all of these with no
+    per-dataset restriction, so this is the complete, honest answer to "what
+    was searched", including on a clear (no-hit) run -- which is exactly the
+    result an examiner is most likely to ask about.
+    """
+    return sorted(
+        r["key"] for r in conn.execute(
+            "SELECT DISTINCT d.key FROM datasets d JOIN entities e ON e.dataset_id = d.id"
+        )
+    )
+
+
 def _identifiers_for(conn: sqlite3.Connection, entity_id: int) -> list[tuple[str, str]]:
     return [
         (r["id_type"], r["id_value"])
@@ -140,6 +155,7 @@ def screen(
     ubo_id: int | None = None,
     persist: bool = True,
     actor: str = "system",
+    active_datasets: list[str] | None = None,
 ) -> ScreeningResult:
     """Screen one name against every loaded dataset.
 
@@ -154,6 +170,12 @@ def screen(
     is running for. The datasets screened against (`entities` and friends) are
     shared reference data and are not themselves org-scoped -- only the
     resulting screening/alert records are.
+
+    `active_datasets`, if given, is the already-computed result of
+    `_active_datasets()` -- `rescreen_all()` passes one shared value through
+    its whole customer/UBO loop instead of every call re-querying reference
+    data that cannot change mid-batch. Left unset for the single-call callers
+    (ad-hoc /screen, onboarding), which compute it fresh on demand.
     """
     if trigger not in TRIGGERS:
         raise ValueError(f"unknown trigger {trigger!r}; expected one of {TRIGGERS}")
@@ -195,7 +217,19 @@ def screen(
     )
 
     if persist:
-        out.screening_id = _persist(conn, out, org_id, customer_id, ubo_id, actor)
+        # blocking_keys(name) is also computed inside _candidates() -- cheap
+        # pure-Python work, recomputed here rather than threaded back out of
+        # _candidates() to keep that function's return shape simple. A query
+        # with no usable tokens (digits/symbols-only) short-circuits there
+        # WITHOUT ever touching entities/name_tokens, so nothing was actually
+        # searched; reporting every loaded dataset as "used" in that case
+        # would fabricate evidence of a screening that never ran -- worse
+        # than the original bug, which merely under-reported real coverage.
+        if blocking_keys(name):
+            datasets = active_datasets if active_datasets is not None else _active_datasets(conn)
+        else:
+            datasets = []
+        out.screening_id = _persist(conn, out, org_id, customer_id, ubo_id, actor, datasets)
     return out
 
 
@@ -206,9 +240,9 @@ def _persist(
     customer_id: int | None,
     ubo_id: int | None,
     actor: str,
+    datasets: list[str],
 ) -> int:
     now = utcnow()
-    datasets = sorted({h.dataset for h in res.hits})
     with conn:
         cur = conn.execute(
             """INSERT INTO screenings
@@ -249,6 +283,7 @@ def _persist(
                 "trigger": res.trigger,
                 "candidates": res.candidates,
                 "hits": len(res.hits),
+                "datasets_used": datasets,
             },
             org_id=org_id,
         )
@@ -274,6 +309,11 @@ def rescreen_all(
     """
     new_alerts = 0
     screened = 0
+    # Computed once for the whole batch: which datasets are loaded cannot
+    # change mid-run, so re-querying it per name (thousands of times on a
+    # large book) would be pure waste against reference data every call in
+    # this loop shares.
+    active_datasets = _active_datasets(conn)
 
     for row in conn.execute(
         "SELECT id, full_name, name_arabic, nationality, birth_date, gender"
@@ -285,6 +325,7 @@ def rescreen_all(
                 conn, nm, org_id=org_id, trigger="list_update", threshold=threshold,
                 country=row["nationality"], birth_date=row["birth_date"],
                 gender=row["gender"], customer_id=row["id"], actor=actor,
+                active_datasets=active_datasets,
             )
             screened += 1
             new_alerts += len(res.hits)
@@ -299,6 +340,7 @@ def rescreen_all(
                 conn, nm, org_id=org_id, trigger="list_update", threshold=threshold,
                 country=row["nationality"], birth_date=row["birth_date"],
                 customer_id=row["customer_id"], ubo_id=row["id"], actor=actor,
+                active_datasets=active_datasets,
             )
             screened += 1
             new_alerts += len(res.hits)
