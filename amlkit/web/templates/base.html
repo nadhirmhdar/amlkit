@@ -45,6 +45,29 @@
     </form>
   </aside>
 
+  <nav class="mobile-tabbar">
+    <a href="/" class="mobile-tab {{ 'on' if nav=='home' }}">
+      <span class="mobile-tab__icon mobile-tab__icon--home"></span>
+      <span class="mobile-tab__label">Home</span>
+    </a>
+    <a href="/dashboard" class="mobile-tab {{ 'on' if nav in ('dash','alerts') }}">
+      <span class="mobile-tab__icon mobile-tab__icon--dash"></span>
+      <span class="mobile-tab__label">Dashboard</span>
+    </a>
+    <a href="/screen" class="mobile-tab {{ 'on' if nav=='screen' }}">
+      <span class="mobile-tab__icon mobile-tab__icon--screen"></span>
+      <span class="mobile-tab__label">Screen</span>
+    </a>
+    <a href="/customers" class="mobile-tab {{ 'on' if nav=='customers' }}">
+      <span class="mobile-tab__icon mobile-tab__icon--customers"></span>
+      <span class="mobile-tab__label">Customers</span>
+    </a>
+    <a href="/more" class="mobile-tab {{ 'on' if nav in ('reports','audit','admin','about','more') }}">
+      <span class="mobile-tab__icon mobile-tab__icon--more"></span>
+      <span class="mobile-tab__label">More</span>
+    </a>
+  </nav>
+
   <main>
     {% if security_warning %}
       <div class="banner err"><strong>{{ security_warning }}</strong></div>

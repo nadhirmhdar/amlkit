@@ -1009,6 +1009,20 @@ def about_view(request: Request, db: DB):
     return render(request, "about.html", {"session": session})
 
 
+# ----------------------------------------------------------------------- more
+# Phone-width nav collapses to five tabs (Home / Dashboard / Screen /
+# Customers / More); this page is where the remaining sidebar links
+# (Reports, Audit, Admin, About) land on that fifth tab. Pure navigation,
+# no data of its own.
+@app.get("/more", response_class=HTMLResponse)
+def more_view(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "more.html", {"session": session})
+
+
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
 def audit_view(request: Request, db: DB):

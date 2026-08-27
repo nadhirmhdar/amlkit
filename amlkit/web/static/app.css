@@ -122,6 +122,10 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 #nav-toggle { display: none; }
 .nav-hamburger { display: none; }
 
+/* Phone bottom tab bar -- hidden by default (desktop/tablet keep the
+   sidebar); swapped in at the phone breakpoint below. */
+.mobile-tabbar { display: none; }
+
 main {
   flex: 1;
   min-width: 0;
@@ -388,6 +392,8 @@ button.danger:hover, .btn.danger:hover { background: oklch(46% 0.17 25); border-
 
 button.small, .btn.small { padding: 6px 13px; font-size: 12.5px; }
 
+.btn-pair { display: flex; gap: 10px; }
+
 /* Sign-in / primary action button with the brand radial glow */
 .btn-glow {
   background: radial-gradient(circle at 100% 0%, oklch(40% 0.1 45 / 0.85), transparent 55%), var(--ink);
@@ -564,10 +570,75 @@ details.evidence summary * { display: none; }
   .table-responsive { margin: 0 -16px; padding: 0 16px; }
 }
 
+/* Phone width -- the sidebar (and its hamburger toggle) is replaced by a
+   five-tab bottom bar, same hairline/dot vocabulary as the rest of the app,
+   so the phone build reads like a dedicated app shell rather than a shrunk
+   desktop page. */
+@media (max-width: 680px) {
+  .sidebar, .nav-hamburger { display: none !important; }
+  :root { --tabbar-h: 62px; }
+  main { padding: 28px 18px calc(var(--tabbar-h) + 28px); }
+
+  .mobile-tabbar {
+    display: flex;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    border-top: 1px solid var(--line); background: var(--surface);
+    padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+  .mobile-tab {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 6px 2px; min-height: 44px;
+    color: var(--ink-3); text-decoration: none;
+  }
+  .mobile-tab:hover { color: var(--ink-3); text-decoration: none; }
+  .mobile-tab.on:hover { color: var(--ink); }
+  .mobile-tab__icon {
+    width: 9px; height: 9px; border-radius: 2px;
+    border: 1.5px solid var(--ink-3); background: none;
+  }
+  .mobile-tab__icon--screen { border-radius: 50%; }
+  .mobile-tab__icon--more { width: 9px; height: 2px; border: none; background: var(--ink-3); border-radius: 1px; }
+  .mobile-tab__label { font-size: 10.5px; font-weight: 600; }
+  .mobile-tab.on { color: var(--ink); }
+  .mobile-tab.on .mobile-tab__label { font-weight: 700; }
+  .mobile-tab.on .mobile-tab__icon { background: var(--ink); border-color: var(--ink); }
+
+  /* Keep the floating alerts pill above the tab bar instead of under it. */
+  .alerts-float { bottom: calc(var(--tabbar-h) + 20px); }
+
+  /* Multi-field rows (screen-a-name, add-owner, transaction entry, etc.)
+     stack one field per line instead of squeezing side by side. */
+  .row { grid-template-columns: 1fr; }
+
+  /* Column-labelled grid tables (screening history, audit trail, admin data
+     sources, etc.) -- collapse into a label/value stack instead of
+     squeezing fixed pixel columns into a ~380px viewport. Each cell needs
+     a data-label attribute matching its column header. */
+  .grid-table .list-head { display: none; }
+  .grid-table .list-row {
+    display: flex !important; flex-direction: column; gap: 6px;
+    grid-template-columns: none !important;
+    padding: 14px 4px;
+  }
+  .grid-table .list-row > * { display: flex; justify-content: space-between; gap: 12px; text-align: left !important; }
+  .grid-table .list-row > [data-label]::before {
+    content: attr(data-label); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3);
+    flex-shrink: 0;
+  }
+
+  /* Disposition button pairs (confirm/override, dismiss/confirm) split the
+     full width evenly, same as the phone design -- within thumb reach as a
+     single row rather than each at its default inline width. */
+  .btn-pair button { flex: 1; }
+  form.stack button[type="submit"]:only-of-type { width: 100%; }
+}
+
 /* ------------------------------------------------------------------- print */
 @media print {
   body { background: #fff; color: #000; }
-  .sidebar, .nav-hamburger, .no-print, button, .btn { display: none !important; }
+  .sidebar, .nav-hamburger, .mobile-tabbar, .no-print, button, .btn { display: none !important; }
   main { padding: 0; max-width: none; }
   .panel, .alert-card { border: 1px solid #ccc; break-inside: avoid; page-break-inside: avoid; margin-bottom: 12px; }
   a { color: #000; text-decoration: underline; }
