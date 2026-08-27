@@ -196,7 +196,7 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="customer_id" value="{{ c.id }}">
           <div><label>Note</label><input type="text" name="note" placeholder="Rationale for disposition"></div>
-          <div>
+          <div class="btn-pair">
             <button class="small" type="submit" name="status" value="false_positive">Mark false positive</button>
             <button class="small ghost" type="submit" name="status" value="true_positive">Mark true positive</button>
           </div>
@@ -220,8 +220,8 @@
         <div class="small" data-label="Direction">{{ t.direction }}</div>
         <div class="small" data-label="Method">{{ t.method }}</div>
         <div class="right score" data-label="Amount (AED)">{{ '{:,.2f}'.format(t.amount_aed) }}</div>
-        <div class="small" data-label="Counterparty">{{ t.counterparty_name or '—' }}
-          {% if t.counterparty_country %}<span class="muted">({{ t.counterparty_country }})</span>{% endif %}</div>
+        <div class="small" data-label="Counterparty"><span>{{ t.counterparty_name or '—' }}
+          {% if t.counterparty_country %} <span class="muted">({{ t.counterparty_country }})</span>{% endif %}</span></div>
       </div>
       {% endfor %}
     </div>
@@ -334,7 +334,7 @@
     <div class="list-row" style="display:grid; grid-template-columns:150px 130px 1fr;">
       <div class="small nowrap mono muted" data-label="When">{{ e.ts[:16].replace('T',' ') }}</div>
       <div class="small" style="color:var(--ink-2); font-weight:600;" data-label="Who">{{ e.actor }}</div>
-      <div class="small" data-label="Detail">{{ e.action }}{% if e.detail %} <span class="muted">— {{ e.detail }}</span>{% endif %}</div>
+      <div class="small" data-label="Detail"><span>{{ e.action }}{% if e.detail %} <span class="muted">— {{ e.detail }}</span>{% endif %}</span></div>
     </div>
     {% endfor %}
   </div>
