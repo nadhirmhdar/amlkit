@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from amlkit.cases.ocr import (  # noqa: E402
     _authenticity_from_mrz,
     _parse_emirates_id_text,
+    _resolve_two_digit_year,
     assess_image_quality,
     check_expiry,
     validate_emirates_id_number,
@@ -79,6 +80,32 @@ class TestAuthenticityFromMrz:
         result = _authenticity_from_mrz(bare)
         assert result["checksum_failures"] == []
         assert result["mrz_valid_score"] is None
+
+
+class TestResolveTwoDigitYear:
+    """Regression coverage for a real bug: the first version of expiry-date
+    parsing hardcoded a "20" century prefix, so an already-expired document
+    with a last-century MRZ year (e.g. "99" meaning 1999) was silently
+    reinterpreted as expiring in 2099 -- the opposite of what expiry
+    checking exists to catch. `_resolve_two_digit_year` picks the century
+    closest to today instead.
+
+    These specific two-digit years are chosen so the nearer-century answer
+    stays correct for decades either side of today, not just on the day
+    this was written.
+    """
+
+    def test_year_far_in_the_past_resolves_to_last_century(self) -> None:
+        # 1999 (~27 years back) is far closer than 2099 (~73 years out) for
+        # every year from roughly now through the mid-2040s.
+        assert _resolve_two_digit_year("99", "01", "01") == "1999-01-01"
+
+    def test_year_close_to_now_resolves_to_this_century(self) -> None:
+        # 2030 is close; 1930 is not, for every year through roughly 2080.
+        assert _resolve_two_digit_year("30", "06", "15") == "2030-06-15"
+
+    def test_neither_century_valid_returns_none(self) -> None:
+        assert _resolve_two_digit_year("02", "13", "40") is None
 
 
 class TestCheckExpiry:
@@ -174,6 +201,18 @@ class TestParseEmiratesIdText:
     def test_name_extracted_after_label(self) -> None:
         result = _parse_emirates_id_text("Name: Ahmed Mohammed Al Maktoum ID Number")
         assert result["full_name"] == "Ahmed Mohammed Al Maktoum"
+
+    def test_name_stops_at_multi_word_label_not_just_last_word(self) -> None:
+        """Regression: an earlier version only stripped trailing words that
+        were themselves exact label words, so "Date of Birth" (label words
+        "Date" and "Birth" bracketing the unlabelled connector "of") left
+        "... Date of" stuck onto the extracted name instead of cutting at
+        the first label word encountered."""
+        result = _parse_emirates_id_text(
+            "Name: AHMED ALI KHAN Nationality IND Sex M Date of Birth 03/04/1990 "
+            "ID Number 784-1990-1234567-1"
+        )
+        assert result["full_name"] == "AHMED ALI KHAN"
 
     def test_mean_confidence_attached_to_every_extracted_field(self) -> None:
         result = _parse_emirates_id_text(

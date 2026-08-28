@@ -45,13 +45,47 @@ from passporteye import read_mrz
 # tolerates a dash, a space, or nothing between groups.
 EMIRATES_ID_PATTERN = re.compile(r"784[\s\-]?(\d{4})[\s\-]?(\d{7})[\s\-]?(\d)\b")
 
-# Other front-of-card labels the name regex's greedy word class can run into
-# and mistake for part of the name -- trimmed from the tail of a match, not
-# excluded from it, since the regex has no way to know where the name ends.
+# DD/MM/YYYY, shared by the passport OCR fallback and the Emirates ID parser
+# so a future change to separator/format handling only has to be made once.
+_DATE_DDMMYYYY_PATTERN = re.compile(r"(\d{2})[/\-.](\d{2})[/\-.](\d{4})")
+
+# Front-of-card labels the Emirates ID name regex's word class can run into.
+# The name capture stops at the first one of these it hits (see
+# `_parse_emirates_id_text`), not just at trailing occurrences: "Date of
+# Birth" as the next field means the un-labelled connector word "of" would
+# otherwise survive a trailing-only strip.
 _EMIRATES_ID_LABEL_WORDS = {
     "ID", "Number", "Date", "Nationality", "Sex", "Card", "Birth", "Expiry",
     "Occupation", "Employer", "Signature", "Issuing", "Emirates", "Gender",
 }
+
+
+def _resolve_two_digit_year(two_digit_year: str, month: str, day: str) -> str | None:
+    """Disambiguate an MRZ two-digit year by picking whichever century
+    lands closer to today.
+
+    ICAO 9303 MRZ dates are two digits with no century marker. A fixed
+    pivot (as used for date_of_birth below) is wrong for an expiry date:
+    an already-expired document -- the exact case expiry checking exists to
+    catch -- can carry a last-century year, and a fixed "assume 20XX"
+    prefix would silently reinterpret it as decades in the future instead.
+    Picking the century whose result is numerically closest to today holds
+    up for both birth dates and expiry dates without a hardcoded cutoff.
+    Returns `None` if neither century produces a valid calendar date.
+    """
+    candidates = []
+    for prefix in ("19", "20"):
+        candidate = f"{prefix}{two_digit_year}-{month}-{day}"
+        try:
+            parsed = datetime.strptime(candidate, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        candidates.append((abs(parsed.year - date.today().year), candidate))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda pair: pair[0])
+    return candidates[0][1]
 
 
 def _authenticity_from_mrz(mrz) -> dict[str, object]:
@@ -147,19 +181,17 @@ def extract_passport_data(image_path_or_file) -> dict[str, str | None]:
             except ValueError:
                 pass
 
-        # Expiry (YYMMDD in MRZ). ICAO 9303 leaves century inference to the
-        # reader; unlike DOB, an expiry is never decades in the past for a
-        # document worth screening, so -- unlike the DOB guess above, which
-        # must distinguish last-century birth years from this-century ones
-        # -- "20" is the only plausible prefix in practice today.
+        # Expiry (YYMMDD in MRZ). A fixed "assume 20XX" prefix would silently
+        # turn an already-expired document -- the exact thing expiry
+        # checking exists to catch -- into one that looks valid for another
+        # 70-odd years whenever its MRZ year is from last century (e.g. "99"
+        # meaning 1999, not 2099). `_resolve_two_digit_year` picks whichever
+        # century lands closer to today instead of assuming one.
         expiry = mrz_data.get("expiration_date")
         if expiry and len(expiry) == 6:
-            candidate = f"20{expiry[:2]}-{expiry[2:4]}-{expiry[4:6]}"
-            try:
-                datetime.strptime(candidate, "%Y-%m-%d")
-                res["expiry_date"] = candidate
-            except ValueError:
-                pass
+            resolved = _resolve_two_digit_year(expiry[:2], expiry[2:4], expiry[4:6])
+            if resolved:
+                res["expiry_date"] = resolved
 
         # Gender (M/F)
         if mrz_data.get("sex"):
@@ -181,9 +213,9 @@ def extract_passport_data(image_path_or_file) -> dict[str, str | None]:
             # Run OCR on the image
             text = pytesseract.image_to_string(img)
             
-            # Simple regex search for dates (YYYY-MM-DD or DD/MM/YYYY)
+            # Simple regex search for dates (DD/MM/YYYY)
             if not res["birth_date"]:
-                date_match = re.search(r"(\d{2})[/\-.](\d{2})[/\-.](\d{4})", text)
+                date_match = _DATE_DDMMYYYY_PATTERN.search(text)
                 if date_match:
                     res["birth_date"] = f"{date_match.group(3)}-{date_match.group(2)}-{date_match.group(1)}"
                     
@@ -282,7 +314,7 @@ def _parse_emirates_id_text(text: str, mean_confidence: float | None = None) -> 
     # ascending, birth date is the oldest and expiry the newest -- a
     # heuristic, not a labelled field read, and it assumes at least two
     # dates were legible.
-    date_matches = re.findall(r"(\d{2})[/\-.](\d{2})[/\-.](\d{4})", text)
+    date_matches = _DATE_DDMMYYYY_PATTERN.findall(text)
     parsed_dates = []
     for d, m, y in date_matches:
         try:
@@ -300,16 +332,22 @@ def _parse_emirates_id_text(text: str, mean_confidence: float | None = None) -> 
     # Name: best-effort label search immediately after "Name" (English side
     # of the bilingual card). Arabic name is not extracted here. The class
     # below is greedy about what counts as "still the name" -- it doesn't
-    # know where the name ends -- so trailing words matching other card
-    # labels are stripped afterward rather than trying to bound the name
-    # length in the regex itself.
+    # know where the name ends -- so the words are walked from the front and
+    # cut at the first word that is itself a card label (e.g. the next field
+    # over, "Nationality"). Cutting from the front rather than stripping
+    # known labels off the tail matters for multi-word labels like "Date of
+    # Birth": stripping the tail only removes an exact label word, so the
+    # unlabelled connector "of" would survive; stopping at the first label
+    # word removes "Date" and everything after it in one pass.
     name_match = re.search(r"Name[:\s]+([A-Z][A-Za-z' \-]{2,60})", text)
     if name_match:
-        words = name_match.group(1).strip().split()
-        while words and words[-1] in _EMIRATES_ID_LABEL_WORDS:
-            words.pop()
-        if words:
-            res["full_name"] = " ".join(words)
+        name_words = []
+        for word in name_match.group(1).strip().split():
+            if word in _EMIRATES_ID_LABEL_WORDS:
+                break
+            name_words.append(word)
+        if name_words:
+            res["full_name"] = " ".join(name_words)
             res["field_confidence"]["full_name"] = mean_confidence
 
     res["expiry_check"] = check_expiry(res["expiry_date"])
