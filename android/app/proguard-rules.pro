@@ -14,3 +14,12 @@
 -keepclasseswithmembers class com.amlkit.mobile.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# androidx.security:security-crypto (used by AuthTokenStore for
+# EncryptedSharedPreferences) pulls in Google Tink, whose compiled classes
+# carry references to error-prone's compile-time-only annotations
+# (@CanIgnoreReturnValue, @CheckReturnValue, @Immutable, @RestrictedApi).
+# Nothing calls them at runtime, but R8 in full mode treats an unresolvable
+# referenced class as a hard build error rather than a warning, so this
+# needs an explicit -dontwarn instead of being silently fine.
+-dontwarn com.google.errorprone.annotations.**
