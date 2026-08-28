@@ -8,6 +8,12 @@
     <!-- Passport scan on Android 12 and below reads a picked image via the
          system photo picker, which does not require this permission; kept
          only for the direct-camera-capture path. -->
+    <!-- Camera is optional, not a requirement to install the app: a device
+         with no camera can still onboard customers, just without the scan
+         shortcut (manual entry works everywhere). Without this, the CAMERA
+         permission alone tells Play a camera is required, which wrongly
+         excludes camera-less devices (some ChromeOS/tablet installs). -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".AmlkitApplication"
