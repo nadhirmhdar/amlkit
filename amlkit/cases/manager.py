@@ -162,7 +162,7 @@ def onboard(
             pep_status=pep_status,
             jurisdiction_tier=jurisdiction_tier,
             sector=sector,
-            ownership_state=ownership_state(conn, customer_id, customer_type),
+            ownership_state=ownership_state(conn, customer_id, org_id, customer_type),
             delivery_channel=delivery_channel,
             cash_level=cash_level,
             structure=structure,
@@ -205,6 +205,12 @@ def add_ubo(
         ownership_pct is not None and ownership_pct >= UBO_THRESHOLD_PCT
     )
     with conn:
+        owned = conn.execute(
+            "SELECT 1 FROM customers WHERE id=? AND org_id=?", (customer_id, org_id)
+        ).fetchone()
+        if owned is None:
+            raise ValueError(f"customer {customer_id} not found")
+
         cur = conn.execute(
             """INSERT INTO ubo_links
                (org_id, customer_id, person_name, name_arabic, canonical_key, nationality,
@@ -222,7 +228,7 @@ def add_ubo(
 
 
 def ownership_state(
-    conn: sqlite3.Connection, customer_id: int, customer_type: str = "legal"
+    conn: sqlite3.Connection, customer_id: int, org_id: int, customer_type: str = "legal"
 ) -> str:
     """Derive an ownership-opacity band from recorded UBO data.
 
@@ -230,13 +236,18 @@ def ownership_state(
     than as transparent-by-default. Absence of evidence is a risk indicator
     here, and defaulting the other way would understate risk exactly where the
     regulation is most concerned.
+
+    Scoped to `org_id` -- without it a UBO row injected under another org's
+    session (e.g. via a customer_id that isn't theirs) would still be counted
+    here, corrupting this org's own customer's risk band with another
+    tenant's data.
     """
     if customer_type == "natural":
         return "fully_transparent"
 
     rows = conn.execute(
-        "SELECT ownership_pct, control_type, is_ubo FROM ubo_links WHERE customer_id=?",
-        (customer_id,),
+        "SELECT ownership_pct, control_type, is_ubo FROM ubo_links WHERE customer_id=? AND org_id=?",
+        (customer_id, org_id),
     ).fetchall()
     if not rows:
         return "ubo_undisclosed"

@@ -116,19 +116,55 @@ class TestRiskModel:
 
 
 class TestOwnershipState:
-    def test_natural_person_transparent(self, conn) -> None:
-        assert ownership_state(conn, 1, "natural") == "fully_transparent"
+    def test_natural_person_transparent(self, conn, org_id) -> None:
+        assert ownership_state(conn, 1, org_id, "natural") == "fully_transparent"
 
-    def test_company_without_ubo_is_opaque(self, conn) -> None:
+    def test_company_without_ubo_is_opaque(self, conn, org_id) -> None:
         """Absence of UBO data must not default to transparent."""
-        assert ownership_state(conn, 999, "legal") == "ubo_undisclosed"
+        assert ownership_state(conn, 999, org_id, "legal") == "ubo_undisclosed"
 
     def test_sub_threshold_holder_is_not_a_ubo(self, conn, org_id) -> None:
         res = onboard(conn, org_id=org_id, reference="C-1", full_name="Test LLC",
                       customer_type="legal")
         add_ubo(conn, res.customer_id, org_id=org_id, person_name="Minor Holder",
                ownership_pct=15.0)
-        assert ownership_state(conn, res.customer_id, "legal") == "ubo_undisclosed"
+        assert ownership_state(conn, res.customer_id, org_id, "legal") == "ubo_undisclosed"
+
+    def test_ownership_state_ignores_other_org_ubo(self, conn, org_id) -> None:
+        """A UBO row inserted under a different org must not count toward
+        this org's own customer's ownership-opacity band."""
+        other_org = conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+            " RETURNING id",
+            ("Other Firm", "other-firm", "active", utcnow()),
+        ).fetchone()["id"]
+        conn.commit()
+        res = onboard(conn, org_id=org_id, reference="C-3", full_name="Test LLC 3",
+                      customer_type="legal")
+        # Simulate a cross-tenant row directly (add_ubo itself now rejects this).
+        conn.execute(
+            """INSERT INTO ubo_links
+               (org_id, customer_id, person_name, canonical_key, ownership_pct,
+                control_type, is_ubo, created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (other_org, res.customer_id, "Injected Holder", "injected holder",
+             100.0, "ownership", 1, utcnow()),
+        )
+        conn.commit()
+        assert ownership_state(conn, res.customer_id, org_id, "legal") == "ubo_undisclosed"
+
+    def test_add_ubo_rejects_customer_from_other_org(self, conn, org_id) -> None:
+        other_org = conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+            " RETURNING id",
+            ("Other Firm 2", "other-firm-2", "active", utcnow()),
+        ).fetchone()["id"]
+        conn.commit()
+        res = onboard(conn, org_id=org_id, reference="C-4", full_name="Test LLC 4",
+                      customer_type="legal")
+        with pytest.raises(ValueError):
+            add_ubo(conn, res.customer_id, org_id=other_org, person_name="Attacker Holder",
+                   ownership_pct=100.0)
 
     def test_senior_official_fallback_counts(self, conn, org_id) -> None:
         """Cabinet Res. 134/2025 fallback when nobody meets the 25% test."""

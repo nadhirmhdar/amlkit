@@ -747,8 +747,11 @@ def customer_add_ubo(
         pct = float(ownership_pct) if ownership_pct.strip() else None
     except ValueError:
         pct = None
-    ubo_id = add_ubo(db, customer_id, org_id=session.org_id, person_name=person_name.strip(),
-                     ownership_pct=pct, control_type=control_type, actor=session.operator_name)
+    try:
+        ubo_id = add_ubo(db, customer_id, org_id=session.org_id, person_name=person_name.strip(),
+                         ownership_pct=pct, control_type=control_type, actor=session.operator_name)
+    except ValueError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
     res = screen(db, person_name.strip(), org_id=session.org_id, trigger="onboarding",
                  customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name,
                  threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD)
@@ -1428,12 +1431,17 @@ def report_save(
         return back("/reports", err=str(exc))
 
     import json
-    # Look up customer type for correct goAML XML serialisation
+    # Look up customer type for correct goAML XML serialisation. A miss here
+    # means customer_id doesn't belong to this org -- reject rather than
+    # silently defaulting to "natural" and saving a report against a
+    # customer_id from another tenant.
     cust_row = db.execute(
         "SELECT customer_type, full_name FROM customers WHERE id = ? AND org_id = ?",
         (customer_id, session.org_id)
     ).fetchone()
-    cust_type = cust_row["customer_type"] if cust_row else "natural"
+    if cust_row is None:
+        return back("/reports", err=f"Customer {customer_id} not found.")
+    cust_type = cust_row["customer_type"]
 
     # Bundle all collected parameters into a payload dict
     payload_dict = {
