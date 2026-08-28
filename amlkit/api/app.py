@@ -188,6 +188,13 @@ async def _lifespan(app):
 
 
 app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, lifespan=_lifespan)
+
+# JSON API for the native mobile app -- bearer-token auth, no CSRF, no HTML.
+# Registered before the static mount so /api/v1/* never falls through to it.
+from .mobile import router as mobile_router  # noqa: E402
+
+app.include_router(mobile_router)
+
 app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))
 templates.env.globals["has_arabic"] = has_arabic_script
