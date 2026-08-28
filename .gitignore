@@ -33,5 +33,6 @@ android/app/build/
 android/local.properties
 android/*.jks
 android/*.keystore
+android/*.p12
 android/app/release/
 

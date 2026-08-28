@@ -48,56 +48,33 @@ Change it to a reverse-domain id you actually control (e.g.
 `com.yourfirm.amlkit`) before the first upload. `namespace` in the same
 block (the Kotlin/resource package) can stay as-is; it doesn't need to match.
 
-## 3. Generate an upload keystore
+## 3. Upload keystore
 
-Play Store apps are signed. Generate a keystore once and keep it forever —
-losing it means you can never update the app under the same listing again.
+`android/app/build.gradle.kts` already wires a `release` signing config that
+reads its values from `android/local.properties` (gitignored, never
+committed) — `bundleRelease`/`assembleRelease` are unsigned and fail loudly
+until that file exists.
 
+If a keystore doesn't exist yet, generate one once and keep it **forever** —
+losing it means you can never update the app under the same Play listing
+again:
 ```bash
-keytool -genkeypair -v -keystore amlkit-upload.jks \
+keytool -genkeypair -v -keystore amlkit-upload.p12 -storetype PKCS12 \
   -alias amlkit -keyalg RSA -keysize 2048 -validity 10000
 ```
+(PKCS12 uses one password for both the store and the key entry — keytool
+will ignore a separately-specified `-keypass`, that's expected.)
 
-Store `amlkit-upload.jks` and its passwords somewhere durable and private —
-a password manager or secrets vault, not the repo. `.gitignore` already
-excludes `android/*.jks` and `android/local.properties` for this reason.
-
-Wire it into the build via `android/local.properties` (already gitignored):
+Either way, store the `.p12`/`.jks` file and its password somewhere durable
+and private — a password manager or secrets vault, never the repo — and
+create `android/local.properties`:
 ```properties
-RELEASE_STORE_FILE=/absolute/path/to/amlkit-upload.jks
+RELEASE_STORE_FILE=/absolute/path/to/amlkit-upload.p12
 RELEASE_STORE_PASSWORD=...
 RELEASE_KEY_ALIAS=amlkit
 RELEASE_KEY_PASSWORD=...
 ```
 
-Then add a `signingConfigs` block to `android/app/build.gradle.kts` reading
-those properties (not committed here, since it depends on secrets that don't
-exist yet):
-```kotlin
-import java.util.Properties
-
-val localProps = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) load(f.inputStream())
-}
-
-android {
-    signingConfigs {
-        create("release") {
-            storeFile = localProps.getProperty("RELEASE_STORE_FILE")?.let { file(it) }
-            storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD")
-            keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS")
-            keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD")
-        }
-    }
-    buildTypes {
-        release {
-            signingConfig = signingConfigs.getByName("release")
-            // ...isMinifyEnabled / proguardFiles already set...
-        }
-    }
-}
-```
 (Play App Signing, enabled by default for new apps, re-signs your upload
 with Google's own key for distribution — this upload key only needs to
 authenticate *you* to Google, so if it's ever lost, Google's account-recovery
