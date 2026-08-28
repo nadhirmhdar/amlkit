@@ -73,7 +73,7 @@ class TestAuth:
 
     def test_logout_revokes_token(self, api):
         client, headers = api
-        assert client.post("/api/v1/auth/logout", headers=headers).status_code == 204
+        assert client.post("/api/v1/auth/logout", headers=headers).status_code == 200
         assert client.get("/api/v1/dashboard", headers=headers).status_code == 401
 
     def test_me_reflects_operator(self, api):

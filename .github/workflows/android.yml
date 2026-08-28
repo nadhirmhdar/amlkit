@@ -1,0 +1,53 @@
+# Builds the native Android app in android/.
+#
+# This is also the ONLY place this app is actually compiled: the sandbox
+# that authored it has no Android SDK, and the proxy it runs behind blocks
+# dl.google.com (where AGP and every androidx artifact live), so nothing
+# here could be built or verified locally. This workflow is the real
+# build-verification loop -- treat a red run here as a genuine compile
+# failure to fix, not a flake.
+
+name: Android
+
+on:
+  push:
+    branches: [master, main]
+    paths: ["android/**", ".github/workflows/android.yml"]
+  pull_request:
+    paths: ["android/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Assemble debug APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Installs/updates the SDK components build.gradle.kts asks for
+      # (compileSdk/targetSdk 35, the matching build-tools) and wires
+      # ANDROID_HOME -- unlike the sandbox this repo is authored in, this
+      # runner has unrestricted network access to dl.google.com.
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Lint
+        run: ./gradlew lintDebug --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: amlkit-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

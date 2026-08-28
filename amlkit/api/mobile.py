@@ -112,12 +112,15 @@ def api_login(body: LoginRequest, db: DB):
     return {"token": token, "operator": _operator_json(info)}
 
 
-@router.post("/auth/logout", status_code=204)
+@router.post("/auth/logout")
 def api_logout(request: Request, db: DB, session: Session):
+    """Returns a small JSON body (not a bare 204) so every client -- including
+    Retrofit's kotlinx.serialization converter, which errors decoding a
+    zero-byte body -- gets a response its JSON decoder can actually parse."""
     token = _bearer_token(request)
     if token:
         auth.logout(db, token, session)
-    return Response(status_code=204)
+    return {"ok": True}
 
 
 @router.get("/auth/me")

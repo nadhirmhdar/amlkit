@@ -1,0 +1,9 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Compose owns all in-app theming (Theme.kt); this XML theme only
+         covers the window background before Compose takes over and the
+         system splash screen, which Compose cannot supply. -->
+    <style name="Theme.Amlkit" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/launcher_background</item>
+        <item name="android:statusBarColor" tools:targetApi="21">@color/launcher_background</item>
+    </style>
+</resources>

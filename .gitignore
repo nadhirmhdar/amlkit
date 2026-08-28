@@ -7,7 +7,10 @@ __pycache__/
 # Sanctions data is refreshed from source, never committed.
 # It is also licence-encumbered (OpenSanctions CC-BY-NC): committing it to a
 # repository would be redistribution.
-data/
+# Anchored to the repo root (leading /) -- an unanchored "data/" also matched
+# android/app/src/main/java/com/amlkit/mobile/data/, silently swallowing the
+# entire Android networking layer out of every commit.
+/data/
 *.db
 *.db-wal
 *.db-shm
@@ -21,3 +24,14 @@ documents/
 # Local scratch
 scratch_*.py
 .env
+
+# Android build outputs / local SDK config / signing material -- never commit
+# a release keystore or its passwords.
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/*.jks
+android/*.keystore
+android/app/release/
+
