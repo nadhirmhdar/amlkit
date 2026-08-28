@@ -250,8 +250,10 @@ data class PassportScanResponse(
     val name_arabic: String? = null,
     val nationality: String? = null,
     val birth_date: String? = null,
+    val expiry_date: String? = null,
     val gender: String? = null,
     val id_number: String? = null,
     val id_type: String? = null,
     val authenticity: JsonElement? = null,
+    val expiry_check: JsonElement? = null,
 )
