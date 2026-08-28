@@ -19,13 +19,14 @@ val localProperties = Properties().apply {
 
 android {
     namespace = "com.amlkit.mobile"
-    // CHANGE BEFORE FIRST RELEASE: the applicationId is permanent once
-    // published to Google Play -- pick the real reverse-domain id you want
-    // to own before you upload the first AAB. See docs/google-play-steps.md.
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.amlkit.mobile"
+        // Matches the package name Google Play Console already locked in for
+        // this app listing (from an earlier placeholder upload) -- must stay
+        // exactly this, since applicationId is permanent once Play accepts
+        // a release under it.
+        applicationId = "com.grovisoramlkit.myapp"
         minSdk = 26
         targetSdk = 35
         // Overridable at build time: -PversionCode=2 -PversionName=1.0.1
