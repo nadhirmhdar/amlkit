@@ -36,17 +36,19 @@ real devices or for release:
    "loud failure, no silent drift" stance elsewhere: every build is
    traceably pointed at one server.
 
-## 2. Pick a real application ID
+## 2. Application ID
 
-`android/app/build.gradle.kts` currently sets:
+`android/app/build.gradle.kts` sets:
 ```kotlin
-applicationId = "com.amlkit.mobile"
+applicationId = "com.grovisoramlkit.myapp"
 ```
-**This is a placeholder.** The application ID is permanent the moment you
-publish the first release to Play — it can never be changed afterward.
-Change it to a reverse-domain id you actually control (e.g.
-`com.yourfirm.amlkit`) before the first upload. `namespace` in the same
-block (the Kotlin/resource package) can stay as-is; it doesn't need to match.
+This matches the package name already locked into the Play Console app
+listing (from an earlier placeholder upload before this project's release
+pipeline existed). The application ID is permanent the moment Play accepts
+a release under it — it can never be changed afterward, so every future
+release build must keep this exact value. `namespace` in the same block
+(the Kotlin/resource package, `com.amlkit.mobile`) is unrelated and does not
+need to match.
 
 ## 3. Upload keystore
 
