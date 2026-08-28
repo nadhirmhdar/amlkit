@@ -96,17 +96,24 @@ Output: `android/app/build/outputs/bundle/release/app-release.aab`.
 2. **Create app** — Play Console → *Create app*. Name, default language,
    app/game = App, free/paid.
 3. **Store listing** (*Grow → Store presence → Main store listing*):
-   - Short description, full description, screenshots (phone screenshots are
-     mandatory — capture a few from an emulator or device once the app talks
-     to a real server with test data), a 512×512 hi-res icon (the in-app
-     adaptive icon in `res/mipmap-anydpi-v26` is a vector placeholder — swap
-     it for real artwork before this step, and export a matching flat PNG
-     for the Play listing itself), and a feature graphic (1024×500).
+   - App name, short description, and full description are drafted in
+     `docs/play-store-listing.md` — copy-paste-ready, grounded in what the
+     app actually does (Play policy requires accuracy, not just polish).
+   - Screenshots (phone screenshots are mandatory — capture a few from an
+     emulator or device once the app talks to a real server with test
+     data), a 512×512 hi-res icon (the in-app adaptive icon in
+     `res/mipmap-anydpi-v26` is a vector placeholder — swap it for real
+     artwork before this step, and export a matching flat PNG for the Play
+     listing itself), and a feature graphic (1024×500) still need real
+     assets this doc can't produce for you.
 4. **Privacy policy URL** — **required**, and non-optional here specifically:
    this app handles regulated financial-crime PII (customer names, IDs,
    nationalities, transaction data — see the README's licence-boundary and
-   design-decisions sections). Publish a privacy policy — even a simple
-   static page — before submitting, and link it in the listing.
+   design-decisions sections). A drafted policy already exists — see the
+   privacy-policy Artifact from the session that set up this repo, or
+   regenerate one from the same brief — fill in the bracketed firm details
+   (name, contact, deployment URL), publish it somewhere with a stable URL,
+   and link it in the listing.
 5. **App content questionnaire** (*Policy → App content*): privacy policy
    URL, ads (no), content rating questionnaire (a B2B compliance tool —
    answer accurately; it should rate as suitable for all audiences with no
