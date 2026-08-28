@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- allowBackup is false, so neither cloud nor device-transfer backup ever
-     runs -- this file exists only because the manifest attribute requires a
+     runs; this file exists only because the manifest attribute requires a
      target, and it is written to exclude everything either way as a second
      line of defense: the session token and any cached case data must never
      leave the device via a backup path. -->

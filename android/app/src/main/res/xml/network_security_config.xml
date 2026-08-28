@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- HTTPS-only everywhere by default -- this app carries regulated
+<!-- HTTPS-only everywhere by default: this app carries regulated
      financial-crime PII, and README.md's own security stance for the server
      side (refuse to run unencrypted beyond loopback) applies just as much to
      the client. The one cleartext exception is 10.0.2.2, the Android
      emulator's alias for the host machine's localhost, so a debug build can
      talk to `python scripts/serve.py` running unmodified on a workstation
-     during development without the developer standing up TLS locally too. -->
+     during development without the developer standing up TLS locally too.
+     (XML comments forbid a literal double hyphen, so this file uses a colon
+     and commas instead of the em-dash style used elsewhere in the app.) -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
