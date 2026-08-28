@@ -89,6 +89,37 @@ cd android
 ```
 Output: `android/app/build/outputs/bundle/release/app-release.aab`.
 
+### Automated release builds
+
+`.github/workflows/android-release.yml` does the same build in CI, on
+demand (*Actions → Android release build → Run workflow*, filling in
+`apiBaseUrl`, `versionCode`, and `versionName`) — useful once cutting a
+release from a clean checkout matters more than doing it from whichever
+machine happens to have the keystore on it.
+
+It needs four repository secrets it cannot set for itself (*Settings →
+Secrets and variables → Actions → New repository secret* — this step is
+unavoidably manual: no agent or CI job should hold write access to your
+repo's secrets, so this is the one piece of "automated release builds" that
+stays a human action):
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 amlkit-upload.p12` (the keystore file's base64 output, wrapped as text) |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore's storepass |
+| `ANDROID_KEY_ALIAS` | `amlkit` (or whatever `-alias` was used when generating it) |
+| `ANDROID_KEY_PASSWORD` | same as `ANDROID_KEYSTORE_PASSWORD` for a PKCS12 keystore (see §3 — PKCS12 uses one password for both) |
+
+The workflow decodes the keystore into the runner's ephemeral temp
+directory and writes it into `android/local.properties` for the duration of
+that one job only — nothing is persisted or logged. The resulting `.aab` is
+attached to the workflow run as a downloadable artifact; uploading it to
+Play Console (§6–7 below) is still a manual step, deliberately: publishing
+directly from CI would need a Play Console service-account key added as a
+*fifth* secret, a materially bigger trust decision than just building the
+bundle, and one worth making on its own rather than as a side effect of this
+setup.
+
 ## 5. Google Play Console setup
 
 1. **Developer account** — [play.google.com/console](https://play.google.com/console),

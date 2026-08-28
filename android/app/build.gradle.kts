@@ -28,8 +28,13 @@ android {
         applicationId = "com.amlkit.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // Overridable at build time: -PversionCode=2 -PversionName=1.0.1
+        // (used by .github/workflows/android-release.yml, which dispatches
+        // a real value per release; Play requires versionCode to strictly
+        // increase between uploads, so the default here is only ever
+        // correct for the very first release).
+        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("versionName") as String?) ?: "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
