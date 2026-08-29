@@ -15,6 +15,13 @@ the exact same library function (`queries`, `cases.manager`, `cases.review`,
 `match.engine`, `risk.model`) the HTML routes in `app.py` call, and returns
 JSON. No screening, risk, or review logic is duplicated -- see app.py's own
 module docstring for why that rule matters here.
+
+The Android client lives in a separate repo, nadhirmhdar/amlkit-mobile, with
+its own CI and Play Console pipeline. A field added or renamed here has no
+automated check that the Android DTOs (`data/dto/*.kt` there) still match --
+that used to be caught by CI in a single PR when both lived in this repo (see
+`amlkit-mobile`'s own history for a fix that landed exactly this way). Check
+that repo by hand when changing a response shape here.
 """
 
 from __future__ import annotations
