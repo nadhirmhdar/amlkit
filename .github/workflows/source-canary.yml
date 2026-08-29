@@ -168,11 +168,25 @@ jobs:
       # unset) on every deploy since.
       - name: Resolve scheduler/admin secrets
         run: |
-          EXISTING_VARS=$(gcloud run services describe amlkit --platform managed \
+          # Was previously a `grep -oE "$1=[^,}]+"` against --format=value(...),
+          # which asks gcloud to stringify the env list as a Python-repr-ish
+          # blob (each entry shaped like {'name': 'X', 'value': 'Y'}, not
+          # X=Y) -- a KEY=VALUE regex can never match that shape, so
+          # extract_existing silently returned empty on every single deploy,
+          # meaning these two secrets were being freshly regenerated every
+          # time rather than actually preserved as the comment above claims.
+          # That's exactly why Cloud Scheduler's stored Authorization header
+          # kept going stale against whatever SCHEDULER_SECRET the *next*
+          # deploy happened to mint. --format=json + jq (preinstalled on
+          # ubuntu-latest) parses the real structure instead of guessing at
+          # gcloud's text rendering of it.
+          EXISTING_ENV_JSON=$(gcloud run services describe amlkit --platform managed \
             --region "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
-            --format "value(spec.template.spec.containers[0].env)" 2>/dev/null || echo "")
+            --format "json(spec.template.spec.containers[0].env)" 2>/dev/null || echo "{}")
           extract_existing() {
-            echo "$EXISTING_VARS" | grep -oE "$1=[^,}]+" | head -1 | cut -d= -f2-
+            echo "$EXISTING_ENV_JSON" | jq -r --arg name "$1" \
+              '(.spec.template.spec.containers[0].env // [])
+               | map(select(.name == $name)) | .[0].value // empty'
           }
           SCHEDULER_SECRET=$(extract_existing SCHEDULER_SECRET)
           [ -z "$SCHEDULER_SECRET" ] && SCHEDULER_SECRET=$(openssl rand -hex 24)

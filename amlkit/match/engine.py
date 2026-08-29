@@ -64,6 +64,11 @@ class ScreeningResult:
     candidates: int
     hits: list[Hit]
     screening_id: int | None = None
+    # How many of `hits` actually became a new alert row -- see _persist's
+    # open-alert dedup. Distinct from len(hits): a hit re-detected while an
+    # earlier alert for the same entity+customer/UBO is still open produces
+    # no new row, so this can be lower than len(hits).
+    alerts_created: int = 0
 
     @property
     def clear(self) -> bool:
@@ -229,7 +234,9 @@ def screen(
             datasets = active_datasets if active_datasets is not None else _active_datasets(conn)
         else:
             datasets = []
-        out.screening_id = _persist(conn, out, org_id, customer_id, ubo_id, actor, datasets)
+        out.screening_id, out.alerts_created = _persist(
+            conn, out, org_id, customer_id, ubo_id, actor, datasets
+        )
     return out
 
 
@@ -241,7 +248,7 @@ def _persist(
     ubo_id: int | None,
     actor: str,
     datasets: list[str],
-) -> int:
+) -> tuple[int, int]:
     now = utcnow()
     with conn:
         cur = conn.execute(
@@ -264,7 +271,26 @@ def _persist(
             ),
         )
         sid = cur.lastrowid
+        alerts_created = 0
         for h in res.hits:
+            # An open (undispositioned) alert already covering this exact
+            # entity against this exact customer/UBO means an operator
+            # already has this match sitting in their queue -- rescreen_all
+            # runs this same query again after every dataset refresh
+            # (roughly every 20h in production), so without this check a
+            # match nobody has reviewed yet accumulates a fresh duplicate
+            # alert on every single refresh. The screening row above is
+            # still recorded either way -- "checked again, same known
+            # match" is still evidence the obligation was met.
+            already_open = conn.execute(
+                """SELECT 1 FROM alerts a JOIN screenings s ON s.id = a.screening_id
+                   WHERE a.org_id = ? AND a.entity_id = ? AND a.status = 'open'
+                     AND s.customer_id IS ? AND s.ubo_id IS ?
+                   LIMIT 1""",
+                (org_id, h.entity_id, customer_id, ubo_id),
+            ).fetchone()
+            if already_open:
+                continue
             conn.execute(
                 """INSERT INTO alerts
                    (org_id, screening_id, entity_id, score, score_detail, matched_name, created_at)
@@ -272,6 +298,7 @@ def _persist(
                 (org_id, sid, h.entity_id, h.score, json.dumps(h.detail, ensure_ascii=False),
                  h.matched_name, now),
             )
+            alerts_created += 1
         audit(
             conn,
             actor=actor,
@@ -283,11 +310,12 @@ def _persist(
                 "trigger": res.trigger,
                 "candidates": res.candidates,
                 "hits": len(res.hits),
+                "alerts_created": alerts_created,
                 "datasets_used": datasets,
             },
             org_id=org_id,
         )
-    return sid
+    return sid, alerts_created
 
 
 def rescreen_all(
@@ -328,7 +356,7 @@ def rescreen_all(
                 active_datasets=active_datasets,
             )
             screened += 1
-            new_alerts += len(res.hits)
+            new_alerts += res.alerts_created
 
     for row in conn.execute(
         "SELECT id, customer_id, person_name, name_arabic, nationality, birth_date"
@@ -343,7 +371,7 @@ def rescreen_all(
                 active_datasets=active_datasets,
             )
             screened += 1
-            new_alerts += len(res.hits)
+            new_alerts += res.alerts_created
 
     return {"screened": screened, "alerts": new_alerts}
 
