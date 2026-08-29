@@ -34,6 +34,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      # The `graphviz` PyPI package (in requirements.txt) is only a thin
+      # subprocess wrapper around the real `dot` binary -- tests/test_diagram.py
+      # actually renders an SVG via dot.pipe(), which needs it on PATH.
+      # ubuntu-latest doesn't ship it by default.
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
       - run: pip install -r requirements.txt
       - name: Run tests
         run: python -m pytest tests -q
