@@ -1,0 +1,76 @@
+# Verifies the litestream replica actually restores cleanly.
+#
+# The Aug 19 outage's corrupted segment ("decode page 7575: EOF") was only
+# discovered because it took production down -- nothing had ever exercised
+# `litestream restore` against the real replica outside that one incident.
+# This runs the same restore CI could run in an emergency, on a schedule,
+# against a scratch path, and fails loudly the moment the replica stops
+# restoring to a database that passes SQLite's own integrity check -- so a
+# bad replica is caught here, not during the next real recovery.
+#
+# Needs its own, narrowly-scoped service account: the existing CI deploy SA
+# (github-deployer, see setup_github_deploy_auth.sh) deliberately has no
+# access to the app's data bucket. Run scripts/grant_backup_verify_iam.sh
+# once to create backup-verifier@... with read-only access to just this one
+# bucket, and set GCP_BACKUP_VERIFY_SA to its email -- until that's done,
+# this workflow's auth step fails loudly rather than silently skipping.
+
+name: Backup restore verification
+
+on:
+  schedule:
+    - cron: "0 7 * * *"      # daily, 07:00 UTC -- after source-canary's 05:00 deploy
+  workflow_dispatch:
+
+jobs:
+  verify-restore:
+    name: Restore litestream replica to scratch and check integrity
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      # Same Workload Identity Federation pool as the deploy workflow (see
+      # setup_github_deploy_auth.sh) -- one pool, multiple narrowly-scoped
+      # service accounts, each with their own roles/iam.workloadIdentityUser
+      # binding to it. No service-account key ever exists anywhere.
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BACKUP_VERIFY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # Pinned to the exact version production runs (see Dockerfile) --
+      # a restore verified against a different litestream build than the
+      # one actually writing the replica isn't verifying the real path.
+      - name: Install litestream
+        run: |
+          curl -fsSL -o /tmp/litestream.deb \
+            https://github.com/benbjohnson/litestream/releases/download/v0.5.16/litestream-0.5.16-linux-x86_64.deb
+          sudo dpkg -i /tmp/litestream.deb
+
+      # No -config / litestream.yml needed -- litestream restore accepts a
+      # replica URL directly as its positional argument. Deliberately no
+      # -if-replica-exists: unlike entrypoint.sh's first-boot case, a
+      # missing replica here IS the failure this job exists to catch, not a
+      # benign state to pass through.
+      - name: Restore replica to a scratch path
+        run: |
+          mkdir -p /tmp/restore-verify
+          litestream restore -o /tmp/restore-verify/amlkit.db \
+            "gs://${{ vars.GCS_BUCKET }}/litestream/amlkit.db"
+
+      - name: Check restored database integrity
+        run: |
+          RESULT=$(sqlite3 /tmp/restore-verify/amlkit.db "PRAGMA integrity_check;")
+          echo "PRAGMA integrity_check: $RESULT"
+          if [ "$RESULT" != "ok" ]; then
+            echo "::error::Restored replica failed integrity_check: $RESULT"
+            exit 1
+          fi
+          COUNT=$(sqlite3 /tmp/restore-verify/amlkit.db "SELECT COUNT(*) FROM organizations;")
+          echo "organizations in restored replica: $COUNT"
