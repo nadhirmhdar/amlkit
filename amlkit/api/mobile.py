@@ -385,11 +385,14 @@ class UboAddRequest(BaseModel):
 
 @router.post("/customers/{customer_id}/ubo")
 def api_customer_add_ubo(customer_id: int, body: UboAddRequest, db: DB, session: Session):
-    ubo_id = add_ubo(
-        db, customer_id, org_id=session.org_id, person_name=body.person_name.strip(),
-        ownership_pct=body.ownership_pct, control_type=body.control_type,
-        actor=session.operator_name,
-    )
+    try:
+        ubo_id = add_ubo(
+            db, customer_id, org_id=session.org_id, person_name=body.person_name.strip(),
+            ownership_pct=body.ownership_pct, control_type=body.control_type,
+            actor=session.operator_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     result = screen(
         db, body.person_name.strip(), org_id=session.org_id, trigger="onboarding",
         customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name,

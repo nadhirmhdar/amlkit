@@ -151,3 +151,30 @@ class TestReportSave:
         r = client.get(f"/reports/{row['id']}/export")
         assert r.status_code == 400
         assert "source account" in r.json()["detail"]
+
+    def test_rejects_customer_id_belonging_to_another_org(self, client) -> None:
+        """A customer_id from another org must not silently default to
+        "natural" and get a report saved against it under this session's
+        org_id -- that would let an operator build an STR/SAR draft (and
+        later a goAML export) against another tenant's customer."""
+        customer_id = _customer_id(client)
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        other = TestClient(app, cookies={})
+        _register(other, "Other Firm", "bob", "bob@otherfirm.ae")
+
+        r = other.post("/reports", data={
+            "customer_id": customer_id, "report_type": "STR",
+            "csrf_token": _csrf(other), **NATURAL_PERSON_FORM,
+        })
+        assert "not found" in r.text
+
+        from amlkit.db import connect
+        conn = connect(os.environ["AMLKIT_DB"])
+        row = conn.execute(
+            "SELECT id FROM reports WHERE customer_id=?", (customer_id,)
+        ).fetchone()
+        conn.close()
+        assert row is None, "a report was saved against another org's customer"
