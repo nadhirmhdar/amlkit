@@ -390,12 +390,18 @@ def setup_submit(
 def _valid_setup_token(db: sqlite3.Connection, raw_token: str):
     if not raw_token:
         return None
+    from datetime import datetime, timezone
     from hashlib import sha256
     row = db.execute(
-        "SELECT id, org_id, used_at FROM setup_tokens WHERE token_hash=?",
+        "SELECT id, org_id, used_at, expires_at FROM setup_tokens WHERE token_hash=?",
         (sha256(raw_token.encode()).hexdigest(),),
     ).fetchone()
     if row is None or row["used_at"] is not None:
+        return None
+    # NULL expires_at (a row from before setup_tokens had this column) is
+    # treated as already expired -- fail closed rather than granting an old,
+    # possibly long-forwarded link an unbounded lifetime.
+    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
         return None
     return row
 

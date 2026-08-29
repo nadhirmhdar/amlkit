@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -146,12 +146,16 @@ CREATE INDEX IF NOT EXISTS ix_authlog_email ON auth_log(email_attempted);
 -- One-time tokens for claiming the first admin login after a fresh-from-v1
 -- migration. Hashed at rest like everything else login-adjacent; the raw
 -- value only ever appears once, printed to the console at startup.
+-- expires_at bounds how long a forwarded, archived, or leaked setup email
+-- stays a live path to create an admin account -- unlike session tokens
+-- (SESSION_LIFETIME), this table originally carried no time bound at all.
 CREATE TABLE IF NOT EXISTS setup_tokens (
     id         INTEGER PRIMARY KEY,
     org_id     INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE,
     used_at    TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    expires_at TEXT
 );
 
 -- ---------------------------------------------------------------- customers
@@ -488,6 +492,12 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# How long a setup/registration link stays claimable -- mirrors auth.py's
+# SESSION_LIFETIME in spirit (a credential-adjacent token should always carry
+# a time bound), just for the one-time admin-claim link rather than a session.
+SETUP_TOKEN_LIFETIME = timedelta(days=7)
+
+
 # Columns added after the initial schema. `CREATE TABLE IF NOT EXISTS` will not
 # alter an existing table, so databases created by an earlier version need the
 # column added explicitly rather than silently lacking it.
@@ -520,6 +530,11 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("reports", "org_id", "ALTER TABLE reports ADD COLUMN org_id INTEGER"),
     ("audit_log", "org_id", "ALTER TABLE audit_log ADD COLUMN org_id INTEGER"),
     ("alerts", "assigned_to", "ALTER TABLE alerts ADD COLUMN assigned_to TEXT"),
+    # NULL on any row from before this migration -- _valid_setup_token()
+    # treats a NULL expires_at as already expired (fail closed) rather than
+    # backfilling a plausible-but-fictitious expiry for a link that may
+    # already have been outstanding for months.
+    ("setup_tokens", "expires_at", "ALTER TABLE setup_tokens ADD COLUMN expires_at TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -705,9 +720,10 @@ def _migrate_tenancy_data(conn: sqlite3.Connection) -> str | None:
     from hashlib import sha256
 
     token_hash = sha256(raw_token.encode()).hexdigest()
+    expires_at = (datetime.now(timezone.utc) + SETUP_TOKEN_LIFETIME).isoformat(timespec="seconds")
     conn.execute(
-        "INSERT INTO setup_tokens (org_id, token_hash, created_at) VALUES (?,?,?)",
-        (org_id, token_hash, now),
+        "INSERT INTO setup_tokens (org_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)",
+        (org_id, token_hash, now, expires_at),
     )
     print(
         "\n" + "=" * 72 +
