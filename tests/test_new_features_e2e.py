@@ -199,9 +199,20 @@ class TestIdentityVerificationE2E:
         r = client.post(
             "/customers/scan-passport",
             files={"passport_file": ("test.jpg", io.BytesIO(b"not a real image"), "image/jpeg")},
+            data={"csrf_token": _csrf(client)},
         )
         assert r.status_code == 200
         data = r.json()
         assert "authenticity" in data
         assert data["authenticity"] is None
         assert data["full_name"] is None
+
+    def test_scan_passport_rejects_missing_csrf_token(self, client) -> None:
+        """The only mutating POST route that used to skip require_csrf --
+        must now match every sibling route in app.py."""
+        import io
+        r = client.post(
+            "/customers/scan-passport",
+            files={"passport_file": ("test.jpg", io.BytesIO(b"not a real image"), "image/jpeg")},
+        )
+        assert r.status_code == 403

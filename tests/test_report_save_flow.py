@@ -152,6 +152,28 @@ class TestReportSave:
         assert r.status_code == 400
         assert "source account" in r.json()["detail"]
 
+    def test_malformed_amount_returns_form_error_instead_of_500(self, client) -> None:
+        """A non-numeric amount (e.g. "12,000" with a thousands separator)
+        must not 500 and discard the whole draft -- every other field on
+        this route already fails this way, amount didn't."""
+        customer_id = _customer_id(client)
+        form = dict(NATURAL_PERSON_FORM)
+        form["amount"] = "12,000"
+
+        r = client.post("/reports", data={
+            "customer_id": customer_id, "report_type": "STR",
+            "csrf_token": _csrf(client), **form,
+        }, follow_redirects=False)
+        assert r.status_code != 500
+
+        from amlkit.db import connect
+        conn = connect(os.environ["AMLKIT_DB"])
+        row = conn.execute(
+            "SELECT id FROM reports WHERE customer_id=?", (customer_id,)
+        ).fetchone()
+        conn.close()
+        assert row is None, "a report was saved despite the malformed amount"
+
     def test_rejects_customer_id_belonging_to_another_org(self, client) -> None:
         """A customer_id from another org must not silently default to
         "natural" and get a report saved against it under this session's

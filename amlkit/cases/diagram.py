@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import html
+import logging
 import sqlite3
 import graphviz
+
+log = logging.getLogger("amlkit.diagram")
 
 
 def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int) -> str | None:
@@ -56,9 +60,10 @@ def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int
 
     # Customer node details
     cust_color = "#0F2140"  # Navy accent from Grovisor branding
+    cust_name = html.escape(customer["full_name"])
     cust_label = (
         f"<<TABLE BORDER='0' CELLBORDER='0' CELLSPACING='4'>\n"
-        f"  <TR><TD><B><FONT COLOR='#FFFFFF'>{customer['full_name']}</FONT></B></TD></TR>\n"
+        f"  <TR><TD><B><FONT COLOR='#FFFFFF'>{cust_name}</FONT></B></TD></TR>\n"
         f"  <TR><TD><FONT COLOR='#A0B2C6' POINT-SIZE='9'>{customer['customer_type'].upper()} ENTITY</FONT></TD></TR>\n"
         f"</TABLE>>"
     )
@@ -85,6 +90,7 @@ def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int
         try:
             return dot.pipe().decode("utf-8")
         except Exception:
+            log.exception("UBO diagram generation failed for customer %s (no-UBO placeholder)", customer_id)
             return None
 
     # Add nodes for each UBO
@@ -106,9 +112,10 @@ def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int
         ownership_pct = ubo["ownership_pct"]
         pct_label = f"{ownership_pct}% Ownership" if ownership_pct else "No direct equity"
         
+        ubo_name = html.escape(ubo["person_name"])
         ubo_label = (
             f"<<TABLE BORDER='0' CELLBORDER='0' CELLSPACING='2'>\n"
-            f"  <TR><TD><B><FONT COLOR='{text_color}'>{ubo['person_name']}</FONT></B></TD></TR>\n"
+            f"  <TR><TD><B><FONT COLOR='{text_color}'>{ubo_name}</FONT></B></TD></TR>\n"
             f"  <TR><TD><FONT COLOR='#64748B' POINT-SIZE='9'>{role_text} | {pct_label}</FONT></TD></TR>\n"
             f"</TABLE>>"
         )
@@ -129,5 +136,8 @@ def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int
         # Pipe outputs the SVG contents directly
         return dot.pipe().decode("utf-8")
     except Exception:
-        # Fallback if graphviz is not installed locally/fails
+        # Fallback if graphviz is not installed locally/fails -- logged rather
+        # than swallowed, since a customer.html page missing its diagram with
+        # no trace anywhere was previously indistinguishable from "no UBOs".
+        log.exception("UBO diagram generation failed for customer %s", customer_id)
         return None

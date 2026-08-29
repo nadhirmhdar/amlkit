@@ -67,6 +67,7 @@ WEB = Path(__file__).resolve().parent.parent / "web"
 import contextlib
 import logging
 import os
+import secrets
 
 log = logging.getLogger("amlkit.scheduler")
 
@@ -661,12 +662,18 @@ def customer_create(
 def customer_scan_passport(
     request: Request, db: DB,
     passport_file: UploadFile,
+    csrf_token: Annotated[str, Form()] = "",
 ):
     try:
         session = require_session(request, db)
     except PermissionError:
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail=str(exc))
 
     import io
     from ..cases.ocr import extract_passport_data
@@ -1247,7 +1254,7 @@ def system_refresh(request: Request):
         return JSONResponse({"error": "endpoint disabled — set SCHEDULER_SECRET"}, status_code=403)
 
     auth_header = request.headers.get("Authorization", "")
-    if auth_header != f"Bearer {secret}":
+    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
@@ -1287,7 +1294,7 @@ async def system_create_operator(request: Request):
         return JSONResponse({"error": "endpoint disabled — set ADMIN_API_SECRET"}, status_code=403)
 
     auth_header = request.headers.get("Authorization", "")
-    if auth_header != f"Bearer {secret}":
+    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
@@ -1443,6 +1450,11 @@ def report_save(
         return back("/reports", err=f"Customer {customer_id} not found.")
     cust_type = cust_row["customer_type"]
 
+    try:
+        parsed_amount = float(amount) if amount.strip() else None
+    except ValueError:
+        return back("/reports", err=f"Amount {amount!r} is not a valid number.")
+
     # Bundle all collected parameters into a payload dict
     payload_dict = {
         "customer_id": customer_id,
@@ -1459,7 +1471,7 @@ def report_save(
         "gender": gender.strip(),
         "id_type": id_type.strip(),
         "id_number": id_number.strip(),
-        "amount": float(amount) if amount.strip() else None,
+        "amount": parsed_amount,
         "transaction_type": transaction_type.strip() if transaction_type else None,
         "transaction_date": transaction_date.strip() if transaction_date else None,
         "source_account": source_account.strip(),
