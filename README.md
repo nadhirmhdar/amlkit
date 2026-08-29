@@ -48,6 +48,10 @@ self-match, **0 false positives** across the benign-name suite.
   Law 10/2025; designations are classified by sanctions programme
 - **Web interface** — dashboard, ad-hoc screening, alert triage, case files and
   a printable evidence pack
+- **Native Android app** — same feature set as the web interface, against
+  the `/api/v1/*` JSON API in `amlkit/api/mobile.py`. Lives in its own repo,
+  [nadhirmhdar/amlkit-mobile](https://github.com/nadhirmhdar/amlkit-mobile),
+  which has its own CI/CD and Play Console publishing pipeline
 - **Multi-tenant, password-authenticated, LAN-ready** — each organization's
   data (customers, screenings, alerts, audit trail) is isolated from every
   other's on the same deployment; sanctions/PEP reference data is shared
