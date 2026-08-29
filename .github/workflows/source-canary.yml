@@ -34,6 +34,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      # The `graphviz` PyPI package (in requirements.txt) is only a thin
+      # subprocess wrapper around the real `dot` binary -- tests/test_diagram.py
+      # actually renders an SVG via dot.pipe(), which needs it on PATH.
+      # ubuntu-latest doesn't ship it by default.
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
       - run: pip install -r requirements.txt
       - name: Run tests
         run: python -m pytest tests -q
@@ -154,12 +159,13 @@ jobs:
       # on every deploy -- `gcloud run deploy --set-env-vars` REPLACES the
       # entire env var set, so a naive redeploy would otherwise silently
       # rotate these out from under Cloud Scheduler's existing job. This step,
-      # and the Cloud Scheduler wiring after deploy, port what
-      # scripts/deploy_gcp.ps1 / scripts/cloud_shell_deploy.sh did manually --
-      # switching to this CI deploy path (see the "Build and push image" step
-      # above) dropped both, which is why the /system/refresh Cloud Scheduler
-      # path silently stopped working: the endpoint has been returning 403
-      # (SCHEDULER_SECRET unset) on every deploy since.
+      # and the Cloud Scheduler wiring after deploy, port what the old manual
+      # deploy scripts (removed -- they were still on a gcr.io/gcloud builds
+      # submit path this CI moved off of) did by hand -- switching to this CI
+      # deploy path (see the "Build and push image" step above) dropped both,
+      # which is why the /system/refresh Cloud Scheduler path silently
+      # stopped working: the endpoint has been returning 403 (SCHEDULER_SECRET
+      # unset) on every deploy since.
       - name: Resolve scheduler/admin secrets
         run: |
           EXISTING_VARS=$(gcloud run services describe amlkit --platform managed \
@@ -177,7 +183,7 @@ jobs:
           echo "SCHEDULER_SECRET=$SCHEDULER_SECRET" >> "$GITHUB_ENV"
           echo "ADMIN_API_SECRET=$ADMIN_API_SECRET" >> "$GITHUB_ENV"
 
-      # Same shape as scripts/deploy_gcp.ps1 / scripts/cloud_shell_deploy.sh --
+      # Same shape as the old (removed) manual deploy scripts --
       # min-instances 0 to keep idle cost at $0, tagged by commit SHA so every
       # deploy is traceable to the exact commit that produced it. --timeout
       # 900: /system/refresh runs the sanctions refresh synchronously, so the

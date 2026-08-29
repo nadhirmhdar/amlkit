@@ -67,6 +67,7 @@ WEB = Path(__file__).resolve().parent.parent / "web"
 import contextlib
 import logging
 import os
+import secrets
 
 log = logging.getLogger("amlkit.scheduler")
 
@@ -132,7 +133,8 @@ def _run_scheduled_refresh() -> None:
     surprises. It is the WRONG (unreliable) mechanism on Cloud Run, where
     the container can be frozen or killed between requests regardless of
     in-process timers -- that deployment relies on Cloud Scheduler calling
-    /system/refresh instead (see deploy_gcp.ps1 / cloud_shell_deploy.sh).
+    /system/refresh instead (see .github/workflows/source-canary.yml's
+    Cloud Scheduler wiring).
     Kept enabled unconditionally rather than detecting the environment: it
     is a harmless, idempotent-ish extra refresh if it ever does fire
     alongside Cloud Scheduler's call, never a correctness risk.
@@ -389,12 +391,18 @@ def setup_submit(
 def _valid_setup_token(db: sqlite3.Connection, raw_token: str):
     if not raw_token:
         return None
+    from datetime import datetime, timezone
     from hashlib import sha256
     row = db.execute(
-        "SELECT id, org_id, used_at FROM setup_tokens WHERE token_hash=?",
+        "SELECT id, org_id, used_at, expires_at FROM setup_tokens WHERE token_hash=?",
         (sha256(raw_token.encode()).hexdigest(),),
     ).fetchone()
     if row is None or row["used_at"] is not None:
+        return None
+    # NULL expires_at (a row from before setup_tokens had this column) is
+    # treated as already expired -- fail closed rather than granting an old,
+    # possibly long-forwarded link an unbounded lifetime.
+    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
         return None
     return row
 
@@ -661,12 +669,18 @@ def customer_create(
 def customer_scan_passport(
     request: Request, db: DB,
     passport_file: UploadFile,
+    csrf_token: Annotated[str, Form()] = "",
 ):
     try:
         session = require_session(request, db)
     except PermissionError:
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail=str(exc))
 
     import io
     from ..cases.ocr import extract_passport_data
@@ -1222,7 +1236,8 @@ def admin_refresh_sanctions(
 @app.post("/system/refresh")
 def system_refresh(request: Request):
     """HTTP endpoint for Cloud Scheduler to call automatically, on a
-    schedule set in Cloud Scheduler (see scripts/deploy_gcp.ps1) -- not
+    schedule set in Cloud Scheduler (see .github/workflows/source-canary.yml's
+    "Wire up Cloud Scheduler sanctions refresh" step) -- not
     once every 23 hours in-process, which cannot survive Cloud Run scaling
     the container to zero between calls.
 
@@ -1247,7 +1262,7 @@ def system_refresh(request: Request):
         return JSONResponse({"error": "endpoint disabled — set SCHEDULER_SECRET"}, status_code=403)
 
     auth_header = request.headers.get("Authorization", "")
-    if auth_header != f"Bearer {secret}":
+    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
@@ -1287,7 +1302,7 @@ async def system_create_operator(request: Request):
         return JSONResponse({"error": "endpoint disabled — set ADMIN_API_SECRET"}, status_code=403)
 
     auth_header = request.headers.get("Authorization", "")
-    if auth_header != f"Bearer {secret}":
+    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
@@ -1443,6 +1458,11 @@ def report_save(
         return back("/reports", err=f"Customer {customer_id} not found.")
     cust_type = cust_row["customer_type"]
 
+    try:
+        parsed_amount = float(amount) if amount.strip() else None
+    except ValueError:
+        return back("/reports", err=f"Amount {amount!r} is not a valid number.")
+
     # Bundle all collected parameters into a payload dict
     payload_dict = {
         "customer_id": customer_id,
@@ -1459,7 +1479,7 @@ def report_save(
         "gender": gender.strip(),
         "id_type": id_type.strip(),
         "id_number": id_number.strip(),
-        "amount": float(amount) if amount.strip() else None,
+        "amount": parsed_amount,
         "transaction_type": transaction_type.strip() if transaction_type else None,
         "transaction_date": transaction_date.strip() if transaction_date else None,
         "source_account": source_account.strip(),
