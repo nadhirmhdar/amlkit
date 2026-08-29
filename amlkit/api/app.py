@@ -133,7 +133,8 @@ def _run_scheduled_refresh() -> None:
     surprises. It is the WRONG (unreliable) mechanism on Cloud Run, where
     the container can be frozen or killed between requests regardless of
     in-process timers -- that deployment relies on Cloud Scheduler calling
-    /system/refresh instead (see deploy_gcp.ps1 / cloud_shell_deploy.sh).
+    /system/refresh instead (see .github/workflows/source-canary.yml's
+    Cloud Scheduler wiring).
     Kept enabled unconditionally rather than detecting the environment: it
     is a harmless, idempotent-ish extra refresh if it ever does fire
     alongside Cloud Scheduler's call, never a correctness risk.
@@ -1235,7 +1236,8 @@ def admin_refresh_sanctions(
 @app.post("/system/refresh")
 def system_refresh(request: Request):
     """HTTP endpoint for Cloud Scheduler to call automatically, on a
-    schedule set in Cloud Scheduler (see scripts/deploy_gcp.ps1) -- not
+    schedule set in Cloud Scheduler (see .github/workflows/source-canary.yml's
+    "Wire up Cloud Scheduler sanctions refresh" step) -- not
     once every 23 hours in-process, which cannot survive Cloud Run scaling
     the container to zero between calls.
 
