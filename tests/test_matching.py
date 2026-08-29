@@ -19,7 +19,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from amlkit.db import connect, upsert_dataset, utcnow  # noqa: E402
-from amlkit.match.engine import screen  # noqa: E402
+from amlkit.match.engine import rescreen_all, screen  # noqa: E402
 from amlkit.match.scorer import DEFAULT_THRESHOLD, name_score, score_entity  # noqa: E402
 from amlkit.names.arabic import blocking_keys, canonical_key  # noqa: E402
 
@@ -39,6 +39,21 @@ def org_id(conn) -> int:
     row = conn.execute(
         "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?) RETURNING id",
         ("Test Firm", "test-firm", "active", utcnow()),
+    ).fetchone()
+    conn.commit()
+    return row["id"]
+
+
+@pytest.fixture()
+def customer_id(conn, org_id) -> int:
+    now = utcnow()
+    row = conn.execute(
+        """INSERT INTO customers
+           (org_id, reference, customer_type, full_name, canonical_key,
+            status, onboarded_at, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?) RETURNING id""",
+        (org_id, "C-1", "natural", "FOAD SALEHI", canonical_key("FOAD SALEHI"),
+         "active", now, now, now),
     ).fetchone()
     conn.commit()
     return row["id"]
@@ -221,6 +236,51 @@ class TestScreeningEngine:
         caller that forgot which firm it is running for."""
         with pytest.raises(TypeError):
             screen(conn, "Ahmed Al Hasnawi", persist=False)  # type: ignore[call-arg]
+
+
+class TestAlertDedup:
+    """rescreen_all() re-runs the same query for every customer after every
+    dataset refresh (roughly every 20h in production) -- a match nobody has
+    reviewed yet must not accumulate a fresh duplicate alert on every run."""
+
+    def test_rescreen_does_not_duplicate_open_alert(self, conn, org_id, customer_id) -> None:
+        first = screen(
+            conn, "FOAD SALEHI", org_id=org_id, trigger="onboarding", customer_id=customer_id
+        )
+        assert first.alerts_created == 1
+
+        second = screen(
+            conn, "FOAD SALEHI", org_id=org_id, trigger="list_update", customer_id=customer_id
+        )
+        assert second.alerts_created == 0
+
+        n = conn.execute("SELECT COUNT(*) c FROM alerts WHERE org_id=?", (org_id,)).fetchone()["c"]
+        assert n == 1
+
+    def test_new_alert_allowed_once_prior_is_dispositioned(self, conn, org_id, customer_id) -> None:
+        """Dedup only suppresses *open* duplicates -- once a reviewer has
+        actually dispositioned the earlier alert, a fresh match must still
+        raise a new one rather than being silently swallowed forever."""
+        first = screen(
+            conn, "FOAD SALEHI", org_id=org_id, trigger="onboarding", customer_id=customer_id
+        )
+        conn.execute(
+            "UPDATE alerts SET status='false_positive' WHERE screening_id=?",
+            (first.screening_id,),
+        )
+        conn.commit()
+
+        second = screen(
+            conn, "FOAD SALEHI", org_id=org_id, trigger="list_update", customer_id=customer_id
+        )
+        assert second.alerts_created == 1
+
+    def test_rescreen_all_reports_only_genuinely_new_alerts(self, conn, org_id, customer_id) -> None:
+        first = rescreen_all(conn, org_id)
+        assert first["alerts"] == 1
+
+        second = rescreen_all(conn, org_id)
+        assert second["alerts"] == 0
 
 
 class TestAuditImmutability:
