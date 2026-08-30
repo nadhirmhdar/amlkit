@@ -116,21 +116,24 @@
 
 <div>
   <div class="section-label">Data sources</div>
+  <div class="grid-table">
   <div class="list-head" style="grid-template-columns:1fr 1fr 1fr 100px;">
     <div>Key</div><div>Publisher</div><div>Licence</div><div class="right">Entities</div>
   </div>
   <div class="flat-list">
     {% for ds in datasets %}
     <div class="list-row" style="display:grid; grid-template-columns:1fr 1fr 1fr 100px;">
-      <div class="mono small">{{ ds.key }}</div>
-      <div class="small">{{ ds.publisher }}</div>
+      <div class="mono small" data-label="Key">{{ ds.key }}</div>
+      <div class="small" data-label="Publisher">{{ ds.publisher }}</div>
       <div class="small {{ '' if 'NON-COMMERCIAL' in (ds.licence or '') else 'muted' }}"
-           style="{{ 'color:var(--danger); font-weight:700;' if 'NON-COMMERCIAL' in (ds.licence or '') }}">
+           style="{{ 'color:var(--danger); font-weight:700;' if 'NON-COMMERCIAL' in (ds.licence or '') }}"
+           data-label="Licence">
         {{ ds.licence or '—' }}
       </div>
-      <div class="right score">{{ '{:,}'.format(ds.entity_count) }}</div>
+      <div class="right score" data-label="Entities">{{ '{:,}'.format(ds.entity_count) }}</div>
     </div>
     {% endfor %}
+  </div>
   </div>
 </div>
 

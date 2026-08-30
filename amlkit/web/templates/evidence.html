@@ -6,7 +6,7 @@
 {% block body %}
 
 <div class="no-print mt-4">
-  <div class="print-header muted small">Generated {{ range(10000, 99999) | random }} UTC (mock timestamp)</div>
+  <div class="print-header muted small">Generated {{ generated_at[:19].replace('T', ' ') }} UTC</div>
   <button onclick="window.print()">Print / save as PDF</button>
   <a class="btn ghost" href="/customers/{{ c.id }}">Back to case file</a>
   <p class="muted small">

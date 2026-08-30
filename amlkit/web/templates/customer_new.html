@@ -117,6 +117,7 @@ async function performPassportOCR(input) {
   
   const formData = new FormData();
   formData.append('passport_file', file);
+  formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
   
   try {
     const res = await fetch('/customers/scan-passport', {

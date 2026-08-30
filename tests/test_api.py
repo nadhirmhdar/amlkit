@@ -9,6 +9,7 @@ becoming visible to another's.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import sys
@@ -221,6 +222,50 @@ class TestScreening:
         conn.close()
         assert screenings >= 1, "a clear screening must still be recorded"
         assert alerts == 0, "a clear screening must not create an alert"
+
+    def test_clear_result_records_which_lists_were_searched(self, client) -> None:
+        """datasets_used must reflect every list actually in scope, not just
+        the ones that happened to produce a hit -- a clear result naively
+        derived only from hits would (and once did) log an empty list even
+        though every mandatory list was searched."""
+        client.post("/screen", data={"name": "Ahmed Al Mansoori", "csrf_token": _csrf(client)})
+
+        conn = _db()
+        screening = conn.execute(
+            "SELECT id, datasets_used FROM screenings ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        datasets_used = json.loads(screening["datasets_used"])
+        assert datasets_used == ["test_list"]
+
+        audit_detail = conn.execute(
+            "SELECT detail FROM audit_log WHERE action='screening.run' AND object_id=?",
+            (str(screening["id"]),),
+        ).fetchone()
+        conn.close()
+        assert json.loads(audit_detail["detail"])["datasets_used"] == ["test_list"]
+
+    def test_degenerate_query_does_not_fabricate_search_coverage(self, client) -> None:
+        """A query with no usable name tokens (digits-only) makes
+        _candidates() short-circuit before ever touching entities/name_tokens
+        -- nothing was actually searched, so datasets_used must be empty, not
+        every loaded dataset. Claiming full coverage here would fabricate
+        evidence of a screening that never ran."""
+        r = client.post("/screen", data={"name": "123", "csrf_token": _csrf(client)})
+        assert r.status_code == 200
+
+        conn = _db()
+        screening = conn.execute(
+            "SELECT id, candidates, datasets_used FROM screenings ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert screening["candidates"] == 0
+        assert json.loads(screening["datasets_used"]) == []
+
+        audit_detail = conn.execute(
+            "SELECT detail FROM audit_log WHERE action='screening.run' AND object_id=?",
+            (str(screening["id"]),),
+        ).fetchone()
+        conn.close()
+        assert json.loads(audit_detail["detail"])["datasets_used"] == []
 
     def test_single_token_warns(self, client) -> None:
         r = client.post("/screen", data={"name": "Mohammed", "csrf_token": _csrf(client)})
@@ -502,6 +547,24 @@ class TestEvidencePack:
         for expected in ["Customer due diligence record", "Beneficial ownership",
                          "Screening record", "Audit trail", LISTED]:
             assert expected in r.text, f"evidence pack missing {expected!r}"
+
+    def test_generated_timestamp_is_real_not_a_placeholder(self, client) -> None:
+        """The header printed on this exact document was, until fixed, a
+        random 5-digit number labelled '(mock timestamp)' -- this asserts a
+        real, current-year UTC timestamp is shown instead."""
+        client.post("/customers", data={
+            "reference": "C-TS", "full_name": "Timestamp Test Co", "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        conn = _db()
+        cid = conn.execute("SELECT id FROM customers ORDER BY id DESC LIMIT 1").fetchone()[0]
+        conn.close()
+
+        r = client.get(f"/customers/{cid}/evidence")
+        assert "mock timestamp" not in r.text
+        from amlkit.db import utcnow
+        current_year = utcnow()[:4]
+        assert f"Generated {current_year}-" in r.text
 
 
 class TestAudit:
