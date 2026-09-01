@@ -1,4 +1,6 @@
 # TEMPORARY, one-off diagnostic -- not meant to stay in the repo.
+# (Re-saved once to nudge GitHub's workflow registration after the first
+# push didn't register it -- same quirk seen in amlkit-mobile earlier.)
 #
 # Registers 5 fresh, separate test organizations/operators against the live
 # amlkit backend via its own public self-registration endpoint (the same
