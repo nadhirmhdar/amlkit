@@ -442,11 +442,20 @@ def register_org_submit(
         return render(request, "register_organization.html",
                       {"session": None, "err": f"An organization with a similar name already exists."})
     org_id = cur.lastrowid
-    cur2 = db.execute(
-        """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-           VALUES (?,?,?,?,?,1,?)""",
-        (org_id, name.strip(), email.strip().lower(), auth.hash_password(password), "mlro", now),
-    )
+    try:
+        cur2 = db.execute(
+            """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
+               VALUES (?,?,?,?,?,1,?)""",
+            (org_id, name.strip(), email.strip().lower(), auth.hash_password(password), "mlro", now),
+        )
+    except sqlite3.IntegrityError:
+        # operators.email is UNIQUE across the whole app, not just this org
+        # (see db.py) -- previously uncaught here, which both surfaced as a
+        # bare 500 and left the just-inserted organizations row behind with
+        # no operator in it. Roll that back too, not just report the error.
+        db.rollback()
+        return render(request, "register_organization.html",
+                      {"session": None, "err": "An account with that email already exists. Try signing in instead."})
     operator_id = cur2.lastrowid
     db.commit()
     from ..db import audit

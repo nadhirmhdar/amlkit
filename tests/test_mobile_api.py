@@ -45,6 +45,28 @@ class TestAuth:
         r = client.get("/api/v1/dashboard", headers=headers)
         assert r.status_code == 200
 
+    def test_duplicate_email_registration_is_a_clean_400(self, api):
+        """A second organization registered with an already-used email (a
+        different org name, so the org-name collision path never fires) used
+        to hit operators.email's UNIQUE constraint with no try/except around
+        it -- a bare, undetailed 500 instead of a real error, and it left the
+        new organizations row behind with no operator attached to it."""
+        client, _ = api
+        r = client.post("/api/v1/auth/register-organization", json={
+            "org_name": "A Totally Different Firm", "name": "alice again",
+            "email": "alice@testfirm.ae", "password": "another-strong-pw-1",
+        })
+        assert r.status_code == 400, r.text
+        assert "already exists" in r.json()["detail"]
+
+        # And the orphaned-organization side effect is actually rolled back,
+        # not just the error message cleaned up.
+        r2 = client.post("/api/v1/auth/register-organization", json={
+            "org_name": "A Totally Different Firm", "name": "someone else",
+            "email": "someone.else@testfirm.ae", "password": "yet-another-pw-1",
+        })
+        assert r2.status_code == 200, r2.text
+
     def test_no_token_is_401(self, api):
         client, _ = api
         r = client.get("/api/v1/dashboard")
