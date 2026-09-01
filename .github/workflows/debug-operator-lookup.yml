@@ -1,1 +1,58 @@
-IyBURU1QT1JBUlksIG9uZS1vZmYgZGlhZ25vc3RpYyAtLSBub3QgbWVhbnQgdG8gc3RheSBpbiB0aGUgcmVwby4KIwojIFJlc3RvcmVzIHRoZSBsaXRlc3RyZWFtIHJlcGxpY2EgdG8gYSBzY3JhdGNoIHBhdGggKHNhbWUgcmVhZC1vbmx5CiMgbWVjaGFuaXNtIGFzIGJhY2t1cC12ZXJpZnkueW1sLCBzYW1lIG5hcnJvd2x5LXNjb3BlZCBiYWNrdXAtdmVyaWZpZXIgU0EpCiMgYW5kIGNoZWNrcyBhIHNpbmdsZSBoYXJkY29kZWQgb3BlcmF0b3Igcm93OiB3aGV0aGVyIHJhYmVlaEBncm92aXNvci50ZXN0CiMgZXhpc3RzLCBpcyBhY3RpdmUsIGFuZCBoYXMgYSBwYXNzd29yZCBzZXQuIERlbGliZXJhdGVseSBkb2VzIE5PVCBzZWxlY3QKIyBwYXNzd29yZF9oYXNoIGl0c2VsZiAtLSBvbmx5IHdoZXRoZXIgb25lIGlzIHByZXNlbnQgLS0gc28gbm8gY3JlZGVudGlhbAojIG1hdGVyaWFsIGV2ZXIgbGFuZHMgaW4gYSBDSSBsb2cuIERlbGV0ZSB0aGlzIGZpbGUgb25jZSB0aGUgYW5zd2VyIGlzIGluCiMgaGFuZDsgaXQgaXMgbm90IGludGVuZGVkIHRvIGJlY29tZSBhIHN0YW5kaW5nICJydW4gYXJiaXRyYXJ5IFNRTCBhZ2FpbnN0CiMgcHJvZCIgdG9vbC4KCm5hbWU6IERlYnVnIG9wZXJhdG9yIGxvb2t1cCAodGVtcG9yYXJ5KQoKb246CiAgd29ya2Zsb3dfZGlzcGF0Y2g6Cgpwc3JtaXNzaW9uczoKICBjb250ZW50czogcmVhZAogIGlkLXRva2VuOiB3cml0ZQoKam9iczoKICBsb29rdXA6CiAgICBuYW1lOiBSZXN0b3JlIHJlcGxpY2EgdG8gc2NyYXRjaCBhbmQgbG9vayB1cCBvbmUgb3BlcmF0b3Igcm93CiAgICBydW5zLW9uOiB1YnVudHUtbGF0ZXN0CiAgICBzdGVwczoKICAgICAgLSB1c2VzOiBhY3Rpb25zL2NoZWNrb3V0QHY1CgogICAgICAtIGlkOiBhdXRoCiAgICAgICAgdXNlczogZ29vZ2xlLWdpdGh1Yi1hY3Rpb25zL2F1dGhAdjIKICAgICAgICB3aXRoOgogICAgICAgICAgd29ya2xvYWRfaWRlbnRpdHlfcHJvdmlkZXI6ICR7eyB2YXJzLkdDUF9XSUZfUFJPVklERVIgfX0KICAgICAgICAgIHNlcnZpY2VfYWNjb3VudDogJHt7IHZhcnMuR0NQX0JBQ0tVUF9WRVJJRllfU0EgfX0KCiAgICAgIC0gdXNlczogZ29vZ2xlLWdpdGh1Yi1hY3Rpb25zL3NldHVwLWdjbG91ZEB2MgoKICAgICAgLSBuYW1lOiBJbnN0YWxsIGxpdGVzdHJlYW0KICAgICAgICBydW46IHwKICAgICAgICAgIGN1cmwgLWZzU0wgLW8gL3RtcC9saXRlc3RyZWFtLmRlYiBcCiAgICAgICAgICAgIGh0dHBzOi8vZ2l0aHViLmNvbS9iZW5iam9obnNvbi9saXRlc3RyZWFtL3JlbGVhc2VzL2Rvd25sb2FkL3YwLjUuMTYvbGl0ZXN0cmVhbS0wLjUuMTYtbGludXgteDg2XzY0LmRlYgogICAgICAgICAgc3VkbyBkcGtnIC1pIC90bXAvbGl0ZXN0cmVhbS5kZWIKCiAgICAgIC0gbmFtZTogUmVzdG9yZSByZXBsaWNhIHRvIGEgc2NyYXRjaCBwYXRoCiAgICAgICAgcnVuOiB8CiAgICAgICAgICBta2RpciAtcCAvdG1wL3Jlc3RvcmUtdmVyaWZ5CiAgICAgICAgICBsaXRlc3RyZWFtIHJlc3RvcmUgLW8gL3RtcC9yZXN0b3JlLXZlcmlmeS9hbWxraXQuZGIgXAogICAgICAgICAgICAiZ3M6Ly8ke3sgdmFycy5HQ1NfQlVDS0VUIH19L2xpdGVzdHJlYW0vYW1sa2l0LmRiIgoKICAgICAgLSBuYW1lOiBMb29rIHVwIHJhYmVlaEBncm92aXNvci50ZXN0CiAgICAgICAgcnVuOiB8CiAgICAgICAgICBzcWxpdGUzIC90bXAvcmVzdG9yZS12ZXJpZnkvYW1sa2l0LmRiIDw8J1NRTCcKICAgICAgICAgIC5oZWFkZXJzIG9uCiAgICAgICAgICAubW9kZSBjb2x1bW4KICAgICAgICAgIFNFTEVDVCBpZCwgb3JnX2lkLCBuYW1lLCBlbWFpbCwgcm9sZSwgaXNfYWN0aXZlLAogICAgICAgICAgICAgICAgIHBhc3N3b3JkX2hhc2ggSVMgTk9UIE5VTEwgQVMgaGFzX3Bhc3N3b3JkLAogICAgICAgICAgICAgICAgIGZhaWxlZF9sb2dpbl9jb3VudCwgbG9ja2VkX3VudGlsLCBjcmVhdGVkX2F0CiAgICAgICAgICBGUk9NIG9wZXJhdG9ycwogICAgICAgICAgV0hFUkUgbG93ZXIoZW1haWwpID0gJ3JhYmVlaEBncm92aXNvci50ZXN0JzsKICAgICAgICAgIFNRTAo=
+# TEMPORARY, one-off diagnostic -- not meant to stay in the repo.
+#
+# Restores the litestream replica to a scratch path (same read-only
+# mechanism as backup-verify.yml, same narrowly-scoped backup-verifier SA)
+# and checks a single hardcoded operator row: whether rabeeh@grovisor.test
+# exists, is active, and has a password set. Deliberately does NOT select
+# password_hash itself -- only whether one is present -- so no credential
+# material ever lands in a CI log. Delete this file once the answer is in
+# hand; it is not intended to become a standing "run arbitrary SQL against
+# prod" tool.
+
+name: Debug operator lookup (temporary)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  lookup:
+    name: Restore replica to scratch and look up one operator row
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BACKUP_VERIFY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install litestream
+        run: |
+          curl -fsSL -o /tmp/litestream.deb \
+            https://github.com/benbjohnson/litestream/releases/download/v0.5.16/litestream-0.5.16-linux-x86_64.deb
+          sudo dpkg -i /tmp/litestream.deb
+
+      - name: Restore replica to a scratch path
+        run: |
+          mkdir -p /tmp/restore-verify
+          litestream restore -o /tmp/restore-verify/amlkit.db \
+            "gs://${{ vars.GCS_BUCKET }}/litestream/amlkit.db"
+
+      - name: Look up rabeeh@grovisor.test
+        run: |
+          sqlite3 /tmp/restore-verify/amlkit.db <<'SQL'
+          .headers on
+          .mode column
+          SELECT id, org_id, name, email, role, is_active,
+                 password_hash IS NOT NULL AS has_password,
+                 failed_login_count, locked_until, created_at
+          FROM operators
+          WHERE lower(email) = 'rabeeh@grovisor.test';
+          SQL
