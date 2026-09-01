@@ -1,0 +1,47 @@
+# TEMPORARY, one-off diagnostic -- not meant to stay in the repo.
+#
+# Registers 5 fresh, separate test organizations/operators against the live
+# amlkit backend via its own public self-registration endpoint (the same
+# call the mobile app itself makes) -- one curl POST per person, run from
+# the CI runner since direct outbound writes from the authoring sandbox are
+# blocked there. No GCP auth needed: this only talks to the app's own public
+# HTTPS API, nothing GCS/litestream-related. Delete this file once the
+# accounts are confirmed created.
+
+name: Debug register testers (temporary)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  register:
+    name: Register 5 test accounts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Register accounts
+        run: |
+          set -e
+          API="https://amlkit-g45hvblk5q-ww.a.run.app/api/v1/auth/register-organization"
+          PASSWORD="AmlkitTest2026!"
+
+          register() {
+            local slug="$1"
+            local display_name="$2"
+            echo "== Registering ${slug}@grovisor.test =="
+            HTTP_CODE=$(curl -sS -o /tmp/resp_${slug}.json -w "%{http_code}" -X POST "$API" \
+              -H "Content-Type: application/json" \
+              -d "{\"org_name\":\"${display_name} Test Org\",\"name\":\"${display_name}\",\"email\":\"${slug}@grovisor.test\",\"password\":\"${PASSWORD}\"}")
+            echo "HTTP ${HTTP_CODE}"
+            cat /tmp/resp_${slug}.json
+            echo ""
+            echo "---"
+          }
+
+          register "fawaz" "Fawaz"
+          register "vidya" "Vidya"
+          register "nadhir2" "Nadhir2"
+          register "shahabas" "Shahabas"
+          register "sabhiq" "Sabhiq"
