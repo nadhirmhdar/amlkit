@@ -1,12 +1,9 @@
 # TEMPORARY, one-off diagnostic -- not meant to stay in the repo.
 #
-# Registers 5 fresh, separate test organizations/operators against the live
-# amlkit backend via its own public self-registration endpoint (the same
-# call the mobile app itself makes) -- one curl POST per person, run from
-# the CI runner since direct outbound writes from the authoring sandbox are
-# blocked there. No GCP auth needed: this only talks to the app's own public
-# HTTPS API, nothing GCS/litestream-related. Delete this file once the
-# accounts are confirmed created.
+# Retries the 3 registrations that failed with a raw HTTP 500 on the first
+# pass (fawaz, vidya, shahabas -- nadhir2 and sabhiq already succeeded),
+# with a short sleep between each call to rule out write contention on the
+# backend's SQLite database as the cause.
 
 name: Debug register testers (temporary)
 
@@ -18,7 +15,7 @@ permissions:
 
 jobs:
   register:
-    name: Register 5 test accounts
+    name: Retry 3 failed test accounts
     runs-on: ubuntu-latest
     steps:
       - name: Register accounts
@@ -38,10 +35,9 @@ jobs:
             cat /tmp/resp_${slug}.json
             echo ""
             echo "---"
+            sleep 5
           }
 
           register "fawaz" "Fawaz"
           register "vidya" "Vidya"
-          register "nadhir2" "Nadhir2"
           register "shahabas" "Shahabas"
-          register "sabhiq" "Sabhiq"
