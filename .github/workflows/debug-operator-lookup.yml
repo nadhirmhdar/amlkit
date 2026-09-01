@@ -1,0 +1,60 @@
+# TEMPORARY, one-off diagnostic -- not meant to stay in the repo.
+#
+# Checks whether the 3 registrations that failed with a raw HTTP 500
+# (fawaz, vidya, shahabas) left a partial write behind -- an organizations
+# row with no matching operators row, which would explain a reproducible
+# (not transient) 500 on retry via a uniqueness collision on the org slug.
+
+name: Debug operator lookup (temporary)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  lookup:
+    name: Restore replica to scratch and inspect the 3 failed registrations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BACKUP_VERIFY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install litestream
+        run: |
+          curl -fsSL -o /tmp/litestream.deb \
+            https://github.com/benbjohnson/litestream/releases/download/v0.5.16/litestream-0.5.16-linux-x86_64.deb
+          sudo dpkg -i /tmp/litestream.deb
+
+      - name: Restore replica to a scratch path
+        run: |
+          mkdir -p /tmp/restore-verify
+          litestream restore -o /tmp/restore-verify/amlkit.db \
+            "gs://${{ vars.GCS_BUCKET }}/litestream/amlkit.db"
+
+      - name: Inspect fawaz / vidya / shahabas
+        run: |
+          echo "== organizations with matching slugs =="
+          sqlite3 /tmp/restore-verify/amlkit.db <<'SQL'
+          .headers on
+          .mode column
+          SELECT id, name, slug, status, created_at FROM organizations
+          WHERE slug IN ('fawaz-test-org','vidya-test-org','shahabas-test-org');
+          SQL
+          echo ""
+          echo "== operators with matching emails =="
+          sqlite3 /tmp/restore-verify/amlkit.db <<'SQL'
+          .headers on
+          .mode column
+          SELECT id, org_id, name, email, role, is_active FROM operators
+          WHERE lower(email) IN ('fawaz@grovisor.test','vidya@grovisor.test','shahabas@grovisor.test');
+          SQL
