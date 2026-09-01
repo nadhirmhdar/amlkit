@@ -160,12 +160,26 @@ def api_register_organization(body: RegisterOrgRequest, db: DB):
             status_code=400, detail="An organization with a similar name already exists."
         ) from exc
     org_id = cur.lastrowid
-    cur2 = db.execute(
-        """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-           VALUES (?,?,?,?,?,1,?)""",
-        (org_id, body.name.strip(), body.email.strip().lower(),
-         auth.hash_password(body.password), "mlro", now),
-    )
+    try:
+        cur2 = db.execute(
+            """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
+               VALUES (?,?,?,?,?,1,?)""",
+            (org_id, body.name.strip(), body.email.strip().lower(),
+             auth.hash_password(body.password), "mlro", now),
+        )
+    except sqlite3.IntegrityError as exc:
+        # operators.email is UNIQUE across the whole app, not just this org
+        # (see db.py) -- unlike the org-name collision above, this one was
+        # previously uncaught and surfaced as a raw 500 with no detail,
+        # which also meant an operator's SECOND registration attempt with
+        # an email they'd already used silently left the just-inserted
+        # organizations row behind with no operator in it. Roll that back
+        # too, not just report the error.
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="An account with that email already exists. Try signing in instead.",
+        ) from exc
     db.commit()
     from ..db import audit
 
