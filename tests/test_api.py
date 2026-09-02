@@ -199,6 +199,32 @@ class TestAuth:
         assert r.status_code == 303
         assert r.headers["location"] == "/login"
 
+    def test_duplicate_email_registration_is_a_clean_error(self, client) -> None:
+        """Same underlying bug as test_mobile_api.py's version: registering a
+        second, differently-named organization with an already-used email
+        used to hit operators.email's UNIQUE constraint with no try/except
+        around it, crashing instead of rendering the form with an error."""
+        client.cookies.delete("amlkit_session")
+        client.get("/register-organization")
+        r = client.post("/register-organization", data={
+            "org_name": "A Totally Different Firm", "name": "alice again",
+            "email": "alice@testfirm.ae", "password": "another-strong-pw-1",
+            "csrf_token": _csrf(client),
+        })
+        assert r.status_code == 200
+        assert "already exists" in r.text
+
+        # The orphaned-organization side effect is rolled back too, not just
+        # the error message cleaned up -- a second attempt with the same org
+        # name and a fresh email should succeed, not collide on org slug.
+        client.get("/register-organization")
+        r2 = client.post("/register-organization", data={
+            "org_name": "A Totally Different Firm", "name": "someone else",
+            "email": "someone.else@testfirm.ae", "password": "yet-another-pw-1",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert "Dashboard" in r2.text or "24-hour" in r2.text, f"registration failed: {r2.text[:300]}"
+
 
 class TestScreening:
     def test_latin_query_finds_listed_person(self, client) -> None:
