@@ -318,10 +318,11 @@ def api_setup_submit(body: SetupRequest, db: DB):
 
     now = utcnow()
     cur = db.execute(
-        # email_verified_at=now: same reasoning as api_register_organization's
-        # comment doesn't apply here -- claiming a setup link already proves
-        # control of a channel an admin trusted, so there's no separate
-        # email-ownership gap left (see auth.login()'s guard).
+        # email_verified_at=now: claiming a setup link already proves control
+        # of a channel an admin trusted, so there's no separate
+        # email-ownership gap left to close here, unlike public
+        # self-registration in api_register_organization (see
+        # auth.login()'s guard).
         """INSERT INTO operators
                (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
            VALUES (?,?,?,?,?,1,?,?)""",
