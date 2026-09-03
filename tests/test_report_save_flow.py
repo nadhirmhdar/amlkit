@@ -27,12 +27,21 @@ def _csrf(client) -> str:
 
 
 def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
+    """Registers, then completes email verification via the dev-fallback
+    link the response renders (no SMTP configured in tests -- see
+    amlkit/mail.py), so callers still get back a signed-in client."""
+    import re
+
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
         "csrf_token": _csrf(client),
     }, follow_redirects=True)
-    assert "Dashboard" in r.text or "24-hour" in r.text, f"registration failed: {r.text[:300]}"
+    assert "Check your email" in r.text, f"registration failed: {r.text[:300]}"
+    m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
+    assert m, f"no dev verification link in registration response: {r.text[:500]}"
+    r2 = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+    assert "Dashboard" in r2.text or "24-hour" in r2.text, f"verification failed: {r2.text[:300]}"
     return client
 
 

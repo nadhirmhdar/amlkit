@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from .. import auth, queries
+from .. import auth, mail, queries
 from ..cases.manager import (
     add_case_note,
     add_ubo,
@@ -146,6 +146,8 @@ class RegisterOrgRequest(BaseModel):
 def api_register_organization(body: RegisterOrgRequest, db: DB):
     if len(body.password) < 10:
         raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
+    if not auth.looks_like_email(body.email):
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
     import re
 
     slug = re.sub(r"[^a-z0-9]+", "-", body.org_name.strip().lower()).strip("-") or "org"
@@ -180,14 +182,110 @@ def api_register_organization(body: RegisterOrgRequest, db: DB):
             status_code=400,
             detail="An account with that email already exists. Try signing in instead.",
         ) from exc
+    operator_id = cur2.lastrowid
     db.commit()
     from ..db import audit
 
+    email = body.email.strip().lower()
     audit(db, body.name.strip(), "organization.register", "organization", org_id,
           {"org_name": body.org_name.strip()}, org_id=org_id)
     db.commit()
-    token, info = auth.login(db, body.email.strip().lower(), body.password)
+
+    # Not activated yet -- see auth.login()'s email_verified_at guard. The
+    # account exists and is fully privileged (MLRO) the moment this link is
+    # clicked, so it must not be usable before then.
+    raw_token = auth.create_email_verify_token(db, operator_id)
+    emailed = mail.send_verification_email(email, body.name.strip(), raw_token)
+    audit(db, body.name.strip(), "operator.verification_sent", "operator", operator_id,
+          {"email": email}, org_id=org_id)
+    db.commit()
+
+    response = {
+        "status": "verification_required",
+        "message": f"Account created. Check {email} for a verification link before signing in.",
+        "email": email,
+    }
+    if not emailed:
+        # No SMTP configured (or the send failed) -- see amlkit/mail.py. The
+        # link was printed to the server console; also handing it back here
+        # keeps registration usable in dev/test without real mail
+        # infrastructure. This field is never present once real mail is
+        # actually going out (mail.send_verification_email only returns
+        # False in that fallback case), so it can never leak a live token to
+        # a client in a deployment where email verification is meaningful.
+        response["dev_verification_token"] = raw_token
+    return response
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+@router.post("/auth/verify-email")
+def api_verify_email(body: VerifyEmailRequest, db: DB):
+    operator = auth.consume_email_verify_token(db, body.token)
+    if operator is None:
+        raise HTTPException(
+            status_code=400,
+            detail="This verification link is invalid, expired, or already used.",
+        )
+    from ..db import audit
+
+    audit(db, operator["name"], "operator.email_verified", "operator", operator["id"],
+          {"email": operator["email"]}, org_id=operator["org_id"])
+    db.commit()
+
+    token = auth.create_session(db, operator["id"], operator["org_id"])
+    # create_session() doesn't audit a "login" itself -- this route bypasses
+    # auth.login() entirely (no password to re-check), so without this the
+    # operator's very first session would leave no audit trail entry at all.
+    audit(db, operator["name"], "operator.login", "operator", operator["id"],
+          None, org_id=operator["org_id"])
+    db.commit()
+    info = auth.SessionInfo(
+        operator_id=operator["id"], org_id=operator["org_id"],
+        operator_name=operator["name"], operator_role=operator["role"], email=operator["email"],
+    )
     return {"token": token, "operator": _operator_json(info)}
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
+@router.post("/auth/resend-verification")
+def api_resend_verification(body: ResendVerificationRequest, db: DB):
+    """Always returns the same generic message, whether or not the email
+    belongs to a real, still-unverified account -- same anti-enumeration
+    reasoning as auth.login()'s single error string. The actual resend (or
+    lack of one) happens silently behind that constant response."""
+    generic = {
+        "message": "If that email has a pending registration, a new verification link has been sent.",
+    }
+    email = body.email.strip().lower()
+    row = db.execute(
+        "SELECT id, org_id, name, email_verified_at FROM operators WHERE lower(email)=?",
+        (email,),
+    ).fetchone()
+    if row is None or row["email_verified_at"] is not None:
+        return generic
+
+    # Cooldown, not a hard limit: a resend inside the window is a silent
+    # no-op since the previous link is still live anyway. Keeps this route
+    # from being usable to mail-bomb an address without a rate-limiting
+    # dependency or table.
+    age = auth.last_email_verify_token_age_seconds(db, row["id"])
+    if age is not None and age < 60:
+        return generic
+
+    raw_token = auth.create_email_verify_token(db, row["id"])
+    mail.send_verification_email(email, row["name"], raw_token)
+    from ..db import audit
+
+    audit(db, row["name"], "operator.verification_resent", "operator", row["id"],
+          {"email": email}, org_id=row["org_id"])
+    db.commit()
+    return generic
 
 
 class SetupRequest(BaseModel):
@@ -220,10 +318,15 @@ def api_setup_submit(body: SetupRequest, db: DB):
 
     now = utcnow()
     cur = db.execute(
-        """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-           VALUES (?,?,?,?,?,1,?)""",
+        # email_verified_at=now: same reasoning as api_register_organization's
+        # comment doesn't apply here -- claiming a setup link already proves
+        # control of a channel an admin trusted, so there's no separate
+        # email-ownership gap left (see auth.login()'s guard).
+        """INSERT INTO operators
+               (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
+           VALUES (?,?,?,?,?,1,?,?)""",
         (row["org_id"], body.name.strip(), body.email.strip().lower(),
-         auth.hash_password(body.password), "mlro", now),
+         auth.hash_password(body.password), "mlro", now, now),
     )
     operator_id = cur.lastrowid
     db.execute("UPDATE setup_tokens SET used_at=? WHERE id=?", (now, row["id"]))
@@ -681,11 +784,16 @@ def api_admin_create_operator(body: OperatorCreateRequest, db: DB, session: Sess
     if len(body.password) < 10:
         raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
     try:
+        now = utcnow()
         cur = db.execute(
-            """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-               VALUES (?,?,?,?,?,1,?)""",
+            # email_verified_at=now: an MLRO adding a known colleague is a
+            # different trust boundary from public self-registration -- see
+            # the equivalent comment in api_register_organization.
+            """INSERT INTO operators
+                   (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
+               VALUES (?,?,?,?,?,1,?,?)""",
             (session.org_id, body.name.strip(), body.email.strip().lower(),
-             auth.hash_password(body.password), body.role, utcnow()),
+             auth.hash_password(body.password), body.role, now, now),
         )
     except sqlite3.IntegrityError as exc:
         raise HTTPException(

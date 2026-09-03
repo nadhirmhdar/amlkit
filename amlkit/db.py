@@ -158,6 +158,24 @@ CREATE TABLE IF NOT EXISTS setup_tokens (
     expires_at TEXT
 );
 
+-- One-time link that proves a registering operator controls the email
+-- address they signed up with (see auth.py's login() guard and
+-- amlkit/mail.py). operator_id, not org_id: unlike setup_tokens (which
+-- creates the operator row on redemption), the operator row here already
+-- exists at token-creation time -- registration inserts it immediately, and
+-- this token only flips email_verified_at. Hashed at rest for the same
+-- reason every other token in this file is: the raw value is a credential
+-- for as long as it's live.
+CREATE TABLE IF NOT EXISTS email_verify_tokens (
+    id          INTEGER PRIMARY KEY,
+    operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    token_hash  TEXT NOT NULL UNIQUE,
+    used_at     TEXT,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_email_verify_operator ON email_verify_tokens(operator_id);
+
 -- ---------------------------------------------------------------- customers
 CREATE TABLE IF NOT EXISTS customers (
     id             INTEGER PRIMARY KEY,
@@ -286,6 +304,11 @@ CREATE TABLE IF NOT EXISTS operators (
     is_active          INTEGER NOT NULL DEFAULT 1,
     failed_login_count INTEGER NOT NULL DEFAULT 0,
     locked_until       TEXT,
+    -- NULL until the operator clicks the link in their verification email
+    -- (see email_verify_tokens below and auth.py's login() guard). Separate
+    -- from is_active: is_active is an admin's on/off switch for an operator
+    -- that already proved their email once, this is that one-time proof.
+    email_verified_at  TEXT,
     created_at         TEXT NOT NULL,
     UNIQUE (org_id, name)
 );
@@ -497,6 +520,11 @@ def utcnow() -> str:
 # a time bound), just for the one-time admin-claim link rather than a session.
 SETUP_TOKEN_LIFETIME = timedelta(days=7)
 
+# Shorter than SETUP_TOKEN_LIFETIME: this link is normally acted on within
+# minutes of registering, not forwarded around an org later, so there is
+# less reason to keep it live for a week. Resending issues a fresh one.
+EMAIL_VERIFY_TOKEN_LIFETIME = timedelta(days=3)
+
 
 # Columns added after the initial schema. `CREATE TABLE IF NOT EXISTS` will not
 # alter an existing table, so databases created by an earlier version need the
@@ -535,6 +563,7 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # backfilling a plausible-but-fictitious expiry for a link that may
     # already have been outstanding for months.
     ("setup_tokens", "expires_at", "ALTER TABLE setup_tokens ADD COLUMN expires_at TEXT"),
+    ("operators", "email_verified_at", "ALTER TABLE operators ADD COLUMN email_verified_at TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -548,6 +577,25 @@ def _migrate(conn: sqlite3.Connection) -> None:
         cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(ddl)
+
+
+def _backfill_email_verified(conn: sqlite3.Connection) -> None:
+    """One-time grandfathering, run only in the same connect() call that adds
+    the email_verified_at column to an existing (pre-verification) database.
+
+    Every operator that already has a password set has already completed the
+    old register-organization or /setup flow and has been logging in
+    successfully -- there is no historical proof of email control to check,
+    and introducing this column should not retroactively lock any of them
+    out. Only registrations from this point on go through the real check
+    (see api/mobile.py and api/app.py's register routes, and auth.login()'s
+    guard). A fresh install never calls this: CREATE TABLE IF NOT EXISTS
+    already includes the column, so there is nothing to backfill.
+    """
+    conn.execute(
+        "UPDATE operators SET email_verified_at=created_at "
+        "WHERE password_hash IS NOT NULL AND email_verified_at IS NULL"
+    )
 
 
 def _migrate_operators_table(conn: sqlite3.Connection) -> None:
@@ -777,7 +825,12 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     _migrate_operators_table(conn)
     _migrate_customers_table(conn)
+    _operators_cols_before_migrate = {
+        r["name"] for r in conn.execute("PRAGMA table_info(operators)")
+    }
     _migrate(conn)
+    if "email_verified_at" not in _operators_cols_before_migrate:
+        _backfill_email_verified(conn)
     _create_org_indexes(conn)
     from .ingest.fatf import load_fatf_data
     load_fatf_data(conn)

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Verify your email — Grovisor amlkit{% endblock %}
+{% block body %}
+
+<div style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
+  <div style="width:400px;">
+    <div style="text-align:center; margin-bottom:36px;">
+      <div style="font-size:30px; font-weight:800; letter-spacing:-0.02em; background:linear-gradient(100deg, var(--ink) 55%, oklch(48% 0.14 45)); -webkit-background-clip:text; background-clip:text; color:transparent;">amlkit</div>
+    </div>
+
+    <div class="panel">
+      <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Verify your email</h2>
+      <p>{{ err }}</p>
+      <p class="muted small">
+        Registered recently? Sign in with your email and password — you'll
+        be offered a way to resend the link from there.
+      </p>
+      <p class="text-center mt-4"><a href="/login">Back to sign in</a></p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

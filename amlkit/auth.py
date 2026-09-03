@@ -27,6 +27,7 @@ review rather than the obvious first draft:
 
 from __future__ import annotations
 
+import re
 import secrets
 import sqlite3
 from dataclasses import dataclass
@@ -36,7 +37,7 @@ from hashlib import sha256
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
-from .db import audit, utcnow
+from .db import EMAIL_VERIFY_TOKEN_LIFETIME, audit, utcnow
 
 _hasher = PasswordHasher()
 
@@ -54,7 +55,26 @@ LOCKOUT_MINUTES = 15
 class AuthError(RuntimeError):
     """Raised for any authentication failure. The message is always safe to
     show a user -- it never distinguishes 'no such email' from 'wrong
-    password', which is the property that matters, not the wording."""
+    password', which is the property that matters, not the wording.
+
+    The one deliberate exception is the "verify your email" message login()
+    raises once a password has already checked out: at that point the caller
+    has already proven they know the account's password, so telling them
+    specifically what's blocking sign-in leaks nothing an attacker guessing
+    passwords could use to enumerate accounts.
+    """
+
+
+# Shape-only check, matching the client-side regex the mobile app already
+# uses (RegisterOrgScreen.kt's EMAIL_PATTERN) -- catches "not an email at
+# all" cheaply before a registration attempt tries to send mail to it. It
+# cannot and does not prove the address is real or reachable; that's what
+# the verification link itself is for.
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def looks_like_email(value: str) -> bool:
+    return bool(EMAIL_RE.match(value.strip()))
 
 
 # --------------------------------------------------------------------- hash
@@ -187,7 +207,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
 
     row = conn.execute(
         """SELECT id, org_id, name, role, email, password_hash, is_active,
-                  failed_login_count, locked_until
+                  failed_login_count, locked_until, email_verified_at
            FROM operators WHERE lower(email) = ?""",
         (email,),
     ).fetchone()
@@ -235,6 +255,17 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
                         {"reason": "bad_password", "failed_count": failed})
         raise generic
 
+    if row["email_verified_at"] is None:
+        # Correct password, but the account was never activated. Safe to be
+        # specific here -- see AuthError's docstring -- and this is the one
+        # case where telling the user exactly what to do (check their inbox,
+        # or request a new link) matters more than a uniform error string.
+        _log_auth_event(conn, "login_failure", email, {"reason": "email_not_verified"})
+        raise AuthError(
+            "Please verify your email before signing in. Check your inbox for the "
+            "verification link, or request a new one."
+        )
+
     conn.execute(
         "UPDATE operators SET failed_login_count=0, locked_until=NULL WHERE id=?", (row["id"],)
     )
@@ -273,6 +304,95 @@ def set_password(conn: sqlite3.Connection, operator_id: int, new_password: str) 
     )
     conn.commit()
     revoke_sessions_for(conn, operator_id)
+
+
+# ------------------------------------------------------- email verification
+def create_email_verify_token(conn: sqlite3.Connection, operator_id: int) -> str:
+    """Issue a fresh one-time email-verification token for an operator.
+
+    Any previous unused token for this operator is marked used first, so at
+    most one link is ever live -- resending invalidates the old one rather
+    than leaving two simultaneously valid tokens outstanding.
+    """
+    now = utcnow()
+    conn.execute(
+        "UPDATE email_verify_tokens SET used_at=? WHERE operator_id=? AND used_at IS NULL",
+        (now, operator_id),
+    )
+    raw = _new_token()
+    expires_at = (datetime.now(timezone.utc) + EMAIL_VERIFY_TOKEN_LIFETIME).isoformat(
+        timespec="seconds"
+    )
+    conn.execute(
+        """INSERT INTO email_verify_tokens (operator_id, token_hash, created_at, expires_at)
+           VALUES (?,?,?,?)""",
+        (operator_id, _token_hash(raw), now, expires_at),
+    )
+    conn.commit()
+    return raw
+
+
+def last_email_verify_token_age_seconds(conn: sqlite3.Connection, operator_id: int) -> float | None:
+    """Seconds since this operator's most recent verification token was
+    issued, or None if they've never had one.
+
+    Used to throttle resends (see api/mobile.py and api/app.py's resend
+    routes) without adding a rate-limiting dependency or table: a resend
+    request within the cooldown window is a silent no-op from the caller's
+    point of view, since the previous link is still live anyway.
+    """
+    row = conn.execute(
+        "SELECT created_at FROM email_verify_tokens WHERE operator_id=? ORDER BY id DESC LIMIT 1",
+        (operator_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    created = datetime.fromisoformat(row["created_at"])
+    return (datetime.now(timezone.utc) - created).total_seconds()
+
+
+def valid_email_verify_token(conn: sqlite3.Connection, raw_token: str):
+    """Look up and validate a raw verification token.
+
+    Returns the token row (carrying operator_id) if unused and unexpired,
+    else None -- the same fail-closed shape as app.py's _valid_setup_token,
+    including treating a missing expires_at as already expired.
+    """
+    if not raw_token:
+        return None
+    row = conn.execute(
+        "SELECT id, operator_id, used_at, expires_at FROM email_verify_tokens WHERE token_hash=?",
+        (_token_hash(raw_token),),
+    ).fetchone()
+    if row is None or row["used_at"] is not None:
+        return None
+    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        return None
+    return row
+
+
+def consume_email_verify_token(conn: sqlite3.Connection, raw_token: str):
+    """Validate and redeem a verification token in one step.
+
+    Marks the token used and sets the operator's email_verified_at. Returns
+    the operator row (id, org_id, name, role, email) on success, or None if
+    the token was missing, already used, or expired.
+    """
+    row = valid_email_verify_token(conn, raw_token)
+    if row is None:
+        return None
+    now = utcnow()
+    conn.execute("UPDATE email_verify_tokens SET used_at=? WHERE id=?", (now, row["id"]))
+    conn.execute(
+        "UPDATE operators SET email_verified_at=? WHERE id=? AND email_verified_at IS NULL",
+        (now, row["operator_id"]),
+    )
+    operator = conn.execute(
+        "SELECT id, org_id, name, role, email FROM operators WHERE id=?",
+        (row["operator_id"],),
+    ).fetchone()
+    conn.commit()
+    return operator
 
 
 # --------------------------------------------------------------------- csrf
