@@ -209,6 +209,103 @@ class TestCustomers:
         assert r.json()["transaction_id"]
 
 
+class TestDocumentScan:
+    """Route-wiring tests only, not OCR correctness -- `tests/test_ocr.py`
+    already covers extraction/quality logic directly, and CI has no
+    tesseract binary, so the extraction/quality calls are monkeypatched
+    at their import site inside amlkit/api/mobile.py."""
+
+    def test_scan_passport_merges_image_quality_into_response(self, api, monkeypatch):
+        import amlkit.cases.ocr as ocr
+
+        monkeypatch.setattr(
+            ocr, "extract_passport_data",
+            lambda f: {"full_name": "Jane Doe", "id_number": "P1234567", "id_type": "passport"},
+        )
+        monkeypatch.setattr(
+            ocr, "assess_image_quality",
+            lambda f: {"width": 1200, "height": 800, "max_ela_error": 10, "flags": []},
+        )
+        client, headers = api
+        r = client.post(
+            "/api/v1/customers/scan-passport", headers=headers,
+            files={"passport_file": ("passport.jpg", b"fake-image-bytes", "image/jpeg")},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["full_name"] == "Jane Doe"
+        assert r.json()["image_quality"] == {"width": 1200, "height": 800, "max_ela_error": 10, "flags": []}
+
+    def test_scan_passport_extraction_failure_is_a_clean_400(self, api, monkeypatch):
+        import amlkit.cases.ocr as ocr
+
+        def boom(f):
+            raise ValueError("not a readable image")
+
+        monkeypatch.setattr(ocr, "extract_passport_data", boom)
+        client, headers = api
+        r = client.post(
+            "/api/v1/customers/scan-passport", headers=headers,
+            files={"passport_file": ("passport.jpg", b"not-an-image", "image/jpeg")},
+        )
+        assert r.status_code == 400
+        assert "not a readable image" in r.json()["detail"]
+
+    def test_scan_passport_requires_auth(self, api):
+        client, _ = api
+        r = client.post(
+            "/api/v1/customers/scan-passport",
+            files={"passport_file": ("passport.jpg", b"fake-image-bytes", "image/jpeg")},
+        )
+        assert r.status_code == 401
+
+    def test_scan_emirates_id_merges_image_quality_into_response(self, api, monkeypatch):
+        import amlkit.cases.ocr as ocr
+
+        monkeypatch.setattr(
+            ocr, "extract_emirates_id_data",
+            lambda f: {
+                "full_name": "Ahmed Ali", "id_number": "784-1990-1234567-1",
+                "id_type": "emirates_id",
+                "expiry_check": {"expired": False, "expiring_soon": False, "days_until_expiry": 900, "flags": []},
+            },
+        )
+        monkeypatch.setattr(
+            ocr, "assess_image_quality",
+            lambda f: {"width": 300, "height": 200, "max_ela_error": 5, "flags": ["low resolution (300x200)"]},
+        )
+        client, headers = api
+        r = client.post(
+            "/api/v1/customers/scan-emirates-id", headers=headers,
+            files={"emirates_id_file": ("id.jpg", b"fake-image-bytes", "image/jpeg")},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["id_number"] == "784-1990-1234567-1"
+        assert r.json()["image_quality"]["flags"] == ["low resolution (300x200)"]
+
+    def test_scan_emirates_id_extraction_failure_is_a_clean_400(self, api, monkeypatch):
+        import amlkit.cases.ocr as ocr
+
+        def boom(f):
+            raise ValueError("no tesseract binary available")
+
+        monkeypatch.setattr(ocr, "extract_emirates_id_data", boom)
+        client, headers = api
+        r = client.post(
+            "/api/v1/customers/scan-emirates-id", headers=headers,
+            files={"emirates_id_file": ("id.jpg", b"not-an-image", "image/jpeg")},
+        )
+        assert r.status_code == 400
+        assert "no tesseract binary available" in r.json()["detail"]
+
+    def test_scan_emirates_id_requires_auth(self, api):
+        client, _ = api
+        r = client.post(
+            "/api/v1/customers/scan-emirates-id",
+            files={"emirates_id_file": ("id.jpg", b"fake-image-bytes", "image/jpeg")},
+        )
+        assert r.status_code == 401
+
+
 class TestAlertsAndAdmin:
     def test_alert_disposition_requires_reason_code(self, api):
         client, headers = api

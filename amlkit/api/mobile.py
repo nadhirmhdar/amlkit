@@ -461,11 +461,28 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
 def api_scan_passport(session: Session, passport_file: UploadFile):
     import io
 
-    from ..cases.ocr import extract_passport_data
+    from ..cases.ocr import assess_image_quality, extract_passport_data
 
     try:
         content = passport_file.file.read()
-        return extract_passport_data(io.BytesIO(content))
+        result = extract_passport_data(io.BytesIO(content))
+        result["image_quality"] = assess_image_quality(io.BytesIO(content))
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/customers/scan-emirates-id")
+def api_scan_emirates_id(session: Session, emirates_id_file: UploadFile):
+    import io
+
+    from ..cases.ocr import assess_image_quality, extract_emirates_id_data
+
+    try:
+        content = emirates_id_file.file.read()
+        result = extract_emirates_id_data(io.BytesIO(content))
+        result["image_quality"] = assess_image_quality(io.BytesIO(content))
+        return result
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
