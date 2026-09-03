@@ -308,6 +308,10 @@ def login_submit(
     try:
         token, info = auth.login(db, email, password)
     except auth.AuthError as exc:
+        if "verify your email" in str(exc):
+            return render(request, "login.html", {
+                "session": None, "err": str(exc), "unverified_email": email.strip().lower(),
+            })
         return _login_page_error(request, str(exc))
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
@@ -368,10 +372,15 @@ def setup_submit(
 
     now = utcnow()
     cur = db.execute(
-        """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-           VALUES (?,?,?,?,?,1,?)""",
+        # email_verified_at=now, not NULL: claiming this link already proves
+        # control of *a* channel the admin trusted enough to hand the link
+        # through -- unlike public self-registration, there is no separate
+        # email-ownership gap left to close here (see auth.login()'s guard).
+        """INSERT INTO operators
+               (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
+           VALUES (?,?,?,?,?,1,?,?)""",
         (row["org_id"], name.strip(), email.strip().lower(),
-         auth.hash_password(password), "mlro", now),
+         auth.hash_password(password), "mlro", now, now),
     )
     operator_id = cur.lastrowid
     db.execute("UPDATE setup_tokens SET used_at=? WHERE id=?", (now, row["id"]))
@@ -429,6 +438,9 @@ def register_org_submit(
     if len(password) < 10:
         return render(request, "register_organization.html",
                       {"session": None, "err": "Password must be at least 10 characters."})
+    if not auth.looks_like_email(email):
+        return render(request, "register_organization.html",
+                      {"session": None, "err": "Enter a valid email address."})
 
     import re
     slug = re.sub(r"[^a-z0-9]+", "-", org_name.strip().lower()).strip("-") or "org"
@@ -458,16 +470,97 @@ def register_org_submit(
                       {"session": None, "err": "An account with that email already exists. Try signing in instead."})
     operator_id = cur2.lastrowid
     db.commit()
+    from .. import mail
     from ..db import audit
+
+    clean_email = email.strip().lower()
     audit(db, name.strip(), "organization.register", "organization", org_id,
           {"org_name": org_name.strip()}, org_id=org_id)
     db.commit()
 
-    session_token, _ = auth.login(db, email.strip().lower(), password)
-    resp = RedirectResponse("/", status_code=303)
+    # Not activated yet -- see auth.login()'s email_verified_at guard. Show a
+    # "check your email" panel instead of signing the operator straight in.
+    raw_token = auth.create_email_verify_token(db, operator_id)
+    emailed = mail.send_verification_email(clean_email, name.strip(), raw_token)
+    audit(db, name.strip(), "operator.verification_sent", "operator", operator_id,
+          {"email": clean_email}, org_id=org_id)
+    db.commit()
+
+    ctx = {
+        "session": None, "pending_email": clean_email,
+        "msg": f"Account created. Check {clean_email} for a verification link before signing in.",
+    }
+    if not emailed:
+        # No SMTP configured -- see amlkit/mail.py. Surface the same link
+        # that was printed to the console so registration stays testable
+        # without real mail infrastructure. Never shown once real mail is
+        # actually configured.
+        ctx["dev_verify_url"] = mail.verify_url(raw_token)
+    return render(request, "register_organization.html", ctx)
+
+
+@app.get("/verify-email", response_class=HTMLResponse)
+def verify_email(request: Request, db: DB, token: str = ""):
+    operator = auth.consume_email_verify_token(db, token)
+    if operator is None:
+        return render(request, "verify_email.html", {
+            "session": None, "valid": False,
+            "err": "This verification link is invalid, expired, or already used.",
+        })
+    from ..db import audit
+    audit(db, operator["name"], "operator.email_verified", "operator", operator["id"],
+          {"email": operator["email"]}, org_id=operator["org_id"])
+    db.commit()
+
+    from urllib.parse import quote
+
+    session_token = auth.create_session(db, operator["id"], operator["org_id"])
+    # create_session() only writes the sessions row -- unlike auth.login(),
+    # it has no reason to audit a "login" on every call, since most callers
+    # (login() itself) already do that around it. This route bypasses
+    # login() entirely (no password to re-check), so without this the
+    # operator's very first session would leave no audit trail entry at all.
+    audit(db, operator["name"], "operator.login", "operator", operator["id"],
+          None, org_id=operator["org_id"])
+    db.commit()
+    resp = RedirectResponse("/?msg=" + quote("Email verified. Welcome to amlkit."), status_code=303)
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     max_age=_COOKIE_MAX_AGE)
     return resp
+
+
+@app.post("/resend-verification")
+def resend_verification(
+    request: Request, db: DB,
+    email: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Always redirects to the same generic message, whether or not the
+    email belongs to a real, still-unverified account -- same
+    anti-enumeration reasoning as auth.login()'s single error string."""
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return _login_page_error(request, str(exc))
+
+    generic_msg = "If that email has a pending registration, a new verification link has been sent."
+    clean_email = email.strip().lower()
+    row = db.execute(
+        "SELECT id, org_id, name, email_verified_at FROM operators WHERE lower(email)=?",
+        (clean_email,),
+    ).fetchone()
+    if row is not None and row["email_verified_at"] is None:
+        age = auth.last_email_verify_token_age_seconds(db, row["id"])
+        if age is None or age >= 60:
+            from .. import mail
+            from ..db import audit
+
+            raw_token = auth.create_email_verify_token(db, row["id"])
+            mail.send_verification_email(clean_email, row["name"], raw_token)
+            audit(db, row["name"], "operator.verification_resent", "operator", row["id"],
+                  {"email": clean_email}, org_id=row["org_id"])
+            db.commit()
+    return render(request, "login.html", {"session": None, "msg": generic_msg})
 
 
 # ------------------------------------------------------------------ home
@@ -1173,11 +1266,19 @@ def admin_create_operator(
     if len(password) < 10:
         return back("/admin", err="Password must be at least 10 characters.")
     try:
+        now = utcnow()
         cur = db.execute(
-            """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-               VALUES (?,?,?,?,?,1,?)""",
+            # email_verified_at=now: an MLRO adding a known colleague inside
+            # their own org is a different trust boundary from public
+            # self-registration (see /register-organization) -- the admin is
+            # already vouching for this person's identity, so there is no
+            # separate email-ownership gap to close (see auth.login()'s
+            # guard).
+            """INSERT INTO operators
+                   (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
+               VALUES (?,?,?,?,?,1,?,?)""",
             (session.org_id, name.strip(), email.strip().lower(),
-             auth.hash_password(password), role, utcnow()),
+             auth.hash_password(password), role, now, now),
         )
     except sqlite3.IntegrityError:
         return back("/admin", err="An operator with that name or email already exists.")
@@ -1347,10 +1448,15 @@ async def system_create_operator(request: Request):
             return JSONResponse({"error": "no matching active organization"}, status_code=404)
 
         try:
+            now = utcnow()
             cur = conn.execute(
-                """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-                   VALUES (?,?,?,?,?,1,?)""",
-                (org["id"], name, email, auth.hash_password(password), role, utcnow()),
+                # email_verified_at=now, matching admin_create_operator's
+                # reasoning above -- whoever holds ADMIN_API_SECRET is
+                # already a trusted operator, not a public self-signup.
+                """INSERT INTO operators
+                       (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
+                   VALUES (?,?,?,?,?,1,?,?)""",
+                (org["id"], name, email, auth.hash_password(password), role, now, now),
             )
         except sqlite3.IntegrityError:
             return JSONResponse({"error": "an operator with that name or email already exists"}, status_code=409)

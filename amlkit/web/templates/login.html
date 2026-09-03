@@ -32,6 +32,14 @@
 
       <div style="text-align:center; font-size:12px; color:var(--ink-3);">Single sign-on across your firm's workspace.</div>
 
+      {% if unverified_email %}
+      <form method="post" action="/resend-verification" style="text-align:center;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="email" value="{{ unverified_email }}">
+        <button type="submit" class="btn-glow" style="font-size:12px; padding:8px 14px;">Resend verification email</button>
+      </form>
+      {% endif %}
+
       <div style="text-align:center; font-size:12px; color:var(--ink-3); line-height:1.8;">
         <div>Forgot your password? Contact your MLRO to reset it.</div>
         <div>New organization? <a href="/register-organization">Register one</a>.</div>

@@ -20,7 +20,17 @@ from tests.test_api import _seed_sanctions_data, LISTED  # noqa: E402
 
 @pytest.fixture()
 def api(tmp_path, monkeypatch):
-    """(client, headers) for a freshly registered org's MLRO, over the JSON API."""
+    """(client, headers) for a freshly registered, verified org's MLRO, over
+    the JSON API.
+
+    Registration alone no longer returns a usable token (see
+    api/mobile.py's api_register_organization) -- it sends a verification
+    link and, with no SMTP configured in tests, hands the raw token back in
+    the response as `dev_verification_token` instead (see amlkit/mail.py).
+    This fixture redeems that token via /auth/verify-email, exactly like a
+    real user clicking the emailed link would, to get back a working
+    bearer token.
+    """
     db_file = tmp_path / "test.db"
     monkeypatch.setenv("AMLKIT_DB", str(db_file))
     monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
@@ -35,12 +45,17 @@ def api(tmp_path, monkeypatch):
         "password": "a-strong-password-1",
     })
     assert r.status_code == 200, r.text
-    token = r.json()["token"]
+    assert r.json()["status"] == "verification_required"
+    verify_token = r.json()["dev_verification_token"]
+
+    r2 = c.post("/api/v1/auth/verify-email", json={"token": verify_token})
+    assert r2.status_code == 200, r2.text
+    token = r2.json()["token"]
     return c, {"Authorization": f"Bearer {token}"}
 
 
 class TestAuth:
-    def test_register_returns_usable_token(self, api):
+    def test_register_then_verify_returns_usable_token(self, api):
         client, headers = api
         r = client.get("/api/v1/dashboard", headers=headers)
         assert r.status_code == 200

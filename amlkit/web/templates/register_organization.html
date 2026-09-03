@@ -9,34 +9,54 @@
     </div>
 
     <div class="panel">
-      <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Register your firm</h2>
-      <p class="muted small mt-0">
-        Creates a new, fully isolated workspace — your firm's screening data is
-        never visible to any other organization using this deployment — and its
-        first login, with the MLRO role.
-      </p>
-      <form method="post" action="/register-organization">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <div class="field">
-          <label>Firm name</label>
-          <input type="text" name="org_name" autofocus required>
-        </div>
-        <div class="field">
-          <label>Your name</label>
-          <input type="text" name="name" required>
-        </div>
-        <div class="field">
-          <label>Email</label>
-          <input type="text" name="email" autocomplete="username" required>
-        </div>
-        <div class="field">
-          <label>Password — at least 10 characters</label>
-          <input type="password" name="password" id="reg-password" autocomplete="new-password" required minlength="10" onkeyup="checkStrength()">
-          <div class="progress-track mt-4"><div class="progress-track__fill" id="pwd-strength" style="width:0%; background:var(--danger);"></div></div>
-          <div class="muted small mt-4" id="pwd-feedback">At least 10 characters, 1 uppercase, 1 number</div>
-        </div>
-        <button type="submit" class="btn-glow mt-4">Create organization &amp; sign in</button>
-      </form>
+      {% if pending_email %}
+        <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Check your email</h2>
+        <p class="muted small mt-0">
+          We sent a verification link to <strong>{{ pending_email }}</strong>.
+          Open it to activate your account and sign in — the link expires in
+          3 days.
+        </p>
+        {% if dev_verify_url %}
+        <p class="muted small" style="border-top:1px solid var(--line); padding-top:12px;">
+          No mail server is configured on this deployment yet, so here is the
+          link directly: <a href="{{ dev_verify_url }}">{{ dev_verify_url }}</a>
+        </p>
+        {% endif %}
+        <form method="post" action="/resend-verification" class="mt-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="email" value="{{ pending_email }}">
+          <button type="submit" class="btn-glow">Resend verification email</button>
+        </form>
+      {% else %}
+        <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Register your firm</h2>
+        <p class="muted small mt-0">
+          Creates a new, fully isolated workspace — your firm's screening data is
+          never visible to any other organization using this deployment — and its
+          first login, with the MLRO role.
+        </p>
+        <form method="post" action="/register-organization">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="field">
+            <label>Firm name</label>
+            <input type="text" name="org_name" autofocus required>
+          </div>
+          <div class="field">
+            <label>Your name</label>
+            <input type="text" name="name" required>
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input type="text" name="email" autocomplete="username" required>
+          </div>
+          <div class="field">
+            <label>Password — at least 10 characters</label>
+            <input type="password" name="password" id="reg-password" autocomplete="new-password" required minlength="10" onkeyup="checkStrength()">
+            <div class="progress-track mt-4"><div class="progress-track__fill" id="pwd-strength" style="width:0%; background:var(--danger);"></div></div>
+            <div class="muted small mt-4" id="pwd-feedback">At least 10 characters, 1 uppercase, 1 number</div>
+          </div>
+          <button type="submit" class="btn-glow mt-4">Create organization</button>
+        </form>
+      {% endif %}
     </div>
 
     <p class="text-center muted small mt-4">
