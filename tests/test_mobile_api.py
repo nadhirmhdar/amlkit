@@ -250,6 +250,29 @@ class TestDocumentScan:
         assert r.status_code == 400
         assert "not a readable image" in r.json()["detail"]
 
+    def test_scan_passport_failure_includes_quality_flags_when_available(self, api, monkeypatch):
+        """Quality assessment is independent of extraction, so a bad photo
+        still gets a diagnostic flag folded into the 400 even when
+        extraction itself throws outright -- the case it's most useful in."""
+        import amlkit.cases.ocr as ocr
+
+        def boom(f):
+            raise ValueError("MRZ not found")
+
+        monkeypatch.setattr(ocr, "extract_passport_data", boom)
+        monkeypatch.setattr(
+            ocr, "assess_image_quality",
+            lambda f: {"width": 100, "height": 80, "max_ela_error": 0, "flags": ["low resolution (100x80)"]},
+        )
+        client, headers = api
+        r = client.post(
+            "/api/v1/customers/scan-passport", headers=headers,
+            files={"passport_file": ("passport.jpg", b"not-an-image", "image/jpeg")},
+        )
+        assert r.status_code == 400
+        assert "MRZ not found" in r.json()["detail"]
+        assert "low resolution (100x80)" in r.json()["detail"]
+
     def test_scan_passport_requires_auth(self, api):
         client, _ = api
         r = client.post(

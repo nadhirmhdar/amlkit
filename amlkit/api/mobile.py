@@ -457,34 +457,49 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
     }
 
 
-@router.post("/customers/scan-passport")
-def api_scan_passport(session: Session, passport_file: UploadFile):
+def _scan_document(content: bytes, extractor) -> dict:
+    """Shared body for the passport/Emirates-ID scan routes.
+
+    Image-quality is assessed independently of extraction -- in its own
+    try/except, swallowed on failure -- so a bad photo still gets a
+    diagnostic flag (e.g. "low resolution") folded into the 400 even when
+    extraction itself throws outright, which is exactly the case where that
+    signal is most useful to the person retaking the photo.
+    """
     import io
 
-    from ..cases.ocr import assess_image_quality, extract_passport_data
+    from ..cases.ocr import assess_image_quality
+
+    quality = None
+    try:
+        quality = assess_image_quality(io.BytesIO(content))
+    except Exception:
+        pass
 
     try:
-        content = passport_file.file.read()
-        result = extract_passport_data(io.BytesIO(content))
-        result["image_quality"] = assess_image_quality(io.BytesIO(content))
-        return result
+        result = extractor(io.BytesIO(content))
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        detail = str(exc)
+        if quality and quality.get("flags"):
+            detail += " (image quality: " + "; ".join(quality["flags"]) + ")"
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+    result["image_quality"] = quality
+    return result
+
+
+@router.post("/customers/scan-passport")
+def api_scan_passport(session: Session, passport_file: UploadFile):
+    from ..cases.ocr import extract_passport_data
+
+    return _scan_document(passport_file.file.read(), extract_passport_data)
 
 
 @router.post("/customers/scan-emirates-id")
 def api_scan_emirates_id(session: Session, emirates_id_file: UploadFile):
-    import io
+    from ..cases.ocr import extract_emirates_id_data
 
-    from ..cases.ocr import assess_image_quality, extract_emirates_id_data
-
-    try:
-        content = emirates_id_file.file.read()
-        result = extract_emirates_id_data(io.BytesIO(content))
-        result["image_quality"] = assess_image_quality(io.BytesIO(content))
-        return result
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _scan_document(emirates_id_file.file.read(), extract_emirates_id_data)
 
 
 @router.get("/customers/{customer_id}")
