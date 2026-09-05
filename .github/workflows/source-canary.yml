@@ -202,21 +202,25 @@ jobs:
       # deploy is traceable to the exact commit that produced it. --timeout
       # 900: /system/refresh runs the sanctions refresh synchronously, so the
       # request needs to be allowed to run long enough.
-      # AMLKIT_SMTP_* come from repo secrets, not the "preserve existing"
-      # dance above -- unlike SCHEDULER_SECRET/ADMIN_API_SECRET they're never
-      # generated, just held in GitHub and re-supplied on every deploy, so
-      # --set-env-vars replacing the whole list each run is a non-issue for
-      # these. Leaving AMLKIT_SMTP_HOST unset (secret not configured) is a
-      # supported state -- amlkit/mail.py falls back to console-logging the
-      # verification link instead of emailing it.
+      # AMLKIT_SMTP_* configure real verification-email delivery via
+      # SendGrid's SMTP relay. Host/port/user are SendGrid's fixed relay
+      # convention (smtp.sendgrid.net:587, username literally "apikey"), and
+      # noreply@grovisor.ae is the domain already verified in Sender
+      # Authentication -- none of those are secret. The password is the
+      # same amlkit-prod SendGrid API key already stored as SENDGRID_API_KEY
+      # (Mail Send scope) rather than duplicated into a second secret. Unlike
+      # SCHEDULER_SECRET/ADMIN_API_SECRET above, none of this needs the
+      # "preserve existing" dance -- these values are static, not generated
+      # per-deploy, so --set-env-vars replacing the whole list each run is a
+      # non-issue for them.
       - name: Deploy to Cloud Run
         env:
-          AMLKIT_SMTP_HOST: ${{ secrets.AMLKIT_SMTP_HOST }}
-          AMLKIT_SMTP_PORT: ${{ secrets.AMLKIT_SMTP_PORT }}
-          AMLKIT_SMTP_USER: ${{ secrets.AMLKIT_SMTP_USER }}
-          AMLKIT_SMTP_PASSWORD: ${{ secrets.AMLKIT_SMTP_PASSWORD }}
-          AMLKIT_SMTP_FROM: ${{ secrets.AMLKIT_SMTP_FROM }}
-          AMLKIT_SMTP_USE_TLS: ${{ secrets.AMLKIT_SMTP_USE_TLS }}
+          AMLKIT_SMTP_HOST: smtp.sendgrid.net
+          AMLKIT_SMTP_PORT: "587"
+          AMLKIT_SMTP_USER: apikey
+          AMLKIT_SMTP_PASSWORD: ${{ secrets.SENDGRID_API_KEY }}
+          AMLKIT_SMTP_FROM: noreply@grovisor.ae
+          AMLKIT_SMTP_USE_TLS: "1"
         run: |
           gcloud run deploy amlkit \
             --image "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/amlkit/amlkit:${{ github.sha }}" \
