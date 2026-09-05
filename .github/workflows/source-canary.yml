@@ -197,6 +197,24 @@ jobs:
           echo "SCHEDULER_SECRET=$SCHEDULER_SECRET" >> "$GITHUB_ENV"
           echo "ADMIN_API_SECRET=$ADMIN_API_SECRET" >> "$GITHUB_ENV"
 
+      # AMLKIT_APP_BASE_URL was never set at all, so mail.py's
+      # send_verification_email() fell back to its http://127.0.0.1:8000
+      # default on every registration -- the emailed link pointed at the
+      # recipient's own machine instead of the deployed service, making
+      # every verification link sent so far unusable. The service's own URL
+      # is stable across revisions once it exists (Cloud Run doesn't change
+      # it on redeploy), so this reads it back from the current service the
+      # same way "Report deployed URL" does after deploying, rather than
+      # hardcoding it -- a one-time manual `gcloud run services describe`
+      # on first deploy for a not-yet-existing service would need a
+      # different bootstrap anyway.
+      - name: Resolve app base URL
+        run: |
+          APP_BASE_URL=$(gcloud run services describe amlkit --platform managed \
+            --region "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
+            --format "value(status.url)" 2>/dev/null || true)
+          echo "APP_BASE_URL=$APP_BASE_URL" >> "$GITHUB_ENV"
+
       # Same shape as the old (removed) manual deploy scripts --
       # min-instances 0 to keep idle cost at $0, tagged by commit SHA so every
       # deploy is traceable to the exact commit that produced it. --timeout
@@ -228,7 +246,7 @@ jobs:
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
-            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS}" \
+            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS}" \
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \
