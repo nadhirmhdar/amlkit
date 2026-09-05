@@ -157,7 +157,24 @@ async def _lifespan(app):
     Cloud Run may scale to zero (killing the scheduler) when idle for long
     periods. The /system/refresh endpoint below provides a reliable fallback
     that Cloud Scheduler can call via HTTP even after a cold start.
+
+    Skipped entirely when AMLKIT_BEHIND_PROXY=1 (Cloud Run): the eager
+    next_run_time=datetime.now() below means this fired run_sanctions_refresh()
+    -- six external network fetches plus a full re-screen of every active
+    org's entire customer book -- on every cold start, on the same
+    single-vCPU instance that was simultaneously trying to serve the request
+    that caused that cold start. With min-instances=0 a cold start happens on
+    most session gaps, so in practice this meant most testers' first request
+    of a session raced a multi-source ingest+rescreen job for CPU, network,
+    and SQLite write locks. Cloud Scheduler's daily call to /system/refresh
+    already covers the 24-hour rule reliably here (see
+    .github/workflows/source-canary.yml) and runs as one ordinary request at
+    a controlled time instead of unpredictably stacking onto whichever
+    request happens to cold-start the container.
     """
+    if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
+        yield
+        return
     try:
         from datetime import datetime
 
