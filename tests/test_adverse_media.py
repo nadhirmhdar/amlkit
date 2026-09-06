@@ -530,9 +530,6 @@ class TestMobileApi:
     def api(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "api.db"))
         monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from test_mobile_api import api as _api  # noqa: F401
-
         from fastapi.testclient import TestClient
 
         from amlkit.api.app import app
