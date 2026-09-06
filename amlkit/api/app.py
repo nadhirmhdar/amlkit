@@ -86,7 +86,8 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     """
     from ..ingest.base import AdapterError
     from ..ingest.loader import load
-    from ..ingest.opensanctions import uae_local_terrorists, cia_world_leaders
+    from ..ingest.eocn import uae_local_terrorists
+    from ..ingest.cia import cia_world_leaders
     from ..ingest.un import UNSanctionsAdapter
     from ..ingest.ofac import OFACSDNAdapter
     from ..ingest.eu import EUSanctionsAdapter

@@ -1,12 +1,21 @@
 """OpenSanctions adapter (FollowTheMoney JSON-lines).
 
-LICENCE WARNING
----------------
-OpenSanctions data is free for non-commercial use only. There are no
-exemptions for commercial users. While this adapter is the active source the
-tool must not be sold or used to provide a paid service. Swap to the
-primary-source adapters in `un.py` / `ofac.py` / `eocn.py` before any
-commercial use -- that is precisely why the adapter boundary exists.
+LICENCE WARNING -- NOT IN THE PRODUCTION REFRESH PATH
+-----------------------------------------------------
+OpenSanctions data is free for non-commercial use only, with no exemptions for
+commercial users. This adapter is therefore NOT loaded by `scripts/refresh.py`,
+`api/app.py::run_sanctions_refresh`, or the CI source canary. Those all read
+the primary sources instead: `eocn.py` (UAE Local Terrorist List), `un.py`,
+`ofac.py`, `uk.py`, `eu.py` and `cia.py`.
+
+It is kept because it remains genuinely useful for non-commercial work: it is
+the fastest way to stand up a full consolidated dataset for development, and
+it is the reference to diff the primary-source adapters against when their
+counts move unexpectedly.
+
+Anything that wires this back into a shipped, sold deployment re-imposes the
+non-commercial restriction on the whole product. That is the line the adapter
+boundary in `base.py` exists to keep crossable in one direction only.
 """
 
 from __future__ import annotations
