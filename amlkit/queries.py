@@ -241,6 +241,8 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
             if a["customer_id"] == customer_id
         ],
         "signatures": signatures_for_customer(conn, customer_id, org_id),
+        "adverse_media": adverse_media_for_customer(conn, customer_id, org_id),
+        "adverse_media_runs": adverse_media_runs(conn, customer_id, org_id),
         "audit": audit_trail(conn, org_id, "customer", customer_id),
     }
 
@@ -366,3 +368,71 @@ def report(conn: sqlite3.Connection, report_id: int, org_id: int) -> dict[str, A
         "LEFT JOIN customers c ON c.id = r.customer_id "
         "WHERE r.id=? AND r.org_id=?", (report_id, org_id)).fetchone()
     return dict(row) if row else None
+
+
+def adverse_media_for_customer(
+    conn: sqlite3.Connection, customer_id: int, org_id: int, limit: int = 200
+) -> list[dict[str, Any]]:
+    """Adverse-media findings for one customer, worst and least-reviewed first.
+
+    Ordered by status before severity: an open financial-crime finding and an
+    already-dismissed one are not equally urgent, and a triage list that
+    buries the undecided rows under settled ones is a list nobody works
+    through.
+    """
+    rows = conn.execute(
+        """SELECT * FROM adverse_media_findings
+           WHERE org_id=? AND customer_id=?
+           ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'relevant' THEN 1 ELSE 2 END,
+                    CASE severity
+                        WHEN 'financial_crime_alleged' THEN 0
+                        WHEN 'regulatory_action' THEN 1
+                        WHEN 'reputational_only' THEN 2 ELSE 3 END,
+                    CASE name_evidence WHEN 'title' THEN 0 ELSE 1 END,
+                    published_at DESC
+           LIMIT ?""",
+        (org_id, customer_id, limit),
+    ).fetchall()
+    return [dict(r) | {"matched_terms": json.loads(r["matched_terms"] or "[]")} for r in rows]
+
+
+def adverse_media_runs(
+    conn: sqlite3.Connection, customer_id: int, org_id: int, limit: int = 50
+) -> list[dict[str, Any]]:
+    """History of adverse-media checks for one customer, including failed ones.
+
+    Failed runs are returned deliberately. The evidence pack has to be able to
+    say "checked on this date, provider unreachable" -- omitting those would
+    make a file with a broken check look exactly like one with a clean result.
+    """
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM adverse_media_screenings WHERE org_id=? AND customer_id=?"
+        " ORDER BY run_at DESC LIMIT ?",
+        (org_id, customer_id, limit))]
+
+
+def adverse_media_queue(
+    conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200
+) -> list[dict[str, Any]]:
+    """Org-wide adverse-media findings with customer context, for triage.
+
+    Mirrors alert_queue/transaction_alert_queue's shape so the alerts page can
+    render a third finding type without a third set of markup conventions.
+    """
+    sql = """
+        SELECT f.*, c.reference, c.full_name AS customer_name
+        FROM adverse_media_findings f
+        LEFT JOIN customers c ON c.id = f.customer_id
+        WHERE f.org_id = ?
+    """
+    params: list[Any] = [org_id]
+    if status:
+        sql += " AND f.status = ?"
+        params.append(status)
+    sql += (" ORDER BY CASE f.severity"
+            "   WHEN 'financial_crime_alleged' THEN 0"
+            "   WHEN 'regulatory_action' THEN 1"
+            "   WHEN 'reputational_only' THEN 2 ELSE 3 END,"
+            " f.created_at DESC LIMIT ?")
+    return [dict(r) | {"matched_terms": json.loads(r["matched_terms"] or "[]")}
+            for r in conn.execute(sql, (*params, limit))]

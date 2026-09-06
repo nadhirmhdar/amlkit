@@ -16,6 +16,7 @@ an inspection. Three obligations drive the design:
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -25,6 +26,12 @@ from ..db import audit, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, ScreeningResult, screen
 from ..names.arabic import canonical_key
 from ..risk.model import CustomerProfile, RiskAssessment, assess, save as save_risk
+from ..screening.adverse_media import (
+    DEFAULT_WINDOW_MONTHS,
+    AdverseMediaResult,
+    search,
+    worst_severity,
+)
 
 UBO_THRESHOLD_PCT = 25.0
 RETENTION_YEARS = 5
@@ -508,3 +515,237 @@ def add_case_note(
         audit(conn, author, "case_note.add", "customer", customer_id,
               {"note_id": cur.lastrowid}, org_id=org_id)
         return cur.lastrowid
+
+
+# ---------------------------------------------------------------- adverse media
+def run_adverse_media(
+    conn: sqlite3.Connection,
+    *,
+    org_id: int,
+    name: str,
+    name_arabic: str | None = None,
+    customer_id: int | None = None,
+    ubo_id: int | None = None,
+    trigger: str = "adhoc",
+    client: Any | None = None,
+    window_months: int = DEFAULT_WINDOW_MONTHS,
+    actor: str = "system",
+) -> tuple[int, AdverseMediaResult, int]:
+    """Search adverse coverage for one name and record the run.
+
+    Returns `(screening_id, result, new_findings)`. `new_findings` counts rows
+    actually written, which is lower than `len(result.findings)` whenever an
+    article has been seen for this customer before -- see the dedup note below.
+
+    The run row is written whether or not the provider answered. A record
+    saying "adverse media was checked on this date and the provider was
+    unreachable" is evidence of an attempted control; silently writing nothing
+    leaves a file that looks identical to one where nobody ever ran the check.
+    """
+    result = search(
+        name,
+        name_arabic=name_arabic,
+        client=client,
+        window_months=window_months,
+    )
+
+    now = utcnow()
+    new_findings = 0
+    with conn:
+        cur = conn.execute(
+            """INSERT INTO adverse_media_screenings
+               (org_id, customer_id, ubo_id, query_name, query_arabic, trigger,
+                provider, window_months, status, error, articles_considered,
+                findings, severity, run_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                org_id, customer_id, ubo_id, result.query, result.query_arabic,
+                trigger, result.provider, result.window_months, result.status,
+                result.error, result.articles_considered, len(result.findings),
+                result.severity, now,
+            ),
+        )
+        screening_id = cur.lastrowid
+
+        for f in result.findings:
+            # An article is immutable: the same URL is the same article, and
+            # re-surfacing one an operator has already ruled on turns a
+            # periodic re-run into a queue of decisions they have already
+            # made. Deduped across the whole customer, not just this run, and
+            # regardless of prior disposition. Ad-hoc searches (no customer)
+            # have nothing to dedup against and record every finding.
+            if customer_id is not None:
+                seen = conn.execute(
+                    "SELECT 1 FROM adverse_media_findings"
+                    " WHERE org_id=? AND customer_id=? AND url=? LIMIT 1",
+                    (org_id, customer_id, f.article.url),
+                ).fetchone()
+                if seen:
+                    continue
+            conn.execute(
+                """INSERT INTO adverse_media_findings
+                   (org_id, screening_id, customer_id, url, title, domain, language,
+                    source_country, published_at, severity, matched_terms,
+                    name_evidence, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    org_id, screening_id, customer_id, f.article.url, f.article.title,
+                    f.article.domain, f.article.language, f.article.source_country,
+                    f.article.published_at, f.severity,
+                    json.dumps(f.matched_terms, ensure_ascii=False),
+                    f.name_evidence, now,
+                ),
+            )
+            new_findings += 1
+
+        audit(
+            conn, actor, "adverse_media.screen",
+            "customer" if customer_id else "adverse_media_screening",
+            customer_id or screening_id,
+            {
+                "screening_id": screening_id,
+                "query": result.query,
+                "trigger": trigger,
+                "provider": result.provider,
+                "status": result.status,
+                "articles_considered": result.articles_considered,
+                "findings": len(result.findings),
+                "new_findings": new_findings,
+                "severity": result.severity,
+                "error": result.error,
+            },
+            org_id=org_id,
+        )
+    return screening_id, result, new_findings
+
+
+def disposition_adverse_media_finding(
+    conn: sqlite3.Connection,
+    finding_id: int,
+    org_id: int,
+    *,
+    status: str,
+    note: str = "",
+    actor: str = "system",
+) -> str | None:
+    """Rule on one adverse-media finding, then re-rate the customer.
+
+    Returns the customer's new risk rating, or None for an ad-hoc finding with
+    no customer attached.
+
+    No four-eyes requirement, for the same reason `disposition_transaction_alert`
+    has none (see kyt.py): the sanctions/PF review machinery exists because UAE
+    law places personal liability on a freeze-and-report decision. Judging
+    whether a news article is about your customer is a risk-rating input, not a
+    designation, and requiring two operators for every one of them at news
+    volume would degrade into rubber-stamping.
+
+    Marking a finding relevant is the ONLY path by which adverse media reaches
+    a risk rating. The provider cannot make that call: GDELT indexes coverage,
+    it does not decide that "Ahmed Al Mansoori" in a Reuters headline is *this*
+    Ahmed Al Mansoori. A human decides, and the rating follows.
+    """
+    if status not in ("relevant", "not_relevant"):
+        raise ValueError(f"invalid adverse media disposition: {status!r}")
+    with conn:
+        row = conn.execute(
+            "SELECT customer_id FROM adverse_media_findings WHERE id=? AND org_id=?",
+            (finding_id, org_id),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"adverse media finding {finding_id} not found")
+        now = utcnow()
+        conn.execute(
+            """UPDATE adverse_media_findings
+               SET status=?, disposition=?, dispositioned_by=?, dispositioned_at=?
+               WHERE id=? AND org_id=?""",
+            (status, note.strip() or None, actor, now, finding_id, org_id),
+        )
+        audit(conn, actor, "adverse_media.disposition", "adverse_media_finding",
+              finding_id, {"status": status, "note": note}, org_id=org_id)
+        customer_id = row["customer_id"]
+
+    if customer_id is None:
+        return None
+    return reassess_adverse_media(conn, customer_id, org_id, actor=actor)
+
+
+def adverse_media_severity(
+    conn: sqlite3.Connection, customer_id: int, org_id: int
+) -> str:
+    """Worst severity among findings an operator has marked relevant.
+
+    Open and not_relevant findings score nothing. An unreviewed lead is not a
+    finding about a customer, and rating someone high risk on an article
+    nobody has read is exactly the false-positive behaviour this codebase
+    rejects everywhere else.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT severity FROM adverse_media_findings"
+        " WHERE org_id=? AND customer_id=? AND status='relevant'",
+        (org_id, customer_id),
+    ).fetchall()
+    return worst_severity(r["severity"] for r in rows)
+
+
+def reassess_adverse_media(
+    conn: sqlite3.Connection, customer_id: int, org_id: int, *, actor: str = "system"
+) -> str | None:
+    """Re-rate a customer with their current adverse-media severity applied.
+
+    The other risk factors are read back from the customer's most recent
+    assessment's stored `factors` rather than recomputed from the customer
+    row. Two reasons, and the second is the important one:
+
+    * `jurisdiction_tier` and `structure` are onboarding inputs that have no
+      column on `customers` -- recomputing from the row alone would silently
+      drop them and could lower a rating.
+    * The stored factors ARE the previous assessment's reasoning. Carrying
+      them forward means the new assessment differs from the old one in
+      exactly one factor, so a supervisor comparing two dated assessments
+      sees adverse media as the single thing that changed -- which is what
+      actually happened.
+
+    Returns the new rating, or None when the customer has no prior assessment
+    to build on (nothing to re-rate, and inventing a profile would be worse).
+    """
+    prior = conn.execute(
+        "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"
+        " ORDER BY id DESC LIMIT 1",
+        (customer_id, org_id),
+    ).fetchone()
+    if prior is None:
+        return None
+
+    try:
+        factors = json.loads(prior["factors"]) or {}
+    except (TypeError, ValueError):
+        factors = {}
+
+    def prior_value(key: str, default: Any) -> Any:
+        entry = factors.get(key)
+        if isinstance(entry, dict) and entry.get("value") is not None:
+            return entry["value"]
+        return default
+
+    severity = adverse_media_severity(conn, customer_id, org_id)
+    profile = CustomerProfile(
+        pep_status=prior_value("pep", None),
+        jurisdiction_tier=prior_value("jurisdiction", "standard"),
+        sector=prior_value("sector", "other"),
+        ownership_state=ownership_state(
+            conn, customer_id, org_id,
+            (conn.execute(
+                "SELECT customer_type FROM customers WHERE id=? AND org_id=?",
+                (customer_id, org_id),
+            ).fetchone() or {"customer_type": "natural"})["customer_type"],
+        ),
+        delivery_channel=prior_value("delivery_channel", "face_to_face"),
+        cash_level=prior_value("cash_intensity", "non_cash"),
+        adverse_media=severity,
+        structure=prior_value("structure", "natural_person"),
+        sanctions_hit=bool(prior_value("sanctions_hit", False)),
+    )
+    assessment = assess(profile)
+    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor)
+    return assessment.rating

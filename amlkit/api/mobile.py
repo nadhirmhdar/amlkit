@@ -40,10 +40,12 @@ from ..cases.manager import (
     add_case_note,
     add_ubo,
     close_relationship,
+    disposition_adverse_media_finding,
     disposition_transaction_alert,
     onboard,
     record_signature,
     record_transaction,
+    run_adverse_media,
 )
 from ..cases.review import (
     REASON_CODES,
@@ -56,6 +58,7 @@ from ..cases.review import (
 )
 from ..db import set_org_alert_threshold, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
+from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
 from .deps import client_ip, get_db, require_role
 
 router = APIRouter(prefix="/api/v1")
@@ -618,6 +621,73 @@ def api_txn_alert_disposition(alert_id: int, body: TxnAlertDispositionRequest, d
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True}
+
+
+class AdverseMediaRunRequest(BaseModel):
+    window_months: int = DEFAULT_WINDOW_MONTHS
+
+
+@router.post("/customers/{customer_id}/adverse-media")
+def api_customer_run_adverse_media(
+    customer_id: int, body: AdverseMediaRunRequest, db: DB, session: Session
+):
+    """Run an adverse-media check for one customer.
+
+    Slow by design -- the provider is rate-limited to one request every five
+    seconds, and a customer with an Arabic name costs two. Clients should
+    treat this as a long-running action rather than a tap that returns
+    instantly.
+
+    A provider outage comes back as HTTP 200 with `status: "unavailable"`,
+    not an error status. The check WAS recorded, and a client that treated it
+    as a failed request would show the operator nothing happened when in fact
+    a row saying "attempted, provider down" now exists on the file.
+    """
+    data = queries.customer(db, customer_id, session.org_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Customer {customer_id} not found.")
+    c = data["customer"]
+    screening_id, result, new_findings = run_adverse_media(
+        db,
+        org_id=session.org_id,
+        customer_id=customer_id,
+        name=c["full_name"],
+        name_arabic=c["name_arabic"],
+        trigger="adhoc",
+        window_months=max(1, min(int(body.window_months or DEFAULT_WINDOW_MONTHS), 120)),
+        actor=session.operator_name,
+    )
+    return {
+        "screening_id": screening_id,
+        "status": result.status,
+        "error": result.error,
+        "articles_considered": result.articles_considered,
+        "findings": len(result.findings),
+        "new_findings": new_findings,
+        "severity": result.severity,
+        "attribution": GDELT_ATTRIBUTION,
+    }
+
+
+class AdverseMediaDispositionRequest(BaseModel):
+    status: str
+    note: str = ""
+
+
+@router.post("/adverse-media/{finding_id}/disposition")
+def api_adverse_media_disposition(
+    finding_id: int, body: AdverseMediaDispositionRequest, db: DB, session: Session
+):
+    try:
+        rating = disposition_adverse_media_finding(
+            db, finding_id, session.org_id, status=body.status, note=body.note,
+            actor=session.operator_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Returned so the client can refresh the risk band it is showing: marking
+    # a finding relevant is the one disposition here that can move a rating.
+    return {"ok": True, "risk_rating": rating}
 
 
 class SignatureRequest(BaseModel):

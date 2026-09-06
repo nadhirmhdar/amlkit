@@ -435,6 +435,78 @@ CREATE INDEX IF NOT EXISTS ix_txnalert_status ON transaction_alerts(status);
 CREATE INDEX IF NOT EXISTS ix_txnalert_org    ON transaction_alerts(org_id);
 CREATE INDEX IF NOT EXISTS ix_txnalert_cust   ON transaction_alerts(customer_id);
 
+-- ------------------------------------------------------------ adverse media
+-- Adverse media is a query-time check against an external news index (GDELT),
+-- not a list that gets ingested, so it gets its own pair of tables rather than
+-- reusing `screenings`/`alerts`: those structurally require an entity_id
+-- pointing at a row in `entities`, and a news article is not a listed entity.
+--
+-- The run row is written even when the provider was unreachable. That is the
+-- point of `status`: "we checked and found nothing" and "the check could not
+-- run" are different facts about a customer's file, and a compliance record
+-- that cannot tell them apart is worse than one that records no check at all.
+CREATE TABLE IF NOT EXISTS adverse_media_screenings (
+    id            INTEGER PRIMARY KEY,
+    org_id        INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    -- Nullable for the same reason `screenings.customer_id` is: an ad-hoc
+    -- search of a name nobody has onboarded yet is still that firm's record.
+    customer_id   INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+    ubo_id        INTEGER REFERENCES ubo_links(id) ON DELETE SET NULL,
+    query_name    TEXT NOT NULL,
+    query_arabic  TEXT,
+    trigger       TEXT NOT NULL,   -- onboarding | periodic | adhoc | review
+    provider      TEXT NOT NULL DEFAULT 'gdelt',
+    window_months INTEGER NOT NULL,
+    status        TEXT NOT NULL,   -- ok | unavailable
+    -- Set on 'ok' too, when one script's query succeeded and the other did
+    -- not: partial coverage is recorded rather than rounded up to full.
+    error         TEXT,
+    articles_considered INTEGER NOT NULL DEFAULT 0,
+    findings      INTEGER NOT NULL DEFAULT 0,
+    severity      TEXT NOT NULL DEFAULT 'none',
+    run_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_am_scr_org  ON adverse_media_screenings(org_id);
+CREATE INDEX IF NOT EXISTS ix_am_scr_cust ON adverse_media_screenings(customer_id);
+
+-- One row per article that mentioned the name AND carried a risk term.
+-- Metadata and a link only -- never article text. GDELT's own data is free
+-- for commercial use, but the articles it indexes belong to their publishers,
+-- and storing their text would be republishing someone else's copyright under
+-- this tool's name.
+CREATE TABLE IF NOT EXISTS adverse_media_findings (
+    id            INTEGER PRIMARY KEY,
+    org_id        INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    screening_id  INTEGER NOT NULL REFERENCES adverse_media_screenings(id) ON DELETE CASCADE,
+    customer_id   INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+    url           TEXT NOT NULL,
+    title         TEXT NOT NULL,
+    domain        TEXT,
+    language      TEXT,
+    source_country TEXT,
+    published_at  TEXT,
+    -- Matches the keys of factors.adverse_media.points_by_severity in
+    -- risk/ruleset.yaml exactly, so a finding marked relevant feeds the risk
+    -- model with no translation step that could drift out of sync.
+    severity      TEXT NOT NULL,
+    matched_terms TEXT NOT NULL,   -- json array: why this was classified so
+    -- 'title' if the screened name is in the headline, 'body' if GDELT
+    -- matched it in text we never see. Recorded, not used to filter: see
+    -- screening/adverse_media.py:_name_evidence.
+    name_evidence TEXT NOT NULL DEFAULT 'body',
+    -- open | relevant | not_relevant. Only 'relevant' feeds the risk model:
+    -- a news index cannot decide that an article is about this customer, so
+    -- a human decides before anything touches a rating.
+    status        TEXT NOT NULL DEFAULT 'open',
+    disposition   TEXT,
+    dispositioned_by TEXT,
+    dispositioned_at TEXT,
+    created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_am_find_org    ON adverse_media_findings(org_id);
+CREATE INDEX IF NOT EXISTS ix_am_find_cust   ON adverse_media_findings(customer_id);
+CREATE INDEX IF NOT EXISTS ix_am_find_status ON adverse_media_findings(status);
+
 -- ------------------------------------------------------------ electronic signatures
 -- content_hash is computed by the caller over the exact acknowledgment text
 -- shown to the signer at signing time (see cases/manager.py:record_signature).
