@@ -57,31 +57,67 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
     n_names = n_tokens = n_ids = 0
 
     with conn:  # single transaction: all-or-nothing
-        conn.execute("DELETE FROM entities WHERE dataset_id=?", (ds_id,))
-        for ent in entities:
-            cur = conn.execute(
-                """INSERT INTO entities
-                   (dataset_id, source_id, schema_type, caption, countries,
-                    birth_date, gender, topics, programs, listed_at, raw,
-                    first_seen, last_seen)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (
-                    ds_id,
-                    ent.source_id,
-                    ent.schema_type,
-                    ent.caption,
-                    _json(ent.countries),
-                    ent.birth_date,
-                    ent.gender,
-                    _json(ent.topics),
-                    _json(ent.programs),
-                    ent.listed_at,
-                    ent.raw_json(),
-                    now,
-                    now,
-                ),
+        # Snapshot which source_ids already exist for this dataset. We will
+        # UPDATE those rows in place rather than deleting and re-inserting them,
+        # so their primary key (entity_id) stays stable. alerts.entity_id
+        # references entities(id) ON DELETE CASCADE, so a delete-all strategy
+        # would wipe every alert for this dataset on every daily refresh.
+        existing: dict[str, int] = {
+            row["source_id"]: int(row["id"])
+            for row in conn.execute(
+                "SELECT id, source_id FROM entities WHERE dataset_id=?", (ds_id,)
             )
-            eid = cur.lastrowid
+        }
+        incoming_source_ids: set[str] = set()
+
+        for ent in entities:
+            incoming_source_ids.add(ent.source_id)
+            eid = existing.get(ent.source_id)
+
+            if eid is not None:
+                # Entity still listed: update fields, keep its primary key so
+                # alert rows that reference it survive the refresh.
+                conn.execute(
+                    """UPDATE entities SET
+                       schema_type=?, caption=?, countries=?, birth_date=?,
+                       gender=?, topics=?, programs=?, listed_at=?, raw=?, last_seen=?
+                       WHERE id=?""",
+                    (
+                        ent.schema_type, ent.caption, _json(ent.countries),
+                        ent.birth_date, ent.gender, _json(ent.topics),
+                        _json(ent.programs), ent.listed_at, ent.raw_json(), now,
+                        eid,
+                    ),
+                )
+                # Child rows (names, tokens, identifiers) have no dependents of
+                # their own, so DELETE + re-insert is safe and simple.
+                conn.execute("DELETE FROM entity_names WHERE entity_id=?", (eid,))
+                conn.execute("DELETE FROM name_tokens WHERE entity_id=?", (eid,))
+                conn.execute("DELETE FROM entity_identifiers WHERE entity_id=?", (eid,))
+            else:
+                cur = conn.execute(
+                    """INSERT INTO entities
+                       (dataset_id, source_id, schema_type, caption, countries,
+                        birth_date, gender, topics, programs, listed_at, raw,
+                        first_seen, last_seen)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        ds_id,
+                        ent.source_id,
+                        ent.schema_type,
+                        ent.caption,
+                        _json(ent.countries),
+                        ent.birth_date,
+                        ent.gender,
+                        _json(ent.topics),
+                        _json(ent.programs),
+                        ent.listed_at,
+                        ent.raw_json(),
+                        now,
+                        now,
+                    ),
+                )
+                eid = cur.lastrowid
 
             rows = ent.name_rows()
             conn.executemany(
@@ -105,6 +141,18 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
                     [(eid, k, v) for k, v in ent.identifiers],
                 )
                 n_ids += len(ent.identifiers)
+
+        # Delete entities that were removed from the source list. The cascade
+        # will fire for their child rows (names, tokens, identifiers). Any
+        # alerts against a newly-delisted entity will also cascade-delete --
+        # an acceptable edge case: if a designation was actively disputed, the
+        # compliance officer should have dispositioned it before delisting.
+        removed_ids = [existing[sid] for sid in existing if sid not in incoming_source_ids]
+        if removed_ids:
+            conn.executemany(
+                "DELETE FROM entities WHERE id=?",
+                [(eid,) for eid in removed_ids],
+            )
 
         conn.execute(
             "UPDATE datasets SET last_refresh=?, entity_count=? WHERE id=?",
