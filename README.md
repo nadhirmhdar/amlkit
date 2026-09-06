@@ -12,25 +12,49 @@ per-customer costs, which is the actual barrier for a 40-client firm.
 
 ---
 
-## ⚠️ Licence boundary — read before any commercial use
+## Data sources and licensing
 
-The active data source is **OpenSanctions**, which is free for
-**non-commercial use only**. There are no exemptions for commercial users.
+Every list is now ingested from its **primary publisher**, and every one of
+them is free to redistribute commercially:
 
-**While the OpenSanctions adapter is in use, this tool must not be sold or used
-to provide a paid service.** Every source sits behind the adapter interface in
-`amlkit/ingest/base.py` precisely so it can be swapped for direct
-primary-source ingestion (OFAC, UN, EU, UK, EOCN — all public domain and free
-to redistribute) before commercial launch.
+| Source | Publisher | Adapter | Licence |
+|---|---|---|---|
+| UAE Local Terrorist List | EOCN (`uaeiec.gov.ae`) | `ingest/eocn.py` | UAE Government publication |
+| UN Consolidated List | UN Security Council | `ingest/un.py` | Public domain |
+| OFAC SDN | US Treasury | `ingest/ofac.py` | Public domain |
+| UK Sanctions List | UK FCDO/OFSI | `ingest/uk.py` | Public domain |
+| EU Financial Sanctions | European Commission | `ingest/eu.py` | Public domain (token, see below) |
+| CIA World Leaders (PEPs) | US CIA | `ingest/cia.py` | Public domain (17 U.S.C. §105) |
 
-This is a hard line, not a formality.
+**OpenSanctions is no longer in the refresh path.** `ingest/opensanctions.py`
+is retained as a working adapter for non-commercial and comparison use, and
+carries a licence warning saying so — its data is CC-BY-NC 4.0, free for
+non-commercial use only, with no exemption for commercial users. Nothing in
+`scripts/refresh.py`, `api/app.py` or the CI canary loads it.
+
+The **EU** list needs an access token. The adapter ships with the token the
+Commission publishes in its own documentation, which is why it works out of
+the box, but that token is not this deployment's and can be rotated or
+rate-limited without notice. Register at
+<https://webgate.ec.europa.eu/fsd/fsf> and set `AMLKIT_EU_FSF_TOKEN` before
+depending on the EU list. The EU list is the one non-mandatory sanctions
+source, so a failure there degrades coverage rather than blocking a refresh.
+
+### PEP coverage is a baseline, not a full programme
+
+CIA World Leaders covers sitting officials — heads of state, ministers,
+central bank governors, ambassadors — for ~199 countries. It does **not**
+cover former officials, relatives, or close associates, all of which UAE CDD
+obligations also reach. Describe it as baseline PEP coverage, not PEP
+screening.
 
 ---
 
 ## What works today
 
-- **Sanctions screening** against the UAE Local Terrorist List (335 screenable
-  entities, refreshed daily from source)
+- **Sanctions screening** against the UAE Local Terrorist List (311 listed
+  entities — 171 individuals, 75 groups, 65 legal entities — read daily from
+  the EOCN's own published workbook, with its delisting sheets excluded)
 - **Arabic-aware matching** — the differentiator. Cross-script queries,
   transliteration variants, patronymic particles, reordered name chains
 - **Scored alerts with full evidence** — every alert stores its per-feature
@@ -126,7 +150,7 @@ Load the mandatory UAE list and screen a name:
 ```python
 from amlkit.db import connect, utcnow
 from amlkit.ingest.loader import load
-from amlkit.ingest.opensanctions import uae_local_terrorists
+from amlkit.ingest.eocn import uae_local_terrorists
 from amlkit.match.engine import screen
 
 conn = connect()
@@ -179,7 +203,9 @@ spellings are therefore consulted directly before transliteration — see
 |---|---|
 | SQLite, not Postgres | Runs on a compliance officer's laptop. One file, no daemon, backup = copy |
 | Own matcher, not `yente` | yente needs Elasticsearch at 8–16GB; and the Arabic layer needs to be ours |
-| OpenSanctions `logic-v2` weights | Publicly documented, well tested — better than inventing weights |
+| OpenSanctions `logic-v2` weights | Publicly documented, well tested — better than inventing weights (the weights are published research; the *data* licence is a separate question, see above) |
+| Primary sources, not an aggregator | An aggregator's licence becomes the product's licence. Every list is fetched from the body that publishes it |
+| EOCN's Excel, not its PDF | Same table, but as a table. PDF column reconstruction fails silently when a layout shifts |
 | Replace-on-refresh ingest | A delisted person must actually disappear; merge semantics leave stale hits |
 | Loud adapter failures | A silently-lapsed sanctions feed shows green while coverage is gone |
 | argon2 for passwords | Regulated financial-crime data for multiple firms; the "no new dependency" default doesn't apply here |

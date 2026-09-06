@@ -68,19 +68,33 @@ jobs:
           from amlkit.db import connect
           from amlkit.ingest.base import AdapterError
           from amlkit.ingest.loader import load
-          from amlkit.ingest.opensanctions import uae_local_terrorists, un_sanctions
+          from amlkit.ingest.eocn import uae_local_terrorists
+          from amlkit.ingest.cia import cia_world_leaders
+          from amlkit.ingest.un import UNSanctionsAdapter
+          from amlkit.ingest.ofac import OFACSDNAdapter
+          from amlkit.ingest.uk import UKSanctionsAdapter
 
+          # Every source the deployment actually screens against, straight
+          # from the primary publisher. This is the canary for THAT set: the
+          # previous version watched the OpenSanctions mirrors instead, which
+          # are no longer what production loads, so upstream drift in the real
+          # sources would not have shown up here.
+          #
           # Expected minimum entity counts. A source that suddenly returns far
           # fewer records has usually changed format rather than been emptied,
           # and that must fail rather than quietly shrink coverage.
           EXPECTED = {
               "ae_local_terrorists": 250,
-              "un_sc_sanctions": 800,
+              "un_consolidated": 700,
+              "ofac_sdn": 12000,
+              "uk_sanctions": 4000,
+              "us_cia_world_leaders": 4000,
           }
 
           conn = connect(":memory:")
           failed = []
-          for factory in (uae_local_terrorists, un_sanctions):
+          for factory in (uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
+                          UKSanctionsAdapter, cia_world_leaders):
               adapter = factory()
               try:
                   res = load(conn, adapter, actor="ci")

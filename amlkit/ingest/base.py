@@ -5,15 +5,19 @@ explicit about why it exists.
 
 OpenSanctions publishes an excellent consolidated dataset -- including the UAE
 Local Terrorist List, already parsed and deduplicated -- free for
-non-commercial use. It is by far the fastest way to a working system. But
-there are no licence exemptions for commercial users, so if this tool is ever
-sold, that data has to be either licensed or replaced.
+non-commercial use. It was by far the fastest way to a working system. But
+there are no licence exemptions for commercial users, so selling this tool
+meant that data had to be either licensed or replaced.
 
-Every source therefore normalises into one `SourceEntity` shape behind one
-interface. Swapping the OpenSanctions adapter for direct primary-source
-adapters (OFAC, UN, EU, UK, EOCN -- all public domain and free to
-redistribute) is then a configuration change, not a rewrite. Retrofitting this
-boundary later would mean touching matching, storage and reporting at once.
+Every source normalises into one `SourceEntity` shape behind one interface,
+so replacing it was a configuration change rather than a rewrite. That swap
+has now happened: the shipped refresh path reads primary sources only --
+`eocn.py` (UAE), `un.py`, `ofac.py`, `uk.py`, `eu.py`, `cia.py` -- all of them
+free to redistribute commercially. `opensanctions.py` stays behind the same
+interface for non-commercial and comparison use.
+
+The boundary earned its keep exactly once, and that was enough: retrofitting
+it later would have meant touching matching, storage and reporting at once.
 """
 
 from __future__ import annotations

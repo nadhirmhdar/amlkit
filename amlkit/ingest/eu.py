@@ -1,7 +1,23 @@
-"""EU Consolidated Sanctions List adapter."""
+"""EU Consolidated Sanctions List adapter.
+
+ACCESS TOKEN
+------------
+The Commission serves the Financial Sanctions Files behind a per-user token
+obtained by registering with the FSF distribution service. The default below
+is the long-standing token the Commission publishes in its own documentation
+and examples, which is why this adapter works out of the box -- but it is not
+this deployment's token, and the Commission can rotate or rate-limit it
+without notice.
+
+Before relying on the EU list in production, register at
+https://webgate.ec.europa.eu/fsd/fsf and set AMLKIT_EU_FSF_TOKEN. It is read
+at fetch time rather than import time so the deployment can rotate it without
+a rebuild.
+"""
 
 from __future__ import annotations
 
+import os
 import xml.etree.ElementTree as ET
 from typing import Iterator
 
@@ -9,8 +25,19 @@ import httpx
 
 from .base import AdapterError, SourceEntity
 
-URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNy0xMS0xMw"
+BASE_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content"
+DEFAULT_TOKEN = "dG9rZW4tMjAxNy0xMS0xMw"
+ENV_TOKEN = "AMLKIT_EU_FSF_TOKEN"
 USER_AGENT = "amlkit/0.1 (UAE AML screening; compliance tooling)"
+
+
+def list_url() -> str:
+    token = os.environ.get(ENV_TOKEN, "").strip() or DEFAULT_TOKEN
+    return f"{BASE_URL}?token={token}"
+
+
+# Kept for callers that imported the module-level constant.
+URL = list_url()
 
 
 class EUSanctionsAdapter:
@@ -20,7 +47,9 @@ class EUSanctionsAdapter:
         self.key = "eu_sanctions"
         self.title = "EU Consolidated Sanctions List"
         self.publisher = "European Union"
-        self.source_url = URL
+        # Resolved per instance, not at import, so a token set after startup
+        # (or in a test) is actually used.
+        self.source_url = list_url()
         self.licence = "Public Domain"
         self.is_mandatory = False
 
