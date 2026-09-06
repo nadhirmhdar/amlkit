@@ -253,6 +253,10 @@ jobs:
           AMLKIT_SMTP_PASSWORD: ${{ secrets.SENDGRID_API_KEY }}
           AMLKIT_SMTP_FROM: noreply@grovisor.ae
           AMLKIT_SMTP_USE_TLS: "1"
+          # EU FSF token — register at https://webgate.ec.europa.eu/fsd/fsf
+          # and store the issued token as repo secret EU_FSF_TOKEN. Falls back
+          # to the public example token if unset, which the EC may rate-limit.
+          AMLKIT_EU_FSF_TOKEN: ${{ secrets.EU_FSF_TOKEN }}
         run: |
           gcloud run deploy amlkit \
             --image "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/amlkit/amlkit:${{ github.sha }}" \
@@ -260,7 +264,7 @@ jobs:
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
-            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS}" \
+            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN}" \
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \
@@ -311,7 +315,10 @@ jobs:
               --http-method POST \
               --message-body "{}" \
               --update-headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
-              --attempt-deadline 900s
+              --attempt-deadline 900s \
+              --max-retry-count 3 \
+              --min-backoff 60s \
+              --max-backoff 300s
           else
             gcloud scheduler jobs create http "$JOB_NAME" \
               --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
@@ -320,5 +327,8 @@ jobs:
               --http-method POST \
               --message-body "{}" \
               --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
-              --attempt-deadline 900s
+              --attempt-deadline 900s \
+              --max-retry-count 3 \
+              --min-backoff 60s \
+              --max-backoff 300s
           fi

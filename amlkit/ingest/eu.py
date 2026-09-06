@@ -54,19 +54,54 @@ class EUSanctionsAdapter:
         self.is_mandatory = False
 
     def fetch(self) -> bytes:
-        try:
-            r = httpx.get(
-                self.source_url,
-                timeout=15,
-                follow_redirects=True,
-                headers={"User-Agent": USER_AGENT},
-            )
-            r.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise AdapterError(f"{self.key}: fetch failed - {exc}") from exc
-        if not r.content:
-            raise AdapterError(f"{self.key}: source returned an empty body")
-        return r.content
+        import time
+
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                r = httpx.get(
+                    self.source_url,
+                    timeout=30,
+                    follow_redirects=True,
+                    headers={"User-Agent": USER_AGENT},
+                )
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                if attempt < 2:
+                    time.sleep(4 ** attempt)
+                    continue
+                raise AdapterError(
+                    f"{self.key}: fetch failed after {attempt + 1} attempts - {exc}"
+                ) from exc
+
+            if r.status_code in (401, 403):
+                raise AdapterError(
+                    f"{self.key}: access denied ({r.status_code}) — register at "
+                    "https://webgate.ec.europa.eu/fsd/fsf and set AMLKIT_EU_FSF_TOKEN"
+                )
+            if r.status_code >= 500:
+                last_exc = httpx.HTTPStatusError(
+                    f"Server error {r.status_code}", request=r.request, response=r
+                )
+                if attempt < 2:
+                    time.sleep(4 ** attempt)
+                    continue
+                raise AdapterError(
+                    f"{self.key}: EC server returned {r.status_code} after "
+                    f"{attempt + 1} attempts — register your own token at "
+                    "https://webgate.ec.europa.eu/fsd/fsf and set AMLKIT_EU_FSF_TOKEN"
+                )
+
+            try:
+                r.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise AdapterError(f"{self.key}: fetch failed - {exc}") from exc
+
+            if not r.content:
+                raise AdapterError(f"{self.key}: source returned an empty body")
+            return r.content
+
+        raise AdapterError(f"{self.key}: fetch failed - {last_exc}")
 
     def parse(self, payload: bytes) -> Iterator[SourceEntity]:
         try:
