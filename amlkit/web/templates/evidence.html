@@ -148,6 +148,63 @@
 </div>
 {% endif %}
 
+{% if adverse_media_runs or adverse_media %}
+<div class="panel">
+  <h2>Adverse media</h2>
+  <p class="small">
+    Negative-news coverage indexed by The GDELT Project
+    (https://www.gdeltproject.org/), searched in Latin and Arabic script.
+    A screening aid, not a curated adverse-media database: each finding below
+    was assessed by the named operator, and only findings marked relevant
+    contribute to the risk rating.
+  </p>
+
+  <table>
+    <tr><th>Date &amp; time (UTC)</th><th>Name searched</th><th>Trigger</th>
+        <th class="right">Window</th><th class="right">Articles</th><th>Result</th></tr>
+    {% for r in adverse_media_runs %}
+    <tr>
+      <td class="nowrap">{{ r.run_at[:19].replace('T',' ') }}</td>
+      <td>{{ name(r.query_name) }}{% if r.query_arabic %} / {{ name(r.query_arabic) }}{% endif %}</td>
+      <td>{{ r.trigger.replace('_',' ') }}</td>
+      <td class="right">{{ r.window_months }}m</td>
+      <td class="right">{{ r.articles_considered }}</td>
+      <td>
+        {%- if r.status != 'ok' -%}
+          CHECK DID NOT COMPLETE — {{ r.error }}
+        {%- elif r.findings -%}
+          {{ r.findings }} finding(s), highest {{ r.severity.replace('_',' ') }}
+          {%- if r.error %} (partial: {{ r.error }}){% endif %}
+        {%- else -%}
+          Clear
+          {%- if r.error %} (partial: {{ r.error }}){% endif %}
+        {%- endif -%}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  {% for f in adverse_media %}
+    <div class="mt-4">
+      <div class="small">
+        <strong>{{ f.severity.replace('_',' ')|upper }}</strong> ·
+        {{ f.status.replace('_',' ') }} ·
+        {{ f.domain or 'unknown source' }}
+        {%- if f.published_at %} · {{ f.published_at[:10] }}{% endif %}
+        {%- if f.name_evidence != 'title' %} · name matched in article body, not headline{% endif %}
+      </div>
+      <div dir="auto">{{ f.title or f.url }}</div>
+      <div class="small">{{ f.url }}</div>
+      {% if f.matched_terms %}<div class="small">Matched: {{ f.matched_terms|join(', ') }}</div>{% endif %}
+      {% if f.dispositioned_by %}
+        <div class="small">Assessed by {{ f.dispositioned_by }} on
+          {{ f.dispositioned_at[:19].replace('T',' ') }} UTC{% if f.disposition %} — {{ f.disposition }}{% endif %}</div>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if notes %}
 <div class="panel">
   <h2>Case notes</h2>

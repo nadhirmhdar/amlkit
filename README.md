@@ -25,6 +25,7 @@ them is free to redistribute commercially:
 | UK Sanctions List | UK FCDO/OFSI | `ingest/uk.py` | Public domain |
 | EU Financial Sanctions | European Commission | `ingest/eu.py` | Public domain (token, see below) |
 | CIA World Leaders (PEPs) | US CIA | `ingest/cia.py` | Public domain (17 U.S.C. §105) |
+| Adverse media (news index) | The GDELT Project | `screening/adverse_media.py` | Free for commercial use, attribution required |
 
 **OpenSanctions is no longer in the refresh path.** `ingest/opensanctions.py`
 is retained as a working adapter for non-commercial and comparison use, and
@@ -86,13 +87,16 @@ self-match, **0 false positives** across the benign-name suite.
 - **CSV export** — alerts and customers, org-scoped, no new dependency
 - **Configurable alert threshold** — one global per-org knob (MLRO-only, in
   Admin), not per-list-type "screening profiles"
+- **Adverse media screening** — negative-news search against the GDELT news
+  index, in Latin *and* Arabic script, classified into the risk model's own
+  severity bands. See the section below for what it is and is not
 
 Measured on the real UAE list: 12/12 Latin self-match, 12/12 Arabic-script
-self-match, **0 false positives** across the benign-name suite. 181 tests.
+self-match, **0 false positives** across the benign-name suite. 464 tests.
 
 ## Not built yet
 
-Adverse media · goAML STR/SAR export · identity-document verification · MFA ·
+goAML STR/SAR export · identity-document verification · MFA ·
 evidence-document upload · UBO ownership diagram · dedicated monitoring page.
 See `research/compliance-traceability.md` for the full gap list.
 
@@ -177,6 +181,84 @@ Run the tests:
 ```
 
 ---
+
+## Adverse media
+
+Negative-news screening against **GDELT DOC 2.0** — a free, key-less index of
+global news in 65+ languages. Its terms are the reason it is here: *"all
+datasets released by the GDELT Project are available for unlimited and
+unrestricted use for any academic, commercial, or governmental use of any kind
+without fee"*, conditional only on citing the project. That clears the same
+commercial bar every sanctions adapter had to clear.
+
+The `adverse_media` factor has been in `risk/ruleset.yaml` since the risk model
+was written, always scoring `none` because nothing fed it. This feeds it.
+
+**What it does.** Searches the customer's name — in Latin *and* Arabic script,
+through the same canonicaliser the sanctions matcher uses — against news
+carrying financial-crime, regulatory or reputational terms, then classifies
+each headline into the ruleset's own three severity bands:
+
+| Severity | Ruleset points | What it means |
+|---|---|---|
+| `financial_crime_alleged` | 35 | Predicate offence named: laundering, bribery, fraud, an indictment |
+| `regulatory_action` | 25 | Supervisory or administrative action: a fine, a revoked licence, a probe |
+| `reputational_only` | 10 | Allegation or controversy with no named offence |
+
+Arabic risk terms (`غسل الأموال`, `رشوة`, `غرامة`, …) sit alongside the
+English ones, because a Gulf case is frequently reported in Arabic days before
+any English outlet picks it up — if one ever does.
+
+**What it is not.** A screening aid, not a curated adverse-media database.
+GDELT tells you an article exists; it does not decide whether the allegation
+is credible or whether the person named is *your* customer. That analyst layer
+is what World-Check and Dow Jones actually sell, and this does not replace it.
+So every finding is an unreviewed lead: **nothing changes a risk rating until
+an operator marks it relevant**, and confirming one re-rates the customer with
+every other factor carried forward from their last assessment.
+
+Three consequences worth knowing before relying on it:
+
+- **It is operator-triggered, not automatic.** GDELT rate-limits to one request
+  every 5 seconds per source IP, so this cannot run across a whole customer
+  book after every list refresh the way sanctions re-screening does. The
+  cadence is handled by *surfacing* rather than sweeping — see below.
+- **A provider outage is recorded, not swallowed.** A failed check writes a row
+  saying so. "Checked, found nothing" and "the check could not run" are
+  different facts about a file, and the evidence pack prints both.
+- **Headline vs body matches are labelled.** GDELT matched the name somewhere
+  in the article, but only the headline comes back — so a finding whose name is
+  not in the headline is flagged as such rather than hidden or trusted.
+
+Findings store metadata and a link only, never article text: GDELT's data is
+free to redistribute, the articles it indexes are their publishers' copyright.
+
+### Re-checking on a cadence
+
+A check nobody is reminded to re-run happens once, at onboarding, and then
+ages out silently — which in a file looks identical to never having run it.
+So `ruleset.yaml` carries `adverse_media_months` alongside `review_months`:
+
+| Rating | Re-check every | (CDD review is every) |
+|---|---|---|
+| high | 3 months | 12 months |
+| medium | 6 months | 24 months |
+| low | 12 months | 36 months |
+
+Deliberately much shorter than the CDD review cycle: a periodic review is a
+re-look at a relationship, but negative news is an *event* that can land the
+week after onboarding.
+
+The dashboard lists who is due, and **"Check the next few"** works through a
+bounded batch — five at a time, roughly half a minute, because the rate limit
+is the floor and a bigger batch only makes the request block longer. Nothing
+is scheduled; nothing runs without an operator asking.
+
+One rule matters more than the rest: **a check that failed to complete does
+not reset the clock.** A customer whose last run recorded `unavailable` stays
+on the due list. A provider outage is not evidence about a customer, and
+letting a failed attempt count would quietly convert downtime into a clean
+bill of health.
 
 ## Why Arabic matching is the wedge
 

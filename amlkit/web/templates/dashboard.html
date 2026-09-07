@@ -139,4 +139,43 @@
   {% endif %}
 </div>
 
+<div class="mt-6">
+  <div class="section-label">Adverse media due</div>
+  {% if d.adverse_media_due %}
+    <p class="muted small mt-0">
+      Re-check intervals are shorter than the CDD review cycle — 3 months for
+      high risk, 6 for medium, 12 for low — because negative news is an event,
+      not a periodic look. A check that failed to complete does not count as a
+      check, so those customers stay on this list.
+    </p>
+    <div class="flat-list">
+      {% for c in d.adverse_media_due %}
+        <a href="/customers/{{ c.id }}" class="list-row">
+          <div class="grow">
+            <div class="primary">{{ c.full_name }}</div>
+            <div class="secondary mono">{{ c.reference }}</div>
+          </div>
+          <span class="tag {{ c.rating or 'low' }}" style="width:80px; flex-shrink:0;">{{ c.rating or '—' }}</span>
+          <div class="side" style="width:150px; text-align:right; font-weight:600; color:var(--ink-2);">
+            {% if c.reason == 'never' %}never checked{% else %}last {{ c.last_checked[:10] }}{% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+    <form method="post" action="/adverse-media/run-due" class="row mt-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div><label>How many</label>
+        <input type="number" name="limit" value="5" min="1" max="20"></div>
+      <div><button class="small" type="submit">Check the next few</button></div>
+    </form>
+    <p class="muted small mt-2">
+      Runs in batches on purpose. The provider is free and rate-limited to one
+      request every five seconds — and an Arabic name is a second request — so
+      a batch of five takes roughly half a minute and the page waits for it.
+    </p>
+  {% else %}
+    <p class="muted">Nothing due.</p>
+  {% endif %}
+</div>
+
 {% endblock %}

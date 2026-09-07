@@ -39,13 +39,19 @@ class TestRulesetCacheReload:
         model.RULESET_PATH = ruleset_copy
 
         first = model.ruleset()
-        assert first["version"] == "2025.12.1"
+        # Read the shipped version rather than pinning the literal: this test
+        # is about the cache noticing an edit, not about which version is
+        # current, and hardcoding it made every legitimate ruleset revision
+        # fail here for no reason connected to what is being tested.
+        shipped = first["version"]
+        assert shipped and shipped != "2099.1.1"
 
         # Rewrite with a bumped version, forcing the mtime forward so the
         # change is observed even on filesystems with coarse mtime
         # resolution.
         text = ruleset_copy.read_text(encoding="utf-8")
-        text = text.replace('version: "2025.12.1"', 'version: "2099.1.1"', 1)
+        text = text.replace(f'version: "{shipped}"', 'version: "2099.1.1"', 1)
+        assert '2099.1.1' in text, "version line not found; the edit under test never happened"
         ruleset_copy.write_text(text, encoding="utf-8")
         future = time.time() + 5
         os.utime(ruleset_copy, (future, future))

@@ -13,9 +13,26 @@ error: `AMLKIT_SMTP_HOST` unset means send_verification_email() logs the
 link to the console instead of emailing it, exactly like the existing
 one-time /setup link already does for the tenancy-migration admin-claim flow
 (see db.py's `connect()`). This keeps registration usable out of the box on
-a fresh checkout with no mail infrastructure, while still recording -- via
-the return value -- whether a real email actually went out, so callers can
-avoid ever handing the raw token back to a client once real mail is live.
+a fresh checkout with no mail infrastructure.
+
+**Why the outcome is three-valued and not a bool.** It used to return
+True/False, and False meant both "no SMTP configured" and "SMTP configured
+but the send failed". The callers could not tell those apart, so both
+registration routes fell back to handing the raw verification link straight
+back to whoever submitted the form -- correct for the first case, a hole in
+the second. That link activates a fully-privileged MLRO account, and proving
+control of the mailbox is the entire point of the check; returning it to the
+submitter when a *configured* provider was merely down let anyone register
+under an address they do not own and activate it.
+
+That is not hypothetical. SendGrid withdrew its free tier in May 2025 (see
+research/commercial-launch-costs.md), so a deployment whose trial lapsed goes
+on accepting registrations with SMTP configured and every send failing --
+precisely the state that turned the dev convenience into an auth bypass.
+
+So: `NOT_CONFIGURED` is the only outcome that may reveal the link, `FAILED`
+must not, and every caller records the outcome in the audit log so a failing
+provider is visible rather than inferred from nobody signing up.
 """
 
 from __future__ import annotations
@@ -40,13 +57,22 @@ def verify_url(token: str) -> str:
     return f"{app_base_url()}/verify-email?token={token}"
 
 
-def send_verification_email(to_email: str, name: str, token: str) -> bool:
+# Delivery outcomes. Plain strings rather than an Enum to stay consistent with
+# the rest of the codebase's status vocabularies (alert status, screening
+# status), all of which are stored and compared as text.
+SENT = "sent"
+NOT_CONFIGURED = "not_configured"
+FAILED = "failed"
+
+
+def send_verification_email(to_email: str, name: str, token: str) -> str:
     """Send (or, with no SMTP configured, console-log) the verification link.
 
-    Returns True if a real email was actually sent, False if it fell back to
-    the console. Never raises -- a mail-server outage should not be the
-    reason a registration attempt fails outright; the operator row already
-    exists and can be reached again via the resend endpoint.
+    Returns `SENT`, `NOT_CONFIGURED`, or `FAILED` -- see the module docstring
+    for why the distinction between the last two is load-bearing rather than
+    cosmetic. Never raises: a mail-server outage should not be the reason a
+    registration attempt fails outright; the operator row already exists and
+    can be reached again via the resend endpoint once mail is restored.
     """
     url = verify_url(token)
 
@@ -59,7 +85,7 @@ def send_verification_email(to_email: str, name: str, token: str) -> bool:
             "Set AMLKIT_SMTP_HOST (and friends) to send this for real.\n" +
             "=" * 72 + "\n"
         )
-        return False
+        return NOT_CONFIGURED
 
     host = os.environ["AMLKIT_SMTP_HOST"]
     port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
@@ -86,13 +112,21 @@ def send_verification_email(to_email: str, name: str, token: str) -> bool:
             if user:
                 smtp.login(user, password)
             smtp.send_message(msg)
-        return True
+        return SENT
     except (OSError, smtplib.SMTPException):
+        # Logged with the traceback and printed to the server console, where
+        # an operator of the deployment can see it. Deliberately NOT returned
+        # to the caller for display: mail is configured here, so whoever
+        # submitted the form has not proved they control the mailbox, and the
+        # link on the console is for the deployment's own operator to use or
+        # ignore -- not for the browser that just posted the form.
         logger.exception("Failed to send verification email to %s", to_email)
         print(
             "\n" + "=" * 72 +
-            f"\namlkit: SMTP send FAILED for {to_email} -- printing the link instead.\n\n"
+            f"\namlkit: SMTP send FAILED for {to_email} -- mail IS configured, so\n"
+            "the link is NOT being shown to the registering user. Fix the mail\n"
+            "provider, then have them use the resend link.\n\n"
             f"  {url}\n" +
             "=" * 72 + "\n"
         )
-        return False
+        return FAILED

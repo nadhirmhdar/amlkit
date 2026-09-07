@@ -254,6 +254,91 @@
 </div>
 
 <div class="mb-6">
+  <div class="section-label">Adverse media</div>
+  <p class="muted small mt-0">
+    Negative-news coverage indexed by
+    <a href="https://www.gdeltproject.org/" target="_blank" rel="noopener">The GDELT Project</a>,
+    searched in both Latin and Arabic script. This is a screening aid, not a
+    curated adverse-media database: nobody has verified that an article below
+    is about this customer. Nothing here changes the risk rating until you mark
+    it relevant.
+  </p>
+
+  {% if adverse_media_runs %}
+    {% set last_run = adverse_media_runs[0] %}
+    <div class="small muted mb-4">
+      Last checked {{ last_run.run_at[:16].replace('T',' ') }} ·
+      {% if last_run.status == 'ok' %}
+        {{ last_run.articles_considered }} article(s) screened over
+        {{ last_run.window_months }} months
+        {%- if last_run.error %} · <span class="tag medium">partial: {{ last_run.error }}</span>{% endif %}
+      {% else %}
+        <span class="tag high">check did not complete</span> — {{ last_run.error }}
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted small">Never checked.</p>
+  {% endif %}
+
+  {% if adverse_media %}
+    <div class="stack mb-4">
+      {% for f in adverse_media %}
+      <div class="alert-card">
+        <div class="alert-head">
+          <div>
+            <span class="tag {{ 'high' if f.severity == 'financial_crime_alleged' else ('medium' if f.severity == 'regulatory_action' else 'low') }}">
+              {{ f.severity.replace('_',' ') }}
+            </span>
+            {% if f.name_evidence != 'title' %}
+            <span class="tag low ml-4" title="The name was matched in the article body, which we cannot show you. Open the article and confirm it is about this customer.">name not in headline</span>
+            {% endif %}
+            <span class="muted small ml-4">
+              {{ f.domain or 'unknown source' }}
+              {%- if f.published_at %} · {{ f.published_at[:10] }}{% endif %}
+              {%- if f.language %} · {{ f.language }}{% endif %}
+            </span>
+          </div>
+          <span class="tag {{ 'low' if f.status == 'not_relevant' else ('high' if f.status == 'relevant' else 'medium') }}">
+            {{ f.status.replace('_',' ') }}
+          </span>
+        </div>
+        <div class="mt-4"><a href="{{ f.url }}" target="_blank" rel="noopener noreferrer" dir="auto">{{ f.title or f.url }}</a></div>
+        {% if f.matched_terms %}
+        <div class="small muted mt-2">matched: {{ f.matched_terms|join(', ') }}</div>
+        {% endif %}
+        {% if f.status == 'open' %}
+        <form method="post" action="/adverse-media/{{ f.id }}/disposition" class="row mt-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="customer_id" value="{{ c.id }}">
+          <div><label>Note</label><input type="text" name="note" placeholder="Rationale for disposition"></div>
+          <div class="btn-pair">
+            <button class="small ghost" type="submit" name="status" value="not_relevant">Not this customer</button>
+            <button class="small" type="submit" name="status" value="relevant">Confirm relevant</button>
+          </div>
+        </form>
+        {% elif f.disposition %}
+          <div class="small muted mt-4">{{ f.dispositioned_by }} · {{ f.disposition }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  {% elif adverse_media_runs %}
+    <p class="muted small">No adverse coverage found.</p>
+  {% endif %}
+
+  <form method="post" action="/customers/{{ c.id }}/adverse-media" class="row mt-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div><label>Look back (months)</label>
+      <input type="number" name="window_months" value="24" min="1" max="120"></div>
+    <div><button class="small" type="submit">Run adverse media check</button></div>
+  </form>
+  <p class="muted small mt-2">
+    Takes a few seconds: the provider is free and rate-limited to one request
+    every five seconds, and an Arabic name is a second request.
+  </p>
+</div>
+
+<div class="mb-6">
   <div class="section-label">Signatures &amp; acknowledgments</div>
   <p class="muted small mt-0">
     A typed-signature acknowledgment with a tamper-evident hash — an audit-trail

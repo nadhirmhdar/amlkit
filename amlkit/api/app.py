@@ -27,13 +27,17 @@ from fastapi.templating import Jinja2Templates
 
 from .. import auth, queries
 from ..cases.manager import (
+    ADVERSE_MEDIA_BATCH_LIMIT,
     add_case_note,
     add_ubo,
     close_relationship,
+    disposition_adverse_media_finding,
     disposition_transaction_alert,
     onboard,
     record_signature,
     record_transaction,
+    run_adverse_media,
+    run_due_adverse_media,
 )
 from ..cases.review import (
     REASON_CODES,
@@ -48,6 +52,7 @@ from ..db import set_org_alert_threshold, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
+from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
 from .deps import (
     CSRF_COOKIE,
     SESSION_COOKIE,
@@ -499,21 +504,37 @@ def register_org_submit(
     # Not activated yet -- see auth.login()'s email_verified_at guard. Show a
     # "check your email" panel instead of signing the operator straight in.
     raw_token = auth.create_email_verify_token(db, operator_id)
-    emailed = mail.send_verification_email(clean_email, name.strip(), raw_token)
+    delivery = mail.send_verification_email(clean_email, name.strip(), raw_token)
+    # The outcome is recorded, not just the attempt. A provider that has
+    # started failing every send is otherwise invisible here -- the symptom is
+    # nobody completing registration, which looks like disinterest rather than
+    # an outage.
     audit(db, name.strip(), "operator.verification_sent", "operator", operator_id,
-          {"email": clean_email}, org_id=org_id)
+          {"email": clean_email, "delivery": delivery}, org_id=org_id)
     db.commit()
 
     ctx = {
         "session": None, "pending_email": clean_email,
         "msg": f"Account created. Check {clean_email} for a verification link before signing in.",
     }
-    if not emailed:
-        # No SMTP configured -- see amlkit/mail.py. Surface the same link
-        # that was printed to the console so registration stays testable
-        # without real mail infrastructure. Never shown once real mail is
-        # actually configured.
+    if delivery == mail.NOT_CONFIGURED:
+        # No SMTP configured at all -- see amlkit/mail.py. Surface the same
+        # link that was printed to the console so registration stays testable
+        # without real mail infrastructure.
+        #
+        # ONLY in this case. When mail is configured and the send merely
+        # failed, showing the link here would hand a live verification token
+        # -- which activates a fully-privileged MLRO account -- to whoever
+        # submitted the form, without them having proved control of the
+        # mailbox. That is the whole point of the check.
         ctx["dev_verify_url"] = mail.verify_url(raw_token)
+    elif delivery == mail.FAILED:
+        ctx["msg"] = (
+            f"Account created, but the verification email to {clean_email} "
+            "could not be sent. The mail service is not responding — ask your "
+            "administrator to check it, then use the resend link below."
+        )
+        ctx["err"] = "Verification email could not be sent."
     return render(request, "register_organization.html", ctx)
 
 
@@ -574,9 +595,12 @@ def resend_verification(
             from ..db import audit
 
             raw_token = auth.create_email_verify_token(db, row["id"])
-            mail.send_verification_email(clean_email, row["name"], raw_token)
+            delivery = mail.send_verification_email(clean_email, row["name"], raw_token)
+            # The response stays deliberately generic (see generic_msg) to
+            # avoid confirming whether an account exists, so the audit log is
+            # the only place a repeatedly-failing provider becomes visible.
             audit(db, row["name"], "operator.verification_resent", "operator", row["id"],
-                  {"email": clean_email}, org_id=row["org_id"])
+                  {"email": clean_email, "delivery": delivery}, org_id=row["org_id"])
             db.commit()
     return render(request, "login.html", {"session": None, "msg": generic_msg})
 
@@ -973,6 +997,128 @@ def transaction_alert_disposition(
     except (PermissionError, ValueError) as exc:
         return back(back_url, err=str(exc))
     return back(back_url, msg="Transaction alert dispositioned.")
+
+
+# --------------------------------------------------------------- adverse media
+@app.post("/customers/{customer_id}/adverse-media")
+def customer_run_adverse_media(
+    request: Request, db: DB, customer_id: int,
+    window_months: Annotated[int, Form()] = DEFAULT_WINDOW_MONTHS,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Run an adverse-media check for one customer, on demand.
+
+    Deliberately operator-triggered rather than part of onboarding or the
+    post-refresh re-screen: the provider is a free public service rate-limited
+    to one request every five seconds, so this cannot run in a loop over a
+    whole customer book. See screening/adverse_media.py's module docstring.
+    """
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    back_url = f"/customers/{customer_id}"
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back(back_url, err=str(exc))
+
+    data = queries.customer(db, customer_id, session.org_id)
+    if data is None:
+        return back("/customers", err=f"Customer {customer_id} not found.")
+    c = data["customer"]
+
+    _, result, new_findings = run_adverse_media(
+        db,
+        org_id=session.org_id,
+        customer_id=customer_id,
+        name=c["full_name"],
+        name_arabic=c["name_arabic"],
+        trigger="adhoc",
+        window_months=max(1, min(int(window_months or DEFAULT_WINDOW_MONTHS), 120)),
+        actor=session.operator_name,
+    )
+    # A provider outage is reported as a warning, not an error: the check was
+    # attempted and the attempt is on the record. Presenting it as a failed
+    # action would invite the operator to assume nothing was written.
+    if result.status != "ok":
+        return back(back_url, err=f"Adverse media check could not complete: {result.error}")
+    if not result.findings:
+        return back(back_url, msg=f"Adverse media: no adverse coverage found "
+                                  f"({result.articles_considered} articles screened).")
+    return back(back_url, msg=f"Adverse media: {len(result.findings)} finding(s), "
+                              f"{new_findings} new to review.")
+
+
+@app.post("/adverse-media/run-due")
+def adverse_media_run_due(
+    request: Request, db: DB,
+    limit: Annotated[int, Form()] = ADVERSE_MEDIA_BATCH_LIMIT,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Re-check the next few customers whose adverse media is due.
+
+    Bounded and operator-triggered, not a scheduled sweep -- the provider's
+    rate limit makes a whole-book batch impossible, so this is "work through
+    the next few" with the throttle still between each one. The request blocks
+    for the duration, which is why the form caps the batch rather than
+    offering "run all".
+    """
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/dashboard", err=str(exc))
+
+    outcome = run_due_adverse_media(
+        db, session.org_id,
+        limit=max(1, min(int(limit or ADVERSE_MEDIA_BATCH_LIMIT), 20)),
+        actor=session.operator_name,
+    )
+    if outcome["attempted"] == 0:
+        return back("/dashboard", msg="Nothing due for an adverse media check.")
+    # Failures are reported alongside successes rather than instead of them:
+    # a batch where the provider died halfway still checked the first few, and
+    # saying only "it failed" would understate what is on the record.
+    msg = (f"Adverse media: checked {outcome['checked']}, "
+           f"{outcome['new_findings']} new finding(s), "
+           f"{outcome['still_due']} still due.")
+    if outcome["failed"]:
+        return back("/dashboard", err=msg + f" {outcome['failed']} could not complete.")
+    return back("/dashboard", msg=msg)
+
+
+@app.post("/adverse-media/{finding_id}/disposition")
+def adverse_media_disposition(
+    request: Request, db: DB, finding_id: int,
+    status: Annotated[str, Form()],
+    note: Annotated[str, Form()] = "",
+    customer_id: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    back_url = f"/customers/{customer_id}" if customer_id.strip() else "/alerts"
+    try:
+        require_csrf(request, csrf_token)
+        rating = disposition_adverse_media_finding(
+            db, finding_id, session.org_id, status=status, note=note,
+            actor=session.operator_name,
+        )
+    except (PermissionError, ValueError) as exc:
+        return back(back_url, err=str(exc))
+    # The re-rating is surfaced rather than left to be discovered on reload:
+    # confirming a finding relevant is the one action here that can move a
+    # customer's risk band, and the operator should see that it did.
+    msg = "Adverse media finding dispositioned."
+    if status == "relevant" and rating:
+        msg += f" Customer re-rated {rating}."
+    return back(back_url, msg=msg)
 
 
 @app.post("/customers/{customer_id}/signatures")
