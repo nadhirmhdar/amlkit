@@ -16,10 +16,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from amlkit.cases.manager import (  # noqa: E402
+    adverse_media_due,
     adverse_media_severity,
+    close_relationship,
     disposition_adverse_media_finding,
     onboard,
     run_adverse_media,
+    run_due_adverse_media,
 )
 from amlkit.db import connect, utcnow  # noqa: E402
 from amlkit.screening.adverse_media import (  # noqa: E402
@@ -508,6 +511,36 @@ class TestWebRoutes:
         assert "Adverse media" in r.text
         assert "https://a/1" in r.text
 
+    def test_dashboard_shows_due_and_batch_runs(self, web, monkeypatch) -> None:
+        cid = self._customer(web)
+        r = web.get("/dashboard")
+        assert r.status_code == 200
+        assert "Adverse media due" in r.text
+        assert "never checked" in r.text
+
+        import amlkit.cases.manager as mgr
+
+        stub = StubClient({"articles": [
+            article("https://a/1", "Mohd Al-Mansouri convicted of money laundering"),
+        ]})
+        real_search = mgr.search
+        monkeypatch.setattr(
+            mgr, "search",
+            lambda name, **kw: real_search(name, **{**kw, "client": stub}),
+        )
+        r = web.post("/adverse-media/run-due",
+                     data={"limit": "5", "csrf_token": self._csrf(web)},
+                     follow_redirects=True)
+        assert r.status_code == 200
+        assert "checked 1" in r.text
+        assert "0 still due" in r.text
+
+    def test_run_due_requires_a_session(self, web) -> None:
+        web.post("/logout", data={"csrf_token": self._csrf(web)})
+        r = web.post("/adverse-media/run-due",
+                     data={"csrf_token": self._csrf(web)}, follow_redirects=False)
+        assert r.headers["location"] == "/login"
+
     def test_disposition_requires_csrf(self, web) -> None:
         cid = self._customer(web)
         r = web.post(f"/adverse-media/1/disposition",
@@ -591,3 +624,133 @@ class TestMobileApi:
     def test_requires_a_token(self, api) -> None:
         client, _ = api
         assert client.post("/api/v1/customers/1/adverse-media", json={}).status_code == 401
+
+
+class TestPeriodicRecheck:
+    """The cadence control: who is due, and the bounded batch that works it."""
+
+    def _backdate(self, conn, customer_id: int, days: int) -> None:
+        from datetime import datetime, timedelta, timezone
+        when = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+        conn.execute(
+            "UPDATE adverse_media_screenings SET run_at=? WHERE customer_id=?",
+            (when, customer_id),
+        )
+        conn.commit()
+
+    def test_never_checked_customer_is_due(self, conn, org_id, customer_id) -> None:
+        due = adverse_media_due(conn, org_id)
+        assert [d["id"] for d in due] == [customer_id]
+        assert due[0]["reason"] == "never"
+        assert due[0]["last_checked"] is None
+
+    def test_interval_comes_from_the_rating(self, conn, org_id) -> None:
+        # real_estate (25) + predominantly_cash (25) = 50 -> high -> 3 months;
+        # a bare natural person -> low -> 12. The cadence is risk-based, which
+        # is the whole point of keeping it in ruleset.yaml beside review_months.
+        high = onboard(conn, org_id=org_id, reference="C-H", full_name="High Risk",
+                       sector="real_estate", cash_level="predominantly_cash").customer_id
+        low = onboard(conn, org_id=org_id, reference="C-L", full_name="Low Risk").customer_id
+        by_id = {d["id"]: d for d in adverse_media_due(conn, org_id)}
+        assert by_id[high]["rating"] == "high"
+        assert by_id[high]["interval_months"] == 3
+        assert by_id[low]["rating"] == "low"
+        assert by_id[low]["interval_months"] == 12
+
+    def test_successful_check_clears_the_customer(self, conn, org_id, customer_id) -> None:
+        run_adverse_media(conn, org_id=org_id, customer_id=customer_id,
+                          name="Mohammed Al Mansoori",
+                          client=StubClient({"articles": []}), actor="tester")
+        assert adverse_media_due(conn, org_id) == []
+
+    def test_failed_check_does_NOT_clear_the_customer(self, conn, org_id, customer_id) -> None:
+        # The rule this control turns on: an outage is not evidence about a
+        # customer. Letting a failed attempt reset the clock would convert a
+        # provider being down into a clean bill of health.
+        run_adverse_media(conn, org_id=org_id, customer_id=customer_id,
+                          name="Mohammed Al Mansoori",
+                          client=StubClient(fail_on={0}), actor="tester")
+        due = adverse_media_due(conn, org_id)
+        assert [d["id"] for d in due] == [customer_id]
+        assert due[0]["reason"] == "never"
+
+    def test_stale_check_becomes_due_again(self, conn, org_id, customer_id) -> None:
+        run_adverse_media(conn, org_id=org_id, customer_id=customer_id,
+                          name="Mohammed Al Mansoori",
+                          client=StubClient({"articles": []}), actor="tester")
+        assert adverse_media_due(conn, org_id) == []
+        self._backdate(conn, customer_id, 400)   # past the 12-month low-risk interval
+        due = adverse_media_due(conn, org_id)
+        assert [d["id"] for d in due] == [customer_id]
+        assert due[0]["reason"] == "stale"
+        assert due[0]["last_checked"]
+
+    def test_recent_check_is_not_stale(self, conn, org_id, customer_id) -> None:
+        run_adverse_media(conn, org_id=org_id, customer_id=customer_id,
+                          name="Mohammed Al Mansoori",
+                          client=StubClient({"articles": []}), actor="tester")
+        self._backdate(conn, customer_id, 30)
+        assert adverse_media_due(conn, org_id) == []
+
+    def test_never_checked_sorts_before_stale(self, conn, org_id, customer_id) -> None:
+        run_adverse_media(conn, org_id=org_id, customer_id=customer_id,
+                          name="Mohammed Al Mansoori",
+                          client=StubClient({"articles": []}), actor="tester")
+        self._backdate(conn, customer_id, 400)
+        fresh = onboard(conn, org_id=org_id, reference="C-NEW", full_name="Never Checked").customer_id
+        due = adverse_media_due(conn, org_id)
+        assert [d["id"] for d in due] == [fresh, customer_id]
+
+    def test_closed_customer_is_not_due(self, conn, org_id, customer_id) -> None:
+        close_relationship(conn, customer_id, org_id=org_id, actor="tester")
+        assert adverse_media_due(conn, org_id) == []
+
+    def test_due_list_is_org_scoped(self, conn, org_id, customer_id) -> None:
+        other = conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+            " RETURNING id", ("Other", "other", "active", utcnow()),
+        ).fetchone()["id"]
+        conn.commit()
+        assert adverse_media_due(conn, other) == []
+
+    def test_batch_is_bounded_by_limit(self, conn, org_id) -> None:
+        for i in range(4):
+            onboard(conn, org_id=org_id, reference=f"C-B{i}", full_name=f"Person {i}")
+        out = run_due_adverse_media(conn, org_id, limit=2,
+                                    client=StubClient({"articles": []}), actor="tester")
+        assert out["attempted"] == 2
+        assert out["checked"] == 2
+        assert out["still_due"] == 2
+
+    def test_batch_reports_findings_and_clears_the_queue(self, conn, org_id, customer_id) -> None:
+        client = StubClient({"articles": [
+            article("https://a/1", "Mohd Al-Mansouri convicted of money laundering"),
+        ]})
+        out = run_due_adverse_media(conn, org_id, limit=5, client=client, actor="tester")
+        assert out == {"attempted": 1, "checked": 1, "failed": 0,
+                       "new_findings": 1, "still_due": 0}
+
+    def test_provider_outage_does_not_abort_the_batch(self, conn, org_id) -> None:
+        # One unreachable moment must not lose the customers queued behind it.
+        for i in range(3):
+            onboard(conn, org_id=org_id, reference=f"C-F{i}", full_name=f"Person {i}")
+        out = run_due_adverse_media(conn, org_id, limit=3,
+                                    client=StubClient({"articles": []}, fail_on={0}),
+                                    actor="tester")
+        assert out["attempted"] == 3
+        assert out["failed"] == 1
+        assert out["checked"] == 2
+        # The one that failed is still due; the two that succeeded are not.
+        assert out["still_due"] == 1
+
+    def test_batch_records_the_periodic_trigger(self, conn, org_id, customer_id) -> None:
+        run_due_adverse_media(conn, org_id, limit=1,
+                              client=StubClient({"articles": []}), actor="tester")
+        row = conn.execute(
+            "SELECT trigger FROM adverse_media_screenings WHERE customer_id=?", (customer_id,)
+        ).fetchone()
+        assert row["trigger"] == "periodic"
+
+    def test_dashboard_surfaces_the_due_list(self, conn, org_id, customer_id) -> None:
+        from amlkit import queries
+        assert [c["id"] for c in queries.dashboard(conn, org_id)["adverse_media_due"]] == [customer_id]

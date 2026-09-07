@@ -37,6 +37,7 @@ from pydantic import BaseModel
 
 from .. import auth, mail, queries
 from ..cases.manager import (
+    ADVERSE_MEDIA_BATCH_LIMIT,
     add_case_note,
     add_ubo,
     close_relationship,
@@ -46,6 +47,7 @@ from ..cases.manager import (
     record_signature,
     record_transaction,
     run_adverse_media,
+    run_due_adverse_media,
 )
 from ..cases.review import (
     REASON_CODES,
@@ -667,6 +669,29 @@ def api_customer_run_adverse_media(
         "severity": result.severity,
         "attribution": GDELT_ATTRIBUTION,
     }
+
+
+class AdverseMediaRunDueRequest(BaseModel):
+    limit: int = ADVERSE_MEDIA_BATCH_LIMIT
+
+
+@router.post("/adverse-media/run-due")
+def api_adverse_media_run_due(
+    body: AdverseMediaRunDueRequest, db: DB, session: Session
+):
+    """Re-check the next few customers whose adverse media is due.
+
+    The due list itself comes back on `/dashboard` (`adverse_media_due`), so a
+    client can show the queue without calling this. Slow and bounded for the
+    same reason as the per-customer run: the throttle applies between each
+    customer, so a batch of 5 is roughly half a minute.
+    """
+    outcome = run_due_adverse_media(
+        db, session.org_id,
+        limit=max(1, min(int(body.limit or ADVERSE_MEDIA_BATCH_LIMIT), 20)),
+        actor=session.operator_name,
+    )
+    return outcome | {"attribution": GDELT_ATTRIBUTION}
 
 
 class AdverseMediaDispositionRequest(BaseModel):

@@ -71,13 +71,14 @@ on one may not know which regime a designation falls under. The PF-specific
 
 | Obligation | Status | Implementation | Test |
 |---|---|---|---|
-| Risk-based, proportionate controls | ✅ | `risk/ruleset.yaml`, versioned `2025.12.1` | `TestRiskModel` |
+| Risk-based, proportionate controls | ✅ | `risk/ruleset.yaml`, versioned `2025.12.2` | `TestRiskModel` |
 | Assess country, sector, channel, ownership, product risk | ✅ | 9 weighted factors | `test_cumulative_factors_reach_high` |
 | EDD for high-risk relationships | ✅ | `requires_edd` | `test_sanctions_hit_forces_high` |
 | EDD for PEPs, source of wealth, senior approval | ◐ | PEP triggers EDD; no SoW capture or approval workflow | `test_pep_triggers_edd_even_at_low_score` |
 | High-risk jurisdictions (FATF lists) | ◐ | Tier accepted as input; **not auto-populated** from FATF lists | `test_blacklist_jurisdiction_forces_high` |
 | Documented, reviewable methodology | ✅ | YAML ruleset with version + effective date on every assessment | `test_assessment_records_ruleset_version` |
 | Adverse media / negative news as an EDD input | ◐ | `screening/adverse_media.py` — GDELT DOC 2.0, Latin + Arabic, operator-dispositioned before it scores | `tests/test_adverse_media.py` |
+| Adverse media re-checked on a risk-based cadence | ✅ | `adverse_media_months` in `ruleset.yaml` (3/6/12 by rating); due list on the dashboard, bounded batch runner | `TestPeriodicRecheck` |
 
 **Gap:** FATF grey/black list membership is a manual input. It should be
 ingested as a dataset like any other list — it changes three times a year and
@@ -91,9 +92,20 @@ allegation is credible or whether the person named is your customer. A human
 marks each finding relevant before it touches a rating, and the check is
 operator-triggered rather than automatic — the provider is rate-limited to one
 request every five seconds, which rules out running it across a whole customer
-book on every list refresh. What is still missing against a commercial vendor
-is the analyst layer: entity resolution, allegation assessment, and structured
-coverage of relatives and close associates.
+book on every list refresh.
+
+The cadence gap that created is closed by surfacing, not sweeping:
+`adverse_media_months` in the ruleset sets a risk-based re-check interval
+(3 months high, 6 medium, 12 low — far shorter than the CDD review cycle,
+because negative news is an event rather than a periodic look), the dashboard
+lists who is due, and a bounded batch works through the next few. A check
+recorded as `unavailable` deliberately does not reset that clock: a provider
+outage is not evidence about a customer, and letting a failed attempt count
+would turn an outage into a clean bill of health.
+
+What is still missing against a commercial vendor is the analyst layer:
+entity resolution, allegation assessment, and structured coverage of
+relatives and close associates.
 
 ## 5. Reporting
 
@@ -143,10 +155,6 @@ database, not calling a different function.
 6. **STR/SAR generation** — M4.
 7. **Purpose/nature of relationship, source of wealth** — small schema additions closing real CDD gaps.
 8. **Identity-document verification** — largest gap; needs a build-or-buy decision.
-9. **Adverse-media periodic re-run** — the check exists but runs on demand only;
-   it should be prompted at each scheduled risk review rather than relying on an
-   operator remembering. Rate limits rule out a bulk sweep, so this belongs on
-   the review cycle, not the refresh cycle.
 
 Items 2 and 3 are close to free and materially expand real coverage; they
 should come before anything else.

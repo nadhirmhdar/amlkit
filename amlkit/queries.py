@@ -22,7 +22,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
-from .cases.manager import due_for_review
+from .cases.manager import adverse_media_due, due_for_review
 from .ingest.loader import staleness_report
 from .screening.pf import classify_programs, obligation_note
 
@@ -63,6 +63,11 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
         by_category[a["category"]] = by_category.get(a["category"], 0) + 1
 
     reviews = due_for_review(conn, org_id)
+    # Adverse media runs on its own, much shorter cadence than the CDD review
+    # cycle (see risk/ruleset.yaml). Surfaced here because that is the whole
+    # control: a check nobody is reminded to re-run happens once, at
+    # onboarding, and then silently ages out.
+    am_due = adverse_media_due(conn, org_id)
 
     counts = conn.execute(
         """SELECT
@@ -97,6 +102,7 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
         "high_risk_customers": high_risk,
         "pending_review": [a for a in alerts if a["status"] == "pending_review"],
         "due_for_review": reviews,
+        "adverse_media_due": am_due,
         "open_transaction_alerts": txn_alerts,
         "oldest_open_transaction_alerts": oldest_open_txn,
         "counts": dict(counts),

@@ -9,12 +9,19 @@
 # marked `mandatory_high` forces a high rating regardless of total -- some
 # conditions (a sanctions hit, a listed jurisdiction) are not averageable.
 
-version: "2025.12.1"
+version: "2025.12.2"
 effective_from: "2025-12-14"   # Cabinet Res. 134/2025 in force
 notes: >
   Weightings are a defensible starting point, not firm policy. They must be
   reviewed and signed off by the MLRO against the firm's own business risk
   assessment before use on real customers.
+
+  2025.12.2 adds adverse_media_months and changes NO scoring: every band,
+  weight and trigger is identical to 2025.12.1, so two assessments carrying
+  the two versions are directly comparable. Stated here because the version
+  is stamped on every assessment precisely to explain a rating, and a bump
+  that moved no number would otherwise send a reviewer looking for a
+  difference that does not exist.
 
 bands:
   low:    {min: 0,  max: 24}
@@ -33,6 +40,23 @@ review_months:
   low: 36
   medium: 24
   high: 12
+
+# How often adverse media must be re-checked, by rating. Deliberately much
+# shorter than review_months above: a full CDD review is a periodic re-look at
+# a relationship, but negative news is an event that can land the week after
+# onboarding. A 36-month adverse-media check would be a control in name only.
+#
+# These are also the reason adverse media is prompted rather than swept. The
+# provider (GDELT) rate-limits to roughly one request every five seconds, so a
+# whole book cannot be re-checked in a batch job -- see
+# screening/adverse_media.py. Surfacing who is due, and letting an operator
+# work through them, is the control; the cadence below is what "due" means.
+#
+# Starting points, not firm policy -- same caveat as the weightings above.
+adverse_media_months:
+  low: 12
+  medium: 6
+  high: 3
 
 factors:
 

@@ -27,6 +27,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import auth, queries
 from ..cases.manager import (
+    ADVERSE_MEDIA_BATCH_LIMIT,
     add_case_note,
     add_ubo,
     close_relationship,
@@ -36,6 +37,7 @@ from ..cases.manager import (
     record_signature,
     record_transaction,
     run_adverse_media,
+    run_due_adverse_media,
 )
 from ..cases.review import (
     REASON_CODES,
@@ -1027,6 +1029,47 @@ def customer_run_adverse_media(
                                   f"({result.articles_considered} articles screened).")
     return back(back_url, msg=f"Adverse media: {len(result.findings)} finding(s), "
                               f"{new_findings} new to review.")
+
+
+@app.post("/adverse-media/run-due")
+def adverse_media_run_due(
+    request: Request, db: DB,
+    limit: Annotated[int, Form()] = ADVERSE_MEDIA_BATCH_LIMIT,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Re-check the next few customers whose adverse media is due.
+
+    Bounded and operator-triggered, not a scheduled sweep -- the provider's
+    rate limit makes a whole-book batch impossible, so this is "work through
+    the next few" with the throttle still between each one. The request blocks
+    for the duration, which is why the form caps the batch rather than
+    offering "run all".
+    """
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/dashboard", err=str(exc))
+
+    outcome = run_due_adverse_media(
+        db, session.org_id,
+        limit=max(1, min(int(limit or ADVERSE_MEDIA_BATCH_LIMIT), 20)),
+        actor=session.operator_name,
+    )
+    if outcome["attempted"] == 0:
+        return back("/dashboard", msg="Nothing due for an adverse media check.")
+    # Failures are reported alongside successes rather than instead of them:
+    # a batch where the provider died halfway still checked the first few, and
+    # saying only "it failed" would understate what is on the record.
+    msg = (f"Adverse media: checked {outcome['checked']}, "
+           f"{outcome['new_findings']} new finding(s), "
+           f"{outcome['still_due']} still due.")
+    if outcome["failed"]:
+        return back("/dashboard", err=msg + f" {outcome['failed']} could not complete.")
+    return back("/dashboard", msg=msg)
 
 
 @app.post("/adverse-media/{finding_id}/disposition")

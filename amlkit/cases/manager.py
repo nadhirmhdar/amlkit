@@ -25,7 +25,13 @@ from typing import Any
 from ..db import audit, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, ScreeningResult, screen
 from ..names.arabic import canonical_key
-from ..risk.model import CustomerProfile, RiskAssessment, assess, save as save_risk
+from ..risk.model import (
+    CustomerProfile,
+    RiskAssessment,
+    assess,
+    ruleset,
+    save as save_risk,
+)
 from ..screening.adverse_media import (
     DEFAULT_WINDOW_MONTHS,
     AdverseMediaResult,
@@ -749,3 +755,151 @@ def reassess_adverse_media(
     assessment = assess(profile)
     save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor)
     return assessment.rating
+
+
+# ------------------------------------------------- adverse media, periodic
+# The cadence lives in risk/ruleset.yaml (`adverse_media_months`) rather than
+# here, next to review_months, because both are review intervals keyed by risk
+# rating and splitting them across two files would make neither findable. It
+# is deliberately shorter than the CDD review cycle -- see the note there.
+ADVERSE_MEDIA_DEFAULT_MONTHS = 12
+
+# How many customers one batch run will check. Small on purpose: the provider
+# is rate-limited to roughly one request every five seconds and a customer
+# with an Arabic name costs two, so a batch of 5 is already ~30-60 seconds of
+# wall clock. Raising this does not make the work faster, it just makes one
+# request block for longer -- the throttle is the floor, not the batch size.
+ADVERSE_MEDIA_BATCH_LIMIT = 5
+
+
+def _adverse_media_interval_months(rating: str | None) -> int:
+    rs = ruleset()
+    table = rs.get("adverse_media_months") or {}
+    return int(table.get(rating or "", ADVERSE_MEDIA_DEFAULT_MONTHS))
+
+
+def adverse_media_due(
+    conn: sqlite3.Connection, org_id: int, *, as_of: datetime | None = None
+) -> list[dict[str, Any]]:
+    """Active customers whose adverse-media check is missing or stale.
+
+    This is the control that closes the "prompted, not remembered" gap. A
+    check nobody is reminded to re-run is a check that happens once, at
+    onboarding, and then silently ages out -- which is indistinguishable, in a
+    file, from never having run it at all.
+
+    Two rules worth being explicit about:
+
+    * **Only a successful run counts.** A run recorded with
+      `status='unavailable'` leaves the customer due. The provider being down
+      is not evidence about a customer, and letting a failed attempt reset the
+      clock would turn an outage into a clean bill of health.
+    * **Never-checked sorts first.** A customer with no check at all is a
+      bigger gap than one whose check is a month past due, so the queue an
+      operator works down leads with the ones carrying no evidence at all.
+
+    Returns one row per due customer with `reason` ('never' | 'stale'),
+    `last_checked` (None when never), `interval_months`, and the rating that
+    set that interval.
+    """
+    now = as_of or datetime.now(timezone.utc)
+    rows = conn.execute(
+        """SELECT c.id, c.reference, c.full_name, c.name_arabic,
+                  r.rating,
+                  (SELECT MAX(run_at) FROM adverse_media_screenings s
+                    WHERE s.customer_id = c.id AND s.org_id = c.org_id
+                      AND s.status = 'ok') AS last_ok
+           FROM customers c
+           LEFT JOIN risk_assessments r ON r.id = (
+               SELECT id FROM risk_assessments WHERE customer_id = c.id
+               ORDER BY assessed_at DESC LIMIT 1)
+           WHERE c.status = 'active' AND c.org_id = ?
+           ORDER BY c.id""",
+        (org_id,),
+    ).fetchall()
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        months = _adverse_media_interval_months(row["rating"])
+        last = row["last_ok"]
+        if last:
+            try:
+                last_dt = datetime.fromisoformat(last)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                # An unparseable timestamp is treated as no check at all
+                # rather than as a recent one -- fail toward doing the work.
+                last_dt = None
+            if last_dt is not None:
+                age_days = (now - last_dt).days
+                if age_days < months * 30:
+                    continue
+                reason = "stale"
+            else:
+                reason = "never"
+        else:
+            reason = "never"
+
+        out.append({
+            "id": row["id"],
+            "reference": row["reference"],
+            "full_name": row["full_name"],
+            "name_arabic": row["name_arabic"],
+            "rating": row["rating"],
+            "reason": reason,
+            "last_checked": last if reason == "stale" else None,
+            "interval_months": months,
+        })
+
+    out.sort(key=lambda c: (c["reason"] != "never", c["last_checked"] or ""))
+    return out
+
+
+def run_due_adverse_media(
+    conn: sqlite3.Connection,
+    org_id: int,
+    *,
+    limit: int = ADVERSE_MEDIA_BATCH_LIMIT,
+    client: Any | None = None,
+    actor: str = "system",
+) -> dict[str, Any]:
+    """Re-check the next `limit` customers whose adverse media is due.
+
+    Bounded on purpose. This is NOT the automatic sweep that
+    screening/adverse_media.py rules out -- it is an operator saying "work
+    through the next few", with the throttle still applying between each one.
+    Nothing here is scheduled, and nothing runs without someone asking.
+
+    A provider outage does not abort the batch: `run_adverse_media` records
+    the failed attempt and returns, so one unreachable moment does not lose
+    the customers behind it in the queue. The counts returned distinguish the
+    two outcomes, because "checked 5, all clear" and "attempted 5, provider
+    down" are different facts.
+    """
+    due = adverse_media_due(conn, org_id)[: max(0, int(limit))]
+    checked = failed = new_findings = 0
+    for cust in due:
+        _, result, added = run_adverse_media(
+            conn,
+            org_id=org_id,
+            customer_id=cust["id"],
+            name=cust["full_name"],
+            name_arabic=cust["name_arabic"],
+            trigger="periodic",
+            client=client,
+            actor=actor,
+        )
+        if result.status == "ok":
+            checked += 1
+            new_findings += added
+        else:
+            failed += 1
+
+    return {
+        "attempted": len(due),
+        "checked": checked,
+        "failed": failed,
+        "new_findings": new_findings,
+        "still_due": max(0, len(adverse_media_due(conn, org_id))),
+    }
