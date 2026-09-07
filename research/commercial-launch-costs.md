@@ -109,8 +109,12 @@ roughly 1 GB per deploy and $0.10/GB/month beyond the free 0.5 GB, a year of
 active development is a slowly growing bill for images that will never run
 again.
 
-*Fix:* one Artifact Registry cleanup policy — keep the 10 most recent, delete
-older than 30 days. A few minutes of work, and it stops compounding.
+*Fixed:* `scripts/set_artifact_cleanup_policy.sh` applies exactly that — keep
+the 10 most recent, delete older than 30 days. It is a one-time script rather
+than a CI step for the same reason `grant_scheduler_iam.sh` is: setting a
+cleanup policy needs `artifactregistry.repositories.update`, and permanently
+widening the deploy service account's grant to perform a one-time repo setting
+would be the wrong trade. **Still needs running once** against the project.
 
 **Litestream's GCS write volume.** Continuous WAL replication means frequent
 Class A operations, which are billed per operation rather than per byte. The
@@ -159,10 +163,23 @@ emails/day, then $19.95/month minimum.
 
 This is live, not hypothetical: the deploy workflow already wires
 `AMLKIT_SMTP_*` to SendGrid's SMTP relay (commit `60d699c`). So either a paid
-plan is running, or that trial has lapsed and **registration verification email
-is silently not sending**. `mail.py` returns `False` rather than raising when
-send fails, by design — which is right for resilience but means this fails
-quietly. Worth checking the account state today.
+plan is running, or that trial has lapsed and registration verification email
+is not sending. Worth checking the account state today.
+
+> **This turned out to be a security bug, not just a cost question.**
+> `mail.send_verification_email` used to return a bool, and `False` meant both
+> "no SMTP configured" (a supported dev state, where showing the link is the
+> point) and "SMTP configured but the send failed". Both registration routes
+> branched on `if not emailed` and handed the raw verification token back to
+> whoever submitted the form. That token activates a fully-privileged MLRO
+> account, and proving control of the mailbox is the entire purpose of the
+> check — so a deployment whose provider had lapsed was letting anyone
+> register under an address they did not own and activate it immediately.
+>
+> Fixed: the outcome is now three-valued (`SENT` / `NOT_CONFIGURED` /
+> `FAILED`), only `NOT_CONFIGURED` may reveal the link, and every send records
+> its outcome in the audit log so a failing provider is visible rather than
+> inferred from nobody signing up. See `TestConfiguredMailFailureDoesNotLeakTheToken`.
 
 | Provider | Free tier | Paid from | Notes |
 |---|---|---|---|
@@ -212,19 +229,33 @@ is a business and regulatory one, not an infrastructure one.
 
 ## What to do, in order
 
+Done in code (nothing to action):
+
+- ~~Make a failing mail provider visible instead of silent~~ — and closed the
+  token-leak it was causing. See section 4.
+- ~~Add an Artifact Registry cleanup policy~~ — written as
+  `scripts/set_artifact_cleanup_policy.sh`; still needs **running once**.
+- ~~Smoke-test the adverse-media provider~~ — GDELT is now in the daily source
+  canary, non-blocking, watching for schema drift.
+
+Yours, in order:
+
 1. **Check whether SendGrid is still sending.** If that trial lapsed,
-   registration is broken right now and nobody has noticed.
-2. **Buy the `.com`.** ~$12. Everything else depends on it.
-3. **Move email to Resend**, publish SPF/DKIM/DMARC on the new domain. Free.
-4. **Put Cloudflare in front**, point the domain at Cloud Run, set
+   registration has been failing. The audit log now records the delivery
+   outcome of every send, so `SELECT detail FROM audit_log WHERE
+   action='operator.verification_sent'` answers this directly.
+2. **Run `scripts/set_artifact_cleanup_policy.sh`.** Needs `GCP_REGION` set
+   and a gcloud session with repo-admin rights. Stops a slow leak.
+3. **Buy the `.com`.** ~$12. Everything else depends on it.
+4. **Move email to Resend**, publish SPF/DKIM/DMARC on the new domain. Free.
+5. **Put Cloudflare in front**, point the domain at Cloud Run, set
    `AMLKIT_APP_BASE_URL` to it so verification links stop pointing at
    `run.app`. Free.
-5. **Add an Artifact Registry cleanup policy.** Stops a slow leak.
 6. **Buy the `.ae`** defensively. ~AED 200.
 7. *Then* the business questions: licence, data-residency answer, insurance,
    and the UAE-qualified sign-off the README already flags.
 
-Steps 1–5 cost about $12 and an afternoon. Step 7 is the actual project.
+Steps 1–6 cost about $12 and an afternoon. Step 7 is the actual project.
 
 ---
 

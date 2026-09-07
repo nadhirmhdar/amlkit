@@ -167,3 +167,131 @@ class TestEmailFormatValidation:
         r = _register(client, email="not-an-email-at-all")
         assert r.status_code == 400
         assert "valid email" in r.json()["detail"].lower()
+
+
+class TestConfiguredMailFailureDoesNotLeakTheToken:
+    """Regression: a configured-but-failing mail provider was an auth bypass.
+
+    `mail.send_verification_email` used to return a bool, and False meant both
+    "no SMTP configured" (a supported dev state, where handing the link back
+    is the point) and "SMTP configured but the send failed" (a production
+    outage). Both registration routes branched on `if not emailed`, so in the
+    second case they returned the raw verification token to whoever posted the
+    form.
+
+    That token activates a fully-privileged MLRO account, and proving control
+    of the mailbox is the entire purpose of the check -- so anyone could
+    register under an address they did not own and immediately activate it.
+
+    Live, not theoretical: SendGrid withdrew its free tier in May 2025, so a
+    deployment whose trial lapsed sits in exactly this state, still accepting
+    registrations with every send failing.
+    """
+
+    @pytest.fixture()
+    def failing_smtp(self, monkeypatch):
+        """Mail IS configured; every send raises."""
+        import smtplib
+
+        monkeypatch.setenv("AMLKIT_SMTP_HOST", "smtp.example.invalid")
+        monkeypatch.setenv("AMLKIT_SMTP_PORT", "587")
+
+        def boom(*a, **k):
+            raise smtplib.SMTPException("provider rejected the connection")
+
+        monkeypatch.setattr(smtplib, "SMTP", boom)
+
+    def test_mail_module_distinguishes_failure_from_unconfigured(
+        self, failing_smtp
+    ) -> None:
+        from amlkit import mail
+
+        assert mail.is_configured()
+        assert mail.send_verification_email("a@b.test", "A", "tok") == mail.FAILED
+
+    def test_unconfigured_still_reports_not_configured(self, monkeypatch) -> None:
+        from amlkit import mail
+
+        monkeypatch.delenv("AMLKIT_SMTP_HOST", raising=False)
+        assert mail.send_verification_email("a@b.test", "A", "tok") == mail.NOT_CONFIGURED
+
+    def test_api_does_not_return_the_token_when_the_send_fails(
+        self, client, failing_smtp
+    ) -> None:
+        body = _register(client).json()
+        assert "dev_verification_token" not in body, (
+            "a live verification token was handed to the caller while mail was "
+            "configured -- this is the auth bypass"
+        )
+        assert body["status"] == "verification_send_failed"
+
+    def test_account_stays_inert_after_a_failed_send(self, client, failing_smtp) -> None:
+        # The belt-and-braces check: even with no token leaked, the account
+        # must remain unusable rather than quietly activating.
+        _register(client)
+        r = client.post("/api/v1/auth/login", json={
+            "email": "alice@testfirm.ae", "password": "a-strong-password-1",
+        })
+        assert r.status_code == 401
+
+    def test_web_registration_does_not_render_the_link_when_the_send_fails(
+        self, client, failing_smtp
+    ) -> None:
+        client.get("/register-organization")
+        csrf = client.cookies.get("amlkit_csrf")
+        r = client.post("/register-organization", data={
+            "org_name": "Web Firm", "name": "bob", "email": "bob@webfirm.ae",
+            "password": "a-strong-password-1", "csrf_token": csrf,
+        }, follow_redirects=True)
+        assert r.status_code == 200
+        assert "/verify-email?token=" not in r.text
+        assert "could not be sent" in r.text
+
+    def test_failed_delivery_is_recorded_in_the_audit_log(
+        self, client, failing_smtp
+    ) -> None:
+        # The visibility half of the fix: a provider failing every send is
+        # otherwise indistinguishable from nobody signing up.
+        import os
+        import sqlite3
+
+        _register(client)
+        conn = sqlite3.connect(os.environ["AMLKIT_DB"])
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action='operator.verification_sent'"
+            " ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert '"delivery": "failed"' in row["detail"]
+
+    def test_successful_delivery_is_recorded_too(self, client, monkeypatch) -> None:
+        import smtplib
+
+        monkeypatch.setenv("AMLKIT_SMTP_HOST", "smtp.example.invalid")
+
+        class FakeSMTP:
+            def __init__(self, *a, **k): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def starttls(self): pass
+            def login(self, *a): pass
+            def send_message(self, msg): pass
+
+        monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+
+        body = _register(client).json()
+        assert body["status"] == "verification_required"
+        assert "dev_verification_token" not in body
+
+        import os
+        import sqlite3
+        conn = sqlite3.connect(os.environ["AMLKIT_DB"])
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action='operator.verification_sent'"
+            " ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        assert '"delivery": "sent"' in row["detail"]

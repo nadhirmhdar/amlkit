@@ -200,9 +200,11 @@ def api_register_organization(body: RegisterOrgRequest, db: DB):
     # account exists and is fully privileged (MLRO) the moment this link is
     # clicked, so it must not be usable before then.
     raw_token = auth.create_email_verify_token(db, operator_id)
-    emailed = mail.send_verification_email(email, body.name.strip(), raw_token)
+    delivery = mail.send_verification_email(email, body.name.strip(), raw_token)
+    # Outcome, not just the attempt -- a provider failing every send is
+    # otherwise invisible; see the matching note in app.py.
     audit(db, body.name.strip(), "operator.verification_sent", "operator", operator_id,
-          {"email": email}, org_id=org_id)
+          {"email": email, "delivery": delivery}, org_id=org_id)
     db.commit()
 
     response = {
@@ -210,15 +212,25 @@ def api_register_organization(body: RegisterOrgRequest, db: DB):
         "message": f"Account created. Check {email} for a verification link before signing in.",
         "email": email,
     }
-    if not emailed:
-        # No SMTP configured (or the send failed) -- see amlkit/mail.py. The
-        # link was printed to the server console; also handing it back here
-        # keeps registration usable in dev/test without real mail
-        # infrastructure. This field is never present once real mail is
-        # actually going out (mail.send_verification_email only returns
-        # False in that fallback case), so it can never leak a live token to
-        # a client in a deployment where email verification is meaningful.
+    if delivery == mail.NOT_CONFIGURED:
+        # No SMTP configured AT ALL -- see amlkit/mail.py. The link was
+        # printed to the server console; handing it back here too keeps
+        # registration usable in dev/test without mail infrastructure.
+        #
+        # This branch used to be `if not emailed`, which also caught "mail is
+        # configured but the send failed" and handed the raw token to the
+        # client in that case. The token activates a fully-privileged MLRO
+        # account and email control is the thing it exists to prove, so a
+        # deployment whose provider had lapsed was giving any caller an
+        # account under any address they cared to type.
         response["dev_verification_token"] = raw_token
+    elif delivery == mail.FAILED:
+        response["status"] = "verification_send_failed"
+        response["message"] = (
+            f"Account created, but the verification email to {email} could not "
+            "be sent. Ask your administrator to check the mail service, then "
+            "request a new link."
+        )
     return response
 
 
@@ -284,11 +296,14 @@ def api_resend_verification(body: ResendVerificationRequest, db: DB):
         return generic
 
     raw_token = auth.create_email_verify_token(db, row["id"])
-    mail.send_verification_email(email, row["name"], raw_token)
+    delivery = mail.send_verification_email(email, row["name"], raw_token)
     from ..db import audit
 
+    # The response stays generic (see `generic`) so this route cannot be used
+    # to probe which addresses have accounts, which makes the audit log the
+    # only place a repeatedly-failing provider shows up.
     audit(db, row["name"], "operator.verification_resent", "operator", row["id"],
-          {"email": email}, org_id=row["org_id"])
+          {"email": email, "delivery": delivery}, org_id=row["org_id"])
     db.commit()
     return generic
 

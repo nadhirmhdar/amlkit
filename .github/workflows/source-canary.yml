@@ -118,6 +118,72 @@ jobs:
           print("\nAll mandatory sources fetched and parsed.")
           PY
 
+      # Adverse media (GDELT) is checked separately and NEVER fails this job.
+      #
+      # Two reasons, both deliberate. It is not a mandatory source -- the
+      # sanctions lists above are a legal obligation, negative news is a
+      # risk-based input, and screening/adverse_media.py already treats a
+      # GDELT outage as a recorded degradation rather than a blocker. Failing
+      # the build here would contradict that and, worse, would let a free
+      # public API's hiccup block a deploy of the sanctions screening that
+      # actually is mandatory.
+      #
+      # It still earns its place: what this catches is SCHEMA DRIFT. If GDELT
+      # renames a field, parse_articles() starts returning empty findings and
+      # every adverse-media check silently reports "clear" -- the exact
+      # silent-coverage-loss failure this whole workflow exists to detect.
+      #
+      # Schedule/dispatch only, not on every PR push: GDELT rate-limits to one
+      # request per 5s per source IP and GitHub runners share addresses, so
+      # hammering it on every commit would be both rude and self-defeating.
+      - name: Smoke-test the adverse media provider (non-blocking)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          from amlkit.screening.adverse_media import (
+              GDELTClient, MediaUnavailable, classify, parse_articles,
+          )
+
+          # A generic high-volume term rather than a real person's name: this
+          # is checking that GDELT answers and that its artlist JSON still has
+          # the fields parse_articles() reads. Naming an individual in a CI
+          # file to prove a news API works would be gratuitous in an AML tool.
+          try:
+              payload = GDELTClient().fetch("fraud", window_months=1, max_records=10)
+          except MediaUnavailable as exc:
+              print(f"::warning::GDELT unavailable: {exc}")
+              print("Adverse media screening degrades gracefully; sanctions "
+                    "screening is unaffected.")
+              raise SystemExit(0)
+
+          articles = parse_articles(payload)
+          if not articles:
+              print("::warning::GDELT answered but no articles parsed -- check "
+                    "whether the artlist field names have changed "
+                    "(url/title/domain/language/sourcecountry/seendate).")
+              raise SystemExit(0)
+
+          # Field-level check: a renamed field shows up as every article
+          # carrying an empty value, which parse_articles tolerates by design.
+          # Tolerating it is right at runtime and wrong to stay quiet about here.
+          missing = [
+              name for name, present in (
+                  ("title", any(a.title for a in articles)),
+                  ("domain", any(a.domain for a in articles)),
+                  ("seendate", any(a.published_at for a in articles)),
+              ) if not present
+          ]
+          if missing:
+              print(f"::warning::GDELT returned articles but these fields were "
+                    f"empty across all of them: {', '.join(missing)}. Likely a "
+                    f"renamed field in the artlist response.")
+
+          adverse = sum(1 for a in articles if classify(a.title)[0] != "none")
+          print(f"OK  GDELT: {len(articles)} articles parsed, "
+                f"{adverse} classified adverse.")
+          PY
+
   deploy:
     name: Deploy to Cloud Run
     needs: [tests, sources]

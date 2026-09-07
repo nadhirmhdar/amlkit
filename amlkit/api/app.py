@@ -504,21 +504,37 @@ def register_org_submit(
     # Not activated yet -- see auth.login()'s email_verified_at guard. Show a
     # "check your email" panel instead of signing the operator straight in.
     raw_token = auth.create_email_verify_token(db, operator_id)
-    emailed = mail.send_verification_email(clean_email, name.strip(), raw_token)
+    delivery = mail.send_verification_email(clean_email, name.strip(), raw_token)
+    # The outcome is recorded, not just the attempt. A provider that has
+    # started failing every send is otherwise invisible here -- the symptom is
+    # nobody completing registration, which looks like disinterest rather than
+    # an outage.
     audit(db, name.strip(), "operator.verification_sent", "operator", operator_id,
-          {"email": clean_email}, org_id=org_id)
+          {"email": clean_email, "delivery": delivery}, org_id=org_id)
     db.commit()
 
     ctx = {
         "session": None, "pending_email": clean_email,
         "msg": f"Account created. Check {clean_email} for a verification link before signing in.",
     }
-    if not emailed:
-        # No SMTP configured -- see amlkit/mail.py. Surface the same link
-        # that was printed to the console so registration stays testable
-        # without real mail infrastructure. Never shown once real mail is
-        # actually configured.
+    if delivery == mail.NOT_CONFIGURED:
+        # No SMTP configured at all -- see amlkit/mail.py. Surface the same
+        # link that was printed to the console so registration stays testable
+        # without real mail infrastructure.
+        #
+        # ONLY in this case. When mail is configured and the send merely
+        # failed, showing the link here would hand a live verification token
+        # -- which activates a fully-privileged MLRO account -- to whoever
+        # submitted the form, without them having proved control of the
+        # mailbox. That is the whole point of the check.
         ctx["dev_verify_url"] = mail.verify_url(raw_token)
+    elif delivery == mail.FAILED:
+        ctx["msg"] = (
+            f"Account created, but the verification email to {clean_email} "
+            "could not be sent. The mail service is not responding — ask your "
+            "administrator to check it, then use the resend link below."
+        )
+        ctx["err"] = "Verification email could not be sent."
     return render(request, "register_organization.html", ctx)
 
 
@@ -579,9 +595,12 @@ def resend_verification(
             from ..db import audit
 
             raw_token = auth.create_email_verify_token(db, row["id"])
-            mail.send_verification_email(clean_email, row["name"], raw_token)
+            delivery = mail.send_verification_email(clean_email, row["name"], raw_token)
+            # The response stays deliberately generic (see generic_msg) to
+            # avoid confirming whether an account exists, so the audit log is
+            # the only place a repeatedly-failing provider becomes visible.
             audit(db, row["name"], "operator.verification_resent", "operator", row["id"],
-                  {"email": clean_email}, org_id=row["org_id"])
+                  {"email": clean_email, "delivery": delivery}, org_id=row["org_id"])
             db.commit()
     return render(request, "login.html", {"session": None, "msg": generic_msg})
 
