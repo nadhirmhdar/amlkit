@@ -92,7 +92,7 @@ self-match, **0 false positives** across the benign-name suite.
   severity bands. See the section below for what it is and is not
 
 Measured on the real UAE list: 12/12 Latin self-match, 12/12 Arabic-script
-self-match, **0 false positives** across the benign-name suite. 457 tests.
+self-match, **0 false positives** across the benign-name suite. 464 tests.
 
 ## Not built yet
 
