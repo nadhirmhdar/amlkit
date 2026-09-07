@@ -116,6 +116,41 @@ cleanup policy needs `artifactregistry.repositories.update`, and permanently
 widening the deploy service account's grant to perform a one-time repo setting
 would be the wrong trade. **Still needs running once** against the project.
 
+**How to know nothing important gets deleted.** Google's cleanup-policy
+documentation does not claim any protection for an image that is currently in
+use — Artifact Registry will delete one a live Cloud Run revision depends on.
+With `min-instances=0` this service scales to zero routinely, so that failure
+would not show up at delete time; it would show up the next time Cloud Run
+tried to start an instance and found nothing to pull.
+
+Artifact Registry does have a `--dry-run` mode, but its results land in Cloud
+Logging Data Access audit logs, need the data-write audit log type enabled
+first, and take **at least a day** to appear. Good for ongoing assurance,
+useless for "am I about to break production".
+
+So the script reports before it writes anything. Run with no arguments and it
+prints every version with a KEEP/DELETE verdict, marks which ones Cloud Run
+revisions reference, and **refuses to proceed** if an image serving live
+traffic would be caught — or if it could not determine what is serving at all,
+which fails toward not deleting:
+
+```
+KEEP         0d  sha256:new00           tag0
+DELETE     200d  sha256:OLDSERVING      pinned  <== SERVING: amlkit-old (100% of traffic)
+
+REFUSING TO APPLY:
+  ! image serving live traffic would be deleted: sha256:OLDSERVING
+```
+
+The dangerous case is real rather than theoretical: traffic pinned to an older
+revision (a rollback, a canary that was never promoted) can leave the serving
+image both outside the 10 most recent *and* older than 30 days. Nothing is
+written without `--apply`, and `--apply` re-runs the whole check first.
+
+The report is a faithful reimplementation of the policy's rules, not the
+policy itself — Google evaluates the real thing server-side. It exists to
+catch the dangerous case immediately, not to replace the official dry run.
+
 **Litestream's GCS write volume.** Continuous WAL replication means frequent
 Class A operations, which are billed per operation rather than per byte. The
 database itself is tiny and storage is negligible; the *operations* line is the
