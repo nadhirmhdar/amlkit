@@ -1,0 +1,84 @@
+name: One-off replica recovery reseed
+
+# Manual, narrow-purpose tool for recovering from the 2026-09-07 entity_names/
+# entity_identifiers/name_tokens corruption (see audit findings in that day's
+# incident). Downloads a pre-staged, already-verified-clean database from GCS
+# and seeds it as a fresh litestream generation at a target replica URL.
+#
+# Deliberately workflow_dispatch only -- never runs on a schedule or push.
+# `target` defaults to a disposable test path so an accidental trigger cannot
+# touch the real replica; the real path must be typed out explicitly.
+#
+# Runs as backup-verifier@, which needs TEMPORARY write access to the bucket
+# for this job (it's read-only the rest of the time -- see
+# scripts/grant_backup_verify_iam.sh). Revoke that grant back to read-only
+# once this workflow has done its job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      staging_object:
+        description: "GCS path (without gs://bucket/ prefix) of the pre-staged clean database"
+        required: true
+        default: "recovery-staging/recovered-20260907.db"
+      target_path:
+        description: "Replica path under gs://<GCS_BUCKET>/ to seed. Defaults to a disposable test path -- type the real one explicitly to touch production."
+        required: true
+        default: "litestream-write-probe/test.db"
+
+jobs:
+  reseed:
+    name: Seed a fresh litestream generation from a verified-clean database
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BACKUP_VERIFY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # Pinned to the exact version production runs (see Dockerfile /
+      # backup-verify.yml) -- seeding with a different litestream build than
+      # the one actually serving isn't a faithful migration.
+      - name: Install litestream
+        run: |
+          curl -fsSL -o /tmp/litestream.deb \
+            https://github.com/benbjohnson/litestream/releases/download/v0.5.16/litestream-0.5.16-linux-x86_64.deb
+          sudo dpkg -i /tmp/litestream.deb
+
+      - name: Download staged clean database
+        run: |
+          gcloud storage cp \
+            "gs://${{ vars.GCS_BUCKET }}/${{ inputs.staging_object }}" \
+            /tmp/clean.db
+          sqlite3 /tmp/clean.db "PRAGMA integrity_check;" | tee /tmp/pre-seed-check.txt
+          if [ "$(cat /tmp/pre-seed-check.txt)" != "ok" ]; then
+            echo "::error::Staged database is not clean -- refusing to seed a replica from it."
+            exit 1
+          fi
+
+      - name: Seed target replica as a fresh generation
+        run: |
+          TARGET="gs://${{ vars.GCS_BUCKET }}/${{ inputs.target_path }}"
+          echo "Seeding $TARGET from the staged clean database..."
+          litestream replicate -once -force-snapshot /tmp/clean.db "$TARGET"
+
+      - name: Verify by restoring the freshly-seeded replica back
+        run: |
+          TARGET="gs://${{ vars.GCS_BUCKET }}/${{ inputs.target_path }}"
+          litestream restore -o /tmp/verify.db "$TARGET"
+          RESULT=$(sqlite3 /tmp/verify.db "PRAGMA integrity_check;")
+          echo "post-seed integrity_check: $RESULT"
+          if [ "$RESULT" != "ok" ]; then
+            echo "::error::Freshly-seeded replica failed integrity_check: $RESULT"
+            exit 1
+          fi
+          echo "Row counts in restored, freshly-seeded replica:"
+          for t in entities entity_names entity_identifiers name_tokens customers alerts operators audit_log organizations screenings; do
+            echo "  $t: $(sqlite3 /tmp/verify.db "SELECT COUNT(*) FROM $t;")"
+          done
