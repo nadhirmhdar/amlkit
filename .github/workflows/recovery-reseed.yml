@@ -66,19 +66,24 @@ jobs:
         run: |
           TARGET="gs://${{ vars.GCS_BUCKET }}/${{ inputs.target_path }}"
           echo "Seeding $TARGET from the staged clean database..."
-          # litestream mints its own federated GCS token independently of the
-          # auth step above, and that exchange has occasionally hit a
-          # "context canceled" on its first attempt against GitHub's OIDC
-          # endpoint. Retry a few times before giving up for real.
-          for attempt in 1 2 3 4 5; do
-            if litestream replicate -once -force-snapshot /tmp/clean.db "$TARGET"; then
-              exit 0
-            fi
-            echo "attempt $attempt failed, retrying in 10s..."
-            sleep 10
-          done
-          echo "::error::litestream replicate failed after 5 attempts."
-          exit 1
+          # `-once -force-snapshot` races its own context cancellation
+          # against the slower OIDC-based token exchange WIF credentials
+          # require: the main loop decides there's nothing left to do and
+          # tears down the context before the in-flight auth request
+          # finishes, aborting it with "context canceled" -- reproduced
+          # identically five times in a row, not network flakiness. Running
+          # continuously (no -once) avoids that premature shutdown; a fresh
+          # target with no prior generation gets its initial snapshot
+          # automatically on first contact.
+          litestream replicate /tmp/clean.db "$TARGET" &
+          PID=$!
+          sleep 30
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo "::error::litestream process exited early -- check logs above."
+            exit 1
+          fi
+          kill -TERM "$PID"
+          wait "$PID" || true
 
       - name: Verify by restoring the freshly-seeded replica back
         run: |
