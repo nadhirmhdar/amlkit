@@ -382,7 +382,7 @@ jobs:
               --message-body "{}" \
               --update-headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
               --attempt-deadline 900s \
-              --max-retry-count 3 \
+              --max-retry-attempts 3 \
               --min-backoff 60s \
               --max-backoff 300s
           else
@@ -394,7 +394,7 @@ jobs:
               --message-body "{}" \
               --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
               --attempt-deadline 900s \
-              --max-retry-count 3 \
+              --max-retry-attempts 3 \
               --min-backoff 60s \
               --max-backoff 300s
           fi
