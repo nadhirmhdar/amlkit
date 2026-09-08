@@ -108,5 +108,30 @@
 </div>
 {% endif %}
 
+<script>
+(function () {
+  var wrap = document.getElementById('user-menu-wrap');
+  function close() {
+    if (!wrap) return;
+    wrap.classList.remove('open');
+    var btn = wrap.querySelector('.user-menu-btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+  window.toggleUserMenu = function (e) {
+    e.stopPropagation();
+    if (!wrap) return;
+    var opening = !wrap.classList.contains('open');
+    wrap.classList.toggle('open');
+    var btn = wrap.querySelector('.user-menu-btn');
+    if (btn) btn.setAttribute('aria-expanded', String(opening));
+  };
+  document.addEventListener('click', function (e) {
+    if (wrap && !wrap.contains(e.target)) close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') close();
+  });
+}());
+</script>
 </body>
 </html>
