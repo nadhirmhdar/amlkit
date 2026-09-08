@@ -102,7 +102,6 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
 
     loaded: list[str] = []
     failures: list[str] = []
-    mandatory_failures: list[str] = []
     for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
                      EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
         adapter = factory()
@@ -110,35 +109,23 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             result = load(conn, adapter, actor=actor)
             loaded.append(f"{adapter.title}: {result.entities} entities")
         except AdapterError as exc:
-            msg = f"{adapter.title}: {exc}"
-            failures.append(msg)
-            if adapter.is_mandatory:
-                mandatory_failures.append(msg)
+            failures.append(f"{adapter.title}: {exc}")
             audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
                   {"error": str(exc)}, org_id=None)
     conn.commit()
 
     total_alerts = 0
     screened_orgs = 0
-    rescreen_failures: list[str] = []
     orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
     for org in orgs:
-        try:
-            outcome = rescreen_all(conn, org["id"], actor=actor)
-            total_alerts += outcome["alerts"]
-            screened_orgs += 1
-        except Exception as exc:
-            log.exception("rescreen_all failed for org %s (%s): %s", org["id"], org["name"], exc)
-            rescreen_failures.append(f"{org['name']}: {exc}")
+        outcome = rescreen_all(conn, org["id"], actor=actor)
+        total_alerts += outcome["alerts"]
+        screened_orgs += 1
     conn.commit()
 
     return {
-        "loaded": loaded,
-        "failures": failures,
-        "mandatory_failures": mandatory_failures,
-        "rescreen_failures": rescreen_failures,
-        "orgs_screened": screened_orgs,
-        "new_alerts": total_alerts,
+        "loaded": loaded, "failures": failures,
+        "orgs_screened": screened_orgs, "new_alerts": total_alerts,
     }
 
 
@@ -161,16 +148,12 @@ def _run_scheduled_refresh() -> None:
     from ..db import connect
 
     log.info("Scheduled sanctions refresh starting…")
-    conn = None
+    conn = connect(db_path())
     try:
-        conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="scheduler")
         log.info("Scheduled refresh complete: %s", result)
-    except Exception:
-        log.exception("Scheduled sanctions refresh failed with an unexpected error")
     finally:
-        if conn is not None:
-            conn.close()
+        conn.close()
 
 
 @contextlib.asynccontextmanager
@@ -1316,6 +1299,20 @@ def about_view(request: Request, db: DB):
     return render(request, "about.html", {"session": session})
 
 
+# ----------------------------------------------------------------------- more
+# Phone-width nav collapses to five tabs (Home / Dashboard / Screen /
+# Customers / More); this page is where the remaining sidebar links
+# (Reports, Audit, Admin, About) land on that fifth tab. Pure navigation,
+# no data of its own.
+@app.get("/more", response_class=HTMLResponse)
+def more_view(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "more.html", {"session": session})
+
+
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
 def audit_view(request: Request, db: DB):
@@ -1546,23 +1543,13 @@ def system_refresh(request: Request):
     from ..db import connect
     from fastapi.responses import JSONResponse
 
-    conn = None
+    conn = connect(db_path())
     try:
-        conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="cloud-scheduler")
     finally:
-        if conn is not None:
-            conn.close()
+        conn.close()
 
-    # Return 500 when any UAE-law mandatory source failed so Cloud Scheduler
-    # retries the job (it only retries on non-2xx). 207 for non-mandatory
-    # partial failures still signals partial success without triggering a retry.
-    if result["mandatory_failures"]:
-        status_code = 500
-    elif result["failures"] or result["rescreen_failures"]:
-        status_code = 207
-    else:
-        status_code = 200
+    status_code = 207 if result["failures"] else 200
     return JSONResponse({"status": "complete", **result}, status_code=status_code)
 
 
