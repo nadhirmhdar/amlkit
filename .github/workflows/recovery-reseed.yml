@@ -66,7 +66,19 @@ jobs:
         run: |
           TARGET="gs://${{ vars.GCS_BUCKET }}/${{ inputs.target_path }}"
           echo "Seeding $TARGET from the staged clean database..."
-          litestream replicate -once -force-snapshot /tmp/clean.db "$TARGET"
+          # litestream mints its own federated GCS token independently of the
+          # auth step above, and that exchange has occasionally hit a
+          # "context canceled" on its first attempt against GitHub's OIDC
+          # endpoint. Retry a few times before giving up for real.
+          for attempt in 1 2 3 4 5; do
+            if litestream replicate -once -force-snapshot /tmp/clean.db "$TARGET"; then
+              exit 0
+            fi
+            echo "attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::litestream replicate failed after 5 attempts."
+          exit 1
 
       - name: Verify by restoring the freshly-seeded replica back
         run: |
