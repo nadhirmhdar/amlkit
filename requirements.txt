@@ -16,3 +16,4 @@ apscheduler>=3.10
 graphviz>=0.20
 passporteye>=2.2.0
 pytesseract>=0.3
+google-cloud-storage>=2.18

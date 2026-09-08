@@ -249,6 +249,7 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
         "signatures": signatures_for_customer(conn, customer_id, org_id),
         "adverse_media": adverse_media_for_customer(conn, customer_id, org_id),
         "adverse_media_runs": adverse_media_runs(conn, customer_id, org_id),
+        "documents": documents_for_customer(conn, customer_id, org_id),
         "audit": audit_trail(conn, org_id, "customer", customer_id),
     }
 
@@ -374,6 +375,15 @@ def report(conn: sqlite3.Connection, report_id: int, org_id: int) -> dict[str, A
         "LEFT JOIN customers c ON c.id = r.customer_id "
         "WHERE r.id=? AND r.org_id=?", (report_id, org_id)).fetchone()
     return dict(row) if row else None
+
+
+def documents_for_customer(
+    conn: sqlite3.Connection, customer_id: int, org_id: int
+) -> list[dict[str, Any]]:
+    return [dict(r) for r in conn.execute(
+        "SELECT id, doc_type, filename, sha256, uploaded_at FROM documents"
+        " WHERE customer_id=? AND org_id=? ORDER BY uploaded_at DESC",
+        (customer_id, org_id))]
 
 
 def adverse_media_for_customer(

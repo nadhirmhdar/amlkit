@@ -27,15 +27,17 @@ that repo by hand when changing a response shape here.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import sqlite3
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from .. import auth, mail, queries
+from .. import auth, mail, queries, storage
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     add_case_note,
@@ -43,7 +45,9 @@ from ..cases.manager import (
     close_relationship,
     disposition_adverse_media_finding,
     disposition_transaction_alert,
+    due_for_review,
     onboard,
+    reassess_risk,
     record_signature,
     record_transaction,
     run_adverse_media,
@@ -444,6 +448,16 @@ class CustomerCreateRequest(BaseModel):
     jurisdiction_tier: str = "standard"
     structure: str = "natural_person"
     ubos: list[UboIn] = []
+    # Contact fields
+    email: str = ""
+    phone: str = ""
+    address_line1: str = ""
+    address_line2: str = ""
+    city: str = ""
+    postal_code: str = ""
+    contact_person: str = ""
+    contact_phone: str = ""
+    contact_email: str = ""
 
 
 @router.post("/customers")
@@ -465,6 +479,15 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
             jurisdiction_tier=body.jurisdiction_tier, structure=body.structure,
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
+            email=body.email.strip() or None,
+            phone=body.phone.strip() or None,
+            address_line1=body.address_line1.strip() or None,
+            address_line2=body.address_line2.strip() or None,
+            city=body.city.strip() or None,
+            postal_code=body.postal_code.strip() or None,
+            contact_person=body.contact_person.strip() or None,
+            contact_phone=body.contact_phone.strip() or None,
+            contact_email=body.contact_email.strip() or None,
         )
     except sqlite3.IntegrityError as exc:
         raise HTTPException(
@@ -552,6 +575,132 @@ def api_customer_evidence(customer_id: int, db: DB, session: Session):
 def api_customer_close(customer_id: int, db: DB, session: Session):
     until = close_relationship(db, customer_id, org_id=session.org_id, actor=session.operator_name)
     return {"retention_until": until}
+
+
+# -------------------------------------------------------- risk rating endpoints
+
+class RiskFactorUpdateRequest(BaseModel):
+    """Mutable risk factors. Omit any field to keep the current value."""
+    jurisdiction_tier: str | None = None
+    sector: str | None = None
+    delivery_channel: str | None = None
+    cash_level: str | None = None
+    structure: str | None = None
+
+
+@router.post("/customers/{customer_id}/risk")
+def api_customer_reassess_risk(customer_id: int, db: DB, session: Session):
+    """Trigger a risk re-assessment using the customer's current state.
+
+    Re-derives sanctions_hit from open alerts, preserves PEP status and
+    all other factors from the prior assessment. Returns the new rating.
+    Useful after an MLRO dismisses an alert or marks adverse media as
+    relevant, and wants to see the updated rating without waiting for the
+    next scheduled rescreen.
+    """
+    if db.execute(
+        "SELECT id FROM customers WHERE id=? AND org_id=?", (customer_id, session.org_id)
+    ).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    assessment = reassess_risk(db, customer_id, session.org_id, actor=session.operator_name)
+    if assessment is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No prior assessment found. Complete onboarding before re-assessing.",
+        )
+    return {
+        "rating": assessment.rating,
+        "score": assessment.score,
+        "requires_edd": assessment.requires_edd,
+        "next_review": assessment.next_review,
+        "ruleset_version": assessment.ruleset_version,
+        "factors": assessment.factors,
+    }
+
+
+@router.patch("/customers/{customer_id}/risk-factors")
+def api_customer_update_risk_factors(
+    customer_id: int, body: RiskFactorUpdateRequest, db: DB, session: Session
+):
+    """Update mutable risk factors and re-assess.
+
+    Only the fields you supply are changed; omitted fields keep their current
+    value from the prior assessment. Updates that affect a column on the
+    `customers` table (sector, delivery_channel, cash_level) are persisted
+    there so `customer_list` reflects the change. jurisdiction_tier and
+    structure have no customer-row column -- they live only in the assessment
+    factors, carried forward by `reassess_risk`.
+    """
+    row = db.execute(
+        "SELECT id FROM customers WHERE id=? AND org_id=?", (customer_id, session.org_id)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
+    updates: dict[str, Any] = {}
+    if body.sector is not None:
+        updates["sector"] = body.sector
+    if body.delivery_channel is not None:
+        updates["delivery_channel"] = body.delivery_channel
+    if body.cash_level is not None:
+        updates["is_cash_intensive"] = int(body.cash_level == "predominantly_cash")
+
+    if updates:
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        db.execute(
+            f"UPDATE customers SET {set_clause}, updated_at=? WHERE id=? AND org_id=?",
+            (*updates.values(), utcnow(), customer_id, session.org_id),
+        )
+        from ..db import audit
+        audit(db, session.operator_name, "customer.risk_factors_updated", "customer",
+              customer_id, {k: v for k, v in body.__dict__.items() if v is not None},
+              org_id=session.org_id)
+        db.commit()
+
+    assessment = reassess_risk(
+        db, customer_id, session.org_id, actor=session.operator_name,
+        jurisdiction_tier=body.jurisdiction_tier,
+        sector=body.sector,
+        delivery_channel=body.delivery_channel,
+        cash_level=body.cash_level,
+        structure=body.structure,
+    )
+    if assessment is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No prior assessment found. Complete onboarding before updating risk factors.",
+        )
+    return {
+        "rating": assessment.rating,
+        "score": assessment.score,
+        "requires_edd": assessment.requires_edd,
+        "next_review": assessment.next_review,
+        "ruleset_version": assessment.ruleset_version,
+        "factors": assessment.factors,
+    }
+
+
+@router.get("/risk/ruleset")
+def api_risk_ruleset(session: Session):
+    """Return the active ruleset — version, bands, EDD triggers, factor labels.
+
+    Lets the mobile app show the scoring criteria in context (e.g. beside each
+    factor on the customer detail screen) without hardcoding them in the app.
+    """
+    from ..risk.model import ruleset as load_ruleset
+    rs = load_ruleset()
+    return {
+        "version": rs["version"],
+        "effective_from": rs.get("effective_from"),
+        "bands": rs["bands"],
+        "edd_triggers": rs.get("edd_triggers", []),
+        "review_months": rs.get("review_months", {}),
+        "adverse_media_months": rs.get("adverse_media_months", {}),
+        "factors": {
+            key: {"label": val.get("label", key)}
+            for key, val in rs.get("factors", {}).items()
+        },
+    }
 
 
 class UboAddRequest(BaseModel):
@@ -737,6 +886,74 @@ class SignatureRequest(BaseModel):
     signer_role: str = "customer"
 
 
+@router.post("/customers/{customer_id}/documents")
+def api_customer_upload_document(
+    customer_id: int, doc_type: str, file: UploadFile, db: DB, session: Session
+):
+    """Upload a supporting document (passport, trade licence, proof of address, etc.)
+    and record it in the documents table. Files are stored on the local filesystem
+    under data/documents/{org_id}/{customer_id}/; in a cloud deployment mount or
+    replace DOCS_DIR with a GCS-backed path."""
+    row = db.execute(
+        "SELECT id FROM customers WHERE id=? AND org_id=?", (customer_id, session.org_id)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="filename is required.")
+
+    content = file.file.read()
+    sha256 = hashlib.sha256(content).hexdigest()
+
+    # Prevent path traversal: store only the basename, never relative segments.
+    safe_name = Path(file.filename).name
+    stored_path = storage.upload(content, session.org_id, customer_id, safe_name)
+
+    now = utcnow()
+    cur = db.execute(
+        """INSERT INTO documents (org_id, customer_id, doc_type, filename, stored_path, sha256, uploaded_at)
+           VALUES (?,?,?,?,?,?,?)""",
+        (session.org_id, customer_id, doc_type, safe_name, stored_path, sha256, now),
+    )
+    doc_id = cur.lastrowid
+    from ..db import audit
+
+    audit(db, session.operator_name, "document.upload", "document", doc_id,
+          {"doc_type": doc_type, "filename": safe_name, "sha256": sha256}, org_id=session.org_id)
+    db.commit()
+    return {"document_id": doc_id, "filename": safe_name, "sha256": sha256, "uploaded_at": now}
+
+
+@router.get("/customers/{customer_id}/documents")
+def api_customer_list_documents(customer_id: int, db: DB, session: Session):
+    if db.execute(
+        "SELECT id FROM customers WHERE id=? AND org_id=?", (customer_id, session.org_id)
+    ).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    return {"documents": queries.documents_for_customer(db, customer_id, session.org_id)}
+
+
+@router.get("/customers/{customer_id}/documents/{doc_id}")
+def api_customer_download_document(customer_id: int, doc_id: int, db: DB, session: Session):
+    row = db.execute(
+        "SELECT filename, stored_path FROM documents WHERE id=? AND customer_id=? AND org_id=?",
+        (doc_id, customer_id, session.org_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    try:
+        content = storage.download(row["stored_path"])
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File missing from storage.")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Storage error: {exc}") from exc
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{row["filename"]}"'},
+    )
+
+
 @router.post("/customers/{customer_id}/signatures")
 def api_customer_add_signature(customer_id: int, body: SignatureRequest, request: Request, db: DB, session: Session):
     try:
@@ -760,6 +977,106 @@ def api_alerts(db: DB, session: Session, status: str = "open"):
     return {"alerts": queue}
 
 
+@router.get("/alerts/summary")
+def api_alerts_summary(db: DB, session: Session):
+    """Alert and adverse-media counts by status and category, for dashboard widgets.
+
+    Avoids loading full alert payloads (entity names, score detail, aliases)
+    just to display a badge count -- the queue endpoint is for the list view;
+    this is for the summary card.
+    """
+    rows = db.execute(
+        """SELECT status, COUNT(*) n FROM alerts WHERE org_id=? GROUP BY status""",
+        (session.org_id,),
+    ).fetchall()
+    by_status = {r["status"]: r["n"] for r in rows}
+
+    cat_rows = db.execute(
+        """SELECT e.topics, e.programs, a.status
+           FROM alerts a
+           JOIN entities e ON e.id = a.entity_id
+           WHERE a.org_id = ? AND a.status IN ('open', 'pending_review')""",
+        (session.org_id,),
+    ).fetchall()
+    by_category: dict[str, int] = {}
+    from ..screening.pf import classify_programs
+    for r in cat_rows:
+        topics = json.loads(r["topics"] or "[]")
+        programs = json.loads(r["programs"] or "[]")
+        cats = classify_programs(programs)
+        if "proliferation" in cats:
+            cat = "proliferation"
+        elif "terrorism" in cats:
+            cat = "terrorism"
+        elif "sanction" in topics:
+            cat = "sanction"
+        elif any(t.startswith("role.pep") for t in topics):
+            cat = "pep"
+        else:
+            cat = "other"
+        by_category[cat] = by_category.get(cat, 0) + 1
+
+    am_open = db.execute(
+        "SELECT COUNT(*) n FROM adverse_media_findings WHERE org_id=? AND status='open'",
+        (session.org_id,),
+    ).fetchone()["n"]
+
+    txn_open = db.execute(
+        "SELECT COUNT(*) n FROM transaction_alerts WHERE org_id=? AND status='open'",
+        (session.org_id,),
+    ).fetchone()["n"]
+
+    return {
+        "alerts_by_status": by_status,
+        "open_by_category": by_category,
+        "adverse_media_open": am_open,
+        "transaction_alerts_open": txn_open,
+        "total_open": by_status.get("open", 0) + by_status.get("pending_review", 0),
+    }
+
+
+@router.get("/alerts/{alert_id}")
+def api_alert_detail(alert_id: int, db: DB, session: Session):
+    """Full alert record with entity details, review history, and customer context."""
+    # Use the shared queue function (which handles all enrichment) and filter
+    # to this specific id -- avoids duplicating the enrichment logic here.
+    alerts = queries.alert_queue(db, session.org_id, status=None, limit=500)
+    match = next((a for a in alerts if a["id"] == alert_id), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found.")
+    match["reviews"] = review_history(db, alert_id, session.org_id)
+    return match
+
+
+@router.get("/adverse-media")
+def api_adverse_media_queue(db: DB, session: Session, status: str = "open"):
+    """Org-wide adverse-media findings, worst and least-reviewed first."""
+    findings = queries.adverse_media_queue(
+        db, session.org_id, status=None if status == "all" else status
+    )
+    return {"findings": findings}
+
+
+@router.get("/transaction-alerts")
+def api_transaction_alerts(db: DB, session: Session, status: str = "open"):
+    """Org-wide transaction-monitoring alerts."""
+    queue = queries.transaction_alert_queue(
+        db, session.org_id, status=None if status == "all" else status
+    )
+    return {"alerts": queue}
+
+
+@router.get("/review-queue")
+def api_customers_due_review(db: DB, session: Session):
+    """Customers whose periodic CDD review date has passed.
+
+    Periodic review is an obligation under Cabinet Res. 134/2025 -- this
+    endpoint surfaces the queue so the mobile app can show it without loading
+    the full dashboard payload.
+    """
+    return {"customers": due_for_review(db, session.org_id)}
+
+
 class AlertDispositionRequest(BaseModel):
     status: str
     reason_code: str = ""
@@ -776,7 +1093,25 @@ def api_alert_disposition(alert_id: int, body: AlertDispositionRequest, db: DB, 
         )
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return dataclasses.asdict(outcome)
+    result = dataclasses.asdict(outcome)
+    # Re-assess risk when the disposition is applied immediately (not staged).
+    # A false_positive clears sanctions_hit; a true_positive keeps it. Either
+    # way the rating should reflect the new state without waiting for the next
+    # scheduled rescreen.
+    if not outcome.awaiting_second_review:
+        customer_id = db.execute(
+            "SELECT s.customer_id FROM alerts a JOIN screenings s ON s.id=a.screening_id"
+            " WHERE a.id=? AND a.org_id=?", (alert_id, session.org_id)
+        ).fetchone()
+        if customer_id and customer_id["customer_id"]:
+            assessment = reassess_risk(
+                db, customer_id["customer_id"], session.org_id, actor=session.operator_name
+            )
+            if assessment:
+                result["risk_rating"] = assessment.rating
+                result["risk_score"] = assessment.score
+                result["requires_edd"] = assessment.requires_edd
+    return result
 
 
 class AlertConfirmRequest(BaseModel):
@@ -793,7 +1128,21 @@ def api_alert_confirm(alert_id: int, body: AlertConfirmRequest, db: DB, session:
         )
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return dataclasses.asdict(outcome)
+    result = dataclasses.asdict(outcome)
+    # Confirmation always reaches a terminal status -- re-assess immediately.
+    customer_id = db.execute(
+        "SELECT s.customer_id FROM alerts a JOIN screenings s ON s.id=a.screening_id"
+        " WHERE a.id=? AND a.org_id=?", (alert_id, session.org_id)
+    ).fetchone()
+    if customer_id and customer_id["customer_id"]:
+        assessment = reassess_risk(
+            db, customer_id["customer_id"], session.org_id, actor=session.operator_name
+        )
+        if assessment:
+            result["risk_rating"] = assessment.rating
+            result["risk_score"] = assessment.score
+            result["requires_edd"] = assessment.requires_edd
+    return result
 
 
 class AlertAssignRequest(BaseModel):
