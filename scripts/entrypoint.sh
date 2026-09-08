@@ -39,6 +39,19 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
             && echo "Restored legacy snapshot." \
             || echo "No snapshot found anywhere - starting fresh."
     fi
+
+    if [ -f /app/data/amlkit.db ]; then
+        echo "Checking database integrity..."
+        if ! sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" | grep -q "^ok$"; then
+            echo "Database integrity check FAILED -- discarding and restoring from flat-file snapshot."
+            rm -f /app/data/amlkit.db
+            gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
+                && echo "Restored from flat-file snapshot." \
+                || echo "Flat-file snapshot unavailable -- starting fresh."
+        else
+            echo "Database integrity OK."
+        fi
+    fi
 fi
 
 echo "Starting amlkit web server under continuous litestream replication..."
