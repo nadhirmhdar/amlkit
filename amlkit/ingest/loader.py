@@ -191,7 +191,7 @@ def staleness_report(conn: sqlite3.Connection) -> list[dict]:
     out = []
     now = datetime.now(timezone.utc)
     for row in conn.execute(
-        "SELECT key, title, is_mandatory, last_refresh, entity_count, max_age_hours FROM datasets ORDER BY key"
+        "SELECT key, title, is_mandatory, last_refresh, entity_count FROM datasets ORDER BY key"
     ):
         hours = None
         if row["last_refresh"]:
@@ -200,7 +200,6 @@ def staleness_report(conn: sqlite3.Connection) -> list[dict]:
                 hours = round((now - ts).total_seconds() / 3600, 1)
             except ValueError:
                 hours = None
-        max_age = row["max_age_hours"] if row["max_age_hours"] else 24
         out.append(
             {
                 "key": row["key"],
@@ -208,7 +207,7 @@ def staleness_report(conn: sqlite3.Connection) -> list[dict]:
                 "mandatory": bool(row["is_mandatory"]),
                 "entities": row["entity_count"],
                 "hours_since_refresh": hours,
-                "breach": bool(row["is_mandatory"] and (hours is None or hours > max_age)),
+                "breach": bool(row["is_mandatory"] and (hours is None or hours > 24)),
             }
         )
     return out

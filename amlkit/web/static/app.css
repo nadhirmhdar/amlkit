@@ -570,77 +570,14 @@ details.evidence summary * { display: none; }
   .table-responsive { margin: 0 -16px; padding: 0 16px; }
 }
 
-/* ---------------------------------------------------------------- mobile header */
-/* Visible only on phone; desktop/tablet use the sidebar. */
-.mobile-header { display: none; }
-
-/* ----------------------------------------------------------------- user dropdown */
-/* Shared between desktop operator-box hover and the mobile user menu. */
-.user-menu-wrap { position: relative; }
-.user-dropdown {
-  display: none;
-  position: absolute; right: 0; top: calc(100% + 8px);
-  min-width: 200px; background: var(--surface);
-  border: 1px solid var(--line); border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px oklch(19% 0.012 250 / 0.12);
-  z-index: 200; overflow: hidden;
-}
-.user-menu-wrap.open .user-dropdown { display: block; }
-.user-dropdown__header {
-  padding: 12px 16px; border-bottom: 1px solid var(--line-soft);
-  display: flex; flex-direction: column; gap: 2px;
-}
-.user-dropdown__header strong { font-size: 13.5px; font-weight: 700; }
-.user-dropdown__role { font-size: 11px; color: var(--ink-3); text-transform: capitalize; }
-.user-dropdown__item {
-  display: block; width: 100%; padding: 11px 16px;
-  font-size: 13.5px; font-weight: 600; color: var(--ink-2);
-  text-decoration: none; background: none; border: none;
-  text-align: left; cursor: pointer; font-family: inherit;
-}
-.user-dropdown__item:hover { background: var(--line-soft); color: var(--ink); text-decoration: none; }
-.user-dropdown__divider { border-top: 1px solid var(--line-soft); margin: 4px 0; }
-.user-dropdown__logout { color: var(--danger); }
-.user-dropdown__logout:hover { background: var(--danger-soft); color: var(--danger); }
-
-/* ---------------------------------------------------- audit log error rows */
-.audit-row--error { background: var(--danger-soft); }
-.audit-row--error .audit-action { color: var(--danger); }
-
 /* Phone width -- the sidebar (and its hamburger toggle) is replaced by a
-   four-tab bottom bar plus a top header with user menu; same hairline/dot
-   vocabulary as the rest of the app. */
+   five-tab bottom bar, same hairline/dot vocabulary as the rest of the app,
+   so the phone build reads like a dedicated app shell rather than a shrunk
+   desktop page. */
 @media (max-width: 680px) {
   .sidebar, .nav-hamburger { display: none !important; }
-  :root { --tabbar-h: 62px; --mobile-header-h: 52px; }
-  main { padding: calc(var(--mobile-header-h) + 16px) 18px calc(var(--tabbar-h) + 28px); }
-
-  .mobile-header {
-    display: flex; align-items: center; justify-content: space-between;
-    position: fixed; top: 0; left: 0; right: 0; height: var(--mobile-header-h);
-    background: var(--surface); border-bottom: 1px solid var(--line);
-    padding: 0 16px; z-index: 50;
-  }
-  .mobile-header__logo {
-    display: flex; align-items: center; gap: 8px;
-    color: var(--ink); text-decoration: none; font-weight: 800; font-size: 15px;
-  }
-  .mobile-header__logo:hover { color: var(--ink); text-decoration: none; }
-  .mobile-header__logo-img { height: 24px; width: auto; }
-  .mobile-header .user-menu-wrap { position: relative; }
-  .mobile-header .user-dropdown { right: 0; top: calc(100% + 4px); }
-  .user-menu-btn {
-    background: none; border: 1px solid var(--line); border-radius: 50%;
-    width: 34px; height: 34px; padding: 0; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    color: white; font-weight: 700; font-size: 13px;
-  }
-  .user-menu-btn .avatar--sm {
-    width: 34px; height: 34px; border-radius: 50%;
-    background: var(--ink); color: white;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 13px;
-  }
+  :root { --tabbar-h: 62px; }
+  main { padding: 28px 18px calc(var(--tabbar-h) + 28px); }
 
   .mobile-tabbar {
     display: flex;
@@ -661,6 +598,7 @@ details.evidence summary * { display: none; }
     border: 1.5px solid var(--ink-3); background: none;
   }
   .mobile-tab__icon--screen { border-radius: 50%; }
+  .mobile-tab__icon--more { width: 9px; height: 2px; border: none; background: var(--ink-3); border-radius: 1px; }
   .mobile-tab__label { font-size: 10.5px; font-weight: 600; }
   .mobile-tab.on { color: var(--ink); }
   .mobile-tab.on .mobile-tab__label { font-weight: 700; }

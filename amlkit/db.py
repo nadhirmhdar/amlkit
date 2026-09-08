@@ -48,8 +48,7 @@ CREATE TABLE IF NOT EXISTS datasets (
     licence       TEXT,
     is_mandatory  INTEGER NOT NULL DEFAULT 0, -- required by UAE law
     last_refresh  TEXT,
-    entity_count  INTEGER NOT NULL DEFAULT 0,
-    max_age_hours INTEGER NOT NULL DEFAULT 24  -- breach threshold; 24 = daily (sanctions), 2160 = 90d (FATF)
+    entity_count  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS entities (
@@ -637,22 +636,6 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # already have been outstanding for months.
     ("setup_tokens", "expires_at", "ALTER TABLE setup_tokens ADD COLUMN expires_at TEXT"),
     ("operators", "email_verified_at", "ALTER TABLE operators ADD COLUMN email_verified_at TEXT"),
-    # Customer contact fields. Not present in the original schema (which was
-    # AML-field-only). Added as nullable columns so existing rows are unaffected;
-    # the application layer treats empty string and NULL identically on write.
-    ("customers", "email",          "ALTER TABLE customers ADD COLUMN email          TEXT"),
-    ("customers", "phone",          "ALTER TABLE customers ADD COLUMN phone          TEXT"),
-    ("customers", "address_line1",  "ALTER TABLE customers ADD COLUMN address_line1  TEXT"),
-    ("customers", "address_line2",  "ALTER TABLE customers ADD COLUMN address_line2  TEXT"),
-    ("customers", "city",           "ALTER TABLE customers ADD COLUMN city           TEXT"),
-    ("customers", "postal_code",    "ALTER TABLE customers ADD COLUMN postal_code    TEXT"),
-    # contact_person / contact_phone / contact_email: the human to actually
-    # reach at a legal-entity customer; stored separately from full_name so
-    # it does not confuse the name-matching / screening pipeline.
-    ("customers", "contact_person", "ALTER TABLE customers ADD COLUMN contact_person TEXT"),
-    ("customers", "contact_phone",  "ALTER TABLE customers ADD COLUMN contact_phone  TEXT"),
-    ("customers", "contact_email",  "ALTER TABLE customers ADD COLUMN contact_email  TEXT"),
-    ("datasets",  "max_age_hours",  "ALTER TABLE datasets ADD COLUMN max_age_hours INTEGER NOT NULL DEFAULT 24"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -909,10 +892,8 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     """
     target = Path(path) if path else DB_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target, timeout=30)
+    conn = sqlite3.connect(target)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
     conn.executescript(SCHEMA)
     _migrate_operators_table(conn)
     _migrate_customers_table(conn)
