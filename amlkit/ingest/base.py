@@ -112,3 +112,95 @@ class AdapterError(RuntimeError):
     quietly lapsed -- exactly the failure mode the 24-hour update rule exists
     to prevent.
     """
+
+
+_DEFAULT_USER_AGENT = "amlkit/0.1 (UAE AML screening; compliance tooling)"
+
+
+def fetch_with_retry(
+    adapter_key: str,
+    url: str,
+    *,
+    timeout: float = 180,
+    user_agent: str = _DEFAULT_USER_AGENT,
+    max_attempts: int = 3,
+) -> bytes:
+    """GET *url* with exponential-backoff retries on transient errors.
+
+    Separates error categories so callers receive actionable messages:
+    - Timeout / connectivity → retried, then AdapterError naming the URL
+    - Rate-limit (429)      → retried with longer back-off
+    - Server error (5xx)    → retried
+    - Auth error (401/403)  → AdapterError immediately (retrying is pointless)
+    - Other HTTP errors     → AdapterError immediately
+
+    Replacing per-adapter try/except blocks with this helper means every
+    source gets the same retry discipline and the same error vocabulary.
+    """
+    import time
+
+    import httpx
+
+    last_exc: BaseException | None = None
+    for attempt in range(max_attempts):
+        try:
+            r = httpx.get(
+                url,
+                timeout=timeout,
+                follow_redirects=True,
+                headers={"User-Agent": user_agent},
+            )
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise AdapterError(
+                f"{adapter_key}: timed out after {timeout}s fetching {url}"
+            ) from exc
+        except httpx.ConnectError as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise AdapterError(
+                f"{adapter_key}: connection error (DNS / TLS / refused) — {exc}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise AdapterError(f"{adapter_key}: fetch failed — {exc}") from exc
+
+        if r.status_code in (401, 403):
+            raise AdapterError(
+                f"{adapter_key}: access denied ({r.status_code}) from {url}"
+            )
+        if r.status_code == 429:
+            wait = min(10 * (attempt + 1), 60)
+            if attempt < max_attempts - 1:
+                time.sleep(wait)
+                continue
+            raise AdapterError(
+                f"{adapter_key}: rate-limited (HTTP 429) — try again later"
+            )
+        if r.status_code >= 500:
+            last_exc = Exception(f"HTTP {r.status_code}")
+            if attempt < max_attempts - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise AdapterError(
+                f"{adapter_key}: server error ({r.status_code}) from {url} "
+                f"after {attempt + 1} attempt(s)"
+            )
+        try:
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise AdapterError(
+                f"{adapter_key}: unexpected HTTP {r.status_code} from {url}"
+            ) from exc
+
+        if not r.content:
+            raise AdapterError(f"{adapter_key}: {url} returned an empty body")
+        return r.content
+
+    raise AdapterError(
+        f"{adapter_key}: fetch failed after {max_attempts} attempt(s) — {last_exc}"
+    )

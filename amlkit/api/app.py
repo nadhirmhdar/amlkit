@@ -102,6 +102,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
 
     loaded: list[str] = []
     failures: list[str] = []
+    mandatory_failures: list[str] = []
     for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
                      EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
         adapter = factory()
@@ -109,23 +110,35 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             result = load(conn, adapter, actor=actor)
             loaded.append(f"{adapter.title}: {result.entities} entities")
         except AdapterError as exc:
-            failures.append(f"{adapter.title}: {exc}")
+            msg = f"{adapter.title}: {exc}"
+            failures.append(msg)
+            if adapter.is_mandatory:
+                mandatory_failures.append(msg)
             audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
                   {"error": str(exc)}, org_id=None)
     conn.commit()
 
     total_alerts = 0
     screened_orgs = 0
+    rescreen_failures: list[str] = []
     orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
     for org in orgs:
-        outcome = rescreen_all(conn, org["id"], actor=actor)
-        total_alerts += outcome["alerts"]
-        screened_orgs += 1
+        try:
+            outcome = rescreen_all(conn, org["id"], actor=actor)
+            total_alerts += outcome["alerts"]
+            screened_orgs += 1
+        except Exception as exc:
+            log.exception("rescreen_all failed for org %s (%s)", org["id"], org["name"])
+            rescreen_failures.append(f"{org['name']}: {exc}")
     conn.commit()
 
     return {
-        "loaded": loaded, "failures": failures,
-        "orgs_screened": screened_orgs, "new_alerts": total_alerts,
+        "loaded": loaded,
+        "failures": failures,
+        "mandatory_failures": mandatory_failures,
+        "rescreen_failures": rescreen_failures,
+        "orgs_screened": screened_orgs,
+        "new_alerts": total_alerts,
     }
 
 
@@ -148,12 +161,16 @@ def _run_scheduled_refresh() -> None:
     from ..db import connect
 
     log.info("Scheduled sanctions refresh starting…")
-    conn = connect(db_path())
+    conn = None
     try:
+        conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="scheduler")
         log.info("Scheduled refresh complete: %s", result)
+    except Exception:
+        log.exception("Scheduled sanctions refresh failed with an unexpected error")
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 @contextlib.asynccontextmanager
@@ -1495,12 +1512,30 @@ def admin_refresh_sanctions(
             return RedirectResponse("/login", status_code=303)
         return back("/admin", err=str(exc))
 
-    result = run_sanctions_refresh(db, actor=session.operator_name)
+    try:
+        result = run_sanctions_refresh(db, actor=session.operator_name)
+    except Exception as exc:
+        log.exception("admin refresh failed unexpectedly")
+        return back("/admin", err=f"Refresh failed unexpectedly: {exc}")
 
+    if result["mandatory_failures"]:
+        err = "MANDATORY LIST(S) FAILED — screening coverage may have lapsed: " + "; ".join(result["mandatory_failures"])
+        optional = [f for f in result["failures"] if f not in result["mandatory_failures"]]
+        if optional:
+            err += " | Optional sources also failed: " + "; ".join(optional)
+        return back("/admin", err=err)
+
+    msg = "Sanctions lists refreshed. " + "; ".join(result["loaded"]) + "."
+    if result["rescreen_failures"]:
+        return back("/admin", err=(
+            "Lists loaded but re-screen failed for: " + "; ".join(result["rescreen_failures"])
+            + " | " + msg
+        ))
     if result["failures"]:
-        return back("/admin", err="Refresh failed for: " + "; ".join(result["failures"]))
-
-    msg = "Sanctions lists refreshed. " + "; ".join(result["loaded"])
+        return back("/admin", err=(
+            "Optional sources failed (mandatory lists OK): " + "; ".join(result["failures"])
+            + " | " + msg
+        ))
     if result["new_alerts"]:
         msg += f" {result['new_alerts']} new alert(s) raised — check Alerts."
     return back("/admin", msg=msg)
@@ -1543,13 +1578,23 @@ def system_refresh(request: Request):
     from ..db import connect
     from fastapi.responses import JSONResponse
 
-    conn = connect(db_path())
+    conn = None
     try:
+        conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="cloud-scheduler")
+    except Exception:
+        log.exception("system/refresh encountered an unexpected error")
+        return JSONResponse({"error": "internal error — see logs"}, status_code=500)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
-    status_code = 207 if result["failures"] else 200
+    if result["mandatory_failures"]:
+        status_code = 500
+    elif result["failures"] or result["rescreen_failures"]:
+        status_code = 207
+    else:
+        status_code = 200
     return JSONResponse({"status": "complete", **result}, status_code=status_code)
 
 
