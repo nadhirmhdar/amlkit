@@ -1,4 +1,4 @@
-name: Claude Code
+name: PR Ready for Review
 
 on:
   pull_request:
@@ -6,14 +6,14 @@ on:
 
 jobs:
 
-  # When PR moves draft → ready, ping Claude Code desktop for high-level review
-  notify-desktop-review:
+  # When PR moves draft → ready, add needs-highlevel-review label for dreamon monitoring
+  add-review-label:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
       issues: write
     steps:
-      - name: Request Claude Code desktop review
+      - name: Add high-level review label
         uses: actions/github-script@v7
         with:
           script: |
@@ -21,7 +21,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: `## 🔍 Ready for High-Level Review\n\nOpen Claude Code desktop and type:\n\`\`\`\n/dreamon\n\`\`\`\nThen: **review PR #${context.payload.pull_request.number}**`
+              body: `## 🔍 Ready for High-Level Review\n\nPR marked ready. dreamon monitor will auto-review.\n\nManual fallback: Open Claude Code desktop and type:\n\`\`\`\n/dreamon\n\`\`\`\nThen: **review PR #${context.payload.pull_request.number}**`
             });
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
