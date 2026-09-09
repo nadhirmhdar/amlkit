@@ -56,8 +56,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Iterator
 
-import httpx
-
 from .base import AdapterError, SourceEntity
 
 PAGE_URL = "https://www.uaeiec.gov.ae/en-us/un-page"
@@ -555,19 +553,8 @@ class EOCNLocalTerroristListAdapter:
         )
 
     def _download(self, url: str) -> bytes:
-        try:
-            response = httpx.get(
-                url,
-                timeout=180,
-                follow_redirects=True,
-                headers={"User-Agent": USER_AGENT},
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise AdapterError(f"{self.key}: fetch failed - {exc}") from exc
-        if not response.content:
-            raise AdapterError(f"{self.key}: {url} returned an empty body")
-        return response.content
+        from .base import fetch_with_retry
+        return fetch_with_retry(self.key, url, user_agent=USER_AGENT)
 
     # -- parse ------------------------------------------------------------
 

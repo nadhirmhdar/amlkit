@@ -5,9 +5,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import Iterator
 
-import httpx
-
-from .base import AdapterError, SourceEntity
+from .base import AdapterError, SourceEntity, fetch_with_retry
 
 URL = "https://www.treasury.gov/ofac/downloads/sdn.xml"
 USER_AGENT = "amlkit/0.1 (UAE AML screening; compliance tooling)"
@@ -25,19 +23,12 @@ class OFACSDNAdapter:
         self.is_mandatory = True
 
     def fetch(self) -> bytes:
-        try:
-            r = httpx.get(
-                self.source_url,
-                timeout=180,
-                follow_redirects=True,
-                headers={"User-Agent": USER_AGENT},
+        payload = fetch_with_retry(self.key, self.source_url, user_agent=USER_AGENT)
+        if payload.lstrip()[:1] != b"<":
+            raise AdapterError(
+                f"{self.key}: response is not XML (got {payload[:60]!r})"
             )
-            r.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise AdapterError(f"{self.key}: fetch failed - {exc}") from exc
-        if not r.content:
-            raise AdapterError(f"{self.key}: source returned an empty body")
-        return r.content
+        return payload
 
     def parse(self, payload: bytes) -> Iterator[SourceEntity]:
         # Strip xmlns if present to make xpath queries simpler
