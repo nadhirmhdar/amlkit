@@ -57,10 +57,6 @@
       <div class="label">Transaction alerts open</div>
       <div class="value" style="color:{{ 'var(--danger)' if d.open_transaction_alerts else 'var(--good)' }}">{{ d.open_transaction_alerts|length }}</div>
     </div>
-    <div class="row-item">
-      <div class="label">Listed entities screened against</div>
-      <div class="value">{{ '{:,}'.format(d.counts.entities) }}</div>
-    </div>
   </div>
 </div>
 
