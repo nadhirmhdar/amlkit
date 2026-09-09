@@ -42,14 +42,36 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
 
     if [ -f /app/data/amlkit.db ]; then
         echo "Checking database integrity..."
-        if ! sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" | grep -q "^ok$"; then
-            echo "Database integrity check FAILED -- discarding and restoring from flat-file snapshot."
+        INTEGRITY_OUTPUT=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
+        INTEGRITY_CODE=$?
+
+        if [ $INTEGRITY_CODE -ne 0 ]; then
+            echo "ERROR: sqlite3 command failed (exit code $INTEGRITY_CODE). Output: $INTEGRITY_OUTPUT"
+            echo "Cannot verify integrity -- treating as potentially corrupt and falling back."
             rm -f /app/data/amlkit.db
             gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
                 && echo "Restored from flat-file snapshot." \
                 || echo "Flat-file snapshot unavailable -- starting fresh."
-        else
+        elif echo "$INTEGRITY_OUTPUT" | grep -q "^ok$"; then
             echo "Database integrity OK."
+        else
+            echo "Database integrity check FAILED. Output: $INTEGRITY_OUTPUT"
+            rm -f /app/data/amlkit.db
+            gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
+                && echo "Restored from flat-file snapshot." \
+                || echo "Flat-file snapshot unavailable -- starting fresh."
+        fi
+
+        # Verify the flat-file fallback if we just restored it
+        if [ -f /app/data/amlkit.db ]; then
+            FALLBACK_CHECK=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
+            FALLBACK_CODE=$?
+            if [ $FALLBACK_CODE -eq 0 ] && echo "$FALLBACK_CHECK" | grep -q "^ok$"; then
+                echo "Flat-file snapshot integrity verified."
+            else
+                echo "WARNING: Flat-file snapshot also corrupt or unverifiable (exit: $FALLBACK_CODE). Starting fresh."
+                rm -f /app/data/amlkit.db
+            fi
         fi
     fi
 fi
