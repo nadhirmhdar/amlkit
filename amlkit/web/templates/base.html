@@ -45,6 +45,40 @@
     </form>
   </aside>
 
+  {# Mobile top header — visible only on phones (≤680px). Has app logo on
+     left (tap = go home) and user menu button on right. The user menu
+     replaces the old "More" tab and includes logout. #}
+  <header class="mobile-header no-print">
+    <a href="/" class="mobile-header__logo">
+      <img src="/static/img/grovisor-logo.png" alt="amlkit" class="mobile-header__logo-img">
+      amlkit
+    </a>
+    <div class="user-menu-wrap" id="user-menu-wrap">
+      <button class="user-menu-btn" onclick="toggleUserMenu(event)" aria-label="User menu" aria-expanded="false">
+        <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
+      </button>
+      <div class="user-dropdown" role="menu">
+        <div class="user-dropdown__header">
+          <strong>{{ session.operator_name }}</strong>
+          <span class="user-dropdown__role">{{ session.operator_role }}</span>
+        </div>
+        <a href="/reports" class="user-dropdown__item">Reports</a>
+        <a href="/audit"   class="user-dropdown__item">Audit trail</a>
+        {% if session.operator_role == 'mlro' %}
+          <a href="/admin" class="user-dropdown__item">Admin</a>
+        {% endif %}
+        <a href="/about" class="user-dropdown__item">About</a>
+        <div class="user-dropdown__divider"></div>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="user-dropdown__item user-dropdown__logout">Log out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  {# Four-tab bottom bar for phones. "More" removed — its items live in the
+     user menu above. #}
   <nav class="mobile-tabbar">
     <a href="/" class="mobile-tab {{ 'on' if nav=='home' }}">
       <span class="mobile-tab__icon mobile-tab__icon--home"></span>
@@ -61,10 +95,6 @@
     <a href="/customers" class="mobile-tab {{ 'on' if nav=='customers' }}">
       <span class="mobile-tab__icon mobile-tab__icon--customers"></span>
       <span class="mobile-tab__label">Customers</span>
-    </a>
-    <a href="/more" class="mobile-tab {{ 'on' if nav in ('reports','audit','admin','about','more') }}">
-      <span class="mobile-tab__icon mobile-tab__icon--more"></span>
-      <span class="mobile-tab__label">More</span>
     </a>
   </nav>
 
@@ -108,5 +138,30 @@
 </div>
 {% endif %}
 
+<script>
+(function () {
+  var wrap = document.getElementById('user-menu-wrap');
+  function close() {
+    if (!wrap) return;
+    wrap.classList.remove('open');
+    var btn = wrap.querySelector('.user-menu-btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+  window.toggleUserMenu = function (e) {
+    e.stopPropagation();
+    if (!wrap) return;
+    var opening = !wrap.classList.contains('open');
+    wrap.classList.toggle('open');
+    var btn = wrap.querySelector('.user-menu-btn');
+    if (btn) btn.setAttribute('aria-expanded', String(opening));
+  };
+  document.addEventListener('click', function (e) {
+    if (wrap && !wrap.contains(e.target)) close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') close();
+  });
+}());
+</script>
 </body>
 </html>
