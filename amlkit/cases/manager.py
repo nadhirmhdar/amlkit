@@ -107,6 +107,16 @@ def onboard(
     ubos: list[dict[str, Any]] | None = None,
     threshold: float = DEFAULT_THRESHOLD,
     actor: str = "system",
+    # Contact fields — optional for backward compatibility
+    email: str | None = None,
+    phone: str | None = None,
+    address_line1: str | None = None,
+    address_line2: str | None = None,
+    city: str | None = None,
+    postal_code: str | None = None,
+    contact_person: str | None = None,
+    contact_phone: str | None = None,
+    contact_email: str | None = None,
 ) -> OnboardingResult:
     """Create a customer, screen them and their UBOs, and assign a risk rating.
 
@@ -123,13 +133,17 @@ def onboard(
                (org_id, reference, customer_type, full_name, name_arabic, canonical_key,
                 nationality, country, birth_date, gender, id_number, id_type,
                 trade_licence, sector, delivery_channel, is_cash_intensive,
+                email, phone, address_line1, address_line2, city, postal_code,
+                contact_person, contact_phone, contact_email,
                 onboarded_at, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, reference, customer_type, full_name, name_arabic, ck,
                 nationality, country, birth_date, gender, id_number, id_type,
                 trade_licence, sector, delivery_channel,
                 int(cash_level == "predominantly_cash"),
+                email, phone, address_line1, address_line2, city, postal_code,
+                contact_person, contact_phone, contact_email,
                 now, now, now,
             ),
         )
@@ -694,6 +708,13 @@ def adverse_media_severity(
     return worst_severity(r["severity"] for r in rows)
 
 
+def _prior_value(factors: dict, key: str, default: Any) -> Any:
+    entry = factors.get(key)
+    if isinstance(entry, dict) and entry.get("value") is not None:
+        return entry["value"]
+    return default
+
+
 def reassess_adverse_media(
     conn: sqlite3.Connection, customer_id: int, org_id: int, *, actor: str = "system"
 ) -> str | None:
@@ -728,17 +749,11 @@ def reassess_adverse_media(
     except (TypeError, ValueError):
         factors = {}
 
-    def prior_value(key: str, default: Any) -> Any:
-        entry = factors.get(key)
-        if isinstance(entry, dict) and entry.get("value") is not None:
-            return entry["value"]
-        return default
-
     severity = adverse_media_severity(conn, customer_id, org_id)
     profile = CustomerProfile(
-        pep_status=prior_value("pep", None),
-        jurisdiction_tier=prior_value("jurisdiction", "standard"),
-        sector=prior_value("sector", "other"),
+        pep_status=_prior_value(factors, "pep", None),
+        jurisdiction_tier=_prior_value(factors, "jurisdiction", "standard"),
+        sector=_prior_value(factors, "sector", "other"),
         ownership_state=ownership_state(
             conn, customer_id, org_id,
             (conn.execute(
@@ -746,15 +761,107 @@ def reassess_adverse_media(
                 (customer_id, org_id),
             ).fetchone() or {"customer_type": "natural"})["customer_type"],
         ),
-        delivery_channel=prior_value("delivery_channel", "face_to_face"),
-        cash_level=prior_value("cash_intensity", "non_cash"),
+        delivery_channel=_prior_value(factors, "delivery_channel", "face_to_face"),
+        cash_level=_prior_value(factors, "cash_intensity", "non_cash"),
         adverse_media=severity,
-        structure=prior_value("structure", "natural_person"),
-        sanctions_hit=bool(prior_value("sanctions_hit", False)),
+        structure=_prior_value(factors, "structure", "natural_person"),
+        sanctions_hit=bool(_prior_value(factors, "sanctions_hit", False)),
     )
     assessment = assess(profile)
     save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor)
     return assessment.rating
+
+
+def reassess_risk(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    *,
+    actor: str = "system",
+    jurisdiction_tier: str | None = None,
+    sector: str | None = None,
+    delivery_channel: str | None = None,
+    cash_level: str | None = None,
+    structure: str | None = None,
+) -> RiskAssessment | None:
+    """Re-rate a customer from current state.
+
+    Derives `sanctions_hit` from currently-open (unresolved) screening alerts.
+    All other factors are carried forward from the prior assessment unless an
+    explicit override is provided -- so the new record differs from the old one
+    in exactly the dimensions that actually changed, which is what a supervisor
+    comparing two dated assessments needs to see.
+
+    Optional overrides (`jurisdiction_tier`, `sector`, etc.) are used by the
+    profile-update API endpoint when a compliance officer corrects a risk
+    factor. All other callers (post-rescreen, manual re-assess) omit them.
+
+    Returns None when there is no prior assessment to build on.
+    """
+    prior = conn.execute(
+        "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"
+        " ORDER BY id DESC LIMIT 1",
+        (customer_id, org_id),
+    ).fetchone()
+    if prior is None:
+        return None
+
+    try:
+        factors = json.loads(prior["factors"]) or {}
+    except (TypeError, ValueError):
+        factors = {}
+
+    # Derive sanctions and PEP status from screening alerts that are NOT
+    # confirmed false positives. true_positive (confirmed match) and
+    # escalated (second reviewer disagreed with dismissal) both mean the
+    # concern is unresolved and must keep the rating high. Only false_positive
+    # means a human reviewed it and it was the wrong person.
+    alert_rows = conn.execute(
+        """SELECT e.topics
+           FROM alerts a
+           JOIN screenings s ON s.id = a.screening_id
+           JOIN entities e   ON e.id = a.entity_id
+           WHERE s.customer_id = ? AND a.org_id = ?
+             AND a.status != 'false_positive'""",
+        (customer_id, org_id),
+    ).fetchall()
+
+    sanctions_hit = False
+    pep_hit = False
+    for row in alert_rows:
+        topics = json.loads(row["topics"] or "[]")
+        if "sanction" in topics:
+            sanctions_hit = True
+        if any(t.startswith("role.pep") for t in topics):
+            pep_hit = True
+
+    # PEP status is a characteristic of the person -- once identified, carry
+    # it forward even after the alert is closed (EDD completed ≠ no longer PEP).
+    prior_pep = _prior_value(factors, "pep", None)
+    pep_status: str | None = prior_pep or ("domestic_pep" if pep_hit else None)
+
+    customer_row = conn.execute(
+        "SELECT customer_type FROM customers WHERE id=? AND org_id=?",
+        (customer_id, org_id),
+    ).fetchone()
+    customer_type = (customer_row["customer_type"] if customer_row else None) or "natural"
+
+    severity = adverse_media_severity(conn, customer_id, org_id)
+
+    profile = CustomerProfile(
+        pep_status=pep_status,
+        jurisdiction_tier=jurisdiction_tier or _prior_value(factors, "jurisdiction", "standard"),
+        sector=sector or _prior_value(factors, "sector", "other"),
+        ownership_state=ownership_state(conn, customer_id, org_id, customer_type),
+        delivery_channel=delivery_channel or _prior_value(factors, "delivery_channel", "face_to_face"),
+        cash_level=cash_level or _prior_value(factors, "cash_intensity", "non_cash"),
+        adverse_media=severity,
+        structure=structure or _prior_value(factors, "structure", "natural_person"),
+        sanctions_hit=sanctions_hit,
+    )
+    assessment = assess(profile)
+    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor)
+    return assessment
 
 
 # ------------------------------------------------- adverse media, periodic
