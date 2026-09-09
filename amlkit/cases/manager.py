@@ -410,6 +410,9 @@ def record_transaction(
                    "rule": rule.rule_key, "severity": rule.severity},
                   org_id=org_id)
 
+    if triggered:
+        reassess_transaction_risk(conn, customer_id, org_id, actor=actor)
+
     return transaction_id, triggered
 
 
@@ -713,6 +716,70 @@ def _prior_value(factors: dict, key: str, default: Any) -> Any:
     if isinstance(entry, dict) and entry.get("value") is not None:
         return entry["value"]
     return default
+
+
+def reassess_transaction_risk(
+    conn: sqlite3.Connection, customer_id: int, org_id: int, *, actor: str = "system"
+) -> str | None:
+    """Re-rate a customer based on their current open transaction-alert count.
+
+    Maps open alert count to a cash_intensity level and re-runs the risk model
+    with that single factor changed, carrying all other factors forward from the
+    prior assessment. A supervisor comparing two dated assessments will see one
+    factor change -- which is what actually happened.
+
+    Returns the new rating, or None when there is no prior assessment to build on.
+    """
+    prior = conn.execute(
+        "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"
+        " ORDER BY id DESC LIMIT 1",
+        (customer_id, org_id),
+    ).fetchone()
+    if prior is None:
+        return None
+
+    try:
+        factors = json.loads(prior["factors"]) or {}
+    except (TypeError, ValueError):
+        factors = {}
+
+    open_alerts = conn.execute(
+        "SELECT COUNT(*) c FROM transaction_alerts"
+        " WHERE customer_id=? AND org_id=? AND status='open'",
+        (customer_id, org_id),
+    ).fetchone()["c"]
+
+    if open_alerts >= 3:
+        cash_level = "predominantly_cash"
+    elif open_alerts >= 1:
+        cash_level = "mixed"
+    else:
+        cash_level = "non_cash"
+
+    customer_row = conn.execute(
+        "SELECT customer_type FROM customers WHERE id=? AND org_id=?",
+        (customer_id, org_id),
+    ).fetchone()
+    customer_type = (customer_row["customer_type"] if customer_row else None) or "natural"
+
+    profile = CustomerProfile(
+        pep_status=_prior_value(factors, "pep", None),
+        jurisdiction_tier=_prior_value(factors, "jurisdiction", "standard"),
+        sector=_prior_value(factors, "sector", "other"),
+        ownership_state=ownership_state(conn, customer_id, org_id, customer_type),
+        delivery_channel=_prior_value(factors, "delivery_channel", "face_to_face"),
+        cash_level=cash_level,
+        adverse_media=_prior_value(factors, "adverse_media", "none"),
+        structure=_prior_value(factors, "structure", "natural_person"),
+        sanctions_hit=bool(_prior_value(factors, "sanctions_hit", False)),
+    )
+    assessment = assess(profile)
+    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor)
+    audit(conn, actor, "risk.reassessed_transaction", "customer", customer_id,
+          {"open_transaction_alerts": open_alerts, "cash_level": cash_level,
+           "new_rating": assessment.rating},
+          org_id=org_id)
+    return assessment.rating
 
 
 def reassess_adverse_media(

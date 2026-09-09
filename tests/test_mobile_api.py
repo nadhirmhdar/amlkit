@@ -388,3 +388,77 @@ class TestReports:
 
         r = client.get("/api/v1/reports", headers=headers)
         assert any(rep["id"] == rid for rep in r.json()["reports"])
+
+
+class TestTransactionEndpoints:
+    """GET /customers/{id}/transactions and GET /transaction-alerts."""
+
+    def _onboard_customer(self, client, headers) -> int:
+        r = client.post("/api/v1/customers", headers=headers, json={
+            "reference": "C-TXN-API", "full_name": "Fatima Al Zaabi",
+            "customer_type": "natural", "nationality": "ae",
+            "jurisdiction_tier": "standard", "sector": "employed",
+            "delivery_channel": "face_to_face", "cash_level": "non_cash",
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["customer_id"]
+
+    def test_get_customer_transactions_empty(self, api):
+        client, headers = api
+        cid = self._onboard_customer(client, headers)
+        r = client.get(f"/api/v1/customers/{cid}/transactions", headers=headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert "transactions" in body
+        assert "transaction_alerts" in body
+        assert body["transactions"] == []
+        assert body["transaction_alerts"] == []
+
+    def test_get_customer_transactions_with_data(self, api):
+        from amlkit.screening.kyt import LARGE_CASH_THRESHOLD_AED
+        client, headers = api
+        cid = self._onboard_customer(client, headers)
+        client.post(f"/api/v1/customers/{cid}/transactions", headers=headers, json={
+            "direction": "inbound", "method": "cash",
+            "amount": LARGE_CASH_THRESHOLD_AED, "currency": "AED",
+        })
+        r = client.get(f"/api/v1/customers/{cid}/transactions", headers=headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["transactions"]) == 1
+        assert len(body["transaction_alerts"]) >= 1
+
+    def test_get_customer_transactions_cross_org_isolation(self, api, tmp_path, monkeypatch):
+        """A customer belonging to org A must not be visible via org B's token."""
+        client, headers_a = api
+        cid = self._onboard_customer(client, headers_a)
+
+        # Register a second org
+        r = client.post("/api/v1/auth/register-organization", json={
+            "org_name": "Other Firm", "name": "bob", "email": "bob@otherfirm.ae",
+            "password": "b-strong-password-1",
+        })
+        verify_token_b = r.json()["dev_verification_token"]
+        r2 = client.post("/api/v1/auth/verify-email", json={"token": verify_token_b})
+        headers_b = {"Authorization": f"Bearer {r2.json()['token']}"}
+
+        r = client.get(f"/api/v1/customers/{cid}/transactions", headers=headers_b)
+        assert r.status_code == 404
+
+    def test_get_transaction_alerts_open(self, api):
+        from amlkit.screening.kyt import LARGE_CASH_THRESHOLD_AED
+        client, headers = api
+        cid = self._onboard_customer(client, headers)
+        client.post(f"/api/v1/customers/{cid}/transactions", headers=headers, json={
+            "direction": "inbound", "method": "cash",
+            "amount": LARGE_CASH_THRESHOLD_AED, "currency": "AED",
+        })
+        r = client.get("/api/v1/transaction-alerts", headers=headers)
+        assert r.status_code == 200
+        assert len(r.json()["transaction_alerts"]) >= 1
+
+    def test_get_transaction_alerts_status_all(self, api):
+        client, headers = api
+        r = client.get("/api/v1/transaction-alerts?status=all", headers=headers)
+        assert r.status_code == 200
+        assert "transaction_alerts" in r.json()
