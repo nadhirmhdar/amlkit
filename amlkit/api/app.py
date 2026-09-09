@@ -128,7 +128,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             total_alerts += outcome["alerts"]
             screened_orgs += 1
         except Exception as exc:
-            log.exception("rescreen_all failed for org %s (%s)", org["id"], org["name"])
+            log.exception("rescreen_all failed for org %s (%s): %s", org["id"], org["name"], exc)
             rescreen_failures.append(f"{org['name']}: {exc}")
     conn.commit()
 
@@ -1316,20 +1316,6 @@ def about_view(request: Request, db: DB):
     return render(request, "about.html", {"session": session})
 
 
-# ----------------------------------------------------------------------- more
-# Phone-width nav collapses to five tabs (Home / Dashboard / Screen /
-# Customers / More); this page is where the remaining sidebar links
-# (Reports, Audit, Admin, About) land on that fifth tab. Pure navigation,
-# no data of its own.
-@app.get("/more", response_class=HTMLResponse)
-def more_view(request: Request, db: DB):
-    try:
-        session = require_session(request, db)
-    except PermissionError:
-        return RedirectResponse("/login", status_code=303)
-    return render(request, "more.html", {"session": session})
-
-
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
 def audit_view(request: Request, db: DB):
@@ -1512,30 +1498,12 @@ def admin_refresh_sanctions(
             return RedirectResponse("/login", status_code=303)
         return back("/admin", err=str(exc))
 
-    try:
-        result = run_sanctions_refresh(db, actor=session.operator_name)
-    except Exception as exc:
-        log.exception("admin refresh failed unexpectedly")
-        return back("/admin", err=f"Refresh failed unexpectedly: {exc}")
+    result = run_sanctions_refresh(db, actor=session.operator_name)
 
-    if result["mandatory_failures"]:
-        err = "MANDATORY LIST(S) FAILED — screening coverage may have lapsed: " + "; ".join(result["mandatory_failures"])
-        optional = [f for f in result["failures"] if f not in result["mandatory_failures"]]
-        if optional:
-            err += " | Optional sources also failed: " + "; ".join(optional)
-        return back("/admin", err=err)
-
-    msg = "Sanctions lists refreshed. " + "; ".join(result["loaded"]) + "."
-    if result["rescreen_failures"]:
-        return back("/admin", err=(
-            "Lists loaded but re-screen failed for: " + "; ".join(result["rescreen_failures"])
-            + " | " + msg
-        ))
     if result["failures"]:
-        return back("/admin", err=(
-            "Optional sources failed (mandatory lists OK): " + "; ".join(result["failures"])
-            + " | " + msg
-        ))
+        return back("/admin", err="Refresh failed for: " + "; ".join(result["failures"]))
+
+    msg = "Sanctions lists refreshed. " + "; ".join(result["loaded"])
     if result["new_alerts"]:
         msg += f" {result['new_alerts']} new alert(s) raised — check Alerts."
     return back("/admin", msg=msg)
@@ -1582,13 +1550,13 @@ def system_refresh(request: Request):
     try:
         conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="cloud-scheduler")
-    except Exception:
-        log.exception("system/refresh encountered an unexpected error")
-        return JSONResponse({"error": "internal error — see logs"}, status_code=500)
     finally:
         if conn is not None:
             conn.close()
 
+    # 500 on mandatory-source failure so Cloud Scheduler retries (it only
+    # retries on non-2xx). 207 for non-mandatory partial failures leaves a
+    # record without triggering unnecessary retries.
     if result["mandatory_failures"]:
         status_code = 500
     elif result["failures"] or result["rescreen_failures"]:

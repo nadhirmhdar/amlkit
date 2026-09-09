@@ -111,7 +111,8 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
 
 
 def alert_queue(
-    conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200
+    conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
+    alert_id: int | None = None, customer_id: int | None = None
 ) -> list[dict[str, Any]]:
     """Alerts with the entity and customer context needed to triage them,
     scoped to one organization."""
@@ -137,6 +138,12 @@ def alert_queue(
     if status:
         sql += " AND a.status = ?"
         params.append(status)
+    if alert_id is not None:
+        sql += " AND a.id = ?"
+        params.append(alert_id)
+    if customer_id is not None:
+        sql += " AND s.customer_id = ?"
+        params.append(customer_id)
     sql += " ORDER BY a.score DESC LIMIT ?"
 
     out: list[dict[str, Any]] = []
@@ -228,8 +235,7 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
         "SELECT * FROM screenings WHERE customer_id=? AND org_id=? ORDER BY run_at DESC",
         (customer_id, org_id))]
 
-    alerts = [a for a in alert_queue(conn, org_id, status=None, limit=500)
-              if a["customer_id"] == customer_id]
+    alerts = alert_queue(conn, org_id, status=None, customer_id=customer_id)
 
     notes = case_notes(conn, customer_id, org_id)
 
@@ -249,6 +255,7 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
         "signatures": signatures_for_customer(conn, customer_id, org_id),
         "adverse_media": adverse_media_for_customer(conn, customer_id, org_id),
         "adverse_media_runs": adverse_media_runs(conn, customer_id, org_id),
+        "documents": documents_for_customer(conn, customer_id, org_id),
         "audit": audit_trail(conn, org_id, "customer", customer_id),
     }
 
@@ -374,6 +381,15 @@ def report(conn: sqlite3.Connection, report_id: int, org_id: int) -> dict[str, A
         "LEFT JOIN customers c ON c.id = r.customer_id "
         "WHERE r.id=? AND r.org_id=?", (report_id, org_id)).fetchone()
     return dict(row) if row else None
+
+
+def documents_for_customer(
+    conn: sqlite3.Connection, customer_id: int, org_id: int
+) -> list[dict[str, Any]]:
+    return [dict(r) for r in conn.execute(
+        "SELECT id, doc_type, filename, sha256, uploaded_at FROM documents"
+        " WHERE customer_id=? AND org_id=? ORDER BY uploaded_at DESC",
+        (customer_id, org_id))]
 
 
 def adverse_media_for_customer(
