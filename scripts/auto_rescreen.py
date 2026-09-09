@@ -148,12 +148,13 @@ def main() -> int:
         # Without this, a customer hitting a sanctions list between two runs
         # would have an open sanctions alert but still show the old rating.
         if new:
+            query_ts = (datetime.fromisoformat(run_ts) - timedelta(seconds=1)).isoformat()
             new_alert_customers = conn.execute(
                 """SELECT DISTINCT s.customer_id
                    FROM alerts a
                    JOIN screenings s ON s.id = a.screening_id
                    WHERE a.org_id = ? AND a.created_at >= ?""",
-                (org["id"], run_ts),
+                (org["id"], query_ts),
             ).fetchall()
             for row in new_alert_customers:
                 updated = reassess_risk(
