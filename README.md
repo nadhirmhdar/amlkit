@@ -94,11 +94,17 @@ self-match, **0 false positives** across the benign-name suite.
 Measured on the real UAE list: 12/12 Latin self-match, 12/12 Arabic-script
 self-match, **0 false positives** across the benign-name suite. 464 tests.
 
+## Built but not yet in production workflow
+
+- **goAML STR/SAR export** — XML generation conforming to the goAML schema
+  (`amlkit/reporting/goaml.py`)
+- **Identity-document verification** — passport OCR/MRZ extraction
+  (`amlkit/cases/ocr.py`)
+
 ## Not built yet
 
-goAML STR/SAR export · identity-document verification · MFA ·
-evidence-document upload · UBO ownership diagram · dedicated monitoring page.
-See `research/compliance-traceability.md` for the full gap list.
+MFA · evidence-document upload · UBO ownership diagram · dedicated monitoring
+page. See `research/compliance-traceability.md` for the full gap list.
 
 ---
 
