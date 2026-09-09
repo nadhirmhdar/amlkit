@@ -50,40 +50,16 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-  # High-level review fires ONLY when draft → ready — Anthropic
-  claude-highlevel-review:
+  # When PR moves draft → ready, request Claude Code desktop review via comment
+  notify-desktop-review:
     if: |
       github.event_name == 'pull_request' &&
       github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       pull-requests: write
-      issues: write
-      id-token: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: High-Level Review (Anthropic)
-        id: highlevel
-        continue-on-error: true
-        uses: anthropics/claude-code-action@beta
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: claude-sonnet-5
-          prompt: |
-            Give a HIGH-LEVEL review of this pull request. Focus on:
-            1. Does this fit the overall architecture and compliance design?
-            2. Does it introduce systemic risk to the AML/KYC pipeline?
-            3. Are there regulatory implications (UAE Cabinet Resolution 134/2025, Federal Decree-Law 10/2025)?
-            4. Is the overall approach sound, or should the design be reconsidered?
-            Be brief — 5 to 10 bullet points max. Do NOT do line-by-line review.
-            Post as a PR comment prefixed with "## High-Level Review".
-
-      - name: Flag skipped review if Anthropic unavailable
-        if: steps.highlevel.outcome == 'failure'
+      - name: Request Claude Code desktop review
         uses: actions/github-script@v7
         with:
           script: |
@@ -91,7 +67,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: '⚠️ High-level review was not completed for this PR (Anthropic token limit or service error). Manual review required before merging.'
+              body: `## 🔍 Ready for High-Level Review\n\nThis PR is ready. Open Claude Code desktop and run:\n\`\`\`\n/dreamon\n\`\`\`\nThen type: **review PR #${context.payload.pull_request.number}**\n\nClaude Code desktop will fetch the diff and post a high-level review using your Anthropic session — no API key required.`
             });
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
