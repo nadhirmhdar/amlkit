@@ -772,6 +772,21 @@ def api_customer_add_transaction(customer_id: int, body: TransactionRequest, db:
     }
 
 
+@router.get("/customers/{customer_id}/transactions")
+def api_customer_transactions(customer_id: int, db: DB, session: Session):
+    """Transaction history and associated KYT alerts for one customer."""
+    if db.execute(
+        "SELECT 1 FROM customers WHERE id=? AND org_id=?", (customer_id, session.org_id)
+    ).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    return {
+        "transactions": queries.transactions_for_customer(db, customer_id, session.org_id),
+        "transaction_alerts": queries.transaction_alert_queue(
+            db, session.org_id, status=None, customer_id=customer_id
+        ),
+    }
+
+
 class TxnAlertDispositionRequest(BaseModel):
     status: str
     note: str = ""
@@ -1063,7 +1078,7 @@ def api_transaction_alerts(db: DB, session: Session, status: str = "open"):
     queue = queries.transaction_alert_queue(
         db, session.org_id, status=None if status == "all" else status
     )
-    return {"alerts": queue}
+    return {"transaction_alerts": queue}
 
 
 @router.get("/review-queue")

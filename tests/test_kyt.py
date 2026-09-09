@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from amlkit.cases.manager import (  # noqa: E402
     disposition_transaction_alert,
     onboard,
+    reassess_transaction_risk,
     record_transaction,
 )
 from amlkit.db import connect, utcnow  # noqa: E402
@@ -243,3 +244,69 @@ class TestDisposition:
         with pytest.raises(ValueError):
             disposition_transaction_alert(conn, alert_id, other_org, status="false_positive",
                                           actor="reviewer")
+
+
+class TestRiskFeedback:
+    def test_transaction_alert_raises_cash_intensity(self, conn, org_id, customer_id) -> None:
+        """Three large-cash alerts should push cash_intensity to predominantly_cash."""
+        for _ in range(3):
+            record_transaction(
+                conn, customer_id, org_id, direction="inbound", method="cash",
+                amount=LARGE_CASH_THRESHOLD_AED, actor="tester",
+            )
+        # After 3 open alerts, reassess_transaction_risk should have been called
+        # by record_transaction and stored a higher cash_intensity rating.
+        row = conn.execute(
+            "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"
+            " ORDER BY id DESC LIMIT 1",
+            (customer_id, org_id),
+        ).fetchone()
+        import json
+        factors = json.loads(row["factors"])
+        assert factors["cash_intensity"]["value"] == "predominantly_cash"
+
+    def test_no_alert_no_reassessment(self, conn, org_id, customer_id) -> None:
+        """A transaction that fires no rules must not create a new risk assessment."""
+        initial_count = conn.execute(
+            "SELECT COUNT(*) c FROM risk_assessments WHERE customer_id=? AND org_id=?",
+            (customer_id, org_id),
+        ).fetchone()["c"]
+        record_transaction(
+            conn, customer_id, org_id, direction="inbound", method="wire",
+            amount=100.0, actor="tester",
+        )
+        final_count = conn.execute(
+            "SELECT COUNT(*) c FROM risk_assessments WHERE customer_id=? AND org_id=?",
+            (customer_id, org_id),
+        ).fetchone()["c"]
+        assert final_count == initial_count
+
+    def test_reassess_transaction_risk_direct(self, conn, org_id, customer_id) -> None:
+        """Direct call: 1 open alert → cash_intensity = mixed."""
+        record_transaction(
+            conn, customer_id, org_id, direction="inbound", method="cash",
+            amount=LARGE_CASH_THRESHOLD_AED, actor="tester",
+        )
+        # Manually call to verify the mapping
+        rating = reassess_transaction_risk(conn, customer_id, org_id, actor="tester")
+        assert rating is not None
+        row = conn.execute(
+            "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"
+            " ORDER BY id DESC LIMIT 1",
+            (customer_id, org_id),
+        ).fetchone()
+        import json
+        factors = json.loads(row["factors"])
+        assert factors["cash_intensity"]["value"] == "mixed"
+
+    def test_reassess_transaction_risk_no_prior_returns_none(self, conn, org_id) -> None:
+        """No prior assessment → returns None without writing anything."""
+        # Onboard without completing risk assessment by deleting the auto-created one
+        res = onboard(conn, org_id=org_id, reference="C-BARE", full_name="Bare Customer",
+                      customer_type="natural", nationality="ae")
+        conn.execute(
+            "DELETE FROM risk_assessments WHERE customer_id=?", (res.customer_id,)
+        )
+        conn.commit()
+        result = reassess_transaction_risk(conn, res.customer_id, org_id, actor="tester")
+        assert result is None
