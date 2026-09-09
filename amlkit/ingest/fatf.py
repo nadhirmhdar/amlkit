@@ -50,15 +50,6 @@ def load_fatf_data(conn: sqlite3.Connection) -> None:
     Skips the DELETE+INSERT when the stored data already matches the current
     _FATF_DATA_AS_OF version, so concurrent requests don't contend on a write lock.
     """
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS fatf_countries (
-            country_code TEXT PRIMARY KEY,
-            country_name TEXT NOT NULL,
-            list_type TEXT NOT NULL -- blacklist | greylist
-        )"""
-    )
-    conn.commit()
-
     row = conn.execute(
         "SELECT last_refresh FROM datasets WHERE key = 'fatf_country_risk'"
     ).fetchone()
@@ -66,6 +57,13 @@ def load_fatf_data(conn: sqlite3.Connection) -> None:
         return
 
     with conn:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS fatf_countries (
+                country_code TEXT PRIMARY KEY,
+                country_name TEXT NOT NULL,
+                list_type TEXT NOT NULL -- blacklist | greylist
+            )"""
+        )
         conn.execute("DELETE FROM fatf_countries")
 
         for code, name in BLACKLIST.items():
@@ -90,7 +88,8 @@ def load_fatf_data(conn: sqlite3.Connection) -> None:
                        0, ?, ?, ?)
                ON CONFLICT(key) DO UPDATE SET
                    entity_count  = excluded.entity_count,
-                   max_age_hours = excluded.max_age_hours""",
+                   max_age_hours = excluded.max_age_hours,
+                   last_refresh  = excluded.last_refresh""",
             (_FATF_DATA_AS_OF, entity_count, _FATF_MAX_AGE_HOURS),
         )
 

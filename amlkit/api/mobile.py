@@ -32,6 +32,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import quote as _urlquote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -94,6 +95,31 @@ def api_session(request: Request, db: DB) -> auth.SessionInfo:
 
 
 Session = Annotated[auth.SessionInfo, Depends(api_session)]
+
+
+def _reassess_into_result(result: dict, db, alert_id: int, session) -> None:
+    row = db.execute(
+        "SELECT s.customer_id FROM alerts a JOIN screenings s ON s.id=a.screening_id"
+        " WHERE a.id=? AND a.org_id=?", (alert_id, session.org_id)
+    ).fetchone()
+    if row and row["customer_id"]:
+        assessment = reassess_risk(db, row["customer_id"], session.org_id, actor=session.operator_name)
+        if assessment:
+            result["risk_rating"] = assessment.rating
+            result["risk_score"] = assessment.score
+            result["requires_edd"] = assessment.requires_edd
+
+
+def _assessment_json(assessment) -> dict[str, Any]:
+    return {
+        "rating": assessment.rating,
+        "score": assessment.score,
+        "requires_edd": assessment.requires_edd,
+        "next_review": assessment.next_review,
+        "ruleset_version": assessment.ruleset_version,
+        "factors": assessment.factors,
+    }
+
 
 
 def _require_mlro(session: auth.SessionInfo) -> None:
@@ -608,14 +634,7 @@ def api_customer_reassess_risk(customer_id: int, db: DB, session: Session):
             status_code=409,
             detail="No prior assessment found. Complete onboarding before re-assessing.",
         )
-    return {
-        "rating": assessment.rating,
-        "score": assessment.score,
-        "requires_edd": assessment.requires_edd,
-        "next_review": assessment.next_review,
-        "ruleset_version": assessment.ruleset_version,
-        "factors": assessment.factors,
-    }
+    return _assessment_json(assessment)
 
 
 @router.patch("/customers/{customer_id}/risk-factors")
@@ -670,14 +689,7 @@ def api_customer_update_risk_factors(
             status_code=409,
             detail="No prior assessment found. Complete onboarding before updating risk factors.",
         )
-    return {
-        "rating": assessment.rating,
-        "score": assessment.score,
-        "requires_edd": assessment.requires_edd,
-        "next_review": assessment.next_review,
-        "ruleset_version": assessment.ruleset_version,
-        "factors": assessment.factors,
-    }
+    return _assessment_json(assessment)
 
 
 @router.get("/risk/ruleset")
@@ -950,7 +962,7 @@ def api_customer_download_document(customer_id: int, doc_id: int, db: DB, sessio
     return Response(
         content=content,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{row["filename"]}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_urlquote(row['filename'])}"},
     )
 
 
@@ -1040,10 +1052,10 @@ def api_alert_detail(alert_id: int, db: DB, session: Session):
     """Full alert record with entity details, review history, and customer context."""
     # Use the shared queue function (which handles all enrichment) and filter
     # to this specific id -- avoids duplicating the enrichment logic here.
-    alerts = queries.alert_queue(db, session.org_id, status=None, limit=500)
-    match = next((a for a in alerts if a["id"] == alert_id), None)
-    if match is None:
+    alerts = queries.alert_queue(db, session.org_id, status=None, alert_id=alert_id)
+    if not alerts:
         raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found.")
+    match = alerts[0]
     match["reviews"] = review_history(db, alert_id, session.org_id)
     return match
 
@@ -1099,18 +1111,7 @@ def api_alert_disposition(alert_id: int, body: AlertDispositionRequest, db: DB, 
     # way the rating should reflect the new state without waiting for the next
     # scheduled rescreen.
     if not outcome.awaiting_second_review:
-        customer_id = db.execute(
-            "SELECT s.customer_id FROM alerts a JOIN screenings s ON s.id=a.screening_id"
-            " WHERE a.id=? AND a.org_id=?", (alert_id, session.org_id)
-        ).fetchone()
-        if customer_id and customer_id["customer_id"]:
-            assessment = reassess_risk(
-                db, customer_id["customer_id"], session.org_id, actor=session.operator_name
-            )
-            if assessment:
-                result["risk_rating"] = assessment.rating
-                result["risk_score"] = assessment.score
-                result["requires_edd"] = assessment.requires_edd
+        _reassess_into_result(result, db, alert_id, session)
     return result
 
 
@@ -1130,18 +1131,7 @@ def api_alert_confirm(alert_id: int, body: AlertConfirmRequest, db: DB, session:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     result = dataclasses.asdict(outcome)
     # Confirmation always reaches a terminal status -- re-assess immediately.
-    customer_id = db.execute(
-        "SELECT s.customer_id FROM alerts a JOIN screenings s ON s.id=a.screening_id"
-        " WHERE a.id=? AND a.org_id=?", (alert_id, session.org_id)
-    ).fetchone()
-    if customer_id and customer_id["customer_id"]:
-        assessment = reassess_risk(
-            db, customer_id["customer_id"], session.org_id, actor=session.operator_name
-        )
-        if assessment:
-            result["risk_rating"] = assessment.rating
-            result["risk_score"] = assessment.score
-            result["requires_edd"] = assessment.requires_edd
+    _reassess_into_result(result, db, alert_id, session)
     return result
 
 

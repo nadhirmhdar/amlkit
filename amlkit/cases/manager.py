@@ -708,6 +708,13 @@ def adverse_media_severity(
     return worst_severity(r["severity"] for r in rows)
 
 
+def _prior_value(factors: dict, key: str, default: Any) -> Any:
+    entry = factors.get(key)
+    if isinstance(entry, dict) and entry.get("value") is not None:
+        return entry["value"]
+    return default
+
+
 def reassess_adverse_media(
     conn: sqlite3.Connection, customer_id: int, org_id: int, *, actor: str = "system"
 ) -> str | None:
@@ -742,17 +749,11 @@ def reassess_adverse_media(
     except (TypeError, ValueError):
         factors = {}
 
-    def prior_value(key: str, default: Any) -> Any:
-        entry = factors.get(key)
-        if isinstance(entry, dict) and entry.get("value") is not None:
-            return entry["value"]
-        return default
-
     severity = adverse_media_severity(conn, customer_id, org_id)
     profile = CustomerProfile(
-        pep_status=prior_value("pep", None),
-        jurisdiction_tier=prior_value("jurisdiction", "standard"),
-        sector=prior_value("sector", "other"),
+        pep_status=_prior_value(factors, "pep", None),
+        jurisdiction_tier=_prior_value(factors, "jurisdiction", "standard"),
+        sector=_prior_value(factors, "sector", "other"),
         ownership_state=ownership_state(
             conn, customer_id, org_id,
             (conn.execute(
@@ -760,11 +761,11 @@ def reassess_adverse_media(
                 (customer_id, org_id),
             ).fetchone() or {"customer_type": "natural"})["customer_type"],
         ),
-        delivery_channel=prior_value("delivery_channel", "face_to_face"),
-        cash_level=prior_value("cash_intensity", "non_cash"),
+        delivery_channel=_prior_value(factors, "delivery_channel", "face_to_face"),
+        cash_level=_prior_value(factors, "cash_intensity", "non_cash"),
         adverse_media=severity,
-        structure=prior_value("structure", "natural_person"),
-        sanctions_hit=bool(prior_value("sanctions_hit", False)),
+        structure=_prior_value(factors, "structure", "natural_person"),
+        sanctions_hit=bool(_prior_value(factors, "sanctions_hit", False)),
     )
     assessment = assess(profile)
     save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor)
@@ -810,12 +811,6 @@ def reassess_risk(
     except (TypeError, ValueError):
         factors = {}
 
-    def prior_value(key: str, default: Any) -> Any:
-        entry = factors.get(key)
-        if isinstance(entry, dict) and entry.get("value") is not None:
-            return entry["value"]
-        return default
-
     # Derive sanctions and PEP status from screening alerts that are NOT
     # confirmed false positives. true_positive (confirmed match) and
     # escalated (second reviewer disagreed with dismissal) both mean the
@@ -842,7 +837,7 @@ def reassess_risk(
 
     # PEP status is a characteristic of the person -- once identified, carry
     # it forward even after the alert is closed (EDD completed ≠ no longer PEP).
-    prior_pep = prior_value("pep", None)
+    prior_pep = _prior_value(factors, "pep", None)
     pep_status: str | None = prior_pep or ("domestic_pep" if pep_hit else None)
 
     customer_row = conn.execute(
@@ -855,13 +850,13 @@ def reassess_risk(
 
     profile = CustomerProfile(
         pep_status=pep_status,
-        jurisdiction_tier=jurisdiction_tier or prior_value("jurisdiction", "standard"),
-        sector=sector or prior_value("sector", "other"),
+        jurisdiction_tier=jurisdiction_tier or _prior_value(factors, "jurisdiction", "standard"),
+        sector=sector or _prior_value(factors, "sector", "other"),
         ownership_state=ownership_state(conn, customer_id, org_id, customer_type),
-        delivery_channel=delivery_channel or prior_value("delivery_channel", "face_to_face"),
-        cash_level=cash_level or prior_value("cash_intensity", "non_cash"),
+        delivery_channel=delivery_channel or _prior_value(factors, "delivery_channel", "face_to_face"),
+        cash_level=cash_level or _prior_value(factors, "cash_intensity", "non_cash"),
         adverse_media=severity,
-        structure=structure or prior_value("structure", "natural_person"),
+        structure=structure or _prior_value(factors, "structure", "natural_person"),
         sanctions_hit=sanctions_hit,
     )
     assessment = assess(profile)
