@@ -129,11 +129,13 @@
           proliferation match — a different operator must confirm.
         {% endif %}
       </p>
+      {% if not getattr(session, 'disclaimer_acknowledged', False) %}
       <p class="muted small">
         Screening results are decision support, not legal advice. A UAE-qualified
         adviser should sign off the risk model and reporting workflow before use on
         real client files.
       </p>
+      {% endif %}
     </footer>
 
     {# Feedback button — floating button in bottom-right corner #}
@@ -159,6 +161,20 @@
         <div id="feedback-result" style="margin-top:12px;"></div>
       </div>
     </div>
+
+    {# Disclaimer acknowledgement modal — shown once on first login #}
+    {% if not getattr(session, 'disclaimer_acknowledged', False) %}
+    <div id="disclaimer-modal" class="feedback-modal" style="display:block;">
+      <div class="feedback-modal-content">
+        <h3>Important Notice</h3>
+        <p>Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and reporting workflow before use on real client files.</p>
+        <form method="post" action="/acknowledge-disclaimer">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">I Understand</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
   </main>
 </div>
 {% else %}

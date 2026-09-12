@@ -23,7 +23,7 @@
   <div class="row mt-4">
     <div><label>Reference *</label><input type="text" name="reference" required></div>
     <div><label>Type</label>
-      <select name="customer_type">
+      <select name="customer_type" id="customer_type" onchange="toggleCustomerFields()">
         <option value="natural">Natural person</option>
         <option value="legal">Legal person</option>
       </select></div>
@@ -40,11 +40,12 @@
     coverage at no cost.
   </p>
   <div class="row">
-    <div><label>Nationality (ISO)</label><input type="text" name="nationality" maxlength="2" pattern="[A-Za-z]{2}" title="Two-letter country code (e.g. AE)"></div>
-    <div><label>Date of birth</label><input type="date" name="birth_date"></div>
-    <div><label>Gender</label>
+    <div id="field-nationality"><label><span id="label-nationality">Nationality (ISO)</span></label><input type="text" name="nationality" maxlength="2" pattern="[A-Za-z]{2}" title="Two-letter country code (e.g. AE)"></div>
+    <div id="field-birth-date"><label><span id="label-birth-date">Date of birth</span></label><input type="date" name="birth_date"></div>
+    <div id="field-gender"><label>Gender</label>
       <select name="gender"><option value="">—</option>
         <option value="male">Male</option><option value="female">Female</option></select></div>
+    <div id="field-trade-licence" style="display:none;"><label>Trade Licence</label><input type="text" name="trade_licence"></div>
   </div>
 </div>
 
@@ -108,6 +109,30 @@
 </form>
 
 <script>
+function toggleCustomerFields() {
+  const type = document.getElementById('customer_type').value;
+  const isLegal = type === 'legal';
+
+  // Toggle field visibility
+  document.getElementById('field-gender').style.display = isLegal ? 'none' : '';
+  document.getElementById('field-trade-licence').style.display = isLegal ? '' : 'none';
+
+  // Update labels
+  document.getElementById('label-nationality').textContent = isLegal ? 'Country of incorporation' : 'Nationality (ISO)';
+  document.getElementById('label-birth-date').textContent = isLegal ? 'Date of incorporation' : 'Date of birth';
+
+  // Toggle OCR section text
+  const ocrTitle = document.querySelector('.ocr-upload-zone h3');
+  const ocrDesc = document.querySelector('.ocr-upload-zone p');
+  if (isLegal) {
+    ocrTitle.textContent = 'Scan Trade Licence (OCR)';
+    ocrDesc.textContent = 'Upload trade licence image to auto-fill company details.';
+  } else {
+    ocrTitle.textContent = 'Scan Passport (MRZ / OCR)';
+    ocrDesc.textContent = 'Upload passport image to auto-fill name, DOB, nationality and gender.';
+  }
+}
+
 async function performPassportOCR(input) {
   if (!input.files || input.files.length === 0) return;
   const file = input.files[0];

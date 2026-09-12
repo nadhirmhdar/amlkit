@@ -568,6 +568,28 @@ def logout_submit(request: Request, db: DB):
     return resp
 
 
+@app.post("/acknowledge-disclaimer")
+def acknowledge_disclaimer(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/", err=str(exc))
+
+    db.execute(
+        "UPDATE operators SET disclaimer_acknowledged_at=? WHERE id=?",
+        (utcnow(), session.operator_id),
+    )
+    db.commit()
+    return back("/", msg="Disclaimer acknowledged.")
+
+
 @app.get("/setup", response_class=HTMLResponse)
 def setup_form(request: Request, db: DB, token: str = ""):
     row = _valid_setup_token(db, token)
@@ -973,6 +995,7 @@ def customer_create(
     nationality: Annotated[str, Form()] = "",
     birth_date: Annotated[str, Form()] = "",
     gender: Annotated[str, Form()] = "",
+    trade_licence: Annotated[str, Form()] = "",
     sector: Annotated[str, Form()] = "other",
     delivery_channel: Annotated[str, Form()] = "face_to_face",
     cash_level: Annotated[str, Form()] = "non_cash",
@@ -1013,8 +1036,8 @@ def customer_create(
             db, org_id=session.org_id, reference=reference.strip(), full_name=full_name.strip(),
             customer_type=customer_type, name_arabic=name_arabic.strip() or None,
             nationality=nationality.strip() or None, birth_date=birth_date.strip() or None,
-            gender=gender.strip() or None, sector=sector,
-            delivery_channel=delivery_channel, cash_level=cash_level,
+            gender=gender.strip() or None, trade_licence=trade_licence.strip() or None,
+            sector=sector, delivery_channel=delivery_channel, cash_level=cash_level,
             jurisdiction_tier=jurisdiction_tier, structure=structure,
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
