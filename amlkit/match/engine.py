@@ -396,7 +396,7 @@ def rescreen_all(
 
     for row in conn.execute(
         "SELECT id, customer_id, person_name, name_arabic, nationality, birth_date"
-        " FROM ubo_links WHERE is_ubo=1 AND org_id=?",
+        " FROM ubo_links WHERE is_ubo=1 AND is_nominee=0 AND org_id=?",
         (org_id,),
     ).fetchall():
         for nm in filter(None, (row["person_name"], row["name_arabic"])):
