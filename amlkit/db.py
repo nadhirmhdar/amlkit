@@ -259,6 +259,8 @@ CREATE TABLE IF NOT EXISTS ubo_links (
     ownership_pct REAL,
     control_type  TEXT NOT NULL DEFAULT 'ownership', -- ownership | senior_official | other
     is_ubo        INTEGER NOT NULL DEFAULT 1,
+    is_nominee    INTEGER NOT NULL DEFAULT 0,
+    parent_ubo_id INTEGER REFERENCES ubo_links(id) ON DELETE SET NULL,
     notes         TEXT,
     created_at    TEXT NOT NULL
 );
@@ -698,6 +700,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("datasets",  "max_age_hours",  "ALTER TABLE datasets ADD COLUMN max_age_hours INTEGER NOT NULL DEFAULT 24"),
     ("operators", "super_admin",    "ALTER TABLE operators ADD COLUMN super_admin INTEGER NOT NULL DEFAULT 0"),
     ("datasets",  "staleness_notified_at", "ALTER TABLE datasets ADD COLUMN staleness_notified_at TEXT"),
+    ("ubo_links", "is_nominee",    "ALTER TABLE ubo_links ADD COLUMN is_nominee INTEGER NOT NULL DEFAULT 0"),
+    ("ubo_links", "parent_ubo_id", "ALTER TABLE ubo_links ADD COLUMN parent_ubo_id INTEGER REFERENCES ubo_links(id) ON DELETE SET NULL"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -942,6 +946,7 @@ _ORG_INDEXES: tuple[tuple[str, str], ...] = (
 def _create_org_indexes(conn: sqlite3.Connection) -> None:
     for name, table in _ORG_INDEXES:
         conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table}(org_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_ubo_parent ON ubo_links(parent_ubo_id)")
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:

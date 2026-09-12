@@ -219,6 +219,8 @@ def add_ubo(
     birth_date: str | None = None,
     ownership_pct: float | None = None,
     control_type: str = "ownership",
+    is_nominee: bool = False,
+    parent_ubo_id: int | None = None,
     notes: str | None = None,
     actor: str = "system",
 ) -> int:
@@ -226,15 +228,19 @@ def add_ubo(
 
     `is_ubo` is set from the 25% threshold, except where control is recorded as
     senior managing official -- the regulation's explicit fallback when no
-    natural person meets the ownership test.
+    natural person meets the ownership test.  Nominees are never beneficial
+    owners regardless of their ownership percentage.
     """
     if ownership_pct is not None and not (0 <= ownership_pct <= 100):
         raise ValueError(
             f"ownership percentage must be between 0 and 100, got {ownership_pct}"
         )
-    is_ubo = control_type == "senior_official" or (
-        ownership_pct is not None and ownership_pct >= UBO_THRESHOLD_PCT
-    )
+    if is_nominee:
+        is_ubo = False
+    else:
+        is_ubo = control_type == "senior_official" or (
+            ownership_pct is not None and ownership_pct >= UBO_THRESHOLD_PCT
+        )
     with conn:
         owned = conn.execute(
             "SELECT 1 FROM customers WHERE id=? AND org_id=?", (customer_id, org_id)
@@ -242,20 +248,37 @@ def add_ubo(
         if owned is None:
             raise ValueError(f"customer {customer_id} not found")
 
+        if parent_ubo_id is not None:
+            parent = conn.execute(
+                "SELECT id FROM ubo_links WHERE id=? AND customer_id=? AND org_id=?",
+                (parent_ubo_id, customer_id, org_id),
+            ).fetchone()
+            if parent is None:
+                raise ValueError(
+                    f"parent_ubo_id {parent_ubo_id} not found for customer {customer_id}"
+                )
+
         cur = conn.execute(
             """INSERT INTO ubo_links
                (org_id, customer_id, person_name, name_arabic, canonical_key, nationality,
-                birth_date, ownership_pct, control_type, is_ubo, notes, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                birth_date, ownership_pct, control_type, is_ubo, is_nominee,
+                parent_ubo_id, notes, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, customer_id, person_name, name_arabic, canonical_key(person_name),
                 nationality, birth_date, ownership_pct, control_type,
-                int(is_ubo), notes, utcnow(),
+                int(is_ubo), int(is_nominee), parent_ubo_id, notes, utcnow(),
             ),
         )
+        ubo_id = cur.lastrowid
+        if parent_ubo_id == ubo_id:
+            conn.execute("DELETE FROM ubo_links WHERE id=?", (ubo_id,))
+            raise ValueError("a UBO link cannot be its own parent")
+
         audit(conn, actor, "ubo.add", "customer", customer_id,
-              {"person": person_name, "pct": ownership_pct, "is_ubo": is_ubo}, org_id=org_id)
-        return cur.lastrowid
+              {"person": person_name, "pct": ownership_pct, "is_ubo": is_ubo,
+               "is_nominee": is_nominee}, org_id=org_id)
+        return ubo_id
 
 
 def ownership_state(
@@ -277,23 +300,86 @@ def ownership_state(
         return "fully_transparent"
 
     rows = conn.execute(
-        "SELECT ownership_pct, control_type, is_ubo FROM ubo_links WHERE customer_id=? AND org_id=?",
+        "SELECT ownership_pct, control_type, is_ubo, is_nominee FROM ubo_links WHERE customer_id=? AND org_id=?",
         (customer_id, org_id),
     ).fetchall()
     if not rows:
         return "ubo_undisclosed"
 
-    if any(r["control_type"] == "nominee" for r in rows):
+    non_nominee = [r for r in rows if not r["is_nominee"]]
+
+    if any(r["control_type"] == "nominee" for r in non_nominee):
         return "nominee_or_bearer"
-    if not any(r["is_ubo"] for r in rows):
+    if not non_nominee or not any(r["is_ubo"] for r in non_nominee):
         return "ubo_undisclosed"
 
-    identified = sum(r["ownership_pct"] or 0 for r in rows if r["is_ubo"])
+    identified = sum(r["ownership_pct"] or 0 for r in non_nominee if r["is_ubo"])
     if identified < 50:
         return "multi_layer_offshore"
     if identified < 75:
         return "single_layer_foreign"
     return "fully_transparent"
+
+
+def resolve_ubo_chain(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    *,
+    max_depth: int = 10,
+) -> list[dict[str, Any]]:
+    """Walk the UBO ownership tree and return all nodes with effective ownership.
+
+    For each leaf (a UBO with no children), effective_pct is the product of
+    ownership_pct along the path from root to leaf.  Nominees are included in
+    the result (so the caller can display them) but marked; their children are
+    still traversed.
+    """
+    all_rows = [dict(r) for r in conn.execute(
+        "SELECT id, person_name, ownership_pct, control_type, is_ubo, is_nominee, parent_ubo_id"
+        " FROM ubo_links WHERE customer_id=? AND org_id=?",
+        (customer_id, org_id),
+    ).fetchall()]
+
+    by_parent: dict[int | None, list[dict]] = {}
+    for row in all_rows:
+        by_parent.setdefault(row["parent_ubo_id"], []).append(row)
+
+    child_ids = {r["parent_ubo_id"] for r in all_rows if r["parent_ubo_id"] is not None}
+    result: list[dict[str, Any]] = []
+    visited: set[int] = set()
+
+    def _walk(node: dict, effective_pct: float, depth: int) -> None:
+        if node["id"] in visited or depth > max_depth:
+            return
+        visited.add(node["id"])
+
+        own_pct = node["ownership_pct"] if node["ownership_pct"] is not None else 0.0
+        node_effective = effective_pct * (own_pct / 100.0) if effective_pct is not None else own_pct
+
+        children = by_parent.get(node["id"], [])
+        is_leaf = len(children) == 0
+
+        result.append({
+            "id": node["id"],
+            "person_name": node["person_name"],
+            "ownership_pct": node["ownership_pct"],
+            "effective_pct": node_effective,
+            "control_type": node["control_type"],
+            "is_ubo": node["is_ubo"],
+            "is_nominee": bool(node["is_nominee"]),
+            "is_leaf": is_leaf,
+            "depth": depth,
+            "parent_ubo_id": node["parent_ubo_id"],
+        })
+
+        for child in children:
+            _walk(child, node_effective, depth + 1)
+
+    for root in by_parent.get(None, []):
+        _walk(root, 100.0, 0)
+
+    return result
 
 
 def close_relationship(

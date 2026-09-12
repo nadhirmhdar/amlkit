@@ -269,6 +269,45 @@ class TestOnboarding:
 
 
 class TestRetention:
+    def test_add_ubo_nominee_flag_stored(self, conn, org_id) -> None:
+        res = onboard(conn, org_id=org_id, reference="C-NOM1", full_name="Test Corp",
+                      customer_type="legal")
+        ubo_id = add_ubo(conn, res.customer_id, org_id=org_id, person_name="Nominee Person",
+                         ownership_pct=30.0, is_nominee=True)
+        row = conn.execute("SELECT is_nominee, is_ubo FROM ubo_links WHERE id=?", (ubo_id,)).fetchone()
+        assert row["is_nominee"] == 1
+
+    def test_nominee_ubo_is_never_beneficial_owner(self, conn, org_id) -> None:
+        res = onboard(conn, org_id=org_id, reference="C-NOM2", full_name="Test Corp 2",
+                      customer_type="legal")
+        ubo_id = add_ubo(conn, res.customer_id, org_id=org_id, person_name="Big Nominee",
+                         ownership_pct=100.0, is_nominee=True)
+        row = conn.execute("SELECT is_ubo FROM ubo_links WHERE id=?", (ubo_id,)).fetchone()
+        assert row["is_ubo"] == 0, "nominee must never be marked as beneficial owner"
+
+    def test_ownership_state_excludes_nominees(self, conn, org_id) -> None:
+        res = onboard(conn, org_id=org_id, reference="C-NOM3", full_name="Test Corp 3",
+                      customer_type="legal")
+        add_ubo(conn, res.customer_id, org_id=org_id, person_name="Real Owner",
+                ownership_pct=80.0)
+        add_ubo(conn, res.customer_id, org_id=org_id, person_name="Nominee Holder",
+                ownership_pct=20.0, is_nominee=True)
+        state = ownership_state(conn, res.customer_id, org_id, "legal")
+        assert state == "fully_transparent", (
+            "nominee ownership should be excluded; 80% real owner = transparent"
+        )
+
+    def test_nominee_visible_in_customer_detail(self, conn, org_id) -> None:
+        from amlkit import queries
+        res = onboard(conn, org_id=org_id, reference="C-NOM4", full_name="Test Corp 4",
+                      customer_type="legal")
+        add_ubo(conn, res.customer_id, org_id=org_id, person_name="Visible Nominee",
+                ownership_pct=10.0, is_nominee=True)
+        data = queries.customer(conn, res.customer_id, org_id)
+        nominee_ubos = [u for u in data["ubos"] if u.get("is_nominee")]
+        assert len(nominee_ubos) == 1
+        assert nominee_ubos[0]["person_name"] == "Visible Nominee"
+
     def test_five_year_retention_recorded(self, conn, org_id) -> None:
         res = onboard(conn, org_id=org_id, reference="C-300", full_name="Ahmed Al Mansoori")
         until = close_relationship(conn, res.customer_id, org_id=org_id)
