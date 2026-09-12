@@ -320,6 +320,23 @@ from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 from slowapi.util import get_remote_address  # noqa: E402
 
+
+def login_rate_limit_key(request: Request) -> str:
+    """Composite rate limit key for login: IP + email.
+
+    Allows multiple operators from the same office IP/NAT to log in concurrently
+    (each account gets its own 3/minute budget) while still protecting each
+    account from credential-stuffing attempts.
+
+    Reads the email from request.state.login_email, which is set by middleware.
+    """
+    ip = get_remote_address(request)
+    email = getattr(request.state, 'login_email', None)
+    if email:
+        return f"{ip}:{email.lower().strip()}"
+    return ip
+
+
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -432,6 +449,34 @@ async def ensure_csrf_cookie(request: Request, call_next):
 
 
 @app.middleware("http")
+async def extract_login_email(request: Request, call_next):
+    """Extract email from login POST requests for rate limiting.
+
+    This runs before the rate limiter, allowing the rate limit key function to
+    access the email synchronously via request.state.login_email.
+
+    We read the raw body and manually parse the email without consuming the
+    stream, ensuring the route handler can still access the form data.
+    """
+    if request.method == "POST" and request.url.path == "/login":
+        try:
+            # Read the raw body first (this caches it in request._body)
+            body = await request.body()
+            # Parse email manually without consuming the form stream
+            from urllib.parse import parse_qs
+            body_str = body.decode('utf-8') if isinstance(body, bytes) else str(body)
+            parsed = parse_qs(body_str)
+            email = parsed.get('email', [''])[0]
+            if email:
+                request.state.login_email = email.strip()
+        except Exception:
+            # If body reading/parsing fails, fall back to IP-only rate limiting
+            pass
+    response = await call_next(request)
+    return response
+
+
+@app.middleware("http")
 async def security_headers(request: Request, call_next):
     """Add security headers to all responses.
 
@@ -486,7 +531,7 @@ def _login_page_error(request: Request, message: str) -> HTMLResponse:
 
 
 @app.post("/login")
-@limiter.limit("3/minute")
+@limiter.limit("3/minute", key_func=login_rate_limit_key)
 def login_submit(
     request: Request, db: DB,
     email: Annotated[str, Form()],
