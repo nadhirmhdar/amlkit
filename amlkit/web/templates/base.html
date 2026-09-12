@@ -28,6 +28,9 @@
       <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
       <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
       <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
+      {% if session.super_admin %}
+        <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
+      {% endif %}
       {% if session.operator_role == 'mlro' %}
         <a href="/admin" class="{{ 'on' if nav=='admin' }}">Admin</a>
       {% endif %}

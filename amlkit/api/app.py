@@ -149,6 +149,75 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     }
 
 
+def check_and_notify_staleness(conn: sqlite3.Connection) -> dict:
+    """Check for stale mandatory datasets and send email alerts if needed.
+
+    Only notifies once per staleness breach (tracked via staleness_notified_at)
+    to avoid spam. Returns a summary of what was notified.
+    """
+    from ..ingest.loader import staleness_report
+    from .. import mail
+    from ..db import utcnow
+
+    staleness = staleness_report(conn)
+    breaches = [d for d in staleness if d["breach"] and d["is_mandatory"]]
+
+    if not breaches:
+        # Clear staleness_notified_at for any datasets that are now fresh
+        conn.execute(
+            "UPDATE datasets SET staleness_notified_at=NULL WHERE staleness_notified_at IS NOT NULL"
+        )
+        conn.commit()
+        return {"breaches": 0, "notified": 0}
+
+    # Find datasets that breached and haven't been notified yet
+    needs_notification = []
+    for d in breaches:
+        row = conn.execute(
+            "SELECT staleness_notified_at FROM datasets WHERE key=?", (d["key"],)
+        ).fetchone()
+        if row and row["staleness_notified_at"] is None:
+            needs_notification.append(d)
+
+    if not needs_notification:
+        return {"breaches": len(breaches), "notified": 0}
+
+    # Get all MLRO emails across all active orgs
+    mlro_emails = [
+        r["email"] for r in conn.execute(
+            """SELECT DISTINCT o.email FROM operators o
+               JOIN organizations org ON org.id = o.org_id
+               WHERE org.status='active' AND o.role='mlro' AND o.is_active=1
+                 AND o.email IS NOT NULL"""
+        ).fetchall()
+    ]
+
+    if not mlro_emails:
+        log.warning("Staleness breach detected but no MLRO emails to notify")
+        return {"breaches": len(breaches), "notified": 0}
+
+    # Send notification
+    outcome = mail.send_staleness_alert(mlro_emails, needs_notification)
+
+    # Mark as notified
+    now = utcnow()
+    for d in needs_notification:
+        conn.execute(
+            "UPDATE datasets SET staleness_notified_at=? WHERE key=?", (now, d["key"])
+        )
+    conn.commit()
+
+    log.info("Staleness notification: %d datasets, %d MLROs, outcome=%s",
+             len(needs_notification), len(mlro_emails), outcome)
+
+    return {
+        "breaches": len(breaches),
+        "notified": len(needs_notification),
+        "outcome": outcome,
+        "recipients": len(mlro_emails),
+    }
+
+
 def _run_scheduled_refresh() -> None:
     """APScheduler entry point: opens its own connection (not tied to a
     request) and delegates to run_sanctions_refresh.
@@ -173,6 +242,10 @@ def _run_scheduled_refresh() -> None:
         conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="scheduler")
         log.info("Scheduled refresh complete: %s", result)
+
+        # Check for staleness and notify MLROs if needed
+        staleness_result = check_and_notify_staleness(conn)
+        log.info("Staleness check complete: %s", staleness_result)
     except Exception:
         log.exception("Scheduled sanctions refresh failed with an unexpected error")
     finally:
@@ -1411,6 +1484,82 @@ def audit_view(request: Request, db: DB):
                  {"session": session, "entries": queries.audit_trail(db, session.org_id, limit=300)})
 
 
+# ---------------------------------------------------------------------- super-admin console
+@app.get("/console", response_class=HTMLResponse)
+def console_view(request: Request, db: DB):
+    """Multi-org console for super-admin users."""
+    try:
+        session = require_session(request, db)
+        from .deps import require_super_admin
+        require_super_admin(session)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
+
+    data = queries.console_overview(db)
+    return render(request, "console.html", {
+        "session": session,
+        **data,
+    })
+
+
+@app.get("/console/org/{org_id}/alerts", response_class=HTMLResponse)
+def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "open"):
+    """Drill down into alerts for a specific org (super-admin only)."""
+    try:
+        session = require_session(request, db)
+        from .deps import require_super_admin
+        require_super_admin(session)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/console", err=str(exc))
+
+    org = db.execute("SELECT name FROM organizations WHERE id=?", (org_id,)).fetchone()
+    if org is None:
+        return back("/console", err="Organization not found.")
+
+    alert_list = queries.org_alerts(db, org_id, status=status if status != "all" else None)
+    for a in alert_list:
+        from ..cases.review import review_history, REASON_CODES
+        a["reviews"] = review_history(db, a["id"], org_id)
+
+    return render(request, "alerts.html", {
+        "session": session,
+        "alerts": alert_list,
+        "status": status,
+        "reason_codes": REASON_CODES,
+        "org_name": org["name"],
+        "super_admin_view": True,
+    })
+
+
+@app.get("/console/org/{org_id}/customers", response_class=HTMLResponse)
+def console_org_customers(request: Request, db: DB, org_id: int):
+    """Drill down into customers for a specific org (super-admin only)."""
+    try:
+        session = require_session(request, db)
+        from .deps import require_super_admin
+        require_super_admin(session)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/console", err=str(exc))
+
+    org = db.execute("SELECT name FROM organizations WHERE id=?", (org_id,)).fetchone()
+    if org is None:
+        return back("/console", err="Organization not found.")
+
+    customer_list = queries.org_customers(db, org_id)
+    return render(request, "customers.html", {
+        "session": session,
+        "customers": customer_list,
+        "org_name": org["name"],
+        "super_admin_view": True,
+    })
+
+
 # ---------------------------------------------------------------------- admin
 @app.get("/admin", response_class=HTMLResponse)
 def admin_view(request: Request, db: DB):
@@ -1636,6 +1785,10 @@ def system_refresh(request: Request):
     try:
         conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="cloud-scheduler")
+
+        # Check for staleness and notify MLROs if needed
+        staleness_result = check_and_notify_staleness(conn)
+        result["staleness_check"] = staleness_result
     finally:
         if conn is not None:
             conn.close()

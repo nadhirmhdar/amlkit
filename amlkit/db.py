@@ -696,6 +696,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "contact_phone",  "ALTER TABLE customers ADD COLUMN contact_phone  TEXT"),
     ("customers", "contact_email",  "ALTER TABLE customers ADD COLUMN contact_email  TEXT"),
     ("datasets",  "max_age_hours",  "ALTER TABLE datasets ADD COLUMN max_age_hours INTEGER NOT NULL DEFAULT 24"),
+    ("operators", "super_admin",    "ALTER TABLE operators ADD COLUMN super_admin INTEGER NOT NULL DEFAULT 0"),
+    ("datasets",  "staleness_notified_at", "ALTER TABLE datasets ADD COLUMN staleness_notified_at TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
