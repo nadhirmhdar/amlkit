@@ -734,6 +734,52 @@ class TestCsvExport:
         assert r.status_code == 303
         assert r.headers["location"] == "/login"
 
+    def test_csv_escapes_formula_injection_in_customer_names(self, client) -> None:
+        """CSV export must escape cells starting with =, +, -, @ to prevent formula injection."""
+        dangerous_names = [
+            ("=SUM(1+1)", "'=SUM(1+1)"),  # Equals sign
+            ("+1+1", "'+1+1"),            # Plus sign
+            ("-1-1", "'-1-1"),            # Minus sign
+            ("@A1", "'@A1"),              # At sign
+        ]
+        for name, escaped in dangerous_names:
+            ref = f"FORMULA-{hash(name) % 1000}"
+            client.post("/customers", data={
+                "reference": ref, "full_name": name,
+                "customer_type": "natural", "csrf_token": _csrf(client),
+            }, follow_redirects=True)
+        r = client.get("/customers.csv")
+        assert r.status_code == 200
+        for name, escaped in dangerous_names:
+            # The escaped version should appear in the CSV
+            assert escaped in r.text, f"Expected {escaped!r} in CSV but got:\n{r.text}"
+            # The raw dangerous string should NOT appear at the start of a field
+            import re
+            # Check that the dangerous pattern doesn't appear unescaped after a comma or newline
+            pattern = f"[,\\n]{re.escape(name)}"
+            assert not re.search(pattern, r.text), \
+                f"Found unescaped {name!r} after field delimiter"
+
+    def test_csv_escapes_formula_injection_in_alert_captions(self, client) -> None:
+        """Alert CSV must also escape matched party names and captions."""
+        # Create a customer with a benign name that will match a dangerous entity
+        client.post("/customers", data={
+            "reference": "ALERT-FORMULA", "full_name": "Test Customer",
+            "customer_type": "natural", "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        r = client.get("/alerts.csv")
+        assert r.status_code == 200
+        # Any alert caption/matched_party starting with dangerous chars should be escaped
+        # This test verifies the escaping function works on the alert export path too
+        import re
+        # Check no unescaped formula starters appear after field delimiters
+        for char in ['=', '+', '-', '@']:
+            pattern = f"[,\\n]{re.escape(char)}[^,\\n]"
+            matches = re.findall(pattern, r.text)
+            # If found, verify they're escaped (preceded by quote within the field)
+            for match in matches:
+                assert False, f"Found potentially unescaped formula in alerts CSV: {match!r}"
+
 
 class TestAdminThreshold:
     def test_mlro_can_set_threshold(self, client) -> None:

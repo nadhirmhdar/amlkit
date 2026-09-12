@@ -178,6 +178,42 @@ class TestOwnershipState:
     def test_threshold_is_twenty_five(self) -> None:
         assert UBO_THRESHOLD_PCT == 25.0
 
+    def test_add_ubo_rejects_ownership_over_100(self, conn, org_id) -> None:
+        """Ownership percentage cannot exceed 100%."""
+        res = onboard(conn, org_id=org_id, reference="C-5", full_name="Test LLC 5",
+                      customer_type="legal")
+        with pytest.raises(ValueError, match="ownership percentage must be between 0 and 100"):
+            add_ubo(conn, res.customer_id, org_id=org_id, person_name="Over Holder",
+                   ownership_pct=150.0)
+
+    def test_add_ubo_rejects_negative_ownership(self, conn, org_id) -> None:
+        """Negative ownership percentage is invalid."""
+        res = onboard(conn, org_id=org_id, reference="C-6", full_name="Test LLC 6",
+                      customer_type="legal")
+        with pytest.raises(ValueError, match="ownership percentage must be between 0 and 100"):
+            add_ubo(conn, res.customer_id, org_id=org_id, person_name="Negative Holder",
+                   ownership_pct=-25.0)
+
+    def test_add_ubo_accepts_zero_ownership(self, conn, org_id) -> None:
+        """Zero ownership is valid for control without equity."""
+        res = onboard(conn, org_id=org_id, reference="C-7", full_name="Test LLC 7",
+                      customer_type="legal")
+        uid = add_ubo(conn, res.customer_id, org_id=org_id, person_name="Control Only",
+                     ownership_pct=0.0, control_type="voting_rights")
+        row = conn.execute("SELECT ownership_pct, is_ubo FROM ubo_links WHERE id=?", (uid,)).fetchone()
+        assert row["ownership_pct"] == 0.0
+        assert row["is_ubo"] == 0  # Below 25% threshold
+
+    def test_add_ubo_accepts_hundred_percent_ownership(self, conn, org_id) -> None:
+        """100% ownership is valid."""
+        res = onboard(conn, org_id=org_id, reference="C-8", full_name="Test LLC 8",
+                      customer_type="legal")
+        uid = add_ubo(conn, res.customer_id, org_id=org_id, person_name="Sole Owner",
+                     ownership_pct=100.0)
+        row = conn.execute("SELECT ownership_pct, is_ubo FROM ubo_links WHERE id=?", (uid,)).fetchone()
+        assert row["ownership_pct"] == 100.0
+        assert row["is_ubo"] == 1
+
 
 class TestOnboarding:
     def test_clean_customer_not_blocked(self, conn, org_id) -> None:

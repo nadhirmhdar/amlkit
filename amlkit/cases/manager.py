@@ -228,6 +228,10 @@ def add_ubo(
     senior managing official -- the regulation's explicit fallback when no
     natural person meets the ownership test.
     """
+    if ownership_pct is not None and not (0 <= ownership_pct <= 100):
+        raise ValueError(
+            f"ownership percentage must be between 0 and 100, got {ownership_pct}"
+        )
     is_ubo = control_type == "senior_official" or (
         ownership_pct is not None and ownership_pct >= UBO_THRESHOLD_PCT
     )
