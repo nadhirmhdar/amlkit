@@ -106,10 +106,9 @@
     {% endfor %}
   </div>
   {% endif %}
-  <form method="post" action="/admin/refresh" class="mt-4"
-        onsubmit="this.querySelector('button').textContent='Refreshing…';this.querySelector('button').disabled=true;">
+  <form method="post" action="/admin/refresh" class="mt-4">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" id="refresh-btn">Refresh sanctions lists now</button>
+    <button type="submit" id="refresh-btn" data-loading="Refreshing lists…">Refresh sanctions lists now</button>
     <span class="muted small ml-4">Takes 30–60 seconds</span>
   </form>
 </div>

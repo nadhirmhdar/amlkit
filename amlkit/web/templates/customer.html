@@ -94,7 +94,7 @@
           <option value="senior_official">Senior managing official</option>
           <option value="nominee">Nominee</option>
         </select></div>
-      <div><button class="small" type="submit">Add &amp; screen</button></div>
+      <div><button class="small" type="submit" data-loading="Screening…">Add &amp; screen</button></div>
     </form>
   </div>
 
@@ -247,8 +247,8 @@
       </select></div>
     <div><label>Amount (AED)</label><input type="number" name="amount" step="0.01" min="0.01" required></div>
     <div><label>Counterparty</label><input type="text" name="counterparty_name" dir="auto"></div>
-    <div><label>Counterparty country</label><input type="text" name="counterparty_country" maxlength="2" placeholder="AE"></div>
-    <div><label>Date</label><input type="date" name="occurred_at"></div>
+    <div><label>Counterparty country</label><input type="text" name="counterparty_country" maxlength="2" placeholder="AE" pattern="[A-Za-z]{2}" title="Two-letter country code (e.g. AE)"></div>
+    <div><label>Date</label><input type="date" name="occurred_at" required></div>
     <div><button class="small" type="submit">Record</button></div>
   </form>
 </div>
@@ -330,7 +330,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div><label>Look back (months)</label>
       <input type="number" name="window_months" value="24" min="1" max="120"></div>
-    <div><button class="small" type="submit">Run adverse media check</button></div>
+    <div><button class="small" type="submit" data-loading="Checking…">Run adverse media check</button></div>
   </form>
   <p class="muted small mt-2">
     Takes a few seconds: the provider is free and rate-limited to one request
