@@ -140,6 +140,21 @@
 
 <script>
 (function () {
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (form.classList.contains('no-loading')) return;
+    var btn = form.querySelector('button[type="submit"]');
+    if (!btn || form.classList.contains('is-submitting')) return;
+    form.classList.add('is-submitting');
+    var orig = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span>' + (btn.dataset.loading || 'Processing…');
+    setTimeout(function () {
+      form.classList.remove('is-submitting');
+      btn.innerHTML = orig;
+    }, 30000);
+  });
+}());
+(function () {
   var wrap = document.getElementById('user-menu-wrap');
   function close() {
     if (!wrap) return;

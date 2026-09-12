@@ -65,7 +65,7 @@
     <div class="row">
       <div>
         <label>Nationality (ISO-2/3)</label>
-        <input type="text" name="nationality" value="{{ payload.nationality or customer.nationality or 'AE' }}" required>
+        <input type="text" name="nationality" value="{{ payload.nationality or customer.nationality or 'AE' }}" required pattern="[A-Za-z]{2,3}" title="ISO country code (2 or 3 letters)">
       </div>
       <div>
         <label>Date of Birth / Incorporation</label>
@@ -157,7 +157,7 @@
   </div>
 
   <div class="mt-6 mb-6">
-    <button type="submit">Save Report Draft</button>
+    <button type="submit" data-loading="Saving draft…">Save Report Draft</button>
     <a class="btn ghost" href="/reports">Cancel</a>
   </div>
 </form>
