@@ -117,3 +117,11 @@ def require_role(session: SessionInfo, *roles: str) -> None:
             f"This action requires the {' or '.join(roles)} role; "
             f"your account is {session.operator_role}."
         )
+
+
+def require_super_admin(session: SessionInfo) -> None:
+    """Guard for super-admin-only routes (multi-org console)."""
+    if not session.super_admin:
+        raise PermissionError(
+            "This view requires super-admin access. Contact your system administrator."
+        )
