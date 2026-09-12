@@ -48,7 +48,7 @@ from ..cases.review import (
     review_history,
     single_operator_mode,
 )
-from ..db import set_org_alert_threshold, utcnow
+from ..db import retry_on_lock, set_org_alert_threshold, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
@@ -77,6 +77,7 @@ import secrets
 log = logging.getLogger("amlkit.scheduler")
 
 
+@retry_on_lock(max_retries=3, base_delay=0.5)
 def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     """Load every mandatory sanctions source and re-screen every active org.
 
@@ -324,6 +325,20 @@ async def ensure_csrf_cookie(request: Request, call_next):
     return await call_next(request)
 
 
+# ----------------------------------------------------------------- health
+@app.get("/health")
+def health_check(db: DB):
+    from fastapi.responses import JSONResponse
+    from ..ingest.loader import staleness_report
+
+    datasets = staleness_report(db)
+    any_breach = any(d["breach"] for d in datasets)
+    return JSONResponse({
+        "status": "degraded" if any_breach else "healthy",
+        "datasets": datasets,
+    })
+
+
 # ----------------------------------------------------------------- sign-in
 @app.get("/login", response_class=HTMLResponse)
 def login_form(request: Request, db: DB):
@@ -379,6 +394,11 @@ def setup_form(request: Request, db: DB, token: str = ""):
             "err": "This setup link is invalid, expired, or already used.",
         })
     org = db.execute("SELECT name FROM organizations WHERE id=?", (row["org_id"],)).fetchone()
+    if org is None:
+        return render(request, "setup.html", {
+            "session": None, "valid": False,
+            "err": "This setup link is invalid, expired, or already used.",
+        })
     return render(request, "setup.html", {
         "session": None, "valid": True, "token": token, "org_name": org["name"],
     })
@@ -1338,6 +1358,8 @@ def admin_view(request: Request, db: DB):
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
     org = db.execute("SELECT name, slug FROM organizations WHERE id=?", (session.org_id,)).fetchone()
+    if org is None:
+        return back("/", err="Organization not found.")
     from ..ingest.loader import staleness_report
     return render(request, "admin.html", {
         "session": session, "org": dict(org),
