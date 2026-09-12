@@ -92,24 +92,60 @@ def _candidates(conn: sqlite3.Connection, name: str, limit: int = 400) -> list[s
     scored, and a missed sanctions match is a regulatory failure rather than an
     inconvenience. Candidates are ranked by how many keys they share so the
     limit truncates the weakest first.
+
+    Uses an in-memory cache for name_tokens to avoid repeated SQLite reads on
+    every screen() call. Cache is invalidated on refresh.
     """
+    from .cache import get_entities_for_tokens
+
     keys = blocking_keys(name)
     if not keys:
         return []
-    placeholders = ",".join("?" * len(keys))
+
+    # Get entity IDs from cache or database
+    token_entity_pairs = get_entities_for_tokens(conn, keys)
+    if not token_entity_pairs:
+        return []
+
+    # Count key overlaps per entity
+    entity_overlap: dict[int, int] = {}
+    for _, entity_id in token_entity_pairs:
+        entity_overlap[entity_id] = entity_overlap.get(entity_id, 0) + 1
+
+    # Fetch entity details for matching entities
+    entity_ids = list(entity_overlap.keys())
+    if not entity_ids:
+        return []
+
+    placeholders = ",".join("?" * len(entity_ids))
     sql = f"""
         SELECT e.id, e.caption, e.schema_type, e.countries, e.birth_date,
-               e.gender, e.topics, e.programs, d.key AS dataset,
-               COUNT(*) AS key_overlap
-        FROM name_tokens t
-        JOIN entities e ON e.id = t.entity_id
+               e.gender, e.topics, e.programs, d.key AS dataset
+        FROM entities e
         JOIN datasets d ON d.id = e.dataset_id
-        WHERE t.token IN ({placeholders})
-        GROUP BY e.id
-        ORDER BY key_overlap DESC
-        LIMIT ?
+        WHERE e.id IN ({placeholders})
     """
-    return conn.execute(sql, (*keys, limit)).fetchall()
+    rows = conn.execute(sql, entity_ids).fetchall()
+
+    # Attach key_overlap count and sort
+    enriched = []
+    for row in rows:
+        row_dict = dict(row)
+        row_dict["key_overlap"] = entity_overlap[row["id"]]
+        enriched.append(row_dict)
+
+    enriched.sort(key=lambda r: r["key_overlap"], reverse=True)
+
+    # Convert back to Row-like objects for compatibility
+    class FakeRow:
+        def __init__(self, d):
+            self._data = d
+        def __getitem__(self, key):
+            return self._data[key]
+        def keys(self):
+            return self._data.keys()
+
+    return [FakeRow(r) for r in enriched[:limit]]
 
 
 def _names_for(conn: sqlite3.Connection, entity_id: int) -> list[str]:

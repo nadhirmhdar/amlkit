@@ -132,6 +132,30 @@
         real client files.
       </p>
     </footer>
+
+    {# Feedback button — floating button in bottom-right corner #}
+    <button class="feedback-btn no-print" onclick="openFeedback()" aria-label="Send feedback" title="Send feedback">
+      💬
+    </button>
+
+    {# Feedback modal #}
+    <div id="feedback-modal" class="feedback-modal">
+      <div class="feedback-modal-content">
+        <span class="feedback-modal-close" onclick="closeFeedback()">&times;</span>
+        <h3>Send Feedback</h3>
+        <p class="muted small">Report bugs, suggest features, or share your experience.</p>
+        <form id="feedback-form" onsubmit="submitFeedback(event)">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="page" value="{{ request.url.path }}">
+          <textarea name="message" rows="5" placeholder="Your feedback..." required></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button type="submit">Send</button>
+            <button type="button" onclick="closeFeedback()">Cancel</button>
+          </div>
+        </form>
+        <div id="feedback-result" style="margin-top:12px;"></div>
+      </div>
+    </div>
   </main>
 </div>
 {% else %}
@@ -177,6 +201,47 @@
     if (e.key === 'Escape') close();
   });
 }());
+
+// Feedback modal functions
+function openFeedback() {
+  document.getElementById('feedback-modal').style.display = 'block';
+  document.getElementById('feedback-result').innerHTML = '';
+  document.querySelector('#feedback-form textarea').focus();
+}
+function closeFeedback() {
+  document.getElementById('feedback-modal').style.display = 'none';
+  document.getElementById('feedback-form').reset();
+  document.getElementById('feedback-result').innerHTML = '';
+}
+function submitFeedback(e) {
+  e.preventDefault();
+  var form = e.target;
+  var formData = new FormData(form);
+  var resultDiv = document.getElementById('feedback-result');
+  resultDiv.innerHTML = '<span class="muted">Sending...</span>';
+  fetch('/feedback', {
+    method: 'POST',
+    body: formData
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success) {
+      resultDiv.innerHTML = '<span style="color:#059669;">✓ ' + data.message + '</span>';
+      form.reset();
+      setTimeout(closeFeedback, 2000);
+    } else {
+      resultDiv.innerHTML = '<span style="color:#dc2626;">✗ ' + (data.error || 'Failed to send feedback.') + '</span>';
+    }
+  })
+  .catch(function(err) {
+    resultDiv.innerHTML = '<span style="color:#dc2626;">✗ Network error. Try again.</span>';
+  });
+}
+// Close modal on click outside
+window.addEventListener('click', function(e) {
+  var modal = document.getElementById('feedback-modal');
+  if (e.target === modal) closeFeedback();
+});
 </script>
 </body>
 </html>

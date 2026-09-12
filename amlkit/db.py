@@ -595,6 +595,21 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS ix_audit_ts  ON audit_log(ts);
 -- ix_audit_org: created in Python after migration, see note above.
 
+-- ---------------------------------------------------------------- feedback
+-- User feedback from pilot users. Deliberately org-scoped so each firm's
+-- feedback stays with their own data, not mixed into a global pool.
+-- operator_id (not just actor name) so deactivated operators' feedback
+-- can be retained per the 5-year rule even after the operator row is gone.
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY,
+    org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    operator_id INTEGER REFERENCES operators(id) ON DELETE SET NULL,
+    page        TEXT NOT NULL,
+    message     TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_feedback_org ON feedback(org_id);
+
 -- Append-only enforcement. Any UPDATE or DELETE against the audit log aborts
 -- at the database level, so tampering requires bypassing the application
 -- entirely rather than merely calling a different function.
