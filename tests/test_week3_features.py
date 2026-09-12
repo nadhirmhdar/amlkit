@@ -104,6 +104,22 @@ def test_feedback_requires_auth(client):
     assert "error" in data
 
 
+def test_feedback_button_hidden_on_unauthenticated_pages(client):
+    """Feedback button should not appear on login/register pages."""
+    # Logout to ensure no session
+    client.post("/logout")
+
+    # Check login page
+    r = client.get("/login")
+    assert r.status_code == 200
+    assert "feedback-btn" not in r.text
+
+    # Check register page
+    r = client.get("/register-organization")
+    assert r.status_code == 200
+    assert "feedback-btn" not in r.text
+
+
 def test_feedback_requires_message(client):
     """Feedback submission requires a non-empty message."""
     r = client.post("/feedback", data={

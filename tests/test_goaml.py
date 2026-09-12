@@ -115,3 +115,12 @@ class TestValidPayload:
         assert root.find("reporting_person/first_name").text == "Jane"
         assert root.find("transaction/t_from/account/account_number").text == "AE1111"
         assert root.find("transaction/t_to/account/account_number").text == "AE2222"
+
+    def test_dtr_report_type_serializes(self) -> None:
+        """DTR (Dealer Transaction Report) is a supported report type."""
+        payload = _base_payload(report_type="DTR", amount=10000.0,
+                                 transaction_type="Purchase", source_account="CASH",
+                                 destination_account="AE1111")
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+        assert root.find("report_code").text == "DTR"
