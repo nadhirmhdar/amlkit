@@ -73,3 +73,37 @@ def test_same_email_shares_rate_limit_across_clients():
         "csrf_token": csrf2,
     })
     assert r.status_code == 429, "Alice's 4th attempt should be rate-limited across both clients"
+
+
+def test_ip_ceiling_prevents_credential_stuffing_across_many_accounts():
+    """Attacker trying many different emails from one IP hits the IP ceiling (20/minute).
+
+    This test must run in isolation since rate limits persist across tests in the same session.
+    Run with: pytest tests/test_login_rate_limit_keying.py::test_ip_ceiling_prevents_credential_stuffing_across_many_accounts -xvs
+    """
+    client = TestClient(app)
+    client.get("/login")
+    csrf = client.cookies.get("amlkit_csrf")
+
+    # Try many different emails - IP ceiling (20/minute) should block before we exhaust all
+    successful_attempts = 0
+    blocked_at = None
+
+    for i in range(30):  # Try 30 different emails
+        r = client.post("/login", data={
+            "email": f"attacker.ceiling{i}@test.com",
+            "password": "wrong",
+            "csrf_token": csrf,
+        })
+        if r.status_code in [200, 303]:
+            successful_attempts += 1
+        elif r.status_code == 429:
+            blocked_at = i + 1
+            break
+
+    # Should have hit the IP ceiling (20/minute) after ~20 attempts
+    # Some tolerance since tests may have consumed budget earlier
+    assert blocked_at is not None, \
+        f"Expected IP ceiling to block credential stuffing, but all {successful_attempts} attempts succeeded"
+    assert blocked_at <= 25, \
+        f"IP ceiling should block around attempt 20, but blocked at attempt {blocked_at}"
