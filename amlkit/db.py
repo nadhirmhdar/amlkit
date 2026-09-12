@@ -265,7 +265,6 @@ CREATE TABLE IF NOT EXISTS ubo_links (
     created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_ubo_cust ON ubo_links(customer_id);
-CREATE INDEX IF NOT EXISTS ix_ubo_parent ON ubo_links(parent_ubo_id);
 
 -- ---------------------------------------------------------------- screening
 CREATE TABLE IF NOT EXISTS screenings (
@@ -947,6 +946,7 @@ _ORG_INDEXES: tuple[tuple[str, str], ...] = (
 def _create_org_indexes(conn: sqlite3.Connection) -> None:
     for name, table in _ORG_INDEXES:
         conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table}(org_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_ubo_parent ON ubo_links(parent_ubo_id)")
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:

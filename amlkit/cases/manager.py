@@ -321,6 +321,67 @@ def ownership_state(
     return "fully_transparent"
 
 
+def resolve_ubo_chain(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    *,
+    max_depth: int = 10,
+) -> list[dict[str, Any]]:
+    """Walk the UBO ownership tree and return all nodes with effective ownership.
+
+    For each leaf (a UBO with no children), effective_pct is the product of
+    ownership_pct along the path from root to leaf.  Nominees are included in
+    the result (so the caller can display them) but marked; their children are
+    still traversed.
+    """
+    all_rows = [dict(r) for r in conn.execute(
+        "SELECT id, person_name, ownership_pct, control_type, is_ubo, is_nominee, parent_ubo_id"
+        " FROM ubo_links WHERE customer_id=? AND org_id=?",
+        (customer_id, org_id),
+    ).fetchall()]
+
+    by_parent: dict[int | None, list[dict]] = {}
+    for row in all_rows:
+        by_parent.setdefault(row["parent_ubo_id"], []).append(row)
+
+    child_ids = {r["parent_ubo_id"] for r in all_rows if r["parent_ubo_id"] is not None}
+    result: list[dict[str, Any]] = []
+    visited: set[int] = set()
+
+    def _walk(node: dict, effective_pct: float, depth: int) -> None:
+        if node["id"] in visited or depth > max_depth:
+            return
+        visited.add(node["id"])
+
+        own_pct = node["ownership_pct"] if node["ownership_pct"] is not None else 0.0
+        node_effective = effective_pct * (own_pct / 100.0) if effective_pct is not None else own_pct
+
+        children = by_parent.get(node["id"], [])
+        is_leaf = len(children) == 0
+
+        result.append({
+            "id": node["id"],
+            "person_name": node["person_name"],
+            "ownership_pct": node["ownership_pct"],
+            "effective_pct": node_effective,
+            "control_type": node["control_type"],
+            "is_ubo": node["is_ubo"],
+            "is_nominee": bool(node["is_nominee"]),
+            "is_leaf": is_leaf,
+            "depth": depth,
+            "parent_ubo_id": node["parent_ubo_id"],
+        })
+
+        for child in children:
+            _walk(child, node_effective, depth + 1)
+
+    for root in by_parent.get(None, []):
+        _walk(root, 100.0, 0)
+
+    return result
+
+
 def close_relationship(
     conn: sqlite3.Connection, customer_id: int, org_id: int, actor: str = "system"
 ) -> str:
