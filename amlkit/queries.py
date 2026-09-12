@@ -461,3 +461,92 @@ def adverse_media_queue(
             " f.created_at DESC LIMIT ?")
     return [dict(r) | {"matched_terms": json.loads(r["matched_terms"] or "[]")}
             for r in conn.execute(sql, (*params, limit))]
+
+
+
+# ---------------------------------------------------------------------- super-admin queries
+def console_overview(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Multi-org dashboard for super-admin users.
+
+    Returns aggregated stats across all active organizations for the consultant
+    view. This is the core Position 1 pilot feature: one login, multiple orgs.
+    """
+    from .ingest.loader import staleness_report
+
+    # Get all active organizations
+    orgs_rows = conn.execute(
+        "SELECT id, name, slug, created_at FROM organizations WHERE status='active' ORDER BY name"
+    ).fetchall()
+    orgs = [dict(r) for r in orgs_rows]
+
+    # Aggregate stats across all orgs
+    for org in orgs:
+        org_id = org["id"]
+
+        # Open alerts count by category
+        alerts = alert_queue(conn, org_id, status="open")
+        by_category: dict[str, int] = {}
+        for a in alerts:
+            by_category[a["category"]] = by_category.get(a["category"], 0) + 1
+
+        # Basic counts
+        counts = conn.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM customers WHERE status='active' AND org_id=?) AS customers,
+                 (SELECT COUNT(*) FROM alerts WHERE status='open' AND org_id=?)       AS open_alerts,
+                 (SELECT COUNT(*) FROM screenings WHERE org_id=?)                     AS screenings""",
+            (org_id, org_id, org_id),
+        ).fetchone()
+
+        # High-risk customers
+        high_risk = conn.execute(
+            """SELECT COUNT(*) c FROM customers c
+               WHERE c.org_id=? AND c.status='active' AND EXISTS (
+                 SELECT 1 FROM risk_assessments r WHERE r.customer_id=c.id AND r.rating='high'
+                 AND r.id = (SELECT id FROM risk_assessments WHERE customer_id=c.id
+                             ORDER BY assessed_at DESC LIMIT 1))""",
+            (org_id,),
+        ).fetchone()["c"]
+
+        org["customers"] = counts["customers"]
+        org["open_alerts"] = counts["open_alerts"]
+        org["screenings"] = counts["screenings"]
+        org["high_risk"] = high_risk
+        org["alerts_by_category"] = by_category
+
+    # Global staleness report (shared across all orgs)
+    staleness = staleness_report(conn)
+    breaches = [d for d in staleness if d["breach"]]
+
+    # Organization-level staleness: track which orgs have been notified
+    org_staleness = []
+    for org in orgs:
+        org_breach_count = len(breaches)
+        org_staleness.append({
+            "org_id": org["id"],
+            "org_name": org["name"],
+            "breaches": org_breach_count,
+            "compliant": org_breach_count == 0,
+        })
+
+    return {
+        "organizations": orgs,
+        "total_orgs": len(orgs),
+        "total_customers": sum(o["customers"] for o in orgs),
+        "total_open_alerts": sum(o["open_alerts"] for o in orgs),
+        "total_high_risk": sum(o["high_risk"] for o in orgs),
+        "staleness": staleness,
+        "breaches": breaches,
+        "org_staleness": org_staleness,
+    }
+
+
+def org_alerts(conn: sqlite3.Connection, org_id: int, status: str | None = "open") -> list[dict[str, Any]]:
+    """All alerts for a specific org, for super-admin drill-down."""
+    return alert_queue(conn, org_id, status=status)
+
+
+def org_customers(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
+    """All customers for a specific org, for super-admin drill-down."""
+    return customer_list(conn, org_id)
+
