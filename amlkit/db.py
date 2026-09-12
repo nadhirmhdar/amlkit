@@ -14,13 +14,41 @@ failures, so "we promise not to edit it" is not an adequate control.
 
 from __future__ import annotations
 
+import functools
 import json
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "aml.db"
+
+
+def retry_on_lock(max_retries: int = 3, base_delay: float = 0.1):
+    """Retry a function on SQLite "database is locked" errors.
+
+    busy_timeout handles the common case, but a long-running refresh can
+    hold the WAL lock beyond the PRAGMA timeout. This decorator retries
+    the entire operation with exponential backoff.
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            last_err = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except sqlite3.OperationalError as exc:
+                    if "locked" not in str(exc):
+                        raise
+                    last_err = exc
+                    if attempt < max_retries:
+                        time.sleep(base_delay * (2 ** attempt))
+            raise last_err
+        return wrapper
+    return decorator
+
 
 # Distinguishes "org_id not passed at all" from "org_id passed as None", since
 # None is itself a meaningful, deliberate value for audit() (see below).

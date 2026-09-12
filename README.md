@@ -103,8 +103,9 @@ self-match, **0 false positives** across the benign-name suite. 464 tests.
 
 ## Not built yet
 
-MFA · evidence-document upload · UBO ownership diagram · dedicated monitoring
-page. See `research/compliance-traceability.md` for the full gap list.
+MFA · dedicated monitoring dashboard · structured logging with request-ID
+correlation · country dropdowns (nationality/country fields are still text
+inputs). See `research/compliance-traceability.md` for the full gap list.
 
 ---
 
