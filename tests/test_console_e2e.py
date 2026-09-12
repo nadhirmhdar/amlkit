@@ -75,6 +75,13 @@ def multi_org_db(tmp_path, monkeypatch):
     for tok in blocking_keys(name):
         conn.execute("INSERT OR IGNORE INTO name_tokens (token, entity_id) VALUES (?,?)",
                      (tok, eid))
+    # Create 3 organizations
+    for org_name, slug in [("Firm Alpha", "firm-alpha"), ("Firm Beta", "firm-beta"), ("Firm Gamma", "firm-gamma")]:
+        conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
+            (org_name, slug, "active", now),
+        )
+
     conn.commit()
     conn.close()
 
@@ -88,11 +95,6 @@ def super_admin_client(multi_org_db, monkeypatch):
     from amlkit.api.app import app
 
     c = TestClient(app)
-
-    # Register 3 organizations
-    _register(c, "Firm Alpha", "alice", "alice@firmalpha.ae")
-    _register(c, "Firm Beta", "bob", "bob@firmbeta.ae")
-    _register(c, "Firm Gamma", "charlie", "charlie@firmgamma.ae")
 
     # Create a super-admin operator
     conn = _db()

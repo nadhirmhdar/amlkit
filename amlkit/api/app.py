@@ -315,6 +315,32 @@ async def _lifespan(app):
 
 app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, lifespan=_lifespan)
 
+# Rate limiting to prevent brute-force attacks and DoS
+from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+from slowapi.util import get_remote_address  # noqa: E402
+
+
+def login_rate_limit_key(request: Request) -> str:
+    """Composite rate limit key for login: IP + email.
+
+    Allows multiple operators from the same office IP/NAT to log in concurrently
+    (each account gets its own 3/minute budget) while still protecting each
+    account from credential-stuffing attempts.
+
+    Reads the email from request.state.login_email, which is set by middleware.
+    """
+    ip = get_remote_address(request)
+    email = getattr(request.state, 'login_email', None)
+    if email:
+        return f"{ip}:{email.lower().strip()}"
+    return ip
+
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # JSON API for the native mobile app -- bearer-token auth, no CSRF, no HTML.
 # Registered before the static mount so /api/v1/* never falls through to it.
 from .mobile import router as mobile_router  # noqa: E402
@@ -422,6 +448,64 @@ async def ensure_csrf_cookie(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def extract_login_email(request: Request, call_next):
+    """Extract email from login POST requests for rate limiting.
+
+    This runs before the rate limiter, allowing the rate limit key function to
+    access the email synchronously via request.state.login_email.
+
+    We read the raw body and manually parse the email without consuming the
+    stream, ensuring the route handler can still access the form data.
+    """
+    if request.method == "POST" and request.url.path == "/login":
+        try:
+            # Read the raw body first (this caches it in request._body)
+            body = await request.body()
+            # Parse email manually without consuming the form stream
+            from urllib.parse import parse_qs
+            body_str = body.decode('utf-8') if isinstance(body, bytes) else str(body)
+            parsed = parse_qs(body_str)
+            email = parsed.get('email', [''])[0]
+            if email:
+                request.state.login_email = email.strip()
+        except Exception:
+            # If body reading/parsing fails, fall back to IP-only rate limiting
+            pass
+    response = await call_next(request)
+    return response
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Add security headers to all responses.
+
+    - CSP: Restricts resource loading to same-origin, with 'unsafe-inline' for
+      scripts/styles since the templates use inline <script> blocks and onclick
+      handlers. Still protects against loading scripts from unauthorized domains.
+    - X-Content-Type-Options: Prevents MIME-sniffing attacks
+    - X-Frame-Options: Prevents clickjacking
+    - HSTS: Forces HTTPS in production (when AMLKIT_BEHIND_PROXY=1)
+    """
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    # HSTS only on HTTPS (production behind proxy)
+    if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
+        # 1 year HSTS, includeSubDomains
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
 # ----------------------------------------------------------------- health
 @app.get("/health")
 def health_check(db: DB):
@@ -447,6 +531,8 @@ def _login_page_error(request: Request, message: str) -> HTMLResponse:
 
 
 @app.post("/login")
+@limiter.limit("100/minute")  # IP ceiling: catches abusive burst volumes, won't hit during normal office traffic
+@limiter.limit("3/minute", key_func=login_rate_limit_key)  # Per-account: prevents rapid stuffing of one account
 def login_submit(
     request: Request, db: DB,
     email: Annotated[str, Form()],
@@ -801,6 +887,7 @@ def screen_form(request: Request, db: DB):
 
 
 @app.post("/screen", response_class=HTMLResponse)
+@limiter.limit("10/minute")
 def screen_run(
     request: Request, db: DB,
     name: Annotated[str, Form()],
@@ -1405,6 +1492,22 @@ def customers_csv(request: Request, db: DB):
     )
 
 
+def _escape_csv_formula(value):
+    """Escape cells starting with formula injection characters.
+
+    Prefixes cells starting with =, +, -, @, tab, or carriage return with a
+    single quote to prevent Excel/LibreOffice from interpreting them as formulas.
+    This is the standard mitigation for CSV formula injection (also known as
+    CSV injection or formula injection attacks).
+    """
+    if value is None:
+        return value
+    s = str(value)
+    if s and s[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return "'" + s
+    return s
+
+
 def _csv_response(filename: str, header: list[str], rows: list[list]):
     import csv
     import io
@@ -1413,8 +1516,8 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(header)
-    writer.writerows(rows)
+    writer.writerow([_escape_csv_formula(h) for h in header])
+    writer.writerows([[_escape_csv_formula(cell) for cell in row] for row in rows])
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]), media_type="text/csv",
@@ -1720,6 +1823,7 @@ def admin_deactivate_operator(
 
 # ---------------------------------------------------------------------- sanctions refresh
 @app.post("/admin/refresh")
+@limiter.limit("10/minute")
 def admin_refresh_sanctions(
     request: Request, db: DB,
     csrf_token: Annotated[str, Form()] = "",
