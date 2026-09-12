@@ -15,11 +15,11 @@
     <div class="field">
       <label>Name — Arabic or Latin script</label>
       <input type="text" name="name" dir="auto" value="{{ query }}" autofocus class="input-underline"
-             placeholder="e.g. Mohammed bin Rashid  /  محمد بن راشد" style="font-size:18px;">
+             placeholder="e.g. Mohammed bin Rashid  /  محمد بن راشد" style="font-size:18px;" required>
     </div>
     <div class="row">
       <div><label>Nationality (ISO code)</label>
-        <input type="text" name="country" placeholder="ae" maxlength="2"></div>
+        <input type="text" name="country" placeholder="ae" maxlength="2" pattern="[A-Za-z]{2}" title="Two-letter country code (e.g. AE)"></div>
       <div><label>Date of birth</label><input type="date" name="birth_date"></div>
       <div><label>Gender</label>
         <select name="gender">
@@ -32,7 +32,7 @@
       nationality lowers a score, which is how genuine near-misses get separated
       from name coincidences.
     </p>
-    <button type="submit">Screen</button>
+    <button type="submit" data-loading="Screening…">Screen</button>
   </form>
 
   {% if result %}

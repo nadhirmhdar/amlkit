@@ -46,7 +46,7 @@
           </div>
           <div class="field">
             <label>Email</label>
-            <input type="text" name="email" autocomplete="username" required>
+            <input type="email" name="email" autocomplete="username" required>
           </div>
           <div class="field">
             <label>Password — at least 10 characters</label>
@@ -54,7 +54,7 @@
             <div class="progress-track mt-4"><div class="progress-track__fill" id="pwd-strength" style="width:0%; background:var(--danger);"></div></div>
             <div class="muted small mt-4" id="pwd-feedback">At least 10 characters, 1 uppercase, 1 number</div>
           </div>
-          <button type="submit" class="btn-glow mt-4">Create organization</button>
+          <button type="submit" class="btn-glow mt-4" data-loading="Creating…">Create organization</button>
         </form>
       {% endif %}
     </div>

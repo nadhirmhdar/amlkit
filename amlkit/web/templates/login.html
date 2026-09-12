@@ -18,16 +18,16 @@
         <div class="field" style="margin-bottom:0;">
           <label>Email</label>
           <input type="email" name="email" class="input-underline" autofocus autocomplete="username"
-                 inputmode="email" spellcheck="false" autocapitalize="off" style="font-size:16px;">
+                 inputmode="email" spellcheck="false" autocapitalize="off" style="font-size:16px;" required>
         </div>
         <div class="field" style="margin-bottom:0; position:relative;">
           <label>Password</label>
           <input type="password" name="password" id="password-input" class="input-underline"
-                 autocomplete="current-password" style="font-size:16px;">
+                 autocomplete="current-password" style="font-size:16px;" required>
           <button type="button" onclick="togglePassword()"
                   style="position:absolute; right:0; top:26px; background:none; border:none; color:var(--ink-3); padding:4px; font-size:15px;">👁</button>
         </div>
-        <button type="submit" class="btn-glow" style="margin-top:10px;">SIGN IN</button>
+        <button type="submit" class="btn-glow" style="margin-top:10px;" data-loading="Signing in…">SIGN IN</button>
       </form>
 
       <div style="text-align:center; font-size:12px; color:var(--ink-3);">Single sign-on across your firm's workspace.</div>

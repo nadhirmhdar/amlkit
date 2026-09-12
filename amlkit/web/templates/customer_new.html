@@ -40,7 +40,7 @@
     coverage at no cost.
   </p>
   <div class="row">
-    <div><label>Nationality (ISO)</label><input type="text" name="nationality" maxlength="2"></div>
+    <div><label>Nationality (ISO)</label><input type="text" name="nationality" maxlength="2" pattern="[A-Za-z]{2}" title="Two-letter country code (e.g. AE)"></div>
     <div><label>Date of birth</label><input type="date" name="birth_date"></div>
     <div><label>Gender</label>
       <select name="gender"><option value="">—</option>
@@ -103,7 +103,7 @@
   </p>
 </div>
 
-<button type="submit">Onboard &amp; screen</button>
+<button type="submit" data-loading="Onboarding &amp; screening…">Onboard &amp; screen</button>
 <a class="btn ghost" href="/customers">Cancel</a>
 </form>
 

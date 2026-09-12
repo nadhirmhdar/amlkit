@@ -697,6 +697,20 @@ details.evidence summary * { display: none; }
   form.stack button[type="submit"]:only-of-type { width: 100%; }
 }
 
+/* ------------------------------------------------------------------- spinner / loading */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block; width: 16px; height: 16px;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .6s linear infinite;
+  vertical-align: middle; margin-right: 6px;
+}
+.spinner--lg { width: 24px; height: 24px; border-width: 3px; }
+
+form.is-submitting button[type="submit"] {
+  pointer-events: none; opacity: 0.6;
+}
+
 /* ------------------------------------------------------------------- print */
 @media print {
   body { background: #fff; color: #000; }
