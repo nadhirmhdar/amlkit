@@ -531,8 +531,8 @@ def _login_page_error(request: Request, message: str) -> HTMLResponse:
 
 
 @app.post("/login")
-@limiter.limit("20/minute")  # IP-only ceiling: prevents credential stuffing across many accounts
-@limiter.limit("3/minute", key_func=login_rate_limit_key)  # Per-account: prevents stuffing one account
+@limiter.limit("100/minute")  # IP ceiling: catches abusive burst volumes, won't hit during normal office traffic
+@limiter.limit("3/minute", key_func=login_rate_limit_key)  # Per-account: prevents rapid stuffing of one account
 def login_submit(
     request: Request, db: DB,
     email: Annotated[str, Form()],
