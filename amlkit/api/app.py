@@ -48,7 +48,7 @@ from ..cases.review import (
     review_history,
     single_operator_mode,
 )
-from ..db import set_org_alert_threshold, utcnow
+from ..db import retry_on_lock, set_org_alert_threshold, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
@@ -73,10 +73,12 @@ import contextlib
 import logging
 import os
 import secrets
+import uuid
 
 log = logging.getLogger("amlkit.scheduler")
 
 
+@retry_on_lock(max_retries=3, base_delay=0.5)
 def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     """Load every mandatory sanctions source and re-screen every active org.
 
@@ -98,6 +100,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     from ..ingest.eu import EUSanctionsAdapter
     from ..ingest.uk import UKSanctionsAdapter
     from ..match.engine import rescreen_all
+    from ..match.cache import invalidate as invalidate_cache
     from ..db import audit
 
     loaded: list[str] = []
@@ -117,6 +120,10 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
                   {"error": str(exc)}, org_id=None)
     conn.commit()
+
+    # Invalidate the name_tokens cache after loading new data
+    invalidate_cache()
+    log.info("Sanctions cache invalidated after refresh")
 
     total_alerts = 0
     screened_orgs = 0
@@ -139,6 +146,75 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
         "rescreen_failures": rescreen_failures,
         "orgs_screened": screened_orgs,
         "new_alerts": total_alerts,
+    }
+
+
+def check_and_notify_staleness(conn: sqlite3.Connection) -> dict:
+    """Check for stale mandatory datasets and send email alerts if needed.
+
+    Only notifies once per staleness breach (tracked via staleness_notified_at)
+    to avoid spam. Returns a summary of what was notified.
+    """
+    from ..ingest.loader import staleness_report
+    from .. import mail
+    from ..db import utcnow
+
+    staleness = staleness_report(conn)
+    breaches = [d for d in staleness if d["breach"] and d["is_mandatory"]]
+
+    if not breaches:
+        # Clear staleness_notified_at for any datasets that are now fresh
+        conn.execute(
+            "UPDATE datasets SET staleness_notified_at=NULL WHERE staleness_notified_at IS NOT NULL"
+        )
+        conn.commit()
+        return {"breaches": 0, "notified": 0}
+
+    # Find datasets that breached and haven't been notified yet
+    needs_notification = []
+    for d in breaches:
+        row = conn.execute(
+            "SELECT staleness_notified_at FROM datasets WHERE key=?", (d["key"],)
+        ).fetchone()
+        if row and row["staleness_notified_at"] is None:
+            needs_notification.append(d)
+
+    if not needs_notification:
+        return {"breaches": len(breaches), "notified": 0}
+
+    # Get all MLRO emails across all active orgs
+    mlro_emails = [
+        r["email"] for r in conn.execute(
+            """SELECT DISTINCT o.email FROM operators o
+               JOIN organizations org ON org.id = o.org_id
+               WHERE org.status='active' AND o.role='mlro' AND o.is_active=1
+                 AND o.email IS NOT NULL"""
+        ).fetchall()
+    ]
+
+    if not mlro_emails:
+        log.warning("Staleness breach detected but no MLRO emails to notify")
+        return {"breaches": len(breaches), "notified": 0}
+
+    # Send notification
+    outcome = mail.send_staleness_alert(mlro_emails, needs_notification)
+
+    # Mark as notified
+    now = utcnow()
+    for d in needs_notification:
+        conn.execute(
+            "UPDATE datasets SET staleness_notified_at=? WHERE key=?", (now, d["key"])
+        )
+    conn.commit()
+
+    log.info("Staleness notification: %d datasets, %d MLROs, outcome=%s",
+             len(needs_notification), len(mlro_emails), outcome)
+
+    return {
+        "breaches": len(breaches),
+        "notified": len(needs_notification),
+        "outcome": outcome,
+        "recipients": len(mlro_emails),
     }
 
 
@@ -166,6 +242,10 @@ def _run_scheduled_refresh() -> None:
         conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="scheduler")
         log.info("Scheduled refresh complete: %s", result)
+
+        # Check for staleness and notify MLROs if needed
+        staleness_result = check_and_notify_staleness(conn)
+        log.info("Staleness check complete: %s", staleness_result)
     except Exception:
         log.exception("Scheduled sanctions refresh failed with an unexpected error")
     finally:
@@ -176,6 +256,8 @@ def _run_scheduled_refresh() -> None:
 @contextlib.asynccontextmanager
 async def _lifespan(app):
     """Start the 23-hour refresh scheduler when the container boots.
+
+    Also initializes structured JSON logging with request-ID correlation.
 
     Cloud Run may scale to zero (killing the scheduler) when idle for long
     periods. The /system/refresh endpoint below provides a reliable fallback
@@ -195,6 +277,8 @@ async def _lifespan(app):
     a controlled time instead of unpredictably stacking onto whichever
     request happens to cold-start the container.
     """
+    from ..logging_config import configure_logging
+    configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"))
     if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
         yield
         return
@@ -230,6 +314,32 @@ async def _lifespan(app):
 
 
 app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, lifespan=_lifespan)
+
+# Rate limiting to prevent brute-force attacks and DoS
+from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+from slowapi.util import get_remote_address  # noqa: E402
+
+
+def login_rate_limit_key(request: Request) -> str:
+    """Composite rate limit key for login: IP + email.
+
+    Allows multiple operators from the same office IP/NAT to log in concurrently
+    (each account gets its own 3/minute budget) while still protecting each
+    account from credential-stuffing attempts.
+
+    Reads the email from request.state.login_email, which is set by middleware.
+    """
+    ip = get_remote_address(request)
+    email = getattr(request.state, 'login_email', None)
+    if email:
+        return f"{ip}:{email.lower().strip()}"
+    return ip
+
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # JSON API for the native mobile app -- bearer-token auth, no CSRF, no HTML.
 # Registered before the static mount so /api/v1/* never falls through to it.
@@ -317,11 +427,97 @@ def _set_csrf_cookie(resp, request: Request) -> None:
 
 
 @app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Generate a unique request ID for correlation and attach it to the response."""
+    request_id = str(uuid.uuid4())
+    from ..logging_config import set_request_id, clear_request_id
+    set_request_id(request_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        clear_request_id()
+
+
+@app.middleware("http")
 async def ensure_csrf_cookie(request: Request, call_next):
     # CSRF cookie is now set directly by render() so that the same token
     # goes into both the form hidden field and the cookie. This middleware
     # is kept as a passthrough only — it no longer generates tokens.
     return await call_next(request)
+
+
+@app.middleware("http")
+async def extract_login_email(request: Request, call_next):
+    """Extract email from login POST requests for rate limiting.
+
+    This runs before the rate limiter, allowing the rate limit key function to
+    access the email synchronously via request.state.login_email.
+
+    We read the raw body and manually parse the email without consuming the
+    stream, ensuring the route handler can still access the form data.
+    """
+    if request.method == "POST" and request.url.path == "/login":
+        try:
+            # Read the raw body first (this caches it in request._body)
+            body = await request.body()
+            # Parse email manually without consuming the form stream
+            from urllib.parse import parse_qs
+            body_str = body.decode('utf-8') if isinstance(body, bytes) else str(body)
+            parsed = parse_qs(body_str)
+            email = parsed.get('email', [''])[0]
+            if email:
+                request.state.login_email = email.strip()
+        except Exception:
+            # If body reading/parsing fails, fall back to IP-only rate limiting
+            pass
+    response = await call_next(request)
+    return response
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Add security headers to all responses.
+
+    - CSP: Restricts resource loading to same-origin, with 'unsafe-inline' for
+      scripts/styles since the templates use inline <script> blocks and onclick
+      handlers. Still protects against loading scripts from unauthorized domains.
+    - X-Content-Type-Options: Prevents MIME-sniffing attacks
+    - X-Frame-Options: Prevents clickjacking
+    - HSTS: Forces HTTPS in production (when AMLKIT_BEHIND_PROXY=1)
+    """
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    # HSTS only on HTTPS (production behind proxy)
+    if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
+        # 1 year HSTS, includeSubDomains
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+# ----------------------------------------------------------------- health
+@app.get("/health")
+def health_check(db: DB):
+    from fastapi.responses import JSONResponse
+    from ..ingest.loader import staleness_report
+
+    datasets = staleness_report(db)
+    any_breach = any(d["breach"] for d in datasets)
+    return JSONResponse({
+        "status": "degraded" if any_breach else "healthy",
+        "datasets": datasets,
+    })
 
 
 # ----------------------------------------------------------------- sign-in
@@ -335,6 +531,8 @@ def _login_page_error(request: Request, message: str) -> HTMLResponse:
 
 
 @app.post("/login")
+@limiter.limit("100/minute")  # IP ceiling: catches abusive burst volumes, won't hit during normal office traffic
+@limiter.limit("3/minute", key_func=login_rate_limit_key)  # Per-account: prevents rapid stuffing of one account
 def login_submit(
     request: Request, db: DB,
     email: Annotated[str, Form()],
@@ -379,6 +577,11 @@ def setup_form(request: Request, db: DB, token: str = ""):
             "err": "This setup link is invalid, expired, or already used.",
         })
     org = db.execute("SELECT name FROM organizations WHERE id=?", (row["org_id"],)).fetchone()
+    if org is None:
+        return render(request, "setup.html", {
+            "session": None, "valid": False,
+            "err": "This setup link is invalid, expired, or already used.",
+        })
     return render(request, "setup.html", {
         "session": None, "valid": True, "token": token, "org_name": org["name"],
     })
@@ -684,6 +887,7 @@ def screen_form(request: Request, db: DB):
 
 
 @app.post("/screen", response_class=HTMLResponse)
+@limiter.limit("10/minute")
 def screen_run(
     request: Request, db: DB,
     name: Annotated[str, Form()],
@@ -1288,6 +1492,22 @@ def customers_csv(request: Request, db: DB):
     )
 
 
+def _escape_csv_formula(value):
+    """Escape cells starting with formula injection characters.
+
+    Prefixes cells starting with =, +, -, @, tab, or carriage return with a
+    single quote to prevent Excel/LibreOffice from interpreting them as formulas.
+    This is the standard mitigation for CSV formula injection (also known as
+    CSV injection or formula injection attacks).
+    """
+    if value is None:
+        return value
+    s = str(value)
+    if s and s[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return "'" + s
+    return s
+
+
 def _csv_response(filename: str, header: list[str], rows: list[list]):
     import csv
     import io
@@ -1296,8 +1516,8 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(header)
-    writer.writerows(rows)
+    writer.writerow([_escape_csv_formula(h) for h in header])
+    writer.writerows([[_escape_csv_formula(cell) for cell in row] for row in rows])
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]), media_type="text/csv",
@@ -1316,6 +1536,46 @@ def about_view(request: Request, db: DB):
     return render(request, "about.html", {"session": session})
 
 
+# ---------------------------------------------------------------------- feedback
+@app.post("/feedback")
+def feedback_submit(
+    request: Request, db: DB,
+    page: Annotated[str, Form()],
+    message: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Accept user feedback from pilot users.
+
+    Feedback is org-scoped so each firm's feedback stays separate. Used to
+    collect bug reports, feature requests, and UX issues during pilot phase.
+    """
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=401)
+
+    message = message.strip()
+    if not message:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "Feedback message cannot be empty."}, status_code=400)
+
+    now = utcnow()
+    with db:
+        db.execute(
+            """INSERT INTO feedback (org_id, operator_id, page, message, created_at)
+               VALUES (?,?,?,?,?)""",
+            (session.org_id, session.operator_id, page.strip(), message, now),
+        )
+        from ..db import audit
+        audit(db, session.operator_name, "feedback.submit", "feedback", None,
+              {"page": page.strip()}, org_id=session.org_id)
+
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"success": True, "message": "Thank you for your feedback!"})
+
+
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
 def audit_view(request: Request, db: DB):
@@ -1325,6 +1585,82 @@ def audit_view(request: Request, db: DB):
         return RedirectResponse("/login", status_code=303)
     return render(request, "audit.html",
                  {"session": session, "entries": queries.audit_trail(db, session.org_id, limit=300)})
+
+
+# ---------------------------------------------------------------------- super-admin console
+@app.get("/console", response_class=HTMLResponse)
+def console_view(request: Request, db: DB):
+    """Multi-org console for super-admin users."""
+    try:
+        session = require_session(request, db)
+        from .deps import require_super_admin
+        require_super_admin(session)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
+
+    data = queries.console_overview(db)
+    return render(request, "console.html", {
+        "session": session,
+        **data,
+    })
+
+
+@app.get("/console/org/{org_id}/alerts", response_class=HTMLResponse)
+def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "open"):
+    """Drill down into alerts for a specific org (super-admin only)."""
+    try:
+        session = require_session(request, db)
+        from .deps import require_super_admin
+        require_super_admin(session)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/console", err=str(exc))
+
+    org = db.execute("SELECT name FROM organizations WHERE id=?", (org_id,)).fetchone()
+    if org is None:
+        return back("/console", err="Organization not found.")
+
+    alert_list = queries.org_alerts(db, org_id, status=status if status != "all" else None)
+    for a in alert_list:
+        from ..cases.review import review_history, REASON_CODES
+        a["reviews"] = review_history(db, a["id"], org_id)
+
+    return render(request, "alerts.html", {
+        "session": session,
+        "alerts": alert_list,
+        "status": status,
+        "reason_codes": REASON_CODES,
+        "org_name": org["name"],
+        "super_admin_view": True,
+    })
+
+
+@app.get("/console/org/{org_id}/customers", response_class=HTMLResponse)
+def console_org_customers(request: Request, db: DB, org_id: int):
+    """Drill down into customers for a specific org (super-admin only)."""
+    try:
+        session = require_session(request, db)
+        from .deps import require_super_admin
+        require_super_admin(session)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/console", err=str(exc))
+
+    org = db.execute("SELECT name FROM organizations WHERE id=?", (org_id,)).fetchone()
+    if org is None:
+        return back("/console", err="Organization not found.")
+
+    customer_list = queries.org_customers(db, org_id)
+    return render(request, "customers.html", {
+        "session": session,
+        "customers": customer_list,
+        "org_name": org["name"],
+        "super_admin_view": True,
+    })
 
 
 # ---------------------------------------------------------------------- admin
@@ -1338,6 +1674,8 @@ def admin_view(request: Request, db: DB):
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
     org = db.execute("SELECT name, slug FROM organizations WHERE id=?", (session.org_id,)).fetchone()
+    if org is None:
+        return back("/", err="Organization not found.")
     from ..ingest.loader import staleness_report
     return render(request, "admin.html", {
         "session": session, "org": dict(org),
@@ -1485,6 +1823,7 @@ def admin_deactivate_operator(
 
 # ---------------------------------------------------------------------- sanctions refresh
 @app.post("/admin/refresh")
+@limiter.limit("10/minute")
 def admin_refresh_sanctions(
     request: Request, db: DB,
     csrf_token: Annotated[str, Form()] = "",
@@ -1550,6 +1889,10 @@ def system_refresh(request: Request):
     try:
         conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="cloud-scheduler")
+
+        # Check for staleness and notify MLROs if needed
+        staleness_result = check_and_notify_staleness(conn)
+        result["staleness_check"] = staleness_result
     finally:
         if conn is not None:
             conn.close()

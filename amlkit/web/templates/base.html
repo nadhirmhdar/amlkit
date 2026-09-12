@@ -28,6 +28,9 @@
       <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
       <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
       <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
+      {% if session.super_admin %}
+        <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
+      {% endif %}
       {% if session.operator_role == 'mlro' %}
         <a href="/admin" class="{{ 'on' if nav=='admin' }}">Admin</a>
       {% endif %}
@@ -132,6 +135,30 @@
         real client files.
       </p>
     </footer>
+
+    {# Feedback button — floating button in bottom-right corner #}
+    <button class="feedback-btn no-print" onclick="openFeedback()" aria-label="Send feedback" title="Send feedback">
+      💬
+    </button>
+
+    {# Feedback modal #}
+    <div id="feedback-modal" class="feedback-modal">
+      <div class="feedback-modal-content">
+        <span class="feedback-modal-close" onclick="closeFeedback()">&times;</span>
+        <h3>Send Feedback</h3>
+        <p class="muted small">Report bugs, suggest features, or share your experience.</p>
+        <form id="feedback-form" onsubmit="submitFeedback(event)">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="page" value="{{ request.url.path }}">
+          <textarea name="message" rows="5" placeholder="Your feedback..." required></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button type="submit">Send</button>
+            <button type="button" onclick="closeFeedback()">Cancel</button>
+          </div>
+        </form>
+        <div id="feedback-result" style="margin-top:12px;"></div>
+      </div>
+    </div>
   </main>
 </div>
 {% else %}
@@ -139,6 +166,21 @@
 {% endif %}
 
 <script>
+(function () {
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (form.classList.contains('no-loading')) return;
+    var btn = form.querySelector('button[type="submit"]');
+    if (!btn || form.classList.contains('is-submitting')) return;
+    form.classList.add('is-submitting');
+    var orig = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span>' + (btn.dataset.loading || 'Processing…');
+    setTimeout(function () {
+      form.classList.remove('is-submitting');
+      btn.innerHTML = orig;
+    }, 30000);
+  });
+}());
 (function () {
   var wrap = document.getElementById('user-menu-wrap');
   function close() {
@@ -162,6 +204,47 @@
     if (e.key === 'Escape') close();
   });
 }());
+
+// Feedback modal functions
+function openFeedback() {
+  document.getElementById('feedback-modal').style.display = 'block';
+  document.getElementById('feedback-result').innerHTML = '';
+  document.querySelector('#feedback-form textarea').focus();
+}
+function closeFeedback() {
+  document.getElementById('feedback-modal').style.display = 'none';
+  document.getElementById('feedback-form').reset();
+  document.getElementById('feedback-result').innerHTML = '';
+}
+function submitFeedback(e) {
+  e.preventDefault();
+  var form = e.target;
+  var formData = new FormData(form);
+  var resultDiv = document.getElementById('feedback-result');
+  resultDiv.innerHTML = '<span class="muted">Sending...</span>';
+  fetch('/feedback', {
+    method: 'POST',
+    body: formData
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success) {
+      resultDiv.innerHTML = '<span style="color:#059669;">✓ ' + data.message + '</span>';
+      form.reset();
+      setTimeout(closeFeedback, 2000);
+    } else {
+      resultDiv.innerHTML = '<span style="color:#dc2626;">✗ ' + (data.error || 'Failed to send feedback.') + '</span>';
+    }
+  })
+  .catch(function(err) {
+    resultDiv.innerHTML = '<span style="color:#dc2626;">✗ Network error. Try again.</span>';
+  });
+}
+// Close modal on click outside
+window.addEventListener('click', function(e) {
+  var modal = document.getElementById('feedback-modal');
+  if (e.target === modal) closeFeedback();
+});
 </script>
 </body>
 </html>

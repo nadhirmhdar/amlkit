@@ -697,6 +697,56 @@ details.evidence summary * { display: none; }
   form.stack button[type="submit"]:only-of-type { width: 100%; }
 }
 
+/* ------------------------------------------------------------------- spinner / loading */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block; width: 16px; height: 16px;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .6s linear infinite;
+  vertical-align: middle; margin-right: 6px;
+}
+.spinner--lg { width: 24px; height: 24px; border-width: 3px; }
+
+form.is-submitting button[type="submit"] {
+  pointer-events: none; opacity: 0.6;
+}
+
+/* ------------------------------------------------------------------- feedback */
+.feedback-btn {
+  position: fixed; bottom: 24px; right: 24px; z-index: 999;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--accent); color: white;
+  border: none; font-size: 24px;
+  cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.feedback-btn:hover {
+  transform: scale(1.05); box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+}
+
+.feedback-modal {
+  display: none; position: fixed; z-index: 1000;
+  left: 0; top: 0; width: 100%; height: 100%;
+  background-color: rgba(0,0,0,0.5);
+}
+.feedback-modal-content {
+  background: var(--surface); margin: 10% auto;
+  padding: 24px; border-radius: var(--radius); max-width: 480px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2); position: relative;
+}
+.feedback-modal-close {
+  position: absolute; right: 16px; top: 16px;
+  font-size: 28px; font-weight: bold; color: var(--ink-3);
+  cursor: pointer; line-height: 1;
+}
+.feedback-modal-close:hover { color: var(--ink); }
+.feedback-modal h3 { margin: 0 0 8px 0; }
+.feedback-modal textarea {
+  width: 100%; padding: 10px; margin-top: 8px;
+  border: 1px solid var(--line); border-radius: var(--radius-xs);
+  font-family: inherit; font-size: 14px; resize: vertical;
+}
+
 /* ------------------------------------------------------------------- print */
 @media print {
   body { background: #fff; color: #000; }

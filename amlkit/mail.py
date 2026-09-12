@@ -130,3 +130,60 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
             "=" * 72 + "\n"
         )
         return FAILED
+
+
+def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
+    """Send email alert to admins when mandatory sanctions lists are stale.
+
+    Returns the same three-valued outcome as send_verification_email: SENT,
+    NOT_CONFIGURED, or FAILED. Never raises -- a mail outage should not block
+    the refresh itself from completing.
+    """
+    if not to_emails:
+        return SENT  # Nobody to notify
+
+    if not is_configured():
+        print(
+            "\n" + "=" * 72 +
+            f"\namlkit: STALENESS ALERT — {len(datasets)} mandatory list(s) breached 24h.\n"
+            "No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.\n" +
+            "=" * 72 + "\n"
+        )
+        return NOT_CONFIGURED
+
+    host = os.environ["AMLKIT_SMTP_HOST"]
+    port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
+    user = os.environ.get("AMLKIT_SMTP_USER", "")
+    password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
+    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@amlkit.local")
+    use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
+
+    dataset_list = "\n".join(
+        f"  - {d['title']}: last refreshed {d['last_refresh'] or 'Never'} ({d['hours_ago']}h ago)"
+        for d in datasets
+    )
+
+    msg = EmailMessage()
+    msg["Subject"] = f"⚠️  amlkit: {len(datasets)} sanctions list(s) stale"
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(to_emails)
+    msg.set_content(
+        f"ALERT: {len(datasets)} mandatory sanctions list(s) have exceeded the 24-hour refresh requirement.\n\n"
+        f"{dataset_list}\n\n"
+        "This breach must be resolved immediately to maintain compliance.\n"
+        "Log in to refresh the lists manually, or investigate why the automated refresh failed.\n\n"
+        f"View status: {app_base_url()}/admin\n"
+    )
+
+    try:
+        with smtplib.SMTP(host, port, timeout=15) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if user:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+        logger.info("Staleness alert sent to %d recipients", len(to_emails))
+        return SENT
+    except (OSError, smtplib.SMTPException):
+        logger.exception("Failed to send staleness alert email")
+        return FAILED

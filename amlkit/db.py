@@ -14,13 +14,41 @@ failures, so "we promise not to edit it" is not an adequate control.
 
 from __future__ import annotations
 
+import functools
 import json
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "aml.db"
+
+
+def retry_on_lock(max_retries: int = 3, base_delay: float = 0.1):
+    """Retry a function on SQLite "database is locked" errors.
+
+    busy_timeout handles the common case, but a long-running refresh can
+    hold the WAL lock beyond the PRAGMA timeout. This decorator retries
+    the entire operation with exponential backoff.
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            last_err = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except sqlite3.OperationalError as exc:
+                    if "locked" not in str(exc):
+                        raise
+                    last_err = exc
+                    if attempt < max_retries:
+                        time.sleep(base_delay * (2 ** attempt))
+            raise last_err
+        return wrapper
+    return decorator
+
 
 # Distinguishes "org_id not passed at all" from "org_id passed as None", since
 # None is itself a meaningful, deliberate value for audit() (see below).
@@ -567,6 +595,21 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS ix_audit_ts  ON audit_log(ts);
 -- ix_audit_org: created in Python after migration, see note above.
 
+-- ---------------------------------------------------------------- feedback
+-- User feedback from pilot users. Deliberately org-scoped so each firm's
+-- feedback stays with their own data, not mixed into a global pool.
+-- operator_id (not just actor name) so deactivated operators' feedback
+-- can be retained per the 5-year rule even after the operator row is gone.
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY,
+    org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    operator_id INTEGER REFERENCES operators(id) ON DELETE SET NULL,
+    page        TEXT NOT NULL,
+    message     TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_feedback_org ON feedback(org_id);
+
 -- Append-only enforcement. Any UPDATE or DELETE against the audit log aborts
 -- at the database level, so tampering requires bypassing the application
 -- entirely rather than merely calling a different function.
@@ -653,6 +696,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "contact_phone",  "ALTER TABLE customers ADD COLUMN contact_phone  TEXT"),
     ("customers", "contact_email",  "ALTER TABLE customers ADD COLUMN contact_email  TEXT"),
     ("datasets",  "max_age_hours",  "ALTER TABLE datasets ADD COLUMN max_age_hours INTEGER NOT NULL DEFAULT 24"),
+    ("operators", "super_admin",    "ALTER TABLE operators ADD COLUMN super_admin INTEGER NOT NULL DEFAULT 0"),
+    ("datasets",  "staleness_notified_at", "ALTER TABLE datasets ADD COLUMN staleness_notified_at TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
