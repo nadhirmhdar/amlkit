@@ -73,6 +73,7 @@ import contextlib
 import logging
 import os
 import secrets
+import uuid
 
 log = logging.getLogger("amlkit.scheduler")
 
@@ -99,6 +100,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     from ..ingest.eu import EUSanctionsAdapter
     from ..ingest.uk import UKSanctionsAdapter
     from ..match.engine import rescreen_all
+    from ..match.cache import invalidate as invalidate_cache
     from ..db import audit
 
     loaded: list[str] = []
@@ -118,6 +120,10 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
                   {"error": str(exc)}, org_id=None)
     conn.commit()
+
+    # Invalidate the name_tokens cache after loading new data
+    invalidate_cache()
+    log.info("Sanctions cache invalidated after refresh")
 
     total_alerts = 0
     screened_orgs = 0
@@ -178,6 +184,8 @@ def _run_scheduled_refresh() -> None:
 async def _lifespan(app):
     """Start the 23-hour refresh scheduler when the container boots.
 
+    Also initializes structured JSON logging with request-ID correlation.
+
     Cloud Run may scale to zero (killing the scheduler) when idle for long
     periods. The /system/refresh endpoint below provides a reliable fallback
     that Cloud Scheduler can call via HTTP even after a cold start.
@@ -196,6 +204,8 @@ async def _lifespan(app):
     a controlled time instead of unpredictably stacking onto whichever
     request happens to cold-start the container.
     """
+    from ..logging_config import configure_logging
+    configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"))
     if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
         yield
         return
@@ -315,6 +325,20 @@ def _set_csrf_cookie(resp, request: Request) -> None:
         resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=False,
                         samesite="lax", secure=_behind_proxy,
                         max_age=_COOKIE_MAX_AGE)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Generate a unique request ID for correlation and attach it to the response."""
+    request_id = str(uuid.uuid4())
+    from ..logging_config import set_request_id, clear_request_id
+    set_request_id(request_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        clear_request_id()
 
 
 @app.middleware("http")
@@ -1334,6 +1358,46 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
 def about_view(request: Request, db: DB):
     session = current_session(request, db)
     return render(request, "about.html", {"session": session})
+
+
+# ---------------------------------------------------------------------- feedback
+@app.post("/feedback")
+def feedback_submit(
+    request: Request, db: DB,
+    page: Annotated[str, Form()],
+    message: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Accept user feedback from pilot users.
+
+    Feedback is org-scoped so each firm's feedback stays separate. Used to
+    collect bug reports, feature requests, and UX issues during pilot phase.
+    """
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=401)
+
+    message = message.strip()
+    if not message:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "Feedback message cannot be empty."}, status_code=400)
+
+    now = utcnow()
+    with db:
+        db.execute(
+            """INSERT INTO feedback (org_id, operator_id, page, message, created_at)
+               VALUES (?,?,?,?,?)""",
+            (session.org_id, session.operator_id, page.strip(), message, now),
+        )
+        from ..db import audit
+        audit(db, session.operator_name, "feedback.submit", "feedback", None,
+              {"page": page.strip()}, org_id=session.org_id)
+
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"success": True, "message": "Thank you for your feedback!"})
 
 
 # ---------------------------------------------------------------------- audit
