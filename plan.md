@@ -20,7 +20,7 @@ The proposed 12-week retrofit plan is **largely feasible** given the existing co
 |---|---|---|
 | Gaming operators not scoped | Correct — no gaming sector in `ruleset.yaml`, no AED 11K threshold | **TRUE GAP** |
 | Screening allows "Unavailable" pass | **Wrong** — `screen()` returns `ScreeningResult(hits=[], clear=True)` meaning "screened, no matches." Not "data unavailable." | **MISDIAGNOSIS** |
-| Standard ownership tracking | Partially wrong — `UBO_THRESHOLD_PCT = 25.0` in `cases/manager.py`; `ubo_links` table has `ownership_pct`, `control_type`, `is_ubo` | **PARTIAL** |
+| Standard ownership tracking | Mostly wrong — `UBO_THRESHOLD_PCT = 25.0` exists, senior managing official fallback exists, undisclosed UBO triggers 45-point `ubo_undisclosed` penalty in `ruleset.yaml`. Only missing: recursive multi-layer traversal, nominee exclusion, and frontend input bounds validation (negative percentages / sums >100%). | **MOSTLY EXISTS** |
 | Internal logs only | Wrong — `reporting/goaml.py` serializes STR, SAR, PNMR, FFR, HRCT, HRCA, DPMSR, REAR to goAML XML | **WRONG** |
 | Exact token binding / no Arabic | Wrong — `names/arabic.py` (453 lines) does full Arabic transliteration; `scorer.py` uses `rapidfuzz.JaroWinkler` | **WRONG** |
 | No PF module | Wrong — `screening/pf.py` classifies UNSCR 1718/1737/2231 (PF) vs 1267/1988/1373 (CT) | **WRONG** |
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS compliance_deadlines (
 | **UBO tracking** | 25% threshold, ownership diagrams (Graphviz SVG) | `cases/manager.py`, `cases/diagram.py` |
 | **Transaction monitoring** | AED 55,000 large-cash, structuring detection, velocity, high-risk country | `screening/kyt.py` |
 | **Risk scoring** | YAML-driven, versioned, EDD triggers, review cycles | `risk/model.py`, `risk/ruleset.yaml` |
-| **Adverse media** | GDELT-based, predicate-crime keyword filtering | `screening/adverse_media.py` |
+| **Adverse media** | GDELT DOC 2.0 (Arabic and Latin) on risk-based cadences (3/6/12 months per `adverse_media_months` in `ruleset.yaml`) with mandatory human disposition before scoring — findings are dispositioned rather than auto-scored, nothing touches a risk rating until an operator marks a finding relevant | `screening/adverse_media.py` |
 | **Audit trail** | Append-only by DB trigger, org-scoped, 5-year retention column | `db.py` |
 | **Tenant isolation** | org_id mandatory on every query, session-scoped | `queries.py`, `api/deps.py` |
 | **Emirates ID scanning** | MRZ extraction from passport/EID images | `cases/ocr.py`, `api/mobile.py` |
@@ -312,10 +312,21 @@ The proposed PostgreSQL RLS approach cannot be implemented in SQLite. Must be ap
 All proposed SQL must be rewritten for SQLite. The migration pattern is additive columns via `_MIGRATIONS` list in `db.py`, not standalone DDL scripts. UUIDs, JSONB, RLS, and partitioning are not available.
 
 ### 2. AMLKit Is Not a Banking System
-The plan assumes AMLKit manages financial accounts and ledgers. It is a compliance screening tool for DNFBPs. Freeze workflow = obligation record + MLRO notification + audit entry, not a ledger lock.
+The plan assumes AMLKit manages financial accounts and ledgers. AMLKit is designed for DNFBPs and SMEs (real estate brokers, precious metals dealers, corporate service providers, law firms). It does not hold funds or maintain deposit balances. Under UAE Cabinet Decision No. (74) of 2020, a "freeze" is a **compliance event and statutory directive**, not a financial debit transaction. Upon confirming a true match, the system must:
+1. Lock customer status to `BLOCKED_SANCTION`
+2. Display strict statutory instructions: "Freeze relationship without delay. Do NOT tip off the customer or execute instructions."
+3. Generate an audit log entry with timestamp and reviewer ID
+4. Auto-populate a draft FFR or PNMR ready for submission to the UAE FIU and Executive Office via goAML
 
 ### 3. "Cold Name Vulnerability" Is Misdiagnosed
-AMLKit screens locally against ingested data. "Unavailable" is not a status it returns. The real risk is stale/empty data — a simpler fix than the proposed 24h retry architecture.
+AMLKit is an offline-first, local-first screening engine — every check runs locally in milliseconds against pre-ingested SQLite/in-memory dataset tables. It does not make per-screening outbound API calls. "Unavailable" is not a status `screen()` returns. The real operational risks are:
+- A fresh container spins up with an unseeded database → screening runs against an empty table
+- The background sync job fails or stampedes across autoscaling Cloud Run instances → local database breaches the EOCN statutory 24-hour update rule
+
+The direct fix:
+- Verify a bundled baseline seed snapshot exists on cold boot
+- Implement an idempotency check (`last_refreshed_at < 20h`) before triggering network list pulls on container startup
+- Block onboarding if any `is_mandatory` dataset has `entity_count = 0` or `last_refresh` is NULL/stale
 
 ### 4. External Dependencies Have Unknown Timelines
 
@@ -423,7 +434,7 @@ AMLKit ingests EOCN and UN lists from primary sources — more defensible than a
 | goAML XML export | **Already exists** — 8 report types (missing DTR) | 1 day |
 | goAML XSD validation | New work | 2–3 days |
 | PF classification | **Already exists** — programme-based, no new classifier needed | 0 days |
-| Transaction monitoring (AED 55K) | **Already exists** | 0 days |
+| Transaction monitoring (AED 55K) | **Already exists** — structuring detection works. Remaining: alert deduplication to prevent double-counting transactions with open alerts | 1–2 days |
 | Gaming threshold (AED 11K) | New work | 1–2 days |
 | Wire/VA threshold (AED 3.5K) | New work | 1–2 days |
 | Currency conversion API | New work | 2–3 days |
