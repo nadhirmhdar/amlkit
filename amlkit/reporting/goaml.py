@@ -9,6 +9,7 @@ Generates XML files compliant with goAML 5.x schema requirements for:
 - HRCA (High Risk Country Activity Report)
 - DPMSR (Dealers in Precious Metals and Stones Report)
 - REAR (Real Estate Activity Report)
+- DTR (Dealer Transaction Report)
 """
 
 from __future__ import annotations

@@ -84,7 +84,30 @@ class ScreeningResult:
         )
 
 
-def _candidates(conn: sqlite3.Connection, name: str, limit: int = 400) -> list[sqlite3.Row]:
+@dataclass(slots=True)
+class EntityMatch:
+    """Candidate entity returned by _candidates with overlap count."""
+    id: int
+    caption: str
+    schema_type: str
+    countries: str | None
+    birth_date: str | None
+    gender: str | None
+    topics: str
+    programs: str
+    dataset: str
+    key_overlap: int
+
+    def __getitem__(self, key: str) -> Any:
+        """Dict-like access for backwards compatibility."""
+        return getattr(self, key)
+
+    def keys(self):
+        """Dict-like keys() for backwards compatibility."""
+        return self.__dataclass_fields__.keys()
+
+
+def _candidates(conn: sqlite3.Connection, name: str, limit: int = 400) -> list[EntityMatch]:
     """Retrieve entities sharing at least one blocking key with the query.
 
     Recall at this stage bounds the recall of the whole system, so the keys are
@@ -136,16 +159,8 @@ def _candidates(conn: sqlite3.Connection, name: str, limit: int = 400) -> list[s
 
     enriched.sort(key=lambda r: r["key_overlap"], reverse=True)
 
-    # Convert back to Row-like objects for compatibility
-    class FakeRow:
-        def __init__(self, d):
-            self._data = d
-        def __getitem__(self, key):
-            return self._data[key]
-        def keys(self):
-            return self._data.keys()
-
-    return [FakeRow(r) for r in enriched[:limit]]
+    # Convert to EntityMatch objects
+    return [EntityMatch(**r) for r in enriched[:limit]]
 
 
 def _names_for(conn: sqlite3.Connection, entity_id: int) -> list[str]:
