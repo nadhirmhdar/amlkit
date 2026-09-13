@@ -7,6 +7,7 @@ correctly tracked with full audit trail.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 
@@ -170,6 +171,348 @@ def test_freeze_obligations_alert_id_null_on_delete():
     row = cursor.fetchone()
     assert row is not None, "freeze_obligation should still exist"
     assert row[0] is None, "alert_id should be NULL after alert deletion"
+
+    conn.close()
+
+
+def test_create_freeze_obligation_success():
+    """Create freeze obligation with all required fields."""
+    from amlkit.cases import manager
+
+    conn = db.connect(":memory:")
+
+    # Setup org and customer
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create freeze obligation
+    freeze_id = manager.create_freeze_obligation(
+        conn,
+        org_id,
+        customer_id,
+        obligation_type="sanctions",
+        risk_category="high",
+        identified_by="test_mlro",
+        notes="Test freeze obligation"
+    )
+
+    assert freeze_id > 0
+
+    # Verify it was created
+    cursor = conn.execute(
+        "SELECT * FROM freeze_obligations WHERE id = ?",
+        (freeze_id,)
+    )
+    row = dict(cursor.fetchone())
+
+    assert row["org_id"] == org_id
+    assert row["customer_id"] == customer_id
+    assert row["obligation_type"] == "sanctions"
+    assert row["risk_category"] == "high"
+    assert row["identified_by"] == "test_mlro"
+    assert row["notes"] == "Test freeze obligation"
+    assert row["status"] == "pending_execution"
+    assert row["identified_at"] is not None
+    assert row["executed_at"] is None
+    assert row["reported_at"] is None
+    assert row["resolved_at"] is None
+
+    # Verify audit entry
+    cursor = conn.execute(
+        "SELECT * FROM audit_log WHERE action = ? AND org_id = ?",
+        ("freeze.identified", org_id)
+    )
+    audit_row = cursor.fetchone()
+    assert audit_row is not None
+
+    conn.close()
+
+
+def test_create_freeze_obligation_invalid_type():
+    """Reject invalid obligation_type."""
+    from amlkit.cases import manager
+
+    conn = db.connect(":memory:")
+
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    with pytest.raises(ValueError, match="obligation_type"):
+        manager.create_freeze_obligation(
+            conn,
+            org_id,
+            customer_id,
+            obligation_type="invalid",
+            risk_category="high",
+            identified_by="test_mlro"
+        )
+
+    conn.close()
+
+
+def test_execute_freeze_success():
+    """Execute freeze obligation and update status."""
+    from amlkit.cases import manager
+
+    conn = db.connect(":memory:")
+
+    # Setup
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create freeze obligation
+    freeze_id = manager.create_freeze_obligation(
+        conn,
+        org_id,
+        customer_id,
+        obligation_type="proliferation",
+        risk_category="critical",
+        identified_by="test_mlro"
+    )
+
+    # Execute freeze
+    assets = [
+        {"type": "bank_account", "identifier": "AE070331234567890123456", "amount_aed": 150000.50},
+        {"type": "investment_account", "identifier": "INV-12345", "amount_aed": 500000.00}
+    ]
+
+    manager.execute_freeze(
+        conn,
+        freeze_id,
+        executed_by="test_mlro",
+        assets_frozen=assets,
+        notes="Freeze executed per UNSCR 1718"
+    )
+
+    # Verify status updated
+    cursor = conn.execute(
+        "SELECT status, executed_at, executed_by, assets_frozen, notes FROM freeze_obligations WHERE id = ?",
+        (freeze_id,)
+    )
+    row = dict(cursor.fetchone())
+
+    assert row["status"] == "executed_pending_report"
+    assert row["executed_at"] is not None
+    assert row["executed_by"] == "test_mlro"
+    assert row["notes"] == "Freeze executed per UNSCR 1718"
+
+    # Verify assets stored as JSON
+    stored_assets = json.loads(row["assets_frozen"])
+    assert len(stored_assets) == 2
+    assert stored_assets[0]["type"] == "bank_account"
+    assert stored_assets[0]["amount_aed"] == 150000.50
+
+    # Verify audit entry
+    cursor = conn.execute(
+        "SELECT * FROM audit_log WHERE action = ? AND org_id = ?",
+        ("freeze.executed", org_id)
+    )
+    audit_row = cursor.fetchone()
+    assert audit_row is not None
+
+    conn.close()
+
+
+def test_execute_freeze_already_executed():
+    """Reject executing an already-executed freeze."""
+    from amlkit.cases import manager
+
+    conn = db.connect(":memory:")
+
+    # Setup
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    freeze_id = manager.create_freeze_obligation(
+        conn, org_id, customer_id,
+        obligation_type="sanctions",
+        risk_category="high",
+        identified_by="test_mlro"
+    )
+
+    # Execute once
+    manager.execute_freeze(
+        conn, freeze_id,
+        executed_by="test_mlro",
+        assets_frozen=[]
+    )
+
+    # Try to execute again - should fail
+    with pytest.raises(ValueError, match="already executed"):
+        manager.execute_freeze(
+            conn, freeze_id,
+            executed_by="test_mlro",
+            assets_frozen=[]
+        )
+
+    conn.close()
+
+
+def test_resolve_freeze_obligation_success():
+    """Resolve freeze obligation with reason."""
+    from amlkit.cases import manager
+
+    conn = db.connect(":memory:")
+
+    # Setup
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    freeze_id = manager.create_freeze_obligation(
+        conn, org_id, customer_id,
+        obligation_type="sanctions",
+        risk_category="high",
+        identified_by="test_mlro"
+    )
+
+    manager.execute_freeze(
+        conn, freeze_id,
+        executed_by="test_mlro",
+        assets_frozen=[]
+    )
+
+    # Resolve
+    manager.resolve_freeze_obligation(
+        conn,
+        freeze_id,
+        resolved_by="test_mlro",
+        resolution_reason="delisted",
+        authority_ref="FIU-2026-001",
+        notes="Entity removed from OFAC list"
+    )
+
+    # Verify status
+    cursor = conn.execute(
+        "SELECT status, resolved_at, resolved_by, resolution_reason, authority_ref, notes FROM freeze_obligations WHERE id = ?",
+        (freeze_id,)
+    )
+    row = dict(cursor.fetchone())
+
+    assert row["status"] == "resolved"
+    assert row["resolved_at"] is not None
+    assert row["resolved_by"] == "test_mlro"
+    assert row["resolution_reason"] == "delisted"
+    assert row["authority_ref"] == "FIU-2026-001"
+    assert row["notes"] == "Entity removed from OFAC list"
+
+    # Verify audit entry
+    cursor = conn.execute(
+        "SELECT * FROM audit_log WHERE action = ? AND org_id = ?",
+        ("freeze.resolved", org_id)
+    )
+    audit_row = cursor.fetchone()
+    assert audit_row is not None
+
+    conn.close()
+
+
+def test_resolve_false_positive_before_execution():
+    """Allow resolving as false_positive without execution."""
+    from amlkit.cases import manager
+
+    conn = db.connect(":memory:")
+
+    # Setup
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    freeze_id = manager.create_freeze_obligation(
+        conn, org_id, customer_id,
+        obligation_type="sanctions",
+        risk_category="high",
+        identified_by="test_mlro"
+    )
+
+    # Resolve as false positive WITHOUT executing
+    manager.resolve_freeze_obligation(
+        conn,
+        freeze_id,
+        resolved_by="test_mlro",
+        resolution_reason="false_positive",
+        notes="Name match error - different person"
+    )
+
+    # Verify it was resolved
+    cursor = conn.execute(
+        "SELECT status, executed_at FROM freeze_obligations WHERE id = ?",
+        (freeze_id,)
+    )
+    row = dict(cursor.fetchone())
+
+    assert row["status"] == "resolved"
+    assert row["executed_at"] is None  # Never executed
 
     conn.close()
 
