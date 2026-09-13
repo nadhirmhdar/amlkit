@@ -702,6 +702,9 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("datasets",  "staleness_notified_at", "ALTER TABLE datasets ADD COLUMN staleness_notified_at TEXT"),
     ("ubo_links", "is_nominee",    "ALTER TABLE ubo_links ADD COLUMN is_nominee INTEGER NOT NULL DEFAULT 0"),
     ("ubo_links", "parent_ubo_id", "ALTER TABLE ubo_links ADD COLUMN parent_ubo_id INTEGER REFERENCES ubo_links(id) ON DELETE SET NULL"),
+    # Document expiry date for KYC documents (passport, Emirates ID, trade license).
+    # NULL for documents without an expiry (e.g., incorporation certificates).
+    ("documents", "expiry_date", "ALTER TABLE documents ADD COLUMN expiry_date TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
