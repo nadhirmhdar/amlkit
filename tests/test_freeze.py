@@ -534,6 +534,96 @@ def test_send_freeze_obligation_alert():
     assert result == mail.NOT_CONFIGURED
 
 
+def test_check_unexecuted_freeze_obligations_finds_overdue():
+    """Find freeze obligations pending execution for > 24 hours."""
+    from amlkit.cases import manager
+    from datetime import timedelta
+
+    conn = db.connect(":memory:")
+
+    # Setup org and customer
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create a freeze obligation from 36 hours ago (overdue)
+    from datetime import datetime, timezone
+    overdue_time = (datetime.now(timezone.utc) - timedelta(hours=36)).isoformat()
+
+    conn.execute(
+        """INSERT INTO freeze_obligations
+           (org_id, customer_id, obligation_type, risk_category,
+            identified_at, identified_by, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, customer_id, "proliferation", "critical",
+         overdue_time, "test_mlro", "pending_execution")
+    )
+
+    # Create a recent one (not overdue - 1 hour old)
+    recent_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    conn.execute(
+        """INSERT INTO freeze_obligations
+           (org_id, customer_id, obligation_type, risk_category,
+            identified_at, identified_by, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, customer_id, "sanctions", "high",
+         recent_time, "test_mlro", "pending_execution")
+    )
+
+    # Create an executed one (should not be included)
+    conn.execute(
+        """INSERT INTO freeze_obligations
+           (org_id, customer_id, obligation_type, risk_category,
+            identified_at, identified_by, status, executed_at, executed_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, customer_id, "sanctions", "high",
+         overdue_time, "test_mlro", "executed_pending_report", now, "test_mlro")
+    )
+
+    conn.commit()
+
+    # Check for overdue obligations
+    overdue = manager.check_unexecuted_freeze_obligations(conn, org_id)
+
+    # Should find only the 36-hour-old pending obligation
+    assert len(overdue) == 1
+    assert overdue[0]["customer_reference"] == "C-2026-001"
+    assert overdue[0]["obligation_type"] == "proliferation"
+    assert overdue[0]["hours_pending"] > 24
+
+    conn.close()
+
+
+def test_check_unexecuted_freeze_obligations_empty():
+    """Return empty list when no overdue obligations."""
+    from amlkit.cases import manager
+
+    conn = db.connect(":memory:")
+
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # No freeze obligations at all
+    overdue = manager.check_unexecuted_freeze_obligations(conn, org_id)
+    assert overdue == []
+
+    conn.close()
+
+
 def test_auto_create_freeze_on_pf_alert_confirmed():
     """Auto-create freeze obligation when PF alert confirmed."""
     from amlkit.cases import review
