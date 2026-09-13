@@ -578,6 +578,44 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 -- ix_reports_org: created in Python after migration, see note above.
 
+-- ---------------------------------------------------------- TFS freeze tracking
+-- Targeted Financial Sanctions freeze obligations. Cabinet Resolution 134 of
+-- 2025 places personal liability on senior management for TFS compliance
+-- failures, so every freeze-and-report decision requires a full audit trail.
+-- Lifecycle: identified → executed → reported → resolved.
+CREATE TABLE IF NOT EXISTS freeze_obligations (
+    id                INTEGER PRIMARY KEY,
+    org_id            INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id       INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    alert_id          INTEGER REFERENCES alerts(id) ON DELETE SET NULL,
+
+    -- Classification: sanctions (generic) | proliferation (Law 10/2025) | terrorism
+    obligation_type   TEXT NOT NULL,
+    risk_category     TEXT NOT NULL,  -- high | critical
+
+    -- Lifecycle timestamps (NULL = not yet reached that stage)
+    identified_at     TEXT NOT NULL,
+    identified_by     TEXT NOT NULL,
+    executed_at       TEXT,
+    executed_by       TEXT,
+    reported_at       TEXT,
+    report_id         INTEGER REFERENCES reports(id) ON DELETE SET NULL,
+    resolved_at       TEXT,
+    resolved_by       TEXT,
+    resolution_reason TEXT,           -- delisted | false_positive | authority_clearance
+
+    -- Details
+    assets_frozen     TEXT,           -- JSON: [{"type": "...", "identifier": "...", "amount_aed": ...}]
+    authority_ref     TEXT,           -- external reference from FIU/regulator
+    notes             TEXT,
+
+    -- Status: pending_execution | executed_pending_report | reported | resolved
+    status            TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_freeze_org      ON freeze_obligations(org_id);
+CREATE INDEX IF NOT EXISTS ix_freeze_customer ON freeze_obligations(customer_id);
+CREATE INDEX IF NOT EXISTS ix_freeze_status   ON freeze_obligations(status);
+
 -- ---------------------------------------------------------------- audit
 -- org_id is nullable here alone: a handful of actions (sanctions-list
 -- refreshes) act on shared reference data and are not tenant-specific. Every
