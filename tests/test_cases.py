@@ -12,12 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from amlkit.cases.manager import (  # noqa: E402
     RETENTION_YEARS,
     UBO_THRESHOLD_PCT,
+    StaleDatasetsError,
     add_ubo,
     close_relationship,
     onboard,
     ownership_state,
     purge_expired,
 )
+from amlkit.ingest.loader import datasets_fresh  # noqa: E402
 from amlkit.db import connect, upsert_dataset, utcnow  # noqa: E402
 from amlkit.names.arabic import blocking_keys, canonical_key  # noqa: E402
 from amlkit.risk.model import CustomerProfile, assess, ruleset  # noqa: E402
@@ -50,6 +52,8 @@ def conn():
     c = connect(":memory:")
     ds = upsert_dataset(c, "test_list", "Synthetic Test List", is_mandatory=True)
     now = utcnow()
+    # Make dataset fresh so onboarding tests pass
+    c.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
     cur = c.execute(
         """INSERT INTO entities (dataset_id, source_id, schema_type, caption,
            countries, birth_date, gender, topics, raw, first_seen, last_seen)
@@ -411,3 +415,70 @@ class TestPurgeExpired:
         assert result["purged"] == 1
         row = conn.execute("SELECT id FROM customers WHERE id=?", (res.customer_id,)).fetchone()
         assert row is not None, "dry_run must not delete anything"
+
+
+class TestStalenessGuard:
+    def test_datasets_fresh_with_good_data(self, conn) -> None:
+        """Mandatory dataset with entities and recent refresh → True."""
+        from amlkit.db import upsert_dataset, utcnow
+        ds_id = upsert_dataset(conn, "fresh_list", "Fresh List", is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=100, last_refresh=? WHERE id=?",
+            (utcnow(), ds_id),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is True
+
+    def test_datasets_fresh_with_stale_data(self, conn) -> None:
+        """Mandatory dataset past max_age_hours → False."""
+        from amlkit.db import upsert_dataset
+        conn.execute("DELETE FROM datasets")
+        ds_id = upsert_dataset(conn, "stale_list", "Stale List", is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=100, last_refresh='2020-01-01T00:00:00+00:00' WHERE id=?",
+            (ds_id,),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is False
+
+    def test_datasets_fresh_with_zero_entities(self, conn) -> None:
+        """Mandatory dataset with entity_count=0 → False."""
+        from amlkit.db import upsert_dataset, utcnow
+        conn.execute("DELETE FROM datasets")
+        ds_id = upsert_dataset(conn, "empty_list", "Empty List", is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=0, last_refresh=? WHERE id=?",
+            (utcnow(), ds_id),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is False
+
+    def test_datasets_fresh_no_mandatory_datasets(self, conn) -> None:
+        """Only non-mandatory datasets → False."""
+        from amlkit.db import upsert_dataset, utcnow
+        conn.execute("DELETE FROM datasets")
+        ds_id = upsert_dataset(conn, "optional_list", "Optional List", is_mandatory=False)
+        conn.execute(
+            "UPDATE datasets SET entity_count=100, last_refresh=? WHERE id=?",
+            (utcnow(), ds_id),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is False
+
+    def test_datasets_fresh_no_datasets(self, conn) -> None:
+        """Empty datasets table → False."""
+        conn.execute("DELETE FROM datasets")
+        conn.commit()
+        assert datasets_fresh(conn) is False
+
+    def test_onboard_blocked_when_stale(self, conn, org_id) -> None:
+        """onboard raises StaleDatasetsError when datasets are stale."""
+        conn.execute("DELETE FROM datasets")
+        conn.commit()
+        with pytest.raises(StaleDatasetsError):
+            onboard(conn, org_id=org_id, reference="STALE-1", full_name="Test Customer")
+
+    def test_onboard_succeeds_when_fresh(self, conn, org_id) -> None:
+        """onboard proceeds normally when datasets are fresh."""
+        res = onboard(conn, org_id=org_id, reference="FRESH-1", full_name="Test Customer")
+        assert res.customer_id > 0
