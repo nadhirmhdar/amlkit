@@ -534,5 +534,256 @@ def test_send_freeze_obligation_alert():
     assert result == mail.NOT_CONFIGURED
 
 
+def test_auto_create_freeze_on_pf_alert_confirmed():
+    """Auto-create freeze obligation when PF alert confirmed."""
+    from amlkit.cases import review
+    from amlkit.screening.pf import PF_PROGRAM_PREFIXES
+
+    conn = db.connect(":memory:")
+
+    # Setup org and customer
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create entity with PF program
+    conn.execute(
+        "INSERT INTO datasets (key, title, is_mandatory, entity_count) VALUES (?, ?, ?, ?)",
+        ("test_dataset", "Test Dataset", 1, 1)
+    )
+    dataset_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    conn.execute(
+        """INSERT INTO entities (dataset_id, source_id, schema_type, caption,
+           programs, topics, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (dataset_id, "test-1", "Person", "Test PF Entity",
+         json.dumps([PF_PROGRAM_PREFIXES[0]]),  # UNSCR 1718 (DPRK)
+         json.dumps(["sanction"]), now, now)
+    )
+    entity_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create screening and alert
+    conn.execute(
+        """INSERT INTO screenings (org_id, customer_id, query_name, trigger,
+           algorithm, threshold, run_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, customer_id, "Test Customer", "onboarding", "jaro_winkler", 0.8, now)
+    )
+    screening_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    conn.execute(
+        """INSERT INTO alerts (org_id, screening_id, entity_id, score,
+           score_detail, matched_name, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, screening_id, entity_id, 95.0, "{}", "Test PF Entity", "open", now)
+    )
+    alert_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+
+    # Disposition as true_positive
+    review.propose_disposition(
+        conn,
+        alert_id,
+        org_id=org_id,
+        status="true_positive",
+        reason_code="confirmed_match",
+        operator="test_mlro",
+        narrative="Confirmed DPRK proliferation entity"
+    )
+
+    # Verify freeze obligation was created
+    cursor = conn.execute(
+        """SELECT * FROM freeze_obligations
+           WHERE org_id = ? AND customer_id = ? AND alert_id = ?""",
+        (org_id, customer_id, alert_id)
+    )
+    freeze = cursor.fetchone()
+
+    assert freeze is not None, "Freeze obligation should be auto-created for confirmed PF alert"
+    assert freeze["obligation_type"] == "proliferation"
+    assert freeze["status"] == "pending_execution"
+    assert freeze["identified_by"] == "test_mlro"
+
+    conn.close()
+
+
+def test_auto_create_freeze_on_sanctions_alert_confirmed():
+    """Auto-create freeze obligation when sanctions alert confirmed."""
+    from amlkit.cases import review
+
+    conn = db.connect(":memory:")
+
+    # Setup org and customer
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create entity with sanctions topic (but no PF program)
+    conn.execute(
+        "INSERT INTO datasets (key, title, is_mandatory, entity_count) VALUES (?, ?, ?, ?)",
+        ("test_dataset", "Test Dataset", 1, 1)
+    )
+    dataset_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    conn.execute(
+        """INSERT INTO entities (dataset_id, source_id, schema_type, caption,
+           programs, topics, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (dataset_id, "test-1", "Person", "Test Sanctions Entity",
+         json.dumps([]),  # No PF programs
+         json.dumps(["sanction"]), now, now)
+    )
+    entity_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create screening and alert
+    conn.execute(
+        """INSERT INTO screenings (org_id, customer_id, query_name, trigger,
+           algorithm, threshold, run_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, customer_id, "Test Customer", "onboarding", "jaro_winkler", 0.8, now)
+    )
+    screening_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    conn.execute(
+        """INSERT INTO alerts (org_id, screening_id, entity_id, score,
+           score_detail, matched_name, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, screening_id, entity_id, 95.0, "{}", "Test Sanctions Entity", "open", now)
+    )
+    alert_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+
+    # Disposition as true_positive
+    review.propose_disposition(
+        conn,
+        alert_id,
+        org_id=org_id,
+        status="true_positive",
+        reason_code="confirmed_match",
+        operator="test_mlro",
+        narrative="Confirmed sanctions match"
+    )
+
+    # Verify freeze obligation was created
+    cursor = conn.execute(
+        """SELECT * FROM freeze_obligations
+           WHERE org_id = ? AND customer_id = ? AND alert_id = ?""",
+        (org_id, customer_id, alert_id)
+    )
+    freeze = cursor.fetchone()
+
+    assert freeze is not None, "Freeze obligation should be auto-created for confirmed sanctions alert"
+    assert freeze["obligation_type"] == "sanctions"
+    assert freeze["status"] == "pending_execution"
+
+    conn.close()
+
+
+def test_no_freeze_on_false_positive():
+    """Do NOT create freeze obligation when alert is false positive."""
+    from amlkit.cases import review
+
+    conn = db.connect(":memory:")
+
+    # Setup org and customer
+    conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) VALUES (?, ?, ?)",
+        ("Test Org", "test", db.utcnow())
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    now = db.utcnow()
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type,
+           canonical_key, onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-2026-001", "Test Customer", "natural", "test_customer", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create entity with sanctions
+    conn.execute(
+        "INSERT INTO datasets (key, title, is_mandatory, entity_count) VALUES (?, ?, ?, ?)",
+        ("test_dataset", "Test Dataset", 1, 1)
+    )
+    dataset_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    conn.execute(
+        """INSERT INTO entities (dataset_id, source_id, schema_type, caption,
+           programs, topics, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (dataset_id, "test-1", "Person", "Test Entity",
+         json.dumps([]), json.dumps(["sanction"]), now, now)
+    )
+    entity_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create screening and alert
+    conn.execute(
+        """INSERT INTO screenings (org_id, customer_id, query_name, trigger,
+           algorithm, threshold, run_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, customer_id, "Test Customer", "onboarding", "jaro_winkler", 0.8, now)
+    )
+    screening_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    conn.execute(
+        """INSERT INTO alerts (org_id, screening_id, entity_id, score,
+           score_detail, matched_name, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, screening_id, entity_id, 95.0, "{}", "Test Entity", "open", now)
+    )
+    alert_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+
+    # Set single operator mode to avoid four-eyes review
+    import os
+    os.environ["AMLKIT_SINGLE_OPERATOR_MODE"] = "1"
+
+    try:
+        # Disposition as false_positive
+        review.propose_disposition(
+            conn,
+            alert_id,
+            org_id=org_id,
+            status="false_positive",
+            reason_code="name_coincidence",
+            operator="test_mlro",
+            narrative="Name similarity only - different person"
+        )
+
+        # Verify NO freeze obligation was created
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM freeze_obligations WHERE org_id = ? AND customer_id = ?",
+            (org_id, customer_id)
+        )
+        count = cursor.fetchone()[0]
+        assert count == 0, "No freeze obligation should be created for false positive"
+
+    finally:
+        del os.environ["AMLKIT_SINGLE_OPERATOR_MODE"]
+
+    conn.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
