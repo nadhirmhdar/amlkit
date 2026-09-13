@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% set nav = 'policies' %}
+{% block title %}Policy Documents — amlkit{% endblock %}
+{% block body %}
+
+<div class="page-head" style="display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap;">
+  <div>
+    <div class="eyebrow">Compliance</div>
+    <h1>Policy Documents</h1>
+    <p class="sub">
+      AML policies, CDD procedures, risk methodologies, and other compliance documentation.
+    </p>
+  </div>
+  {% if session.operator_role == 'mlro' %}
+    <button class="btn" onclick="toggleUploadForm()">+ Upload Policy</button>
+  {% endif %}
+</div>
+
+{% if session.operator_role == 'mlro' %}
+<div id="upload-form" class="panel" style="display:none; margin-bottom:24px;">
+  <h3>Upload Policy Document</h3>
+  <form method="post" action="/policies/upload" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="form-grid">
+      <div class="form-field">
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" required placeholder="e.g., AML Policy">
+      </div>
+
+      <div class="form-field">
+        <label for="category">Category</label>
+        <select id="category" name="category" required>
+          {% for cat in categories %}
+            <option value="{{ cat }}">{{ cat.replace('_', ' ') }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label for="file">File (PDF or DOCX, max 10MB)</label>
+      <input type="file" id="file" name="file" accept=".pdf,.docx" required>
+    </div>
+
+    <div style="display:flex; gap:8px; margin-top:16px;">
+      <button type="submit" class="btn">Upload</button>
+      <button type="button" class="btn ghost" onclick="toggleUploadForm()">Cancel</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+{% if policies_by_title %}
+  {% for title, versions in policies_by_title.items() %}
+    <div class="panel" style="margin-bottom:24px;">
+      <h3>{{ title }}</h3>
+      <div class="flat-list">
+        {% for policy in versions %}
+          <div class="list-row {{ 'current-version' if policy.is_current else 'archived-version' }}">
+            <div style="width:80px;">
+              <span class="tag {{ 'low' if policy.is_current else 'other' }}">v{{ policy.version }}</span>
+              {% if policy.is_current %}
+                <span class="tag high" style="margin-left:4px;">Current</span>
+              {% endif %}
+            </div>
+            <div class="grow">
+              <div class="primary">{{ policy.filename }}</div>
+              <div class="secondary">
+                Uploaded {{ policy.uploaded_at[:10] }} by {{ policy.uploaded_by }}
+                {% if not policy.is_current %}<span class="badge">Archived</span>{% endif %}
+              </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <a class="btn small ghost" href="/policies/{{ policy.id }}/download">Download</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="panel empty-state">
+    <div class="empty-state__icon">📄</div>
+    <div class="empty-state__title">No policy documents uploaded yet</div>
+    <p class="empty-state__text mt-0">
+      {% if session.operator_role == 'mlro' %}
+        Upload your AML policies, CDD procedures, and other compliance documentation to centralize access for your team.
+      {% else %}
+        Your MLRO can upload policy documents here for easy access.
+      {% endif %}
+    </p>
+  </div>
+{% endif %}
+
+<script>
+function toggleUploadForm() {
+  const form = document.getElementById('upload-form');
+  if (form.style.display === 'none') {
+    form.style.display = 'block';
+  } else {
+    form.style.display = 'none';
+  }
+}
+</script>
+
+<style>
+.current-version {
+  background-color: #f8f9fa;
+}
+.archived-version {
+  opacity: 0.7;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 680px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+
+{% endblock %}

@@ -825,3 +825,151 @@ class TestAdminThreshold:
         client.post("/admin/threshold", data={"threshold": "0.99", "csrf_token": _csrf(client)})
         r = client.post("/screen", data={"name": LISTED, "csrf_token": _csrf(client)})
         assert "match(es)" in r.text, "exact match must still clear a 0.99 threshold"
+
+
+class TestBatchRescreening:
+    """Tests for batch re-screening UI (Phase 4, Item 2)."""
+
+    def test_admin_rescreen_success(self, client) -> None:
+        """MLRO can trigger batch rescreen, endpoint responds successfully."""
+        # Trigger rescreen (client is logged in as MLRO by default)
+        r = client.post("/admin/rescreen",
+                        data={"csrf_token": _csrf(client)},
+                        follow_redirects=True)
+        assert r.status_code == 200
+        # Should show admin page (no error redirect)
+        assert "admin" in r.text.lower() or "sanctions" in r.text.lower()
+
+
+class TestPolicyRepository:
+    """Tests for policy repository API endpoints (Phase 4 enhancement, Item 3)."""
+
+    def test_policies_list_requires_auth(self, client) -> None:
+        """Anonymous user redirected to /login."""
+        client.cookies.delete("amlkit_session")
+        r = client.get("/policies", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/login"
+
+    def test_policies_list_officer_can_view(self, client) -> None:
+        """Officer can access GET /policies."""
+        _add_operator(client, "bob", "bob-policy@testfirm.ae", role="officer")
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+        bob = TestClient(app)
+        bob.get("/login")
+        _login(bob, "bob-policy@testfirm.ae", "a-strong-password-2")
+        r = bob.get("/policies")
+        assert r.status_code == 200
+        assert "policies" in r.text.lower()
+
+    def test_policies_upload_mlro_only(self, client) -> None:
+        """Officer cannot POST /policies/upload."""
+        _add_operator(client, "sara", "sara-policy@testfirm.ae", role="officer")
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+        sara = TestClient(app)
+        sara.get("/login")
+        _login(sara, "sara-policy@testfirm.ae", "a-strong-password-2")
+
+        # Try to upload as officer
+        import io
+        r = sara.post("/policies/upload",
+                      data={
+                          "title": "Test Policy",
+                          "category": "AML_Policy",
+                          "csrf_token": _csrf(sara),
+                      },
+                      files={"file": ("test.pdf", io.BytesIO(b"test content"), "application/pdf")},
+                      follow_redirects=True)
+        assert r.status_code in (200, 403)
+        # Should show permission error or redirect
+        assert "mlro" in r.text.lower() or "permission" in r.text.lower() or "requires" in r.text.lower()
+
+    def test_policies_upload_validates_csrf(self, client) -> None:
+        """Missing csrf_token rejected."""
+        import io
+        r = client.post("/policies/upload",
+                        data={
+                            "title": "Test Policy",
+                            "category": "AML_Policy",
+                        },
+                        files={"file": ("test.pdf", io.BytesIO(b"test content"), "application/pdf")},
+                        follow_redirects=True)
+        # CSRF failure should keep user on policies page with error
+        assert "expired" in r.text.lower() or "csrf" in r.text.lower() or "token" in r.text.lower()
+
+    def test_policies_upload_validates_file_type(self, client) -> None:
+        """.txt file rejected."""
+        import io
+        r = client.post("/policies/upload",
+                        data={
+                            "title": "Test Policy",
+                            "category": "AML_Policy",
+                            "csrf_token": _csrf(client),
+                        },
+                        files={"file": ("test.txt", io.BytesIO(b"test content"), "text/plain")},
+                        follow_redirects=True)
+        assert r.status_code == 200
+        assert "file type" in r.text.lower() or "only pdf and docx" in r.text.lower()
+
+    def test_policies_download_returns_file(self, client) -> None:
+        """Returns PDF with correct headers."""
+        import io
+        # Upload a policy first
+        client.post("/policies/upload",
+                    data={
+                        "title": "Download Test Policy",
+                        "category": "AML_Policy",
+                        "csrf_token": _csrf(client),
+                    },
+                    files={"file": ("download-test.pdf", io.BytesIO(b"pdf content"), "application/pdf")},
+                    follow_redirects=True)
+
+        # Get policy ID
+        conn = _db()
+        row = conn.execute("SELECT id FROM policy_documents ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        assert row is not None, "policy upload must have created a row"
+
+        policy_id = row["id"]
+
+        # Download it
+        r = client.get(f"/policies/{policy_id}/download")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/pdf"
+        assert "attachment" in r.headers["content-disposition"]
+        assert "download-test.pdf" in r.headers["content-disposition"]
+        assert r.content == b"pdf content"
+
+    def test_policies_download_logs_audit(self, client) -> None:
+        """Audit entry created."""
+        import io
+        # Upload
+        client.post("/policies/upload",
+                    data={
+                        "title": "Audit Test Policy",
+                        "category": "AML_Policy",
+                        "csrf_token": _csrf(client),
+                    },
+                    files={"file": ("audit-test.pdf", io.BytesIO(b"pdf"), "application/pdf")},
+                    follow_redirects=True)
+
+        conn = _db()
+        row = conn.execute("SELECT id FROM policy_documents ORDER BY id DESC LIMIT 1").fetchone()
+        policy_id = row["id"]
+        conn.close()
+
+        # Download
+        client.get(f"/policies/{policy_id}/download")
+
+        # Check audit
+        conn = _db()
+        audit_row = conn.execute(
+            "SELECT action FROM audit_log WHERE action='policy.download'"
+        ).fetchone()
+        conn.close()
+
+        assert audit_row is not None

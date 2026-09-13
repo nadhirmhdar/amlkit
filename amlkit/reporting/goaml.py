@@ -38,10 +38,26 @@ def _require(report_data: dict, key: str, label: str) -> str:
 
 
 def serialize_goaml_xml(report_data: dict) -> str:
-    """Serialize a report payload into a standard goAML XML format."""
+    """Serialize a report payload into a standard goAML XML format.
+
+    Supported report types: STR, SAR, PNMR, FFR, HRCT, HRCA, DPMSR, REAR, DTR, CTR
+
+    CTR-specific validation (Phase 4, Item 5):
+        - transaction_type must be 'cash'
+        - amount must be >= threshold (typically 55000 AED)
+    """
     report_code = report_data.get("report_type", "STR").upper()
     now = datetime.now(timezone.utc)
     now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # CTR validation
+    if report_code == "CTR":
+        if report_data.get("transaction_type") != "cash":
+            raise GoAMLValidationError("CTR requires transaction_type='cash'")
+        amount = report_data.get("amount", 0)
+        threshold = report_data.get("threshold", 55000)
+        if amount < threshold:
+            raise GoAMLValidationError(f"CTR requires amount >= {threshold} (got {amount})")
 
     root = ET.Element("report")
     

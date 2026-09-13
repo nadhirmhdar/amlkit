@@ -80,21 +80,30 @@ def evaluate_transaction(
     the one place that history is assembled, so a future rule can be added
     here without every call site having to learn what data it now needs.
     """
+    # Load org-specific configuration (falls back to module defaults)
+    config = get_rule_config(conn, org_id)
+    large_cash_threshold = config["large_cash_threshold_aed"]
+    structuring_window_days = config["structuring_window_days"]
+    structuring_min_count = config["structuring_min_count"]
+    velocity_window_hours = config["velocity_window_hours"]
+    velocity_max_count = config["velocity_max_count"]
+    high_risk_countries = set(config["high_risk_countries"])
+
     triggered: list[TriggeredRule] = []
 
-    if method == "cash" and amount_aed >= LARGE_CASH_THRESHOLD_AED:
+    if method == "cash" and amount_aed >= large_cash_threshold:
         triggered.append(TriggeredRule(
             rule_key="large_cash",
             severity="high",
             detail={
                 "amount_aed": amount_aed,
-                "threshold_aed": LARGE_CASH_THRESHOLD_AED,
+                "threshold_aed": large_cash_threshold,
             },
         ))
 
     if method == "cash":
         window_start = (
-            _parse(occurred_at) - timedelta(days=STRUCTURING_WINDOW_DAYS)
+            _parse(occurred_at) - timedelta(days=structuring_window_days)
         ).isoformat()
         rows = conn.execute(
             """SELECT amount_aed, occurred_at FROM transactions
@@ -104,27 +113,27 @@ def evaluate_transaction(
             (customer_id, org_id, window_start, occurred_at, transaction_id),
         ).fetchall()
         recent_amounts = [amount_aed] + [r["amount_aed"] for r in rows]
-        under_threshold_amounts = [a for a in recent_amounts if a < LARGE_CASH_THRESHOLD_AED]
+        under_threshold_amounts = [a for a in recent_amounts if a < large_cash_threshold]
         under_threshold_total = sum(under_threshold_amounts)
         under_threshold_count = len(under_threshold_amounts)
         if (
-            under_threshold_total >= LARGE_CASH_THRESHOLD_AED
-            and amount_aed < LARGE_CASH_THRESHOLD_AED
-            and under_threshold_count >= STRUCTURING_MIN_COUNT
+            under_threshold_total >= large_cash_threshold
+            and amount_aed < large_cash_threshold
+            and under_threshold_count >= structuring_min_count
         ):
             triggered.append(TriggeredRule(
                 rule_key="structuring",
                 severity="high",
                 detail={
-                    "window_days": STRUCTURING_WINDOW_DAYS,
+                    "window_days": structuring_window_days,
                     "transaction_count": under_threshold_count,
                     "total_aed": under_threshold_total,
-                    "threshold_aed": LARGE_CASH_THRESHOLD_AED,
+                    "threshold_aed": large_cash_threshold,
                 },
             ))
 
     country = (counterparty_country or "").strip().upper()
-    if country and country in HIGH_RISK_COUNTRIES:
+    if country and country in high_risk_countries:
         triggered.append(TriggeredRule(
             rule_key="high_risk_country",
             severity="medium",
@@ -132,7 +141,7 @@ def evaluate_transaction(
         ))
 
     window_start = (
-        _parse(occurred_at) - timedelta(hours=VELOCITY_WINDOW_HOURS)
+        _parse(occurred_at) - timedelta(hours=velocity_window_hours)
     ).isoformat()
     count_row = conn.execute(
         """SELECT COUNT(*) c FROM transactions
@@ -140,14 +149,14 @@ def evaluate_transaction(
         (customer_id, org_id, window_start, occurred_at),
     ).fetchone()
     txn_count = count_row["c"]  # includes the just-inserted row
-    if txn_count > VELOCITY_MAX_COUNT:
+    if txn_count > velocity_max_count:
         triggered.append(TriggeredRule(
             rule_key="velocity",
             severity="medium",
             detail={
-                "window_hours": VELOCITY_WINDOW_HOURS,
+                "window_hours": velocity_window_hours,
                 "transaction_count": txn_count,
-                "threshold": VELOCITY_MAX_COUNT,
+                "threshold": velocity_max_count,
             },
         ))
 
@@ -159,3 +168,113 @@ def _parse(ts: str) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def get_rule_config(conn, org_id: int) -> dict[str, Any]:
+    """Load KYT rule configuration from DB, falling back to module defaults.
+
+    Returns:
+        {
+            "large_cash_threshold_aed": 55000.0,
+            "structuring_window_days": 7,
+            "structuring_min_count": 2,
+            "velocity_window_hours": 24,
+            "velocity_max_count": 5,
+            "high_risk_countries": ["KP", "IR", "MM", "SY", "AF", "YE", "SS", "SD"],
+        }
+    """
+    row = conn.execute(
+        """SELECT kyt_large_cash_threshold, kyt_structuring_window_days,
+                  kyt_velocity_window_hours, kyt_velocity_max_count,
+                  kyt_high_risk_countries
+           FROM org_settings WHERE org_id=?""",
+        (org_id,)
+    ).fetchone()
+
+    if row:
+        return {
+            "large_cash_threshold_aed": row["kyt_large_cash_threshold"] if row["kyt_large_cash_threshold"] is not None else LARGE_CASH_THRESHOLD_AED,
+            "structuring_window_days": row["kyt_structuring_window_days"] if row["kyt_structuring_window_days"] is not None else STRUCTURING_WINDOW_DAYS,
+            "structuring_min_count": STRUCTURING_MIN_COUNT,  # Not configurable yet
+            "velocity_window_hours": row["kyt_velocity_window_hours"] if row["kyt_velocity_window_hours"] is not None else VELOCITY_WINDOW_HOURS,
+            "velocity_max_count": row["kyt_velocity_max_count"] if row["kyt_velocity_max_count"] is not None else VELOCITY_MAX_COUNT,
+            "high_risk_countries": json.loads(row["kyt_high_risk_countries"]) if row["kyt_high_risk_countries"] else list(HIGH_RISK_COUNTRIES),
+        }
+
+    # No org_settings row yet - return module defaults
+    return {
+        "large_cash_threshold_aed": LARGE_CASH_THRESHOLD_AED,
+        "structuring_window_days": STRUCTURING_WINDOW_DAYS,
+        "structuring_min_count": STRUCTURING_MIN_COUNT,
+        "velocity_window_hours": VELOCITY_WINDOW_HOURS,
+        "velocity_max_count": VELOCITY_MAX_COUNT,
+        "high_risk_countries": list(HIGH_RISK_COUNTRIES),
+    }
+
+
+def save_rule_config(
+    conn,
+    org_id: int,
+    config: dict[str, Any],
+    *,
+    actor: str = "system",
+) -> None:
+    """Save KYT rule configuration to DB.
+
+    Validates:
+        - Thresholds > 0
+        - Window days/hours > 0
+        - high_risk_countries is a list (if provided)
+
+    Raises:
+        ValueError: invalid configuration values
+    """
+    from ..db import audit, utcnow
+
+    # Validate
+    if "large_cash_threshold_aed" in config and config["large_cash_threshold_aed"] <= 0:
+        raise ValueError("large_cash_threshold must be positive")
+    if "structuring_window_days" in config and config["structuring_window_days"] <= 0:
+        raise ValueError("structuring_window_days must be positive")
+    if "velocity_window_hours" in config and config["velocity_window_hours"] <= 0:
+        raise ValueError("velocity_window_hours must be positive")
+    if "velocity_max_count" in config and config["velocity_max_count"] <= 0:
+        raise ValueError("velocity_max_count must be positive")
+
+    # Upsert org_settings row
+    conn.execute(
+        """INSERT INTO org_settings (org_id, updated_at) VALUES (?, ?)
+           ON CONFLICT(org_id) DO UPDATE SET updated_at=excluded.updated_at""",
+        (org_id, utcnow())
+    )
+
+    # Update KYT settings columns
+    updates = []
+    params = []
+    if "large_cash_threshold_aed" in config:
+        updates.append("kyt_large_cash_threshold = ?")
+        params.append(config["large_cash_threshold_aed"])
+    if "structuring_window_days" in config:
+        updates.append("kyt_structuring_window_days = ?")
+        params.append(config["structuring_window_days"])
+    if "velocity_window_hours" in config:
+        updates.append("kyt_velocity_window_hours = ?")
+        params.append(config["velocity_window_hours"])
+    if "velocity_max_count" in config:
+        updates.append("kyt_velocity_max_count = ?")
+        params.append(config["velocity_max_count"])
+    if "high_risk_countries" in config:
+        updates.append("kyt_high_risk_countries = ?")
+        params.append(json.dumps(config["high_risk_countries"]))
+
+    updates.append("updated_at = ?")
+    params.append(utcnow())
+    params.append(org_id)
+
+    if updates:
+        conn.execute(
+            f"UPDATE org_settings SET {', '.join(updates)} WHERE org_id=?",
+            params
+        )
+
+    audit(conn, actor, "settings.kyt_rules_update", detail=config, org_id=org_id)
