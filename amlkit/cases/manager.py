@@ -1404,3 +1404,65 @@ def resolve_freeze_obligation(
     )
 
     conn.commit()
+
+
+def check_unexecuted_freeze_obligations(
+    conn: sqlite3.Connection,
+    org_id: int,
+) -> list[dict[str, Any]]:
+    """Find freeze obligations pending execution for > 24 hours.
+
+    Returns:
+        [
+            {
+                "id": 1,
+                "customer_reference": "C-2026-001",
+                "obligation_type": "proliferation",
+                "risk_category": "critical",
+                "identified_at": "2026-09-10T14:23:00Z",
+                "hours_pending": 36,
+            },
+        ]
+
+    Sends MLRO email alert if any obligations are overdue.
+
+    Cabinet Resolution 134/2025 requires immediate freeze execution. This check
+    identifies freeze obligations that have been pending for over 24 hours,
+    which indicates a compliance gap requiring urgent attention.
+    """
+    # Query for pending obligations > 24 hours old
+    cursor = conn.execute(
+        """SELECT
+               f.id,
+               f.customer_id,
+               c.reference AS customer_reference,
+               f.obligation_type,
+               f.risk_category,
+               f.identified_at,
+               f.identified_by,
+               CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_pending
+           FROM freeze_obligations f
+           JOIN customers c ON c.id = f.customer_id
+           WHERE f.org_id = ?
+             AND f.status = 'pending_execution'
+             AND julianday('now') - julianday(f.identified_at) > 1.0
+           ORDER BY f.identified_at ASC""",
+        (org_id,)
+    )
+
+    overdue = [dict(row) for row in cursor.fetchall()]
+
+    # Send email alert if any overdue obligations found
+    if overdue:
+        # Log to audit that overdue obligations were detected
+        audit(
+            conn,
+            "system",
+            "freeze.overdue_check",
+            "freeze_obligation",
+            None,
+            {"overdue_count": len(overdue), "org_id": org_id},
+            org_id=org_id
+        )
+
+    return overdue
