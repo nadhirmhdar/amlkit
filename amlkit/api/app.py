@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -1884,6 +1884,107 @@ def admin_rescreen(
     except Exception as exc:
         log.exception("rescreen_all failed for org %s: %s", session.org_id, exc)
         return back("/admin", err=f"Re-screening failed: {exc}")
+
+
+# ---------------------------------------------------------------------- policies (Phase 4 enhancement)
+@app.get("/policies", response_class=HTMLResponse)
+def policies_list(request: Request, db: DB):
+    """List all policy documents grouped by title with version history."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    from ..cases.manager import list_policies
+
+    policies_by_title = list_policies(db, session.org_id)
+    categories = ["AML_Policy", "CDD_Procedures", "Risk_Methodology", "Other"]
+
+    return render(
+        request,
+        "policies.html",
+        {
+            "session": session,
+            "policies_by_title": policies_by_title,
+            "categories": categories,
+        },
+        db
+    )
+
+
+@app.post("/policies/upload")
+@limiter.limit("10/hour")
+def policies_upload(
+    request: Request,
+    db: DB,
+    title: Annotated[str, Form()],
+    category: Annotated[str, Form()],
+    file: UploadFile,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Upload new policy document (MLRO only)."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/policies", err=str(exc))
+
+    from ..cases.manager import upload_policy
+
+    try:
+        file_content = file.file.read()
+
+        policy_id, version = upload_policy(
+            db,
+            session.org_id,
+            title=title,
+            category=category,
+            filename=file.filename,
+            file_content=file_content,
+            uploaded_by=session.operator_name,
+        )
+        db.commit()
+
+        return back("/policies", msg=f"Policy '{title}' uploaded successfully (version {version})")
+    except ValueError as e:
+        return back("/policies", err=f"Upload failed: {e}")
+
+
+@app.get("/policies/{policy_id:int}/download")
+def policies_download(request: Request, db: DB, policy_id: int):
+    """Download policy document."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    from ..cases.manager import get_policy
+
+    try:
+        policy = get_policy(db, policy_id, org_id=session.org_id)
+        db.commit()  # Commit audit log
+
+        content_type = (
+            "application/pdf" if policy["filename"].endswith(".pdf")
+            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+        return Response(
+            content=policy["file_content"],
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{policy["filename"]}"'
+            }
+        )
+    except ValueError as e:
+        return templates.TemplateResponse(
+            "error.html",
+            {"request": request, "error": str(e)},
+            status_code=404
+        )
 
 
 # ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)
