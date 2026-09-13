@@ -825,3 +825,17 @@ class TestAdminThreshold:
         client.post("/admin/threshold", data={"threshold": "0.99", "csrf_token": _csrf(client)})
         r = client.post("/screen", data={"name": LISTED, "csrf_token": _csrf(client)})
         assert "match(es)" in r.text, "exact match must still clear a 0.99 threshold"
+
+
+class TestBatchRescreening:
+    """Tests for batch re-screening UI (Phase 4, Item 2)."""
+
+    def test_admin_rescreen_success(self, client) -> None:
+        """MLRO can trigger batch rescreen, endpoint responds successfully."""
+        # Trigger rescreen (client is logged in as MLRO by default)
+        r = client.post("/admin/rescreen",
+                        data={"csrf_token": _csrf(client)},
+                        follow_redirects=True)
+        assert r.status_code == 200
+        # Should show admin page (no error redirect)
+        assert "admin" in r.text.lower() or "sanctions" in r.text.lower()

@@ -1848,6 +1848,44 @@ def admin_refresh_sanctions(
     return back("/admin", msg=msg)
 
 
+@app.post("/admin/rescreen")
+@limiter.limit("10/minute")
+def admin_rescreen(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Manually trigger bulk re-screening of all active customers.
+
+    MLRO-only endpoint. Calls rescreen_all() without refreshing sanctions lists.
+    Returns count of customers re-screened and new alerts created.
+    """
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin", err=str(exc))
+
+    from ..match.engine import rescreen_all
+    from ..db import audit
+
+    audit(db, session.operator_name, "system.rescreen_all", org_id=session.org_id)
+
+    try:
+        outcome = rescreen_all(db, session.org_id, actor=session.operator_name)
+        db.commit()
+
+        msg = f"Re-screened {outcome['customers']} customer(s)."
+        if outcome["alerts"]:
+            msg += f" {outcome['alerts']} new alert(s) raised — check Alerts."
+        return back("/admin", msg=msg)
+    except Exception as exc:
+        log.exception("rescreen_all failed for org %s: %s", session.org_id, exc)
+        return back("/admin", err=f"Re-screening failed: {exc}")
+
+
 # ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)
 @app.post("/system/refresh")
 def system_refresh(request: Request):
