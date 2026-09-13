@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Freeze Obligations{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>TFS Freeze Obligations</h1>
+  
+  <div class="alert alert-info">
+    <strong>Cabinet Resolution 134/2025:</strong> Freeze obligations must be executed immediately.
+    Personal liability applies to senior management for TFS compliance failures.
+  </div>
+  
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <span class="stat">Pending: {{ stats.get('pending_execution', 0) }}</span>
+    <span class="stat">Executed: {{ stats.get('executed_pending_report', 0) }}</span>
+    <span class="stat">Reported: {{ stats.get('reported', 0) }}</span>
+    <span class="stat">Resolved: {{ stats.get('resolved', 0) }}</span>
+  </div>
+  
+  <!-- Filter -->
+  <form method="get" class="filter-form">
+    <label>Status:</label>
+    <select name="status" onchange="this.form.submit()">
+      <option value="all" {% if filter_status == 'all' %}selected{% endif %}>All</option>
+      <option value="pending_execution" {% if filter_status == 'pending_execution' %}selected{% endif %}>Pending Execution</option>
+      <option value="executed_pending_report" {% if filter_status == 'executed_pending_report' %}selected{% endif %}>Executed (Pending Report)</option>
+      <option value="reported" {% if filter_status == 'reported' %}selected{% endif %}>Reported</option>
+      <option value="resolved" {% if filter_status == 'resolved' %}selected{% endif %}>Resolved</option>
+    </select>
+  </form>
+  
+  <!-- Table -->
+  <table class="freeze-obligations-table">
+    <thead>
+      <tr>
+        <th>Customer</th>
+        <th>Type</th>
+        <th>Risk</th>
+        <th>Status</th>
+        <th>Identified</th>
+        <th>Executed</th>
+        <th>Reported</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ob in obligations %}
+      <tr class="status-{{ ob.status }} {% if ob.status == 'pending_execution' and ob.hours_since_identified > 24 %}overdue{% endif %}">
+        <td><a href="/customers/{{ ob.customer_id }}">{{ ob.customer_reference }}</a></td>
+        <td>{{ ob.obligation_type }}</td>
+        <td>
+          {% if ob.risk_category == 'critical' %}
+            <span class="badge badge-critical">🔴 CRITICAL</span>
+          {% else %}
+            <span class="badge badge-high">🟡 HIGH</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if ob.status == 'pending_execution' and ob.hours_since_identified > 24 %}
+            <strong class="overdue">OVERDUE ({{ ob.hours_since_identified }}h)</strong>
+          {% else %}
+            {{ ob.status | replace('_', ' ') | title }}
+          {% endif %}
+        </td>
+        <td>{{ ob.identified_at[:10] }}</td>
+        <td>{{ ob.executed_at[:10] if ob.executed_at else '—' }}</td>
+        <td>{{ ob.reported_at[:10] if ob.reported_at else '—' }}</td>
+        <td><a href="/freeze-obligations/{{ ob.id }}" class="btn btn-sm">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .status-pending_execution { background-color: #fff3cd; }
+  .status-pending_execution.overdue { background-color: #f8d7da; font-weight: bold; }
+  .status-executed_pending_report { background-color: #d1ecf1; }
+  .status-reported { background-color: #d4edda; }
+  .status-resolved { background-color: #e2e3e5; }
+  .overdue { color: #721c24; }
+</style>
+{% endblock %}

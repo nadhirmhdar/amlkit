@@ -24,6 +24,9 @@ from fastapi import Depends, FastAPI, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from .. import auth, queries
 from ..cases.manager import (
@@ -316,9 +319,7 @@ async def _lifespan(app):
 app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, lifespan=_lifespan)
 
 # Rate limiting to prevent brute-force attacks and DoS
-from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: E402
-from slowapi.errors import RateLimitExceeded  # noqa: E402
-from slowapi.util import get_remote_address  # noqa: E402
+
 
 
 def login_rate_limit_key(request: Request) -> str:
@@ -824,6 +825,248 @@ def resend_verification(
             db.commit()
     return render(request, "login.html", {"session": None, "msg": generic_msg})
 
+
+# ------------------------------------------------------------------ freeze obligations
+
+@app.get("/freeze-obligations", response_class=HTMLResponse)
+def freeze_obligations_list(request: Request, db: DB):
+    """List all freeze obligations for current org."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+        
+    org_id = session.org_id
+    filter_status = request.query_params.get("status", "all")
+    
+    query = """
+        SELECT f.*, c.reference AS customer_reference, c.full_name,
+               CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_since_identified
+        FROM freeze_obligations f
+        JOIN customers c ON c.id = f.customer_id
+        WHERE f.org_id = ?
+    """
+    params = [org_id]
+    
+    if filter_status != "all":
+        query += " AND f.status = ?"
+        params.append(filter_status)
+    
+    query += " ORDER BY f.identified_at DESC"
+    
+    obligations = [dict(row) for row in db.execute(query, params).fetchall()]
+    
+    stats = dict(db.execute("""
+        SELECT status, COUNT(*) as count
+        FROM freeze_obligations
+        WHERE org_id = ?
+        GROUP BY status
+    """, (org_id,)).fetchall())
+    
+    return render(request, "freeze_obligations.html", {
+        "session": session,
+        "obligations": obligations,
+        "filter_status": filter_status,
+        "stats": stats,
+    })
+
+@app.get("/freeze-obligations/{freeze_id}", response_class=HTMLResponse)
+def freeze_obligation_detail(request: Request, db: DB, freeze_id: int):
+    """Show freeze obligation details with full lifecycle timeline."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+        
+    org_id = session.org_id
+    
+    row = db.execute("""
+        SELECT f.*, c.reference AS customer_reference, c.full_name,
+               a.id AS alert_id, a.matched_name,
+               r.id AS report_id, r.reference AS report_reference
+        FROM freeze_obligations f
+        JOIN customers c ON c.id = f.customer_id
+        LEFT JOIN alerts a ON a.id = f.alert_id
+        LEFT JOIN reports r ON r.id = f.report_id
+        WHERE f.id = ? AND f.org_id = ?
+    """, (freeze_id, org_id)).fetchone()
+    
+    if not row:
+        return back("/freeze-obligations", err="Freeze obligation not found")
+    
+    obligation = dict(row)
+    
+    import json
+    obligation["assets_frozen_parsed"] = json.loads(obligation["assets_frozen"] or "[]")
+    
+    can_execute = obligation["status"] == "pending_execution"
+    can_file_ffr = obligation["status"] == "executed_pending_report"
+    can_resolve = obligation["status"] in ["executed_pending_report", "reported"]
+    
+    return render(request, "freeze_obligation_detail.html", {
+        "session": session,
+        "obligation": obligation,
+        "can_execute": can_execute,
+        "can_file_ffr": can_file_ffr,
+        "can_resolve": can_resolve,
+    })
+
+@app.post("/freeze-obligations/{freeze_id}/execute")
+async def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
+    """Execute freeze obligation - mark as executed with assets frozen."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+    
+    if session.role != "mlro":
+        return back(f"/freeze-obligations/{freeze_id}", err="Execute freeze requires MLRO role")
+    
+    operator = session.operator_name
+    
+    form = await request.form()
+    notes = form.get("notes", "")
+    
+    assets_frozen = []
+    i = 1
+    while f"asset_type_{i}" in form:
+        asset_type = form[f"asset_type_{i}"]
+        identifier = form[f"asset_identifier_{i}"]
+        amount_str = form.get(f"asset_amount_{i}", "0")
+        
+        try:
+            amount = float(amount_str) if amount_str else 0.0
+        except ValueError:
+            amount = 0.0
+        
+        if asset_type and identifier:
+            assets_frozen.append({
+                "type": asset_type,
+                "identifier": identifier,
+                "amount_aed": amount
+            })
+        i += 1
+    
+    from ..cases import manager
+    manager.execute_freeze(
+        db,
+        freeze_id,
+        executed_by=operator,
+        assets_frozen=assets_frozen,
+        notes=notes
+    )
+    
+    return back(f"/freeze-obligations/{freeze_id}", msg="Freeze executed successfully.")
+
+@app.post("/freeze-obligations/{freeze_id}/file-ffr")
+async def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
+    """Create FFR report from freeze obligation."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+    
+    if session.role != "mlro":
+        return back(f"/freeze-obligations/{freeze_id}", err="File FFR requires MLRO role")
+    
+    org_id = session.org_id
+    operator = session.operator_name
+    
+    freeze = db.execute("""
+        SELECT f.*, c.reference, c.full_name, c.customer_type,
+               c.birth_date, c.gender, c.nationality, c.id_number, c.id_type
+        FROM freeze_obligations f
+        JOIN customers c ON c.id = f.customer_id
+        WHERE f.id = ? AND f.org_id = ?
+    """, (freeze_id, org_id)).fetchone()
+    
+    if not freeze or freeze["status"] != "executed_pending_report":
+        return back(f"/freeze-obligations/{freeze_id}", err="Freeze not ready for FFR filing")
+    
+    form = await request.form()
+    reporter_name = form.get("reporter_name") or operator
+    reporter_email = form.get("reporter_email", "")
+    
+    import json
+    report_payload = {
+        "report_type": "FFR",
+        "freeze_obligation_id": freeze_id,
+        "customer_id": freeze["customer_id"],
+        "obligation_type": freeze["obligation_type"],
+        "identified_at": freeze["identified_at"],
+        "executed_at": freeze["executed_at"],
+        "assets_frozen": json.loads(freeze["assets_frozen"] or "[]"),
+        "authority_ref": freeze["authority_ref"],
+        "reporter_name": reporter_name,
+        "reporter_email": reporter_email,
+        "first_name": freeze["full_name"].split()[0],
+        "last_name": " ".join(freeze["full_name"].split()[1:]),
+        "customer_type": freeze["customer_type"],
+        "reference": freeze["reference"],
+        "birth_date": freeze["birth_date"],
+        "gender": freeze["gender"],
+        "nationality": freeze["nationality"],
+        "id_number": freeze["id_number"],
+        "id_type": freeze["id_type"],
+    }
+    
+    from ..reporting import goaml
+    xml_content = goaml.serialize_goaml_xml(report_payload)
+    
+    from ..db import utcnow
+    now = utcnow()
+    cursor = db.execute("""
+        INSERT INTO reports
+        (org_id, customer_id, report_type, status, payload, created_at)
+        VALUES (?, ?, 'FFR', 'draft', ?, ?)
+    """, (org_id, freeze["customer_id"], json.dumps(report_payload), now))
+    report_id = cursor.lastrowid
+    
+    db.execute("""
+        UPDATE freeze_obligations
+        SET report_id = ?, reported_at = ?, status = 'reported'
+        WHERE id = ?
+    """, (report_id, now, freeze_id))
+    
+    from ..db import audit
+    audit(db, operator, "freeze.reported", "freeze_obligation", str(freeze_id),
+          {"report_id": report_id}, org_id=org_id)
+    db.commit()
+    
+    return RedirectResponse(f"/reports/{report_id}", status_code=303)
+
+@app.post("/freeze-obligations/{freeze_id}/resolve")
+async def freeze_obligation_resolve(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
+    """Resolve (close) freeze obligation."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+    
+    if session.role != "mlro":
+        return back(f"/freeze-obligations/{freeze_id}", err="Resolve freeze requires MLRO role")
+    
+    operator = session.operator_name
+    
+    form = await request.form()
+    resolution_reason = form.get("resolution_reason")
+    authority_ref = form.get("authority_ref", "")
+    notes = form.get("notes", "")
+    
+    from ..cases import manager
+    manager.resolve_freeze_obligation(
+        db,
+        freeze_id,
+        resolved_by=operator,
+        resolution_reason=resolution_reason,
+        authority_ref=authority_ref,
+        notes=notes
+    )
+    
+    return back(f"/freeze-obligations/{freeze_id}", msg="Obligation resolved successfully.")
 
 # ------------------------------------------------------------------ home
 @app.get("/", response_class=HTMLResponse)
