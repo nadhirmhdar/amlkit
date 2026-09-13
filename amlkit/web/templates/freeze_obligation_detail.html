@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}Freeze Obligation #{{ obligation.id }}{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>Freeze Obligation #{{ obligation.id }}</h1>
+  
+  <div class="obligation-header">
+    <div class="field">
+      <label>Customer:</label>
+      <a href="/customers/{{ obligation.customer_id }}">{{ obligation.customer_reference }} - {{ obligation.full_name }}</a>
+    </div>
+    <div class="field">
+      <label>Type:</label>
+      {{ obligation.obligation_type | title }}
+    </div>
+    <div class="field">
+      <label>Risk:</label>
+      {% if obligation.risk_category == 'critical' %}
+        <span class="badge badge-critical">🔴 CRITICAL</span>
+      {% else %}
+        <span class="badge badge-high">🟡 HIGH</span>
+      {% endif %}
+    </div>
+    <div class="field">
+      <label>Status:</label>
+      <strong>{{ obligation.status | replace('_', ' ') | title }}</strong>
+    </div>
+  </div>
+  
+  <!-- Timeline -->
+  <div class="timeline">
+    <div class="timeline-item completed">
+      <strong>✓ Identified</strong><br>
+      {{ obligation.identified_at }}<br>
+      by {{ obligation.identified_by }}
+    </div>
+    
+    <div class="timeline-item {% if obligation.executed_at %}completed{% else %}pending{% endif %}">
+      {% if obligation.executed_at %}
+        <strong>✓ Executed</strong><br>
+        {{ obligation.executed_at }}<br>
+        by {{ obligation.executed_by }}
+      {% else %}
+        <strong>⏳ Pending Execution</strong><br>
+        <em>Not yet executed</em>
+      {% endif %}
+    </div>
+    
+    <div class="timeline-item {% if obligation.reported_at %}completed{% else %}pending{% endif %}">
+      {% if obligation.reported_at %}
+        <strong>✓ Reported</strong><br>
+        {{ obligation.reported_at }}<br>
+        <a href="/reports/{{ obligation.report_id }}">Report #{{ obligation.report_id }}</a>
+      {% else %}
+        <strong>⏳ Pending Report</strong><br>
+        <em>FFR not yet filed</em>
+      {% endif %}
+    </div>
+    
+    <div class="timeline-item {% if obligation.resolved_at %}completed{% else %}pending{% endif %}">
+      {% if obligation.resolved_at %}
+        <strong>✓ Resolved</strong><br>
+        {{ obligation.resolved_at }}<br>
+        by {{ obligation.resolved_by }}<br>
+        Reason: {{ obligation.resolution_reason | replace('_', ' ') | title }}
+      {% else %}
+        <strong>⏳ Pending Resolution</strong>
+      {% endif %}
+    </div>
+  </div>
+  
+  <!-- Assets Frozen (if executed) -->
+  {% if obligation.assets_frozen_parsed %}
+  <div class="section">
+    <h2>Assets Frozen</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Identifier</th>
+          <th>Amount (AED)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for asset in obligation.assets_frozen_parsed %}
+        <tr>
+          <td>{{ asset.type | replace('_', ' ') | title }}</td>
+          <td>{{ asset.identifier }}</td>
+          <td>{{ "{:,.2f}".format(asset.amount_aed) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="2">Total:</th>
+          <th>{{ "{:,.2f}".format(obligation.assets_frozen_parsed | sum(attribute='amount_aed')) }}</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% endif %}
+  
+  <!-- Notes -->
+  {% if obligation.notes %}
+  <div class="section">
+    <h2>Notes</h2>
+    <p>{{ obligation.notes }}</p>
+  </div>
+  {% endif %}
+  
+  <!-- Action Buttons -->
+  <div class="actions">
+    {% if can_execute %}
+      <a href="/freeze-obligations/{{ obligation.id }}/execute" class="btn btn-primary">Execute Freeze</a>
+    {% endif %}
+    
+    {% if can_file_ffr %}
+      <a href="/freeze-obligations/{{ obligation.id }}/file-ffr" class="btn btn-primary">File FFR Report</a>
+    {% endif %}
+    
+    {% if can_resolve %}
+      <a href="/freeze-obligations/{{ obligation.id }}/resolve" class="btn btn-secondary">Resolve Obligation</a>
+    {% endif %}
+    
+    <a href="/freeze-obligations" class="btn">Back to List</a>
+  </div>
+</div>
+{% endblock %}
