@@ -24,7 +24,7 @@ from amlkit.cases.manager import (  # noqa: E402
     run_adverse_media,
     run_due_adverse_media,
 )
-from amlkit.db import connect, utcnow  # noqa: E402
+from amlkit.db import connect, upsert_dataset, utcnow  # noqa: E402
 from amlkit.screening.adverse_media import (  # noqa: E402
     SEVERITY_FINANCIAL_CRIME,
     SEVERITY_NONE,
@@ -70,6 +70,11 @@ class StubClient:
 @pytest.fixture()
 def conn():
     c = connect(":memory:")
+    # Create a fresh mandatory dataset so onboard() passes the staleness guard
+    ds = upsert_dataset(c, "test_list", "Test List", is_mandatory=True)
+    now = utcnow()
+    c.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
+    c.commit()
     yield c
     c.close()
 
@@ -430,10 +435,13 @@ class TestWebRoutes:
 
     @pytest.fixture()
     def web(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "web.db"))
+        db_file = tmp_path / "web.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
         monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from test_api import _register  # reuse the registration+verification flow
+        from test_api import _register, _seed_sanctions_data
+
+        _seed_sanctions_data(db_file)
 
         from fastapi.testclient import TestClient
 
@@ -561,8 +569,14 @@ class TestMobileApi:
 
     @pytest.fixture()
     def api(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "api.db"))
+        db_file = tmp_path / "api.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
         monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_api import _seed_sanctions_data
+
+        _seed_sanctions_data(db_file)
+
         from fastapi.testclient import TestClient
 
         from amlkit.api.app import app

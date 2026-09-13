@@ -75,6 +75,8 @@ def multi_org_db(tmp_path, monkeypatch):
     for tok in blocking_keys(name):
         conn.execute("INSERT OR IGNORE INTO name_tokens (token, entity_id) VALUES (?,?)",
                      (tok, eid))
+    conn.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
+
     # Create 3 organizations
     for org_name, slug in [("Firm Alpha", "firm-alpha"), ("Firm Beta", "firm-beta"), ("Firm Gamma", "firm-gamma")]:
         conn.execute(

@@ -81,6 +81,9 @@ def conn():
             )
             for tok in blocking_keys(nm):
                 c.execute("INSERT OR IGNORE INTO name_tokens (token, entity_id) VALUES (?,?)", (tok, eid))
+    # Make dataset fresh for consistency (though this test doesn't call onboard)
+    c.execute("UPDATE datasets SET last_refresh=?, entity_count=? WHERE id=?",
+              (now, len(WATCHLIST), ds))
     c.commit()
     yield c
     c.close()

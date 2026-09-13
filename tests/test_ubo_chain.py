@@ -37,6 +37,7 @@ def conn():
         " VALUES (?,?,?,?,?)", (eid, "TEST ENTITY", "primary", canonical_key("TEST ENTITY"), "latin"))
     for tok in blocking_keys("TEST ENTITY"):
         c.execute("INSERT OR IGNORE INTO name_tokens (token, entity_id) VALUES (?,?)", (tok, eid))
+    c.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
     c.commit()
     yield c
     c.close()
