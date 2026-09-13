@@ -517,5 +517,22 @@ def test_resolve_false_positive_before_execution():
     conn.close()
 
 
+def test_send_freeze_obligation_alert():
+    """Verify freeze obligation alert email can be sent."""
+    from amlkit import mail
+
+    # Test with no SMTP configured (should print to console)
+    result = mail.send_freeze_obligation_alert(
+        to_email="mlro@test.com",
+        freeze_obligation_id=1,
+        customer_reference="C-2026-001",
+        obligation_type="proliferation",
+        risk_category="critical"
+    )
+
+    # Should return NOT_CONFIGURED since SMTP is not set up in test
+    assert result == mail.NOT_CONFIGURED
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
