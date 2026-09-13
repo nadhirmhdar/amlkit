@@ -129,7 +129,7 @@
           proliferation match — a different operator must confirm.
         {% endif %}
       </p>
-      {% if not getattr(session, 'disclaimer_acknowledged', False) %}
+      {% if not session.disclaimer_acknowledged %}
       <p class="muted small">
         Screening results are decision support, not legal advice. A UAE-qualified
         adviser should sign off the risk model and reporting workflow before use on
@@ -163,7 +163,7 @@
     </div>
 
     {# Disclaimer acknowledgement modal — shown once on first login #}
-    {% if not getattr(session, 'disclaimer_acknowledged', False) %}
+    {% if not session.disclaimer_acknowledged %}
     <div id="disclaimer-modal" class="feedback-modal" style="display:block;">
       <div class="feedback-modal-content">
         <h3>Important Notice</h3>

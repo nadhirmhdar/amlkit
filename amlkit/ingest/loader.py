@@ -198,7 +198,7 @@ def staleness_report(conn: sqlite3.Connection) -> list[dict]:
             try:
                 ts = datetime.fromisoformat(row["last_refresh"])
                 hours = round((now - ts).total_seconds() / 3600, 1)
-            except ValueError:
+            except (ValueError, TypeError):
                 hours = None
         max_age = row["max_age_hours"] if row["max_age_hours"] else 24
         out.append(
@@ -238,7 +238,7 @@ def datasets_fresh(conn: sqlite3.Connection) -> bool:
             max_age = row["max_age_hours"] if row["max_age_hours"] else 24
             if hours <= max_age:
                 return True
-        except ValueError:
+        except (ValueError, TypeError):
             continue
 
     return False

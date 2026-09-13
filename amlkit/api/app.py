@@ -28,6 +28,7 @@ from fastapi.templating import Jinja2Templates
 from .. import auth, queries
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
+    StaleDatasetsError,
     add_case_note,
     add_ubo,
     close_relationship,
@@ -583,8 +584,8 @@ def acknowledge_disclaimer(
         return back("/", err=str(exc))
 
     db.execute(
-        "UPDATE operators SET disclaimer_acknowledged_at=? WHERE id=?",
-        (utcnow(), session.operator_id),
+        "UPDATE operators SET disclaimer_acknowledged_at=? WHERE id=? AND org_id=?",
+        (utcnow(), session.operator_id, session.org_id),
     )
     db.commit()
     return back("/", msg="Disclaimer acknowledged.")
@@ -1042,6 +1043,8 @@ def customer_create(
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         )
+    except StaleDatasetsError as exc:
+        return back("/customers/new", err=str(exc))
     except sqlite3.IntegrityError:
         return back("/customers/new", err=f"Reference {reference!r} already exists.")
 

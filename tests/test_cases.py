@@ -326,7 +326,8 @@ class TestRetention:
         assert row["status"] == "closed"
         assert row["retention_until"] == until
         from datetime import date
-        assert int(until[:4]) - date.today().year == 8
+        expected = date.today().replace(year=date.today().year + 8)
+        assert until == expected.isoformat()
 
 
 class TestPurgeExpired:

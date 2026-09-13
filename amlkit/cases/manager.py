@@ -398,7 +398,12 @@ def close_relationship(
     conn: sqlite3.Connection, customer_id: int, org_id: int, actor: str = "system"
 ) -> str:
     """Mark a customer inactive and set the 8-year retention date."""
-    until = (date.today() + timedelta(days=365 * RETENTION_YEARS)).isoformat()
+    today = date.today()
+    try:
+        until = today.replace(year=today.year + RETENTION_YEARS).isoformat()
+    except ValueError:
+        # Feb 29 → Feb 28 in the target year (non-leap)
+        until = (today + timedelta(days=365 * RETENTION_YEARS + 1)).isoformat()
     with conn:
         conn.execute(
             "UPDATE customers SET status='closed', retention_until=?, updated_at=?"
@@ -452,8 +457,11 @@ def purge_expired(
                 if p and not p.startswith("gs://"):
                     try:
                         Path(p).unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            "purge_expired: could not delete file %s: %s", p, e
+                        )
 
             conn.execute("DELETE FROM adverse_media_findings WHERE customer_id=? AND org_id=?", (cid, org_id))
             conn.execute("DELETE FROM adverse_media_screenings WHERE customer_id=? AND org_id=?", (cid, org_id))
