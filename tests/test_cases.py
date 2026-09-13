@@ -72,6 +72,15 @@ def conn():
     c.close()
 
 
+@pytest.fixture()
+def conn_clean():
+    """A fresh connection with no datasets—for testing staleness scenarios."""
+    c = connect(":memory:")
+    c.commit()
+    yield c
+    c.close()
+
+
 class TestRiskModel:
     def test_clean_individual_is_low(self) -> None:
         r = assess(CustomerProfile(sector="professional_services"))
@@ -419,67 +428,68 @@ class TestPurgeExpired:
 
 
 class TestStalenessGuard:
-    def test_datasets_fresh_with_good_data(self, conn) -> None:
+    def test_datasets_fresh_with_good_data(self, conn_clean) -> None:
         """Mandatory dataset with entities and recent refresh → True."""
         from amlkit.db import upsert_dataset, utcnow
-        ds_id = upsert_dataset(conn, "fresh_list", "Fresh List", is_mandatory=True)
-        conn.execute(
+        ds_id = upsert_dataset(conn_clean, "fresh_list", "Fresh List", is_mandatory=True)
+        conn_clean.execute(
             "UPDATE datasets SET entity_count=100, last_refresh=? WHERE id=?",
             (utcnow(), ds_id),
         )
-        conn.commit()
-        assert datasets_fresh(conn) is True
+        conn_clean.commit()
+        assert datasets_fresh(conn_clean) is True
 
-    def test_datasets_fresh_with_stale_data(self, conn) -> None:
+    def test_datasets_fresh_with_stale_data(self, conn_clean) -> None:
         """Mandatory dataset past max_age_hours → False."""
         from amlkit.db import upsert_dataset
-        conn.execute("DELETE FROM datasets")
-        ds_id = upsert_dataset(conn, "stale_list", "Stale List", is_mandatory=True)
-        conn.execute(
+        ds_id = upsert_dataset(conn_clean, "stale_list", "Stale List", is_mandatory=True)
+        conn_clean.execute(
             "UPDATE datasets SET entity_count=100, last_refresh='2020-01-01T00:00:00+00:00' WHERE id=?",
             (ds_id,),
         )
-        conn.commit()
-        assert datasets_fresh(conn) is False
+        conn_clean.commit()
+        assert datasets_fresh(conn_clean) is False
 
-    def test_datasets_fresh_with_zero_entities(self, conn) -> None:
+    def test_datasets_fresh_with_zero_entities(self, conn_clean) -> None:
         """Mandatory dataset with entity_count=0 → False."""
         from amlkit.db import upsert_dataset, utcnow
-        conn.execute("DELETE FROM datasets")
-        ds_id = upsert_dataset(conn, "empty_list", "Empty List", is_mandatory=True)
-        conn.execute(
+        ds_id = upsert_dataset(conn_clean, "empty_list", "Empty List", is_mandatory=True)
+        conn_clean.execute(
             "UPDATE datasets SET entity_count=0, last_refresh=? WHERE id=?",
             (utcnow(), ds_id),
         )
-        conn.commit()
-        assert datasets_fresh(conn) is False
+        conn_clean.commit()
+        assert datasets_fresh(conn_clean) is False
 
-    def test_datasets_fresh_no_mandatory_datasets(self, conn) -> None:
+    def test_datasets_fresh_no_mandatory_datasets(self, conn_clean) -> None:
         """Only non-mandatory datasets → False."""
         from amlkit.db import upsert_dataset, utcnow
-        conn.execute("DELETE FROM datasets")
-        ds_id = upsert_dataset(conn, "optional_list", "Optional List", is_mandatory=False)
-        conn.execute(
+        ds_id = upsert_dataset(conn_clean, "optional_list", "Optional List", is_mandatory=False)
+        conn_clean.execute(
             "UPDATE datasets SET entity_count=100, last_refresh=? WHERE id=?",
             (utcnow(), ds_id),
         )
-        conn.commit()
-        assert datasets_fresh(conn) is False
+        conn_clean.commit()
+        assert datasets_fresh(conn_clean) is False
 
-    def test_datasets_fresh_no_datasets(self, conn) -> None:
+    def test_datasets_fresh_no_datasets(self, conn_clean) -> None:
         """Empty datasets table → False."""
-        conn.execute("DELETE FROM datasets")
-        conn.commit()
-        assert datasets_fresh(conn) is False
+        assert datasets_fresh(conn_clean) is False
 
-    def test_onboard_blocked_when_stale(self, conn, org_id) -> None:
+    def test_onboard_blocked_when_stale(self, conn_clean) -> None:
         """onboard raises StaleDatasetsError when datasets are stale."""
-        conn.execute("DELETE FROM datasets")
-        conn.commit()
+        from amlkit.db import upsert_dataset as create_org
+        org_row = conn_clean.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+            " RETURNING id",
+            ("Test Org", "test-org", "active", utcnow()),
+        ).fetchone()
+        conn_clean.commit()
+        org_id = org_row["id"]
         with pytest.raises(StaleDatasetsError):
-            onboard(conn, org_id=org_id, reference="STALE-1", full_name="Test Customer")
+            onboard(conn_clean, org_id=org_id, reference="STALE-1", full_name="Test Customer")
 
     def test_onboard_succeeds_when_fresh(self, conn, org_id) -> None:
-        """onboard proceeds normally when datasets are fresh."""
+        """onboard proceeds normally when datasets are fresh (fixture has test_list fresh)."""
         res = onboard(conn, org_id=org_id, reference="FRESH-1", full_name="Test Customer")
         assert res.customer_id > 0
