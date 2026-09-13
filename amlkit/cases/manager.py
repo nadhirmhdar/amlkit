@@ -1273,3 +1273,240 @@ def run_due_adverse_media(
         "new_findings": new_findings,
         "still_due": max(0, len(adverse_media_due(conn, org_id))),
     }
+
+
+# ---------------------------------------------------------- TFS freeze tracking
+# Targeted Financial Sanctions freeze obligations. Cabinet Resolution 134/2025
+# places personal liability on senior management for TFS compliance failures.
+
+
+def create_freeze_obligation(
+    conn: sqlite3.Connection,
+    org_id: int,
+    customer_id: int,
+    *,
+    alert_id: int | None = None,
+    obligation_type: str,
+    risk_category: str,
+    identified_by: str,
+    notes: str = "",
+) -> int:
+    """Create a new TFS freeze obligation.
+
+    Returns the freeze_obligation_id.
+
+    Automatically:
+    - Sets status='pending_execution'
+    - Sets identified_at=now()
+    - Logs audit entry (freeze.identified)
+
+    Raises:
+        ValueError: invalid obligation_type or risk_category
+    """
+    # Validate inputs
+    valid_types = {"sanctions", "proliferation", "terrorism"}
+    if obligation_type not in valid_types:
+        raise ValueError(
+            f"Invalid obligation_type: {obligation_type!r}. "
+            f"Must be one of: {', '.join(sorted(valid_types))}"
+        )
+
+    valid_categories = {"high", "critical"}
+    if risk_category not in valid_categories:
+        raise ValueError(
+            f"Invalid risk_category: {risk_category!r}. "
+            f"Must be one of: {', '.join(sorted(valid_categories))}"
+        )
+
+    now = utcnow()
+
+    # Insert freeze obligation
+    cursor = conn.execute(
+        """INSERT INTO freeze_obligations
+           (org_id, customer_id, alert_id, obligation_type, risk_category,
+            identified_at, identified_by, notes, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, customer_id, alert_id, obligation_type, risk_category,
+         now, identified_by, notes, "pending_execution")
+    )
+    freeze_id = cursor.lastrowid
+
+    # Log audit entry
+    audit(
+        conn,
+        identified_by,
+        "freeze.identified",
+        "freeze_obligation",
+        str(freeze_id),
+        {
+            "customer_id": customer_id,
+            "alert_id": alert_id,
+            "obligation_type": obligation_type,
+            "risk_category": risk_category,
+        },
+        org_id=org_id,
+    )
+
+    conn.commit()
+    return freeze_id
+
+
+def execute_freeze(
+    conn: sqlite3.Connection,
+    freeze_obligation_id: int,
+    *,
+    executed_by: str,
+    assets_frozen: list[dict[str, Any]],
+    notes: str = "",
+) -> None:
+    """Mark a freeze obligation as executed.
+
+    Updates:
+    - status='executed_pending_report'
+    - executed_at=now()
+    - executed_by
+    - assets_frozen (JSON)
+
+    Logs audit entry (freeze.executed).
+
+    Raises:
+        ValueError: obligation already executed or resolved
+    """
+    # Check current status
+    row = conn.execute(
+        "SELECT status, executed_at, org_id FROM freeze_obligations WHERE id = ?",
+        (freeze_obligation_id,)
+    ).fetchone()
+
+    if not row:
+        raise ValueError(f"Freeze obligation {freeze_obligation_id} not found")
+
+    status = row["status"]
+    if row["executed_at"] is not None:
+        raise ValueError(
+            f"Freeze obligation {freeze_obligation_id} already executed at {row['executed_at']}"
+        )
+
+    if status == "resolved":
+        raise ValueError(
+            f"Cannot execute freeze obligation {freeze_obligation_id}: already resolved"
+        )
+
+    org_id = row["org_id"]
+    now = utcnow()
+
+    # Update freeze obligation
+    conn.execute(
+        """UPDATE freeze_obligations
+           SET status = 'executed_pending_report',
+               executed_at = ?,
+               executed_by = ?,
+               assets_frozen = ?,
+               notes = ?
+           WHERE id = ?""",
+        (now, executed_by, json.dumps(assets_frozen), notes, freeze_obligation_id)
+    )
+
+    # Log audit entry
+    audit(
+        conn,
+        executed_by,
+        "freeze.executed",
+        "freeze_obligation",
+        str(freeze_obligation_id),
+        {
+            "asset_count": len(assets_frozen),
+            "total_amount_aed": sum(a.get("amount_aed", 0) for a in assets_frozen),
+        },
+        org_id=org_id,
+    )
+
+    conn.commit()
+
+
+def resolve_freeze_obligation(
+    conn: sqlite3.Connection,
+    freeze_obligation_id: int,
+    *,
+    resolved_by: str,
+    resolution_reason: str,
+    authority_ref: str = "",
+    notes: str = "",
+) -> None:
+    """Close a freeze obligation (lift freeze or confirm false positive).
+
+    Updates:
+    - status='resolved'
+    - resolved_at=now()
+    - resolved_by
+    - resolution_reason
+    - authority_ref
+
+    Logs audit entry (freeze.resolved).
+
+    Raises:
+        ValueError: invalid resolution_reason or obligation not executed
+    """
+    # Validate resolution reason
+    valid_reasons = {"delisted", "false_positive", "authority_clearance"}
+    if resolution_reason not in valid_reasons:
+        raise ValueError(
+            f"Invalid resolution_reason: {resolution_reason!r}. "
+            f"Must be one of: {', '.join(sorted(valid_reasons))}"
+        )
+
+    # Check current status
+    row = conn.execute(
+        "SELECT status, executed_at, org_id FROM freeze_obligations WHERE id = ?",
+        (freeze_obligation_id,)
+    ).fetchone()
+
+    if not row:
+        raise ValueError(f"Freeze obligation {freeze_obligation_id} not found")
+
+    status = row["status"]
+    org_id = row["org_id"]
+
+    # Allow resolving as false_positive without execution
+    if resolution_reason != "false_positive" and row["executed_at"] is None:
+        raise ValueError(
+            f"Cannot resolve freeze obligation {freeze_obligation_id} with "
+            f"reason '{resolution_reason}': obligation not executed. "
+            f"Use 'false_positive' to resolve without execution."
+        )
+
+    if status == "resolved":
+        raise ValueError(
+            f"Freeze obligation {freeze_obligation_id} already resolved"
+        )
+
+    now = utcnow()
+
+    # Update freeze obligation
+    conn.execute(
+        """UPDATE freeze_obligations
+           SET status = 'resolved',
+               resolved_at = ?,
+               resolved_by = ?,
+               resolution_reason = ?,
+               authority_ref = ?,
+               notes = ?
+           WHERE id = ?""",
+        (now, resolved_by, resolution_reason, authority_ref, notes, freeze_obligation_id)
+    )
+
+    # Log audit entry
+    audit(
+        conn,
+        resolved_by,
+        "freeze.resolved",
+        "freeze_obligation",
+        str(freeze_obligation_id),
+        {
+            "resolution_reason": resolution_reason,
+            "authority_ref": authority_ref,
+        },
+        org_id=org_id,
+    )
+
+    conn.commit()
