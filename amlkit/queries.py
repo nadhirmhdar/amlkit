@@ -110,6 +110,98 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
     }
 
 
+def dashboard_kpis(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
+    """Compute management KPIs for dashboard (Phase 4, Item 4).
+
+    Returns:
+        {
+            "total_customers": 123,
+            "total_active_customers": 98,
+            "avg_alert_age_days": 4.5,
+            "alerts_closed_7d": 12,
+            "alerts_opened_7d": 8,
+            "sla_breaches": 2,  # alerts open > 30 days
+            "screening_coverage_pct": 100.0,
+        }
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    seven_days_ago = (now - timedelta(days=7)).isoformat()
+    thirty_days_ago = (now - timedelta(days=30)).isoformat()
+
+    # Customer counts
+    counts = conn.execute(
+        """SELECT
+             (SELECT COUNT(*) FROM customers WHERE org_id=?) AS total,
+             (SELECT COUNT(*) FROM customers WHERE org_id=? AND status='active') AS active""",
+        (org_id, org_id),
+    ).fetchone()
+
+    # Average alert age (open alerts only)
+    open_alerts = conn.execute(
+        "SELECT created_at FROM alerts WHERE org_id=? AND status='open'",
+        (org_id,)
+    ).fetchall()
+
+    if open_alerts:
+        total_age_seconds = 0
+        for row in open_alerts:
+            try:
+                created = datetime.fromisoformat(row["created_at"])
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                age_seconds = (now - created).total_seconds()
+                total_age_seconds += age_seconds
+            except (ValueError, TypeError):
+                continue
+        avg_alert_age_days = total_age_seconds / len(open_alerts) / 86400
+    else:
+        avg_alert_age_days = 0.0
+
+    # SLA breaches (alerts open > 30 days)
+    sla_breaches = conn.execute(
+        "SELECT COUNT(*) c FROM alerts WHERE org_id=? AND status='open' AND created_at < ?",
+        (org_id, thirty_days_ago)
+    ).fetchone()["c"]
+
+    # Alerts closed in last 7 days
+    alerts_closed_7d = conn.execute(
+        "SELECT COUNT(*) c FROM alerts WHERE org_id=? AND dispositioned_at >= ?",
+        (org_id, seven_days_ago)
+    ).fetchone()["c"]
+
+    # Alerts opened in last 7 days
+    alerts_opened_7d = conn.execute(
+        "SELECT COUNT(*) c FROM alerts WHERE org_id=? AND created_at >= ?",
+        (org_id, seven_days_ago)
+    ).fetchone()["c"]
+
+    # Screening coverage (% of active customers screened)
+    active_count = counts["active"]
+    if active_count > 0:
+        screened_count = conn.execute(
+            """SELECT COUNT(DISTINCT customer_id) c FROM screenings
+               WHERE org_id=? AND customer_id IN (
+                   SELECT id FROM customers WHERE org_id=? AND status='active'
+               )""",
+            (org_id, org_id)
+        ).fetchone()["c"]
+        screening_coverage_pct = (screened_count / active_count) * 100.0
+    else:
+        screening_coverage_pct = 100.0  # vacuous truth
+
+    return {
+        "total_customers": counts["total"],
+        "total_active_customers": counts["active"],
+        "avg_alert_age_days": round(avg_alert_age_days, 1),
+        "alerts_closed_7d": alerts_closed_7d,
+        "alerts_opened_7d": alerts_opened_7d,
+        "sla_breaches": sla_breaches,
+        "screening_coverage_pct": round(screening_coverage_pct, 1),
+    }
+
+
 def alert_queue(
     conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
     alert_id: int | None = None, customer_id: int | None = None
