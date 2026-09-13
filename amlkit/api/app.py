@@ -938,7 +938,7 @@ def freeze_obligation_detail(request: Request, db: DB, freeze_id: int):
     })
 
 @app.post("/freeze-obligations/{freeze_id}/execute")
-def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
+async def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
     """Execute freeze obligation - mark as executed with assets frozen."""
     try:
         session = require_session(request, db)
@@ -986,7 +986,7 @@ def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, csrf_tok
     return back(f"/freeze-obligations/{freeze_id}", msg="Freeze executed successfully.")
 
 @app.post("/freeze-obligations/{freeze_id}/file-ffr")
-def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
+async def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
     """Create FFR report from freeze obligation."""
     try:
         session = require_session(request, db)
@@ -1064,7 +1064,7 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, csrf_to
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
-def freeze_obligation_resolve(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
+async def freeze_obligation_resolve(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
     """Resolve (close) freeze obligation."""
     try:
         session = require_session(request, db)

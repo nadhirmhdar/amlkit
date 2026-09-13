@@ -33,6 +33,7 @@
       {% endif %}
       {% if session.operator_role == 'mlro' %}
         <a href="/admin" class="{{ 'on' if nav=='admin' }}">Admin</a>
+        <a href="/freeze-obligations" class="{{ 'on' if nav=='freeze' }}">Freeze Obligations</a>
       {% endif %}
       <a href="/about" class="{{ 'on' if nav=='about' }}">About</a>
     </nav>
