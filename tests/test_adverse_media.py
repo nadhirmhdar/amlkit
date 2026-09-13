@@ -24,7 +24,7 @@ from amlkit.cases.manager import (  # noqa: E402
     run_adverse_media,
     run_due_adverse_media,
 )
-from amlkit.db import connect, utcnow  # noqa: E402
+from amlkit.db import connect, upsert_dataset, utcnow  # noqa: E402
 from amlkit.screening.adverse_media import (  # noqa: E402
     SEVERITY_FINANCIAL_CRIME,
     SEVERITY_NONE,
@@ -70,6 +70,11 @@ class StubClient:
 @pytest.fixture()
 def conn():
     c = connect(":memory:")
+    # Create a fresh mandatory dataset so onboard() passes the staleness guard
+    ds = upsert_dataset(c, "test_list", "Test List", is_mandatory=True)
+    now = utcnow()
+    c.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
+    c.commit()
     yield c
     c.close()
 

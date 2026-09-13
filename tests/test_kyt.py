@@ -15,13 +15,18 @@ from amlkit.cases.manager import (  # noqa: E402
     reassess_transaction_risk,
     record_transaction,
 )
-from amlkit.db import connect, utcnow  # noqa: E402
+from amlkit.db import connect, upsert_dataset, utcnow  # noqa: E402
 from amlkit.screening.kyt import LARGE_CASH_THRESHOLD_AED  # noqa: E402
 
 
 @pytest.fixture()
 def conn():
     c = connect(":memory:")
+    # Create a fresh mandatory dataset so onboard() passes the staleness guard
+    ds = upsert_dataset(c, "test_list", "Test List", is_mandatory=True)
+    now = utcnow()
+    c.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
+    c.commit()
     yield c
     c.close()
 
