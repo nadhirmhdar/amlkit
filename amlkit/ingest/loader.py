@@ -198,7 +198,7 @@ def staleness_report(conn: sqlite3.Connection) -> list[dict]:
             try:
                 ts = datetime.fromisoformat(row["last_refresh"])
                 hours = round((now - ts).total_seconds() / 3600, 1)
-            except ValueError:
+            except (ValueError, TypeError):
                 hours = None
         max_age = row["max_age_hours"] if row["max_age_hours"] else 24
         out.append(
@@ -212,3 +212,33 @@ def staleness_report(conn: sqlite3.Connection) -> list[dict]:
             }
         )
     return out
+
+
+def datasets_fresh(conn: sqlite3.Connection) -> bool:
+    """True when at least one mandatory dataset has a non-zero entity count
+    and was refreshed within its max_age_hours window.
+
+    Not org-scoped: datasets are shared reference data.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    rows = conn.execute(
+        "SELECT entity_count, last_refresh, max_age_hours FROM datasets WHERE is_mandatory=1"
+    ).fetchall()
+
+    for row in rows:
+        if row["entity_count"] == 0:
+            continue
+        if not row["last_refresh"]:
+            continue
+        try:
+            ts = datetime.fromisoformat(row["last_refresh"])
+            hours = (now - ts).total_seconds() / 3600
+            max_age = row["max_age_hours"] if row["max_age_hours"] else 24
+            if hours <= max_age:
+                return True
+        except (ValueError, TypeError):
+            continue
+
+    return False

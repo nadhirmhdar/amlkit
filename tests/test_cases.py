@@ -10,12 +10,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from amlkit.cases.manager import (  # noqa: E402
+    RETENTION_YEARS,
     UBO_THRESHOLD_PCT,
+    StaleDatasetsError,
     add_ubo,
     close_relationship,
     onboard,
     ownership_state,
+    purge_expired,
 )
+from amlkit.ingest.loader import datasets_fresh  # noqa: E402
 from amlkit.db import connect, upsert_dataset, utcnow  # noqa: E402
 from amlkit.names.arabic import blocking_keys, canonical_key  # noqa: E402
 from amlkit.risk.model import CustomerProfile, assess, ruleset  # noqa: E402
@@ -48,6 +52,8 @@ def conn():
     c = connect(":memory:")
     ds = upsert_dataset(c, "test_list", "Synthetic Test List", is_mandatory=True)
     now = utcnow()
+    # Make dataset fresh so onboarding tests pass
+    c.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
     cur = c.execute(
         """INSERT INTO entities (dataset_id, source_id, schema_type, caption,
            countries, birth_date, gender, topics, raw, first_seen, last_seen)
@@ -308,7 +314,10 @@ class TestRetention:
         assert len(nominee_ubos) == 1
         assert nominee_ubos[0]["person_name"] == "Visible Nominee"
 
-    def test_five_year_retention_recorded(self, conn, org_id) -> None:
+    def test_retention_years_is_eight(self) -> None:
+        assert RETENTION_YEARS == 8
+
+    def test_close_relationship_sets_eight_year_retention(self, conn, org_id) -> None:
         res = onboard(conn, org_id=org_id, reference="C-300", full_name="Ahmed Al Mansoori")
         until = close_relationship(conn, res.customer_id, org_id=org_id)
         row = conn.execute(
@@ -317,4 +326,160 @@ class TestRetention:
         assert row["status"] == "closed"
         assert row["retention_until"] == until
         from datetime import date
-        assert int(until[:4]) - date.today().year == 5
+        expected = date.today().replace(year=date.today().year + 8)
+        assert until == expected.isoformat()
+
+
+class TestPurgeExpired:
+    def test_purge_expired_deletes_closed_customer(self, conn, org_id) -> None:
+        """Closed customer past retention_until is purged."""
+        res = onboard(conn, org_id=org_id, reference="P-1", full_name="Old Customer")
+        conn.execute(
+            "UPDATE customers SET status='closed', retention_until='2020-01-01' WHERE id=?",
+            (res.customer_id,),
+        )
+        conn.commit()
+        result = purge_expired(conn, org_id)
+        assert result["purged"] == 1
+        row = conn.execute("SELECT id FROM customers WHERE id=?", (res.customer_id,)).fetchone()
+        assert row is None
+
+    def test_purge_expired_skips_active_customer(self, conn, org_id) -> None:
+        """Active customer is NOT purged even with retention_until set."""
+        res = onboard(conn, org_id=org_id, reference="P-2", full_name="Active Customer")
+        conn.execute(
+            "UPDATE customers SET retention_until='2020-01-01' WHERE id=?",
+            (res.customer_id,),
+        )
+        conn.commit()
+        result = purge_expired(conn, org_id)
+        assert result["purged"] == 0
+        row = conn.execute("SELECT id FROM customers WHERE id=?", (res.customer_id,)).fetchone()
+        assert row is not None
+
+    def test_purge_expired_skips_null_retention(self, conn, org_id) -> None:
+        """Closed customer without retention_until is NOT purged."""
+        res = onboard(conn, org_id=org_id, reference="P-3", full_name="No Date Customer")
+        conn.execute(
+            "UPDATE customers SET status='closed', retention_until=NULL WHERE id=?",
+            (res.customer_id,),
+        )
+        conn.commit()
+        result = purge_expired(conn, org_id)
+        assert result["purged"] == 0
+
+    def test_purge_expired_deletes_associated_data(self, conn, org_id) -> None:
+        """UBOs, screenings, alerts, transactions, notes all deleted with customer."""
+        res = onboard(conn, org_id=org_id, reference="P-4", full_name="Cascade Customer",
+                      customer_type="legal",
+                      ubos=[{"person_name": "Some Owner", "ownership_pct": 60.0}])
+        cid = res.customer_id
+        from amlkit.cases.manager import add_case_note, record_transaction
+        add_case_note(conn, cid, org_id, author="test", body="Test note")
+        record_transaction(conn, cid, org_id, direction="inbound", method="wire",
+                          amount=1000.0, actor="test")
+        conn.execute(
+            "UPDATE customers SET status='closed', retention_until='2020-01-01' WHERE id=?",
+            (cid,),
+        )
+        conn.commit()
+        purge_expired(conn, org_id)
+        assert conn.execute("SELECT COUNT(*) c FROM ubo_links WHERE customer_id=?", (cid,)).fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) c FROM screenings WHERE customer_id=?", (cid,)).fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) c FROM case_notes WHERE customer_id=?", (cid,)).fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) c FROM transactions WHERE customer_id=?", (cid,)).fetchone()["c"] == 0
+
+    def test_purge_expired_audit_survives(self, conn, org_id) -> None:
+        """Audit log entry for purge exists after customer row is deleted."""
+        res = onboard(conn, org_id=org_id, reference="P-5", full_name="Audit Survivor")
+        conn.execute(
+            "UPDATE customers SET status='closed', retention_until='2020-01-01' WHERE id=?",
+            (res.customer_id,),
+        )
+        conn.commit()
+        purge_expired(conn, org_id)
+        purge_entries = conn.execute(
+            "SELECT COUNT(*) c FROM audit_log WHERE action='customer.purge' AND object_id=?",
+            (str(res.customer_id),),
+        ).fetchone()["c"]
+        assert purge_entries >= 1
+
+    def test_purge_dry_run_does_not_delete(self, conn, org_id) -> None:
+        """dry_run returns list but leaves data intact."""
+        res = onboard(conn, org_id=org_id, reference="P-6", full_name="Dry Run Customer")
+        conn.execute(
+            "UPDATE customers SET status='closed', retention_until='2020-01-01' WHERE id=?",
+            (res.customer_id,),
+        )
+        conn.commit()
+        result = purge_expired(conn, org_id, dry_run=True)
+        assert result["purged"] == 1
+        row = conn.execute("SELECT id FROM customers WHERE id=?", (res.customer_id,)).fetchone()
+        assert row is not None, "dry_run must not delete anything"
+
+
+class TestStalenessGuard:
+    def test_datasets_fresh_with_good_data(self, conn) -> None:
+        """Mandatory dataset with entities and recent refresh → True."""
+        from amlkit.db import upsert_dataset, utcnow
+        ds_id = upsert_dataset(conn, "fresh_list", "Fresh List", is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=100, last_refresh=? WHERE id=?",
+            (utcnow(), ds_id),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is True
+
+    def test_datasets_fresh_with_stale_data(self, conn) -> None:
+        """Mandatory dataset past max_age_hours → False."""
+        from amlkit.db import upsert_dataset
+        conn.execute("DELETE FROM datasets")
+        ds_id = upsert_dataset(conn, "stale_list", "Stale List", is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=100, last_refresh='2020-01-01T00:00:00+00:00' WHERE id=?",
+            (ds_id,),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is False
+
+    def test_datasets_fresh_with_zero_entities(self, conn) -> None:
+        """Mandatory dataset with entity_count=0 → False."""
+        from amlkit.db import upsert_dataset, utcnow
+        conn.execute("DELETE FROM datasets")
+        ds_id = upsert_dataset(conn, "empty_list", "Empty List", is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=0, last_refresh=? WHERE id=?",
+            (utcnow(), ds_id),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is False
+
+    def test_datasets_fresh_no_mandatory_datasets(self, conn) -> None:
+        """Only non-mandatory datasets → False."""
+        from amlkit.db import upsert_dataset, utcnow
+        conn.execute("DELETE FROM datasets")
+        ds_id = upsert_dataset(conn, "optional_list", "Optional List", is_mandatory=False)
+        conn.execute(
+            "UPDATE datasets SET entity_count=100, last_refresh=? WHERE id=?",
+            (utcnow(), ds_id),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is False
+
+    def test_datasets_fresh_no_datasets(self, conn) -> None:
+        """Empty datasets table → False."""
+        conn.execute("DELETE FROM datasets")
+        conn.commit()
+        assert datasets_fresh(conn) is False
+
+    def test_onboard_blocked_when_stale(self, conn, org_id) -> None:
+        """onboard raises StaleDatasetsError when datasets are stale."""
+        conn.execute("DELETE FROM datasets")
+        conn.commit()
+        with pytest.raises(StaleDatasetsError):
+            onboard(conn, org_id=org_id, reference="STALE-1", full_name="Test Customer")
+
+    def test_onboard_succeeds_when_fresh(self, conn, org_id) -> None:
+        """onboard proceeds normally when datasets are fresh."""
+        res = onboard(conn, org_id=org_id, reference="FRESH-1", full_name="Test Customer")
+        assert res.customer_id > 0

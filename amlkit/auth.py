@@ -109,6 +109,7 @@ class SessionInfo:
     operator_role: str
     email: str
     super_admin: bool = False
+    disclaimer_acknowledged: bool = False
 
 
 def create_session(conn: sqlite3.Connection, operator_id: int, org_id: int) -> str:
@@ -141,7 +142,7 @@ def resolve_session(conn: sqlite3.Connection, raw_token: str | None) -> SessionI
         return None
     row = conn.execute(
         """SELECT s.operator_id, s.org_id, s.expires_at, s.revoked_at,
-                  o.name, o.role, o.email, o.is_active, o.super_admin
+                  o.name, o.role, o.email, o.is_active, o.super_admin, o.disclaimer_acknowledged_at
            FROM sessions s JOIN operators o ON o.id = s.operator_id
            WHERE s.token_hash = ?""",
         (_token_hash(raw_token),),
@@ -154,6 +155,7 @@ def resolve_session(conn: sqlite3.Connection, raw_token: str | None) -> SessionI
         operator_id=row["operator_id"], org_id=row["org_id"],
         operator_name=row["name"], operator_role=row["role"], email=row["email"],
         super_admin=bool(row["super_admin"]),
+        disclaimer_acknowledged=bool(row["disclaimer_acknowledged_at"]),
     )
 
 
@@ -209,7 +211,8 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
 
     row = conn.execute(
         """SELECT id, org_id, name, role, email, password_hash, is_active,
-                  failed_login_count, locked_until, email_verified_at, super_admin
+                  failed_login_count, locked_until, email_verified_at, super_admin,
+                  disclaimer_acknowledged_at
            FROM operators WHERE lower(email) = ?""",
         (email,),
     ).fetchone()
@@ -286,6 +289,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
         operator_id=row["id"], org_id=row["org_id"],
         operator_name=row["name"], operator_role=row["role"], email=row["email"],
         super_admin=bool(row["super_admin"]),
+        disclaimer_acknowledged=bool(row.get("disclaimer_acknowledged_at")),
     )
     return token, info
 
