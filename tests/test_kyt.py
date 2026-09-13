@@ -315,3 +315,75 @@ class TestRiskFeedback:
         conn.commit()
         result = reassess_transaction_risk(conn, res.customer_id, org_id, actor="tester")
         assert result is None
+
+
+class TestConfigurableKYTRules:
+    """Tests for configurable KYT rules (Phase 4, Item 3)."""
+
+    def test_get_rule_config_defaults(self, conn, org_id) -> None:
+        """Returns module defaults when no DB config exists."""
+        from amlkit.screening.kyt import get_rule_config, LARGE_CASH_THRESHOLD_AED
+
+        config = get_rule_config(conn, org_id)
+
+        assert config["large_cash_threshold_aed"] == LARGE_CASH_THRESHOLD_AED
+        assert config["structuring_window_days"] == 7
+        assert config["velocity_window_hours"] == 24
+        assert config["velocity_max_count"] == 5
+        assert isinstance(config["high_risk_countries"], list)
+
+    def test_get_rule_config_from_db(self, conn, org_id) -> None:
+        """Returns DB values when present."""
+        from amlkit.screening.kyt import get_rule_config, save_rule_config
+
+        # Save custom config
+        custom = {
+            "large_cash_threshold_aed": 100000.0,
+            "structuring_window_days": 14,
+            "velocity_window_hours": 48,
+            "velocity_max_count": 10,
+            "high_risk_countries": ["KP", "IR"],
+        }
+        save_rule_config(conn, org_id, custom, actor="test-admin")
+        conn.commit()
+
+        # Load config
+        config = get_rule_config(conn, org_id)
+
+        assert config["large_cash_threshold_aed"] == 100000.0
+        assert config["structuring_window_days"] == 14
+        assert config["velocity_window_hours"] == 48
+        assert config["velocity_max_count"] == 10
+        assert config["high_risk_countries"] == ["KP", "IR"]
+
+    def test_save_rule_config_validates_thresholds(self, conn, org_id) -> None:
+        """Rejects negative or zero thresholds."""
+        from amlkit.screening.kyt import save_rule_config
+
+        with pytest.raises(ValueError, match="threshold must be positive"):
+            save_rule_config(conn, org_id, {"large_cash_threshold_aed": -1000}, actor="test")
+
+        with pytest.raises(ValueError, match="window_days must be positive"):
+            save_rule_config(conn, org_id, {"structuring_window_days": 0}, actor="test")
+
+    def test_custom_threshold_affects_evaluation(self, conn, org_id, customer_id) -> None:
+        """Custom threshold changes which transactions trigger alerts."""
+        from amlkit.screening.kyt import save_rule_config
+
+        # Raise threshold to 100k (default is 55k)
+        save_rule_config(conn, org_id, {"large_cash_threshold_aed": 100000.0}, actor="test")
+        conn.commit()
+
+        # 60k cash transaction should NOT trigger (below new threshold)
+        _, triggered = record_transaction(
+            conn, customer_id, org_id, direction="inbound", method="cash",
+            amount=60000.0, actor="tester",
+        )
+        assert len(triggered) == 0, "60k should not trigger with 100k threshold"
+
+        # 110k cash transaction SHOULD trigger (above new threshold)
+        _, triggered = record_transaction(
+            conn, customer_id, org_id, direction="inbound", method="cash",
+            amount=110000.0, actor="tester",
+        )
+        assert any(t.rule_key == "large_cash" for t in triggered), "110k should trigger with 100k threshold"

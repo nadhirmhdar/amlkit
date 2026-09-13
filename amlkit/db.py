@@ -748,6 +748,13 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # Document expiry date for KYC documents (passport, Emirates ID, trade license).
     # NULL for documents without an expiry (e.g., incorporation certificates).
     ("documents", "expiry_date", "ALTER TABLE documents ADD COLUMN expiry_date TEXT"),
+    # Configurable KYT rule settings (Phase 4, Item 3).
+    # NULL means use module defaults from kyt.py.
+    ("org_settings", "kyt_large_cash_threshold", "ALTER TABLE org_settings ADD COLUMN kyt_large_cash_threshold REAL"),
+    ("org_settings", "kyt_structuring_window_days", "ALTER TABLE org_settings ADD COLUMN kyt_structuring_window_days INTEGER"),
+    ("org_settings", "kyt_velocity_window_hours", "ALTER TABLE org_settings ADD COLUMN kyt_velocity_window_hours INTEGER"),
+    ("org_settings", "kyt_velocity_max_count", "ALTER TABLE org_settings ADD COLUMN kyt_velocity_max_count INTEGER"),
+    ("org_settings", "kyt_high_risk_countries", "ALTER TABLE org_settings ADD COLUMN kyt_high_risk_countries TEXT"),  # JSON list
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
