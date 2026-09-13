@@ -38,13 +38,30 @@ def _require(report_data: dict, key: str, label: str) -> str:
 
 
 def serialize_goaml_xml(report_data: dict) -> str:
-    """Serialize a report payload into a standard goAML XML format."""
+    """Serialize a report payload into a standard goAML XML format.
+
+    Supported report types: STR, SAR, PNMR, FFR, HRCT, HRCA, DPMSR, REAR, DTR
+
+    FFR (Fund Freeze Report) specific requirements:
+    - freeze_obligation_id (required)
+    - obligation_type ('sanctions' | 'proliferation' | 'terrorism')
+    - assets_frozen (list of asset dicts with type/identifier/amount_aed)
+    - identified_at, executed_at (ISO timestamps)
+    """
     report_code = report_data.get("report_type", "STR").upper()
     now = datetime.now(timezone.utc)
     now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # FFR-specific validation
+    if report_code == "FFR":
+        freeze_id = report_data.get("freeze_obligation_id")
+        if not freeze_id:
+            raise GoAMLValidationError(
+                "Cannot export FFR: freeze obligation ID is required."
+            )
+
     root = ET.Element("report")
-    
+
     # Report Header
     ET.SubElement(root, "report_code").text = report_code
     ET.SubElement(root, "entity_reference").text = report_data.get("entity_reference") or "GROVISOR-AML"
@@ -56,7 +73,7 @@ def serialize_goaml_xml(report_data: dict) -> str:
     rep_ent = ET.SubElement(root, "reporting_entity")
     ET.SubElement(rep_ent, "reporting_entity_name").text = report_data.get("reporting_entity_name") or "Grovisor Consultants"
     ET.SubElement(rep_ent, "reporting_entity_branch").text = report_data.get("reporting_entity_branch") or "Dubai HQ"
-    
+
     # Reporter Details. The reporting officer is legally accountable for this
     # filing, so their name/email must be the real submitter's, never a
     # placeholder that would silently misattribute the filing.
@@ -68,11 +85,37 @@ def serialize_goaml_xml(report_data: dict) -> str:
     ET.SubElement(reporter, "last_name").text = " ".join(reporter_name_parts[1:]) or reporter_name_parts[0]
     ET.SubElement(reporter, "email").text = reporter_email
 
-    # Reason / Narrative (Narrative attachment reference goes here)
+    # Reason / Narrative - FFR-specific for freeze obligations
     narrative = ET.SubElement(root, "reason")
-    ET.SubElement(narrative, "reason_description").text = report_data.get("reason_description") or "Suspicious name match or transaction activity detected."
-    if report_data.get("action_taken"):
-        ET.SubElement(narrative, "action_taken").text = report_data["action_taken"]
+    if report_code == "FFR":
+        obligation_type = report_data.get("obligation_type", "sanctions")
+        type_labels = {
+            "proliferation": "Proliferation Financing (Federal Decree-Law No. 10 of 2025)",
+            "terrorism": "Terrorism Financing",
+            "sanctions": "Targeted Financial Sanctions"
+        }
+        type_label = type_labels.get(obligation_type, "Sanctions")
+
+        assets_frozen = report_data.get("assets_frozen") or []
+        total_aed = sum(a.get("amount_aed", 0) for a in assets_frozen)
+
+        freeze_desc = (
+            f"{type_label} freeze obligation executed. "
+            f"Assets frozen: {len(assets_frozen)} item(s), "
+            f"total value AED {total_aed:,.2f}. "
+            f"Freeze obligation reference: #{report_data.get('freeze_obligation_id')}. "
+            f"Identified: {report_data.get('identified_at', 'N/A')}, "
+            f"Executed: {report_data.get('executed_at', 'N/A')}."
+        )
+        if report_data.get("authority_ref"):
+            freeze_desc += f" Authority reference: {report_data['authority_ref']}."
+
+        ET.SubElement(narrative, "reason_description").text = freeze_desc
+        ET.SubElement(narrative, "action_taken").text = "Asset freeze executed per UAE TFS obligations"
+    else:
+        ET.SubElement(narrative, "reason_description").text = report_data.get("reason_description") or "Suspicious name match or transaction activity detected."
+        if report_data.get("action_taken"):
+            ET.SubElement(narrative, "action_taken").text = report_data["action_taken"]
 
     # Subject details (Natural or Legal person being reported)
     subject = ET.SubElement(root, "subject")
@@ -109,7 +152,26 @@ def serialize_goaml_xml(report_data: dict) -> str:
 
     # Transaction / Activity Node
     has_txn = report_data.get("amount") or report_data.get("transaction_type")
-    if has_txn:
+    # FFR always uses activity block (not transaction), even if it has amounts
+    if report_code == "FFR":
+        act = ET.SubElement(root, "activity")
+        assets_frozen = report_data.get("assets_frozen") or []
+        if assets_frozen:
+            # Build detailed asset freeze description
+            asset_details = []
+            for i, asset in enumerate(assets_frozen, 1):
+                asset_type = asset.get("type", "unknown")
+                identifier = asset.get("identifier", "N/A")
+                amount = asset.get("amount_aed", 0)
+                asset_details.append(f"{i}. {asset_type}: {identifier} (AED {amount:,.2f})")
+            asset_list = "; ".join(asset_details)
+            desc = f"Asset freeze executed for {report_data.get('obligation_type', 'sanctions')} obligation. Frozen assets: {asset_list}"
+        else:
+            desc = f"Asset freeze executed for {report_data.get('obligation_type', 'sanctions')} obligation. No liquid assets identified at time of freeze."
+
+        ET.SubElement(act, "activity_description").text = desc
+        ET.SubElement(act, "status_code").text = "SUSPENDED"
+    elif has_txn:
         tx = ET.SubElement(root, "transaction")
         # Second-granularity local time let two STRs filed within the same
         # second collide on transactionnumber. Use the same UTC instant as
@@ -137,7 +199,7 @@ def serialize_goaml_xml(report_data: dict) -> str:
         # Non-financial reports still need an activity block
         act = ET.SubElement(root, "activity")
         ET.SubElement(act, "activity_description").text = f"Activity reported under {report_code} due to sanctions match screening."
-        ET.SubElement(act, "status_code").text = "SUSPENDED" if report_code in ("PNMR", "FFR") else "MONITORED"
+        ET.SubElement(act, "status_code").text = "SUSPENDED" if report_code in ("PNMR",) else "MONITORED"
 
     # Narrative PDF Attachment (evidence pack) reference metadata
     if report_data.get("evidence_pack_attached"):
