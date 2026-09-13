@@ -1770,8 +1770,9 @@ def upload_policy(
     """Upload a new policy document, auto-incrementing version if title exists.
 
     Storage:
-        - Path: data/policies/{org_id}/{filename}
-        - Files stored on disk, path stored in DB
+        - Uses storage.upload_policy() for backend-agnostic storage
+        - Local: data/policies/{org_id}/{filename}
+        - GCS: gs://{bucket}/policies/{org_id}/{filename}
 
     Versioning:
         - If title already exists, version = MAX(version) + 1
@@ -1789,7 +1790,7 @@ def upload_policy(
     Raises:
         ValueError: invalid category, unsupported file type, or file too large
     """
-    import os
+    from ..storage import upload_policy as store_policy
 
     # Validation
     if category not in VALID_POLICY_CATEGORIES:
@@ -1802,13 +1803,8 @@ def upload_policy(
         size_mb = len(file_content) / (1024 * 1024)
         raise ValueError(f"File too large: {size_mb:.1f} MB. Maximum size is 10 MB.")
 
-    # Store file on disk
-    policy_dir = f"data/policies/{org_id}"
-    os.makedirs(policy_dir, exist_ok=True)
-    stored_path = f"{policy_dir}/{filename}"
-
-    with open(stored_path, "wb") as f:
-        f.write(file_content)
+    # Store file via storage abstraction
+    stored_path = store_policy(file_content, org_id, filename)
 
     # Transaction-safe version increment + insert
     with conn:
@@ -1867,6 +1863,8 @@ def get_policy(
     Raises:
         ValueError: policy not found or org_id mismatch
     """
+    from ..storage import download_policy
+
     row = conn.execute(
         """SELECT id, title, category, filename, stored_path, version, uploaded_by, uploaded_at
            FROM policy_documents
@@ -1877,10 +1875,9 @@ def get_policy(
     if row is None:
         raise ValueError(f"Policy not found: id={policy_id}")
 
-    # Read file from disk
+    # Read file via storage abstraction
     try:
-        with open(row["stored_path"], "rb") as f:
-            file_content = f.read()
+        file_content = download_policy(row["stored_path"])
     except (FileNotFoundError, OSError) as e:
         raise ValueError(f"Policy file missing or unreadable: {e}")
 

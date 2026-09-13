@@ -105,3 +105,49 @@ def _upload_local(content: bytes, org_id: int, customer_id: int, filename: str) 
     dest = dest_dir / filename
     dest.write_bytes(content)
     return str(dest)
+
+
+# ------------------------------------------------------------------------
+# Policy Document Storage (Phase 4 enhancement)
+# ------------------------------------------------------------------------
+
+POLICIES_DIR = DB_PATH.parent / "policies"
+
+
+def upload_policy(content: bytes, org_id: int, filename: str) -> str:
+    """Store policy document content and return stored_path.
+
+    Policies are org-wide (no customer_id). Stored at:
+        - Local: data/policies/{org_id}/{filename}
+        - GCS: gs://{bucket}/policies/{org_id}/{filename}
+    """
+    if _GCS_BUCKET:
+        return _upload_policy_gcs(content, org_id, filename)
+    return _upload_policy_local(content, org_id, filename)
+
+
+def download_policy(stored_path: str) -> bytes:
+    """Retrieve policy bytes from wherever stored_path points.
+
+    Same backend-agnostic download as regular documents.
+    """
+    if stored_path.startswith("gs://"):
+        return _download_gcs(stored_path)
+    return Path(stored_path).read_bytes()
+
+
+def _upload_policy_local(content: bytes, org_id: int, filename: str) -> str:
+    dest_dir = POLICIES_DIR / str(org_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / filename
+    dest.write_bytes(content)
+    return str(dest)
+
+
+def _upload_policy_gcs(content: bytes, org_id: int, filename: str) -> str:
+    client = _gcs_client()
+    bucket = client.bucket(_GCS_BUCKET)
+    object_name = f"policies/{org_id}/{filename}"
+    blob = bucket.blob(object_name)
+    blob.upload_from_string(content)
+    return f"gs://{_GCS_BUCKET}/{blob.name}"
