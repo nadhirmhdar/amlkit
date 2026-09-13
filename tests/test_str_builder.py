@@ -46,6 +46,10 @@ def client(tmp_path, monkeypatch):
     db_file = tmp_path / "test.db"
     monkeypatch.setenv("AMLKIT_DB", str(db_file))
     monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from test_api import _seed_sanctions_data
+
+    _seed_sanctions_data(db_file)
 
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
