@@ -39,6 +39,11 @@ from ..screening.adverse_media import (
     worst_severity,
 )
 
+
+class StaleDatasetsError(Exception):
+    """Raised when onboarding is attempted with stale or empty sanctions data."""
+
+
 UBO_THRESHOLD_PCT = 25.0
 RETENTION_YEARS = 8
 
@@ -124,6 +129,13 @@ def onboard(
     rating to high regardless of every other factor -- the two are not
     independent inputs.
     """
+    from ..ingest.loader import datasets_fresh
+
+    if not datasets_fresh(conn):
+        raise StaleDatasetsError(
+            "Cannot onboard: no fresh mandatory sanctions dataset available"
+        )
+
     now = utcnow()
     ck = canonical_key(full_name)
 
