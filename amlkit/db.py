@@ -745,6 +745,9 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("operators", "disclaimer_acknowledged_at", "ALTER TABLE operators ADD COLUMN disclaimer_acknowledged_at TEXT"),
     ("datasets",  "last_error",    "ALTER TABLE datasets ADD COLUMN last_error TEXT"),
     ("datasets",  "error_at",      "ALTER TABLE datasets ADD COLUMN error_at TEXT"),
+    # Document expiry date for KYC documents (passport, Emirates ID, trade license).
+    # NULL for documents without an expiry (e.g., incorporation certificates).
+    ("documents", "expiry_date", "ALTER TABLE documents ADD COLUMN expiry_date TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)

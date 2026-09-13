@@ -1602,3 +1602,86 @@ def check_unexecuted_freeze_obligations(
         )
 
     return overdue
+
+
+def check_document_expiry(
+    conn: sqlite3.Connection,
+    org_id: int,
+    *,
+    warning_days: int = 30,
+) -> dict[str, Any]:
+    """Find documents expiring soon or already expired.
+
+    Returns:
+        {
+            "expiring_soon": [{"customer_id": ..., "doc_type": ..., "expiry_date": ..., "days_remaining": ...}],
+            "expired": [{"customer_id": ..., "doc_type": ..., "expiry_date": ..., "days_overdue": ...}],
+        }
+
+    Documents with NULL expiry_date are skipped (not all doc types have expiry).
+    """
+    from datetime import date
+
+    today = date.today()
+    warning_date = (today + timedelta(days=warning_days)).isoformat()
+    today_str = today.isoformat()
+
+    # Find expiring soon (within warning window but not yet expired)
+    expiring_rows = conn.execute(
+        """SELECT d.customer_id, d.doc_type, d.expiry_date, c.reference, c.full_name
+           FROM documents d
+           JOIN customers c ON c.id = d.customer_id
+           WHERE d.org_id = ? AND d.expiry_date IS NOT NULL
+             AND d.expiry_date > ? AND d.expiry_date <= ?
+           ORDER BY d.expiry_date""",
+        (org_id, today_str, warning_date),
+    ).fetchall()
+
+    expiring_soon = []
+    for row in expiring_rows:
+        try:
+            expiry = date.fromisoformat(row["expiry_date"])
+            days_remaining = (expiry - today).days
+            expiring_soon.append({
+                "customer_id": row["customer_id"],
+                "customer_reference": row["reference"],
+                "customer_name": row["full_name"],
+                "doc_type": row["doc_type"],
+                "expiry_date": row["expiry_date"],
+                "days_remaining": days_remaining,
+            })
+        except (ValueError, TypeError):
+            # Invalid date format - skip
+            continue
+
+    # Find expired (expiry_date in the past)
+    expired_rows = conn.execute(
+        """SELECT d.customer_id, d.doc_type, d.expiry_date, c.reference, c.full_name
+           FROM documents d
+           JOIN customers c ON c.id = d.customer_id
+           WHERE d.org_id = ? AND d.expiry_date IS NOT NULL AND d.expiry_date < ?
+           ORDER BY d.expiry_date""",
+        (org_id, today_str),
+    ).fetchall()
+
+    expired = []
+    for row in expired_rows:
+        try:
+            expiry = date.fromisoformat(row["expiry_date"])
+            days_overdue = (today - expiry).days
+            expired.append({
+                "customer_id": row["customer_id"],
+                "customer_reference": row["reference"],
+                "customer_name": row["full_name"],
+                "doc_type": row["doc_type"],
+                "expiry_date": row["expiry_date"],
+                "days_overdue": days_overdue,
+            })
+        except (ValueError, TypeError):
+            # Invalid date format - skip
+            continue
+
+    return {
+        "expiring_soon": expiring_soon,
+        "expired": expired,
+    }
