@@ -10,7 +10,7 @@ an inspection. Three obligations drive the design:
 * **Identify the UBO at 25%, with fallback.** Cabinet Res. 134/2025 sets the
   threshold and requires falling back to the senior managing official where no
   one meets it. Inability to identify a UBO is scored as opacity, not ignored.
-* **Retain for five years after the relationship ends.** The retention date is
+* **Retain for eight years after the relationship ends.** The retention date is
   computed and stored rather than left to policy.
 """
 
@@ -40,7 +40,7 @@ from ..screening.adverse_media import (
 )
 
 UBO_THRESHOLD_PCT = 25.0
-RETENTION_YEARS = 5
+RETENTION_YEARS = 8
 
 
 @dataclass(slots=True)
@@ -385,7 +385,7 @@ def resolve_ubo_chain(
 def close_relationship(
     conn: sqlite3.Connection, customer_id: int, org_id: int, actor: str = "system"
 ) -> str:
-    """Mark a customer inactive and set the 5-year retention date."""
+    """Mark a customer inactive and set the 8-year retention date."""
     until = (date.today() + timedelta(days=365 * RETENTION_YEARS)).isoformat()
     with conn:
         conn.execute(
@@ -396,6 +396,69 @@ def close_relationship(
         audit(conn, actor, "customer.close", "customer", customer_id,
               {"retention_until": until}, org_id=org_id)
     return until
+
+
+def purge_expired(
+    conn: sqlite3.Connection,
+    org_id: int,
+    *,
+    actor: str = "system",
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Delete customers whose retention_until has passed.
+
+    Only purges customers with status='closed' AND retention_until < now.
+    Audit entry is written BEFORE each deletion so the record of purging
+    survives the customer row being gone.
+    """
+    from pathlib import Path
+
+    now = date.today().isoformat()
+    rows = conn.execute(
+        "SELECT id, reference FROM customers"
+        " WHERE org_id=? AND status='closed'"
+        " AND retention_until IS NOT NULL AND retention_until < ?",
+        (org_id, now),
+    ).fetchall()
+
+    details = [{"customer_id": r["id"], "reference": r["reference"]} for r in rows]
+    if dry_run:
+        return {"purged": len(details), "details": details, "dry_run": True}
+
+    for row in rows:
+        cid = row["id"]
+        with conn:
+            audit(conn, actor, "customer.purge", "customer", cid,
+                  {"reference": row["reference"]}, org_id=org_id)
+
+            doc_paths = conn.execute(
+                "SELECT stored_path FROM documents WHERE customer_id=? AND org_id=?",
+                (cid, org_id),
+            ).fetchall()
+            for doc in doc_paths:
+                p = doc["stored_path"]
+                if p and not p.startswith("gs://"):
+                    try:
+                        Path(p).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
+            conn.execute("DELETE FROM adverse_media_findings WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM adverse_media_screenings WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM alert_reviews WHERE alert_id IN (SELECT a.id FROM alerts a JOIN screenings s ON s.id=a.screening_id WHERE s.customer_id=? AND a.org_id=?)", (cid, org_id))
+            conn.execute("DELETE FROM alerts WHERE screening_id IN (SELECT id FROM screenings WHERE customer_id=?) AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM screenings WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM transaction_alerts WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM transactions WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM ubo_links WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM risk_assessments WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM documents WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM case_notes WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM signatures WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM reports WHERE customer_id=? AND org_id=?", (cid, org_id))
+            conn.execute("DELETE FROM customers WHERE id=? AND org_id=?", (cid, org_id))
+
+    return {"purged": len(details), "details": details}
 
 
 def due_for_review(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
