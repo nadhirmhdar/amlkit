@@ -435,10 +435,13 @@ class TestWebRoutes:
 
     @pytest.fixture()
     def web(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "web.db"))
+        db_file = tmp_path / "web.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
         monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from test_api import _register  # reuse the registration+verification flow
+        from test_api import _register, _seed_sanctions_data
+
+        _seed_sanctions_data(db_file)
 
         from fastapi.testclient import TestClient
 
@@ -566,8 +569,14 @@ class TestMobileApi:
 
     @pytest.fixture()
     def api(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "api.db"))
+        db_file = tmp_path / "api.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
         monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_api import _seed_sanctions_data
+
+        _seed_sanctions_data(db_file)
+
         from fastapi.testclient import TestClient
 
         from amlkit.api.app import app

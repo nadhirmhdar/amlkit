@@ -45,7 +45,7 @@ class StaleDatasetsError(Exception):
 
 
 UBO_THRESHOLD_PCT = 25.0
-RETENTION_YEARS = 8
+RETENTION_YEARS = 5
 
 
 @dataclass(slots=True)
@@ -397,8 +397,13 @@ def resolve_ubo_chain(
 def close_relationship(
     conn: sqlite3.Connection, customer_id: int, org_id: int, actor: str = "system"
 ) -> str:
-    """Mark a customer inactive and set the 8-year retention date."""
-    until = (date.today() + timedelta(days=365 * RETENTION_YEARS)).isoformat()
+    """Mark a customer inactive and set the retention date."""
+    today = date.today()
+    try:
+        until = today.replace(year=today.year + RETENTION_YEARS).isoformat()
+    except ValueError:
+        # Feb 29 in a leap year → Feb 28 in target year (non-leap)
+        until = (today + timedelta(days=365 * RETENTION_YEARS + 1)).isoformat()
     with conn:
         conn.execute(
             "UPDATE customers SET status='closed', retention_until=?, updated_at=?"

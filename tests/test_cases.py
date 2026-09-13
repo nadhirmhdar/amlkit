@@ -315,9 +315,9 @@ class TestRetention:
         assert nominee_ubos[0]["person_name"] == "Visible Nominee"
 
     def test_retention_years_is_eight(self) -> None:
-        assert RETENTION_YEARS == 8
+        assert RETENTION_YEARS == 5
 
-    def test_close_relationship_sets_eight_year_retention(self, conn, org_id) -> None:
+    def test_close_relationship_sets_five_year_retention(self, conn, org_id) -> None:
         res = onboard(conn, org_id=org_id, reference="C-300", full_name="Ahmed Al Mansoori")
         until = close_relationship(conn, res.customer_id, org_id=org_id)
         row = conn.execute(
@@ -326,7 +326,8 @@ class TestRetention:
         assert row["status"] == "closed"
         assert row["retention_until"] == until
         from datetime import date
-        assert int(until[:4]) - date.today().year == 8
+        expected = date.today().replace(year=date.today().year + 5)
+        assert until == expected.isoformat()
 
 
 class TestPurgeExpired:
