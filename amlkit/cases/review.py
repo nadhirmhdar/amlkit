@@ -103,6 +103,95 @@ def _alert_categories(
     return classify_programs(programs), topics
 
 
+def _auto_create_freeze_if_required(
+    conn: sqlite3.Connection,
+    alert_id: int,
+    org_id: int,
+    status: str,
+    operator: str,
+) -> int | None:
+    """Auto-create freeze obligation for confirmed PF/sanctions alerts.
+
+    Called after alert disposition. If disposition='true_positive' AND alert has
+    PF/sanctions classification, create freeze obligation automatically.
+
+    Returns freeze_obligation_id if created, None otherwise.
+
+    Cabinet Resolution 134/2025 places personal liability on senior management
+    for TFS compliance failures. Confirmed matches require immediate freeze
+    action, so the obligation is created automatically rather than relying on
+    manual workflow.
+    """
+    # Only create freeze for confirmed matches
+    if status != "true_positive":
+        return None
+
+    # Get alert categories and topics
+    try:
+        categories, topics = _alert_categories(conn, alert_id, org_id)
+    except ReviewError:
+        # Alert not found or other error - already handled elsewhere
+        return None
+
+    # Check if this is a freeze-worthy hit
+    is_freeze_worthy = bool(categories) or "sanction" in topics
+    if not is_freeze_worthy:
+        return None
+
+    # Determine obligation type
+    if "proliferation" in categories:
+        obligation_type = "proliferation"
+    elif "terrorism" in categories:
+        obligation_type = "terrorism"
+    else:
+        obligation_type = "sanctions"  # Generic sanctions or no specific program
+
+    # Get customer_id and risk rating from alert
+    alert_row = conn.execute(
+        """SELECT s.customer_id, r.rating
+           FROM alerts a
+           JOIN screenings s ON s.id = a.screening_id
+           LEFT JOIN customers c ON c.id = s.customer_id
+           LEFT JOIN risk_assessments r ON r.customer_id = c.id AND r.org_id = a.org_id
+           WHERE a.id = ? AND a.org_id = ?
+           ORDER BY r.assessed_at DESC
+           LIMIT 1""",
+        (alert_id, org_id)
+    ).fetchone()
+
+    if not alert_row or not alert_row["customer_id"]:
+        # Ad-hoc screening without customer_id - no freeze obligation needed
+        return None
+
+    customer_id = alert_row["customer_id"]
+
+    # Determine risk category
+    # Critical if: proliferation financing (Law 10/2025 elevated offense) OR
+    # customer already rated high-risk by risk model
+    is_critical = (
+        obligation_type == "proliferation" or
+        (alert_row["rating"] or "").lower() == "high"
+    )
+    risk_category = "critical" if is_critical else "high"
+
+    # Import here to avoid circular dependency
+    from . import manager
+
+    # Create freeze obligation
+    freeze_id = manager.create_freeze_obligation(
+        conn,
+        org_id,
+        customer_id,
+        alert_id=alert_id,
+        obligation_type=obligation_type,
+        risk_category=risk_category,
+        identified_by=operator,
+        notes=f"Auto-created from confirmed alert #{alert_id}",
+    )
+
+    return freeze_id
+
+
 def needs_independent_review(
     conn: sqlite3.Connection, alert_id: int, org_id: int, status: str
 ) -> bool:
@@ -207,6 +296,11 @@ def propose_disposition(
                "awaiting_second_review": awaiting, "independent_review": independent},
               org_id=org_id)
 
+        # Auto-create freeze obligation if this is a confirmed PF/sanctions match
+        # and not awaiting review (applied immediately)
+        if not awaiting:
+            _auto_create_freeze_if_required(conn, alert_id, org_id, applied_status, operator)
+
     return ReviewOutcome(alert_id, applied_status, awaiting, independent, message)
 
 
@@ -284,6 +378,9 @@ def confirm_disposition(
         audit(conn, operator, f"alert.{action}", "alert", alert_id,
               {"status": status, "reason_code": code,
                "proposed_by": proposal["operator"]}, org_id=org_id)
+
+        # Auto-create freeze obligation if confirmed PF/sanctions match
+        _auto_create_freeze_if_required(conn, alert_id, org_id, status, operator)
 
     return ReviewOutcome(
         alert_id, status, False, "completed",
