@@ -61,55 +61,81 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
 
-      - name: Fetch and parse every mandatory source
+      - name: Fetch and parse every source
         run: |
           python - <<'PY'
           import sys
           from amlkit.db import connect
           from amlkit.ingest.base import AdapterError
           from amlkit.ingest.loader import load
-          from amlkit.ingest.eocn import uae_local_terrorists
-          from amlkit.ingest.cia import cia_world_leaders
-          from amlkit.ingest.un import UNSanctionsAdapter
-          from amlkit.ingest.ofac import OFACSDNAdapter
-          from amlkit.ingest.uk import UKSanctionsAdapter
 
-          # Every source the deployment actually screens against, straight
-          # from the primary publisher. This is the canary for THAT set: the
-          # previous version watched the OpenSanctions mirrors instead, which
-          # are no longer what production loads, so upstream drift in the real
-          # sources would not have shown up here.
+          # WHICH sources to check comes from ONE place: scripts/heartbeat.py's
+          # ALL_SOURCES. This job used to re-list the adapters inline and had
+          # already drifted from that list -- it hardcoded five and omitted EU,
+          # so EU drift would never have shown up here, the exact silent
+          # coverage loss this canary exists to catch. Importing the shared
+          # list makes that drift structurally impossible: add a source in one
+          # place and both the heartbeat and this canary pick it up.
           #
-          # Expected minimum entity counts. A source that suddenly returns far
-          # fewer records has usually changed format rather than been emptied,
-          # and that must fail rather than quietly shrink coverage.
+          # This canary still does MORE than the heartbeat: it not only
+          # fetch()es but parse()s and enforces a per-source minimum
+          # entity-count floor, catching a source that changed format and
+          # shrank rather than one that went fully offline.
+          from scripts.heartbeat import ALL_SOURCES
+
+          # Expected minimum entity counts, keyed by dataset. A source that
+          # suddenly returns far fewer records has usually changed format
+          # rather than been emptied; for a mandatory source that must fail
+          # rather than quietly shrink coverage.
           EXPECTED = {
               "ae_local_terrorists": 250,
               "un_consolidated": 700,
               "ofac_sdn": 12000,
               "uk_sanctions": 4000,
               "us_cia_world_leaders": 4000,
+              "eu_sanctions": 2000,
           }
 
           conn = connect(":memory:")
-          failed = []
-          for factory in (uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
-                          UKSanctionsAdapter, cia_world_leaders):
+          failed = []   # mandatory problems -> fail the build
+          warned = []   # optional/degradable problems -> warn only, never block
+          # Blocking is decided per-adapter by is_mandatory (the adapter is the
+          # single source of truth for that too), NOT by a second hardcoded
+          # list here. EU is the one non-mandatory sanctions source (its FSF
+          # token can be rotated/rate-limited without notice -- see README), so
+          # a EU failure degrades coverage rather than blocking a deploy; the
+          # adverse-media step below treats GDELT the same non-blocking way.
+          for factory in ALL_SOURCES:
               adapter = factory()
+              mandatory = adapter.is_mandatory
               try:
                   res = load(conn, adapter, actor="ci")
                   floor = EXPECTED.get(res.dataset, 1)
                   if res.entities < floor:
-                      failed.append(
-                          f"{res.dataset}: {res.entities} entities, expected >= {floor}"
-                      )
-                      print(f"::error::{res.dataset} returned only {res.entities} entities")
+                      msg = f"{res.dataset}: {res.entities} entities, expected >= {floor}"
+                      if mandatory:
+                          failed.append(msg)
+                          print(f"::error::{res.dataset} returned only {res.entities} entities")
+                      else:
+                          warned.append(msg)
+                          print(f"::warning::{res.dataset} returned only {res.entities} "
+                                f"entities (optional source; not blocking)")
                   else:
                       print(f"OK  {res}")
               except AdapterError as exc:
-                  failed.append(f"{adapter.key}: {exc}")
-                  print(f"::error::{adapter.key} failed: {exc}")
+                  msg = f"{adapter.key}: {exc}"
+                  if mandatory:
+                      failed.append(msg)
+                      print(f"::error::{adapter.key} failed: {exc}")
+                  else:
+                      warned.append(msg)
+                      print(f"::warning::{adapter.key} failed (optional source; "
+                            f"not blocking): {exc}")
 
+          if warned:
+              print("\nOPTIONAL SOURCE DEGRADATION (not blocking):")
+              for w in warned:
+                  print(f"  - {w}")
           if failed:
               print("\nUPSTREAM SOURCE FAILURE:")
               for f in failed:
@@ -183,6 +209,27 @@ jobs:
           print(f"OK  GDELT: {len(articles)} articles parsed, "
                 f"{adverse} classified adverse.")
           PY
+
+  heartbeat:
+    name: Source connectivity heartbeat
+    runs-on: ubuntu-latest
+    # A deliberately lightweight counterpart to the `sources` job above: it
+    # only fetch()es each source (no parse, no entity-count floors), so it is
+    # cheap enough to run as a fast connectivity smoke test. It iterates the
+    # SAME shared list -- scripts/heartbeat.py's ALL_SOURCES -- as the canary,
+    # which is the whole point: one authoritative source list, exercised by
+    # both, so neither can silently drop a source. Mandatory-source failure
+    # exits 1 and fails this job; optional sources (EU) only warn, matching the
+    # canary. Wiring the script into CI means it can no longer rot unnoticed.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run connectivity heartbeat
+        run: python scripts/heartbeat.py
 
   deploy:
     name: Deploy to Cloud Run

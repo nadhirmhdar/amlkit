@@ -26,6 +26,15 @@ from amlkit.ingest.ofac import OFACSDNAdapter  # noqa: E402
 from amlkit.ingest.eu import EUSanctionsAdapter  # noqa: E402
 from amlkit.ingest.uk import UKSanctionsAdapter  # noqa: E402
 
+# THE canonical list of every upstream this deployment screens against, as
+# adapter factories. This is the single source of truth for "which sources do
+# we check": both this connectivity heartbeat AND the daily drift canary
+# (.github/workflows/source-canary.yml, `sources` job) iterate THIS list.
+# Keeping one hand-maintained copy is deliberate — a second inline copy in the
+# canary had already drifted (it omitted EU), silently dropping a source from
+# coverage, which is the exact failure the canary exists to prevent. Whether
+# each source blocks the build is decided per-adapter via `is_mandatory`, so it
+# too has one source of truth (the adapter) rather than a hardcoded list.
 ALL_SOURCES = [
     uae_local_terrorists,
     UNSanctionsAdapter,
