@@ -1686,6 +1686,49 @@ def admin_view(request: Request, db: DB):
     })
 
 
+@app.get("/admin/compliance", response_class=HTMLResponse)
+def compliance_health_view(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
+    from ..ingest.loader import staleness_report
+    report = staleness_report(db)
+    # Enrich with last_error / error_at from the datasets table
+    error_info = {
+        row["key"]: {"last_error": row["last_error"], "error_at": row["error_at"]}
+        for row in db.execute("SELECT key, last_error, error_at FROM datasets").fetchall()
+    }
+    datasets = []
+    for ds in report:
+        ei = error_info.get(ds["key"], {})
+        last_error = ei.get("last_error")
+        error_at = ei.get("error_at")
+        max_age = 24  # default
+        # Determine status
+        if last_error:
+            status = "FAIL"
+        elif ds["breach"]:
+            status = "BREACH"
+        elif ds["hours_since_refresh"] is not None and ds["hours_since_refresh"] > max_age:
+            status = "STALE"
+        else:
+            status = "OK"
+        datasets.append({
+            **ds,
+            "last_error": last_error,
+            "error_at": error_at,
+            "status": status,
+        })
+    return render(request, "compliance.html", {
+        "session": session,
+        "datasets": datasets,
+    })
+
+
 @app.post("/admin/threshold")
 def admin_set_threshold(
     request: Request, db: DB,

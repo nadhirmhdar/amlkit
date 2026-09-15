@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% set nav = 'admin' %}
+{% block title %}Compliance Health — Grovisor amlkit{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div class="eyebrow">Admin</div>
+  <h1>Compliance Health Dashboard</h1>
+  <p class="sub">
+    Sanctions source freshness and error monitoring.
+    <a href="/admin" class="ml-4" style="font-weight:600;">← Back to Admin</a>
+  </p>
+</div>
+
+<div class="mb-6">
+  <div class="section-label">Dataset Health</div>
+  <p class="muted small" style="margin-top:-6px">
+    UAE EOCN requires sanctions lists to be refreshed within 24 hours of a new
+    designation. Datasets marked <span class="tag high" style="display:inline;padding:1px 6px;font-size:11px;">BREACH</span>
+    are mandatory sources past their refresh window.
+  </p>
+
+  <div class="grid-table">
+    <div class="list-head" style="grid-template-columns:1.5fr 100px 120px 90px 1.5fr 140px;">
+      <div>Source Name</div>
+      <div>Status</div>
+      <div>Last Refresh</div>
+      <div class="right">Entities</div>
+      <div>Last Error</div>
+      <div>Error Time</div>
+    </div>
+    <div class="flat-list">
+      {% for ds in datasets %}
+      <div class="list-row" style="display:grid; grid-template-columns:1.5fr 100px 120px 90px 1.5fr 140px; align-items:center;">
+        <div class="primary" data-label="Source">
+          {{ ds.title }}
+          {% if ds.mandatory %}<span class="muted small ml-2">(mandatory)</span>{% endif %}
+        </div>
+        <div data-label="Status">
+          {% if ds.status == 'BREACH' %}
+            <span class="tag high">BREACH</span>
+          {% elif ds.status == 'FAIL' %}
+            <span class="tag high">FAIL</span>
+          {% elif ds.status == 'STALE' %}
+            <span class="tag" style="background:var(--warn-bg, #fef3c7); color:var(--warn-fg, #92400e);">STALE</span>
+          {% else %}
+            <span class="tag low">OK</span>
+          {% endif %}
+        </div>
+        <div class="mono small" data-label="Last Refresh">
+          {% if ds.hours_since_refresh is not none %}
+            {{ ds.hours_since_refresh }}h ago
+          {% else %}
+            <span class="muted">never</span>
+          {% endif %}
+        </div>
+        <div class="right score" data-label="Entities">{{ '{:,}'.format(ds.entities or 0) }}</div>
+        <div class="small" data-label="Last Error" style="word-break:break-word;">
+          {% if ds.last_error %}
+            <span style="color:var(--danger);">{{ ds.last_error | truncate(120) }}</span>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </div>
+        <div class="mono small" data-label="Error Time">
+          {% if ds.error_at %}
+            {{ ds.error_at }}
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </div>
+      </div>
+      {% else %}
+      <div class="list-row">
+        <div class="muted">No datasets registered yet.</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="mb-6">
+  <form method="post" action="/admin/refresh">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" id="refresh-btn" data-loading="Refreshing lists…">Force Refresh All Lists</button>
+    <span class="muted small ml-4">Takes 30–60 seconds. Downloads latest data and re-screens all customers.</span>
+  </form>
+</div>
+
+{% endblock %}
