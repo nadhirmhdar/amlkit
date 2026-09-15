@@ -101,7 +101,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     from ..ingest.uk import UKSanctionsAdapter
     from ..match.engine import rescreen_all
     from ..match.cache import invalidate as invalidate_cache
-    from ..db import audit
+    from ..db import audit, record_dataset_error
 
     loaded: list[str] = []
     failures: list[str] = []
@@ -117,6 +117,9 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             failures.append(msg)
             if adapter.is_mandatory:
                 mandatory_failures.append(msg)
+            # Persist onto the dataset row so /admin/compliance shows which
+            # source failed and why, not just a transient audit-log line.
+            record_dataset_error(conn, adapter.key, str(exc))
             audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
                   {"error": str(exc)}, org_id=None)
     conn.commit()

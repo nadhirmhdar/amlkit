@@ -12,7 +12,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from ..db import audit, upsert_dataset, utcnow
+from ..db import audit, upsert_dataset, utcnow, clear_dataset_error
 from .base import AdapterError, SourceAdapter
 
 
@@ -169,6 +169,10 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
             # org, so org_id is explicitly None rather than any one firm's id.
             org_id=None,
         )
+
+    # A successful load clears any error recorded from a prior failed refresh,
+    # so the compliance dashboard flips the source back from FAIL to OK.
+    clear_dataset_error(conn, adapter.key)
 
     return LoadResult(adapter.key, len(entities), n_names, n_tokens, n_ids, now)
 
