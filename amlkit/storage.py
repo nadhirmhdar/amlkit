@@ -51,6 +51,18 @@ def download(stored_path: str) -> bytes:
     return Path(stored_path).read_bytes()
 
 
+def delete(stored_path: str) -> None:
+    """Delete a document from wherever stored_path points.
+
+    Silently succeeds if the file/blob doesn't exist (idempotent).
+    Raises OSError for other failures (e.g., permission denied).
+    """
+    if stored_path.startswith("gs://"):
+        _delete_gcs(stored_path)
+    else:
+        Path(stored_path).unlink(missing_ok=True)
+
+
 def _gcs_object_name(org_id: int, customer_id: int, filename: str) -> str:
     return f"{_GCS_PREFIX}/{org_id}/{customer_id}/{filename}"
 
@@ -70,6 +82,21 @@ def _download_gcs(stored_path: str) -> bytes:
     client = _gcs_client()
     blob = client.bucket(bucket_name).blob(obj_name)
     return blob.download_as_bytes()
+
+
+def _delete_gcs(stored_path: str) -> None:
+    # stored_path: gs://bucket/documents/org_id/customer_id/filename
+    from google.cloud.exceptions import NotFound
+
+    without_scheme = stored_path[len("gs://"):]
+    bucket_name, _, obj_name = without_scheme.partition("/")
+    client = _gcs_client()
+    blob = client.bucket(bucket_name).blob(obj_name)
+    try:
+        blob.delete()
+    except NotFound:
+        # Idempotent: already deleted
+        pass
 
 
 def _upload_local(content: bytes, org_id: int, customer_id: int, filename: str) -> str:

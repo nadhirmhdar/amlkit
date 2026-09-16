@@ -133,7 +133,8 @@ def onboard(
 
     if not datasets_fresh(conn):
         raise StaleDatasetsError(
-            "Cannot onboard: no fresh mandatory sanctions dataset available"
+            "Cannot onboard: no fresh mandatory sanctions dataset available. "
+            "Ask an MLRO to run Admin → Refresh sources"
         )
 
     now = utcnow()
@@ -442,30 +443,50 @@ def purge_expired(
     if dry_run:
         return {"purged": len(details), "details": details, "dry_run": True}
 
+    purged_count = 0
     for row in rows:
         cid = row["id"]
+        ref = row["reference"]
+
+        # Try to delete documents first. If any fail, skip this customer
+        # entirely so it retries on the next purge run. An orphaned GCS object
+        # past retention with no DB pointer is worse than a deferred purge.
+        doc_paths = conn.execute(
+            "SELECT stored_path FROM documents WHERE customer_id=? AND org_id=?",
+            (cid, org_id),
+        ).fetchall()
+
+        delete_failed = False
+        for doc in doc_paths:
+            p = doc["stored_path"]
+            if p:
+                try:
+                    from .. import storage
+                    storage.delete(p)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "purge_expired: could not delete document %s for customer %s: %s (%s)",
+                        p, ref, e, type(e).__name__
+                    )
+                    delete_failed = True
+                    break
+
+        if delete_failed:
+            # Skip this customer; leave the row for retry. Log the failure.
+            with conn:
+                audit(conn, actor, "retention.purge_failed", "customer", cid,
+                      {"reference": ref, "reason": "document_delete_failed"}, org_id=org_id)
+            continue
+
+        # All documents deleted successfully; now purge the customer
         with conn:
             audit(conn, actor, "customer.purge", "customer", cid,
-                  {"reference": row["reference"]}, org_id=org_id)
-
-            doc_paths = conn.execute(
-                "SELECT stored_path FROM documents WHERE customer_id=? AND org_id=?",
-                (cid, org_id),
-            ).fetchall()
-            for doc in doc_paths:
-                p = doc["stored_path"]
-                if p and not p.startswith("gs://"):
-                    try:
-                        Path(p).unlink(missing_ok=True)
-                    except OSError as e:
-                        import logging
-                        logging.getLogger(__name__).warning(
-                            "purge_expired: could not delete file %s: %s", p, e
-                        )
+                  {"reference": ref}, org_id=org_id)
 
             conn.execute("DELETE FROM adverse_media_findings WHERE customer_id=? AND org_id=?", (cid, org_id))
             conn.execute("DELETE FROM adverse_media_screenings WHERE customer_id=? AND org_id=?", (cid, org_id))
-            conn.execute("DELETE FROM alert_reviews WHERE alert_id IN (SELECT a.id FROM alerts a JOIN screenings s ON s.id=a.screening_id WHERE s.customer_id=? AND a.org_id=?)", (cid, org_id))
+            conn.execute("DELETE FROM alert_reviews WHERE org_id=? AND alert_id IN (SELECT a.id FROM alerts a JOIN screenings s ON s.id=a.screening_id WHERE s.customer_id=? AND a.org_id=?)", (org_id, cid, org_id))
             conn.execute("DELETE FROM alerts WHERE screening_id IN (SELECT id FROM screenings WHERE customer_id=?) AND org_id=?", (cid, org_id))
             conn.execute("DELETE FROM screenings WHERE customer_id=? AND org_id=?", (cid, org_id))
             conn.execute("DELETE FROM transaction_alerts WHERE customer_id=? AND org_id=?", (cid, org_id))
@@ -478,7 +499,9 @@ def purge_expired(
             conn.execute("DELETE FROM reports WHERE customer_id=? AND org_id=?", (cid, org_id))
             conn.execute("DELETE FROM customers WHERE id=? AND org_id=?", (cid, org_id))
 
-    return {"purged": len(details), "details": details}
+        purged_count += 1
+
+    return {"purged": purged_count, "details": details}
 
 
 def due_for_review(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:

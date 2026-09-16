@@ -289,7 +289,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
         operator_id=row["id"], org_id=row["org_id"],
         operator_name=row["name"], operator_role=row["role"], email=row["email"],
         super_admin=bool(row["super_admin"]),
-        disclaimer_acknowledged=bool(row.get("disclaimer_acknowledged_at")),
+        disclaimer_acknowledged=bool(row["disclaimer_acknowledged_at"]),
     )
     return token, info
 

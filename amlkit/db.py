@@ -230,7 +230,7 @@ CREATE TABLE IF NOT EXISTS customers (
     is_cash_intensive INTEGER NOT NULL DEFAULT 0,
     status         TEXT NOT NULL DEFAULT 'active',
     onboarded_at   TEXT NOT NULL,
-    -- Cabinet Res. 134/2025 requires records retained 5 years after the
+    -- Cabinet Res. 134/2025 requires records retained 8 years after the
     -- relationship ends; this column is what the retention job reads.
     retention_until TEXT,
     created_at     TEXT NOT NULL,

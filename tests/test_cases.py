@@ -133,7 +133,7 @@ class TestOwnershipState:
         res = onboard(conn, org_id=org_id, reference="C-1", full_name="Test LLC",
                       customer_type="legal")
         add_ubo(conn, res.customer_id, org_id=org_id, person_name="Minor Holder",
-               ownership_pct=15.0)
+                ownership_pct=15.0)
         assert ownership_state(conn, res.customer_id, org_id, "legal") == "ubo_undisclosed"
 
     def test_ownership_state_ignores_other_org_ubo(self, conn, org_id) -> None:

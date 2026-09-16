@@ -24,6 +24,8 @@ def conn():
     c = connect(":memory:")
     ds = upsert_dataset(c, "test_list", "Synthetic Test List", is_mandatory=True)
     now = utcnow()
+    # Make dataset fresh so onboard() passes the staleness guard
+    c.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
     cur = c.execute(
         """INSERT INTO entities (dataset_id, source_id, schema_type, caption,
            countries, birth_date, gender, topics, raw, first_seen, last_seen)
