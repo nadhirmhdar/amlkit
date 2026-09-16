@@ -877,3 +877,137 @@ def test_no_freeze_on_false_positive():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_cross_org_execute_freeze_blocked():
+    """Org A cannot execute org B's freeze obligation (tenant isolation)."""
+    from amlkit.cases import manager
+
+    conn = db.connect(":memory:")
+
+    # Create org A and B
+    now = db.utcnow()
+    conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at) VALUES (?, ?, ?, ?)",
+        ("Org A", "org-a", "active", now)
+    )
+    org_a = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at) VALUES (?, ?, ?, ?)",
+        ("Org B", "org-b", "active", now)
+    )
+    org_b = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create customer in org B
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+           onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_b, "C-B-001", "Org B Customer", "natural", "test", now, "active", now, now)
+    )
+    customer_b = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create freeze obligation in org B
+    freeze_id = manager.create_freeze_obligation(
+        conn, org_b, customer_b,
+        obligation_type="sanctions",
+        risk_category="high",
+        identified_by="mlro_b"
+    )
+
+    # Org A operator tries to execute org B's freeze
+    with pytest.raises(ValueError, match="not found in org"):
+        manager.execute_freeze(
+            conn, freeze_id,
+            org_id=org_a,
+            executed_by="mlro_a",
+            assets_frozen=[]
+        )
+
+    # Verify org B's freeze unchanged
+    row = conn.execute(
+        "SELECT status, executed_at FROM freeze_obligations WHERE id = ?",
+        (freeze_id,)
+    ).fetchone()
+    assert row["status"] == "pending_execution"
+    assert row["executed_at"] is None
+
+    # Verify no audit entry from org A
+    audit = conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE org_id = ? AND action = 'freeze.executed'",
+        (org_a,)
+    ).fetchone()[0]
+    assert audit == 0
+
+    conn.close()
+
+
+def test_cross_org_resolve_freeze_blocked():
+    """Org A cannot resolve org B's freeze obligation (tenant isolation)."""
+    from amlkit.cases import manager
+
+    conn = db.connect(":memory:")
+
+    # Create org A and B
+    now = db.utcnow()
+    conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at) VALUES (?, ?, ?, ?)",
+        ("Org A", "org-a", "active", now)
+    )
+    org_a = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at) VALUES (?, ?, ?, ?)",
+        ("Org B", "org-b", "active", now)
+    )
+    org_b = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create customer in org B
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+           onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_b, "C-B-001", "Org B Customer", "natural", "test", now, "active", now, now)
+    )
+    customer_b = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create and execute freeze in org B
+    freeze_id = manager.create_freeze_obligation(
+        conn, org_b, customer_b,
+        obligation_type="sanctions",
+        risk_category="high",
+        identified_by="mlro_b"
+    )
+    manager.execute_freeze(
+        conn, freeze_id,
+        org_id=org_b,
+        executed_by="mlro_b",
+        assets_frozen=[]
+    )
+
+    # Org A operator tries to resolve org B's freeze
+    with pytest.raises(ValueError, match="not found in org"):
+        manager.resolve_freeze_obligation(
+            conn, freeze_id,
+            org_id=org_a,
+            resolved_by="mlro_a",
+            resolution_reason="delisted"
+        )
+
+    # Verify org B's freeze unchanged
+    row = conn.execute(
+        "SELECT status, resolved_at FROM freeze_obligations WHERE id = ?",
+        (freeze_id,)
+    ).fetchone()
+    assert row["status"] == "executed_pending_report"
+    assert row["resolved_at"] is None
+
+    # Verify no audit entry from org A
+    audit = conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE org_id = ? AND action = 'freeze.resolved'",
+        (org_a,)
+    ).fetchone()[0]
+    assert audit == 0
+
+    conn.close()

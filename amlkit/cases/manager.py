@@ -1393,10 +1393,9 @@ def execute_freeze(
             f"Cannot execute freeze obligation {freeze_obligation_id}: already resolved"
         )
 
-    org_id = row["org_id"]
     now = utcnow()
 
-    # Update freeze obligation
+    # Update freeze obligation (tenant-scoped)
     conn.execute(
         """UPDATE freeze_obligations
            SET status = 'executed_pending_report',
@@ -1404,8 +1403,8 @@ def execute_freeze(
                executed_by = ?,
                assets_frozen = ?,
                notes = ?
-           WHERE id = ?""",
-        (now, executed_by, json.dumps(assets_frozen), notes, freeze_obligation_id)
+           WHERE id = ? AND org_id = ?""",
+        (now, executed_by, json.dumps(assets_frozen), notes, freeze_obligation_id, org_id)
     )
 
     # Log audit entry
@@ -1467,7 +1466,6 @@ def resolve_freeze_obligation(
         raise ValueError(f"Freeze obligation {freeze_obligation_id} not found in org {org_id}")
 
     status = row["status"]
-    org_id = row["org_id"]
 
     # Allow resolving as false_positive without execution
     if resolution_reason != "false_positive" and row["executed_at"] is None:
@@ -1484,7 +1482,7 @@ def resolve_freeze_obligation(
 
     now = utcnow()
 
-    # Update freeze obligation
+    # Update freeze obligation (tenant-scoped)
     conn.execute(
         """UPDATE freeze_obligations
            SET status = 'resolved',
@@ -1493,8 +1491,8 @@ def resolve_freeze_obligation(
                resolution_reason = ?,
                authority_ref = ?,
                notes = ?
-           WHERE id = ?""",
-        (now, resolved_by, resolution_reason, authority_ref, notes, freeze_obligation_id)
+           WHERE id = ? AND org_id = ?""",
+        (now, resolved_by, resolution_reason, authority_ref, notes, freeze_obligation_id, org_id)
     )
 
     # Log audit entry

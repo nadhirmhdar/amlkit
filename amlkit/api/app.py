@@ -978,6 +978,7 @@ async def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, cs
     manager.execute_freeze(
         db,
         freeze_id,
+        org_id=session.org_id,
         executed_by=operator,
         assets_frozen=assets_frozen,
         notes=notes
@@ -1086,6 +1087,7 @@ async def freeze_obligation_resolve(request: Request, db: DB, freeze_id: int, cs
     manager.resolve_freeze_obligation(
         db,
         freeze_id,
+        org_id=session.org_id,
         resolved_by=operator,
         resolution_reason=resolution_reason,
         authority_ref=authority_ref,
