@@ -1273,3 +1273,319 @@ def run_due_adverse_media(
         "new_findings": new_findings,
         "still_due": max(0, len(adverse_media_due(conn, org_id))),
     }
+
+
+# ---------------------------------------------------------- TFS freeze tracking
+# Targeted Financial Sanctions freeze obligations. Cabinet Resolution 134/2025
+# places personal liability on senior management for TFS compliance failures.
+
+
+def create_freeze_obligation(
+    conn: sqlite3.Connection,
+    org_id: int,
+    customer_id: int,
+    *,
+    alert_id: int | None = None,
+    obligation_type: str,
+    risk_category: str,
+    identified_by: str,
+    notes: str = "",
+) -> int:
+    """Create a new TFS freeze obligation.
+
+    Returns the freeze_obligation_id.
+
+    Automatically:
+    - Sets status='pending_execution'
+    - Sets identified_at=now()
+    - Logs audit entry (freeze.identified)
+
+    Raises:
+        ValueError: invalid obligation_type or risk_category
+    """
+    # Validate inputs
+    valid_types = {"sanctions", "proliferation", "terrorism"}
+    if obligation_type not in valid_types:
+        raise ValueError(
+            f"Invalid obligation_type: {obligation_type!r}. "
+            f"Must be one of: {', '.join(sorted(valid_types))}"
+        )
+
+    valid_categories = {"high", "critical"}
+    if risk_category not in valid_categories:
+        raise ValueError(
+            f"Invalid risk_category: {risk_category!r}. "
+            f"Must be one of: {', '.join(sorted(valid_categories))}"
+        )
+
+    now = utcnow()
+
+    # Insert freeze obligation and log audit atomically
+    with conn:
+        cursor = conn.execute(
+            """INSERT INTO freeze_obligations
+               (org_id, customer_id, alert_id, obligation_type, risk_category,
+                identified_at, identified_by, notes, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (org_id, customer_id, alert_id, obligation_type, risk_category,
+             now, identified_by, notes, "pending_execution")
+        )
+        freeze_id = cursor.lastrowid
+
+        # Log audit entry
+        audit(
+            conn,
+            identified_by,
+            "freeze.identified",
+            "freeze_obligation",
+            freeze_id,
+            {
+                "customer_id": customer_id,
+                "alert_id": alert_id,
+                "obligation_type": obligation_type,
+                "risk_category": risk_category,
+            },
+            org_id=org_id,
+        )
+
+    return freeze_id
+
+
+def execute_freeze(
+    conn: sqlite3.Connection,
+    freeze_obligation_id: int,
+    *,
+    org_id: int,
+    executed_by: str,
+    assets_frozen: list[dict[str, Any]],
+    notes: str = "",
+) -> None:
+    """Mark a freeze obligation as executed.
+
+    Updates:
+    - status='executed_pending_report'
+    - executed_at=now()
+    - executed_by
+    - assets_frozen (JSON)
+
+    Logs audit entry (freeze.executed).
+
+    Raises:
+        ValueError: obligation already executed, resolved, or not found in this org
+    """
+    # Check current status (tenant-scoped)
+    row = conn.execute(
+        "SELECT status, executed_at FROM freeze_obligations WHERE id = ? AND org_id = ?",
+        (freeze_obligation_id, org_id)
+    ).fetchone()
+
+    if not row:
+        raise ValueError(f"Freeze obligation {freeze_obligation_id} not found in org {org_id}")
+
+    status = row["status"]
+    if row["executed_at"] is not None:
+        raise ValueError(
+            f"Freeze obligation {freeze_obligation_id} already executed at {row['executed_at']}"
+        )
+
+    if status == "resolved":
+        raise ValueError(
+            f"Cannot execute freeze obligation {freeze_obligation_id}: already resolved"
+        )
+
+    now = utcnow()
+
+    # Update freeze obligation and log audit atomically
+    with conn:
+        conn.execute(
+            """UPDATE freeze_obligations
+               SET status = 'executed_pending_report',
+                   executed_at = ?,
+                   executed_by = ?,
+                   assets_frozen = ?,
+                   notes = ?
+               WHERE id = ? AND org_id = ?""",
+            (now, executed_by, json.dumps(assets_frozen), notes, freeze_obligation_id, org_id)
+        )
+
+        # Log audit entry
+        audit(
+            conn,
+            executed_by,
+            "freeze.executed",
+            "freeze_obligation",
+            freeze_obligation_id,
+            {
+                "asset_count": len(assets_frozen),
+                "total_amount_aed": sum(a.get("amount_aed", 0) for a in assets_frozen),
+            },
+            org_id=org_id,
+        )
+
+
+def resolve_freeze_obligation(
+    conn: sqlite3.Connection,
+    freeze_obligation_id: int,
+    *,
+    org_id: int,
+    resolved_by: str,
+    resolution_reason: str,
+    authority_ref: str = "",
+    notes: str = "",
+) -> None:
+    """Close a freeze obligation (lift freeze or confirm false positive).
+
+    Updates:
+    - status='resolved'
+    - resolved_at=now()
+    - resolved_by
+    - resolution_reason
+    - authority_ref
+
+    Logs audit entry (freeze.resolved).
+
+    Raises:
+        ValueError: invalid resolution_reason, obligation not executed, or not found in this org
+    """
+    # Validate resolution reason
+    valid_reasons = {"delisted", "false_positive", "authority_clearance"}
+    if resolution_reason not in valid_reasons:
+        raise ValueError(
+            f"Invalid resolution_reason: {resolution_reason!r}. "
+            f"Must be one of: {', '.join(sorted(valid_reasons))}"
+        )
+
+    # Check current status (tenant-scoped)
+    row = conn.execute(
+        "SELECT status, executed_at FROM freeze_obligations WHERE id = ? AND org_id = ?",
+        (freeze_obligation_id, org_id)
+    ).fetchone()
+
+    if not row:
+        raise ValueError(f"Freeze obligation {freeze_obligation_id} not found in org {org_id}")
+
+    status = row["status"]
+
+    # Allow resolving as false_positive without execution
+    if resolution_reason != "false_positive" and row["executed_at"] is None:
+        raise ValueError(
+            f"Cannot resolve freeze obligation {freeze_obligation_id} with "
+            f"reason '{resolution_reason}': obligation not executed. "
+            f"Use 'false_positive' to resolve without execution."
+        )
+
+    if status == "resolved":
+        raise ValueError(
+            f"Freeze obligation {freeze_obligation_id} already resolved"
+        )
+
+    now = utcnow()
+
+    # Update freeze obligation and log audit atomically
+    with conn:
+        conn.execute(
+            """UPDATE freeze_obligations
+               SET status = 'resolved',
+                   resolved_at = ?,
+                   resolved_by = ?,
+                   resolution_reason = ?,
+                   authority_ref = ?,
+                   notes = ?
+               WHERE id = ? AND org_id = ?""",
+            (now, resolved_by, resolution_reason, authority_ref, notes, freeze_obligation_id, org_id)
+        )
+
+        # Log audit entry
+        audit(
+            conn,
+            resolved_by,
+            "freeze.resolved",
+            "freeze_obligation",
+            freeze_obligation_id,
+            {
+                "resolution_reason": resolution_reason,
+                "authority_ref": authority_ref,
+            },
+            org_id=org_id,
+        )
+
+
+def check_unexecuted_freeze_obligations(
+    conn: sqlite3.Connection,
+    org_id: int,
+) -> list[dict[str, Any]]:
+    """Find freeze obligations pending execution for > 24 hours.
+
+    Returns:
+        [
+            {
+                "id": 1,
+                "customer_reference": "C-2026-001",
+                "obligation_type": "proliferation",
+                "risk_category": "critical",
+                "identified_at": "2026-09-10T14:23:00Z",
+                "hours_pending": 36,
+            },
+        ]
+
+    Sends MLRO email alert if any obligations are overdue.
+
+    Cabinet Resolution 134/2025 requires immediate freeze execution. This check
+    identifies freeze obligations that have been pending for over 24 hours,
+    which indicates a compliance gap requiring urgent attention.
+    """
+    # Query for pending obligations > 24 hours old
+    cursor = conn.execute(
+        """SELECT
+               f.id,
+               f.customer_id,
+               c.reference AS customer_reference,
+               f.obligation_type,
+               f.risk_category,
+               f.identified_at,
+               f.identified_by,
+               CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_pending
+           FROM freeze_obligations f
+           JOIN customers c ON c.id = f.customer_id
+           WHERE f.org_id = ?
+             AND f.status = 'pending_execution'
+             AND julianday('now') - julianday(f.identified_at) > 1.0
+           ORDER BY f.identified_at ASC""",
+        (org_id,)
+    )
+
+    overdue = [dict(row) for row in cursor.fetchall()]
+
+    # Send email alert if any overdue obligations found
+    if overdue:
+        # Get MLRO email for this org
+        mlro_row = conn.execute(
+            "SELECT email FROM operators WHERE org_id = ? AND role = 'mlro' LIMIT 1",
+            (org_id,)
+        ).fetchone()
+        mlro_email = mlro_row["email"] if mlro_row else None
+
+        # Send alert for each overdue obligation
+        from .. import mail
+        for ob in overdue:
+            if mlro_email:
+                mail.send_freeze_obligation_alert(
+                    to_email=mlro_email,
+                    freeze_obligation_id=ob["id"],
+                    customer_reference=ob["customer_reference"],
+                    obligation_type=ob["obligation_type"],
+                    risk_category=ob["risk_category"]
+                )
+
+        # Log to audit that overdue obligations were detected
+        audit(
+            conn,
+            "system",
+            "freeze.overdue_check",
+            "freeze_obligation",
+            None,
+            {"overdue_count": len(overdue), "org_id": org_id},
+            org_id=org_id
+        )
+
+    return overdue

@@ -187,3 +187,96 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
     except (OSError, smtplib.SMTPException):
         logger.exception("Failed to send staleness alert email")
         return FAILED
+
+
+def send_freeze_obligation_alert(
+    to_email: str,
+    freeze_obligation_id: int,
+    customer_reference: str,
+    obligation_type: str,
+    risk_category: str,
+) -> str:
+    """Send MLRO email alert for new TFS freeze obligation.
+
+    Cabinet Resolution 134/2025 places personal liability on senior management
+    for TFS compliance failures. This alert ensures immediate notification when
+    a freeze obligation is identified.
+
+    Subject: "[URGENT] TFS Freeze Obligation - {customer_reference}"
+    Body includes:
+        - Customer reference
+        - Obligation type (sanctions/proliferation/terrorism)
+        - Risk category (high/critical)
+        - Link to freeze obligation detail page
+        - Reminder: freeze must be executed immediately per UAE law
+
+    Returns the same three-valued outcome: SENT, NOT_CONFIGURED, or FAILED.
+    Never raises.
+    """
+    if not to_email:
+        return SENT  # Nobody to notify
+
+    # Format obligation type for display
+    type_display = {
+        "sanctions": "Sanctions",
+        "proliferation": "Proliferation Financing (Law 10/2025)",
+        "terrorism": "Terrorism Financing",
+    }.get(obligation_type, obligation_type.title())
+
+    risk_badge = "🔴 CRITICAL" if risk_category == "critical" else "🟡 HIGH"
+
+    detail_url = f"{app_base_url()}/freeze-obligations/{freeze_obligation_id}"
+
+    if not is_configured():
+        print(
+            "\n" + "=" * 72 +
+            f"\namlkit: TFS FREEZE OBLIGATION ALERT\n"
+            f"Customer: {customer_reference}\n"
+            f"Type: {type_display}\n"
+            f"Risk: {risk_badge}\n\n"
+            "No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.\n\n"
+            f"  {detail_url}\n" +
+            "=" * 72 + "\n"
+        )
+        return NOT_CONFIGURED
+
+    host = os.environ["AMLKIT_SMTP_HOST"]
+    port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
+    user = os.environ.get("AMLKIT_SMTP_USER", "")
+    password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
+    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@amlkit.local")
+    use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
+
+    msg = EmailMessage()
+    msg["Subject"] = f"[URGENT] TFS Freeze Obligation - {customer_reference}"
+    msg["From"] = from_addr
+    msg["To"] = to_email
+    msg.set_content(
+        f"URGENT: New TFS freeze obligation identified\n\n"
+        f"Customer: {customer_reference}\n"
+        f"Obligation Type: {type_display}\n"
+        f"Risk Category: {risk_badge}\n\n"
+        "IMMEDIATE ACTION REQUIRED:\n"
+        "- Review the freeze obligation details immediately\n"
+        "- Execute asset freeze without delay\n"
+        "- Document all frozen assets\n"
+        "- File FFR (Fund Freeze Report) to FIU\n\n"
+        "Cabinet Resolution 134/2025 places personal liability on senior management\n"
+        "for TFS compliance failures. Asset freezes must be executed immediately upon\n"
+        "identification per UAE law.\n\n"
+        f"View freeze obligation: {detail_url}\n"
+    )
+
+    try:
+        with smtplib.SMTP(host, port, timeout=15) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if user:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+        logger.info("Freeze obligation alert sent to %s for obligation %d",
+                    to_email, freeze_obligation_id)
+        return SENT
+    except (OSError, smtplib.SMTPException):
+        logger.exception("Failed to send freeze obligation alert to %s", to_email)
+        return FAILED
