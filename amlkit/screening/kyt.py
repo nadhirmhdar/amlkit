@@ -251,8 +251,8 @@ def save_rule_config(
     """Save KYT rule configuration to DB.
 
     Validates:
-        - Thresholds > 0
-        - Window days/hours > 0
+        - Thresholds > 0 and within sane upper bounds
+        - Window days/hours > 0 and within sane upper bounds
         - high_risk_countries is a list (if provided)
 
     Raises:
@@ -260,7 +260,7 @@ def save_rule_config(
     """
     from ..db import audit, utcnow
 
-    # Validate
+    # Validate lower bounds
     if "large_cash_threshold_aed" in config and config["large_cash_threshold_aed"] <= 0:
         raise ValueError("large_cash_threshold must be positive")
     if "structuring_window_days" in config and config["structuring_window_days"] <= 0:
@@ -269,6 +269,16 @@ def save_rule_config(
         raise ValueError("velocity_window_hours must be positive")
     if "velocity_max_count" in config and config["velocity_max_count"] <= 0:
         raise ValueError("velocity_max_count must be positive")
+
+    # Validate upper bounds (sanity checks to prevent misconfiguration)
+    if "large_cash_threshold_aed" in config and config["large_cash_threshold_aed"] > 1_000_000:
+        raise ValueError("large_cash_threshold cannot exceed 1,000,000 AED (would disable detection)")
+    if "structuring_window_days" in config and config["structuring_window_days"] > 90:
+        raise ValueError("structuring_window_days cannot exceed 90 days")
+    if "velocity_window_hours" in config and config["velocity_window_hours"] > 168:
+        raise ValueError("velocity_window_hours cannot exceed 168 hours (7 days)")
+    if "velocity_max_count" in config and config["velocity_max_count"] > 1000:
+        raise ValueError("velocity_max_count cannot exceed 1000 transactions")
 
     # Upsert org_settings row
     conn.execute(

@@ -448,3 +448,57 @@ class TestHighRiskCountriesFATFBaseline:
         # Should match the module constant
         assert countries == HIGH_RISK_COUNTRIES, \
             "Should fall back to HIGH_RISK_COUNTRIES when FATF table is empty"
+
+
+class TestSaveRuleConfigValidation:
+    """Tests for save_rule_config upper bounds validation."""
+
+    def test_large_cash_threshold_exceeds_max(self, conn, org_id) -> None:
+        """Threshold > 1M AED is rejected."""
+        from amlkit.screening.kyt import save_rule_config
+
+        with pytest.raises(ValueError) as exc_info:
+            save_rule_config(conn, org_id, {"large_cash_threshold_aed": 1_500_000}, actor="test")
+
+        assert "1,000,000" in str(exc_info.value)
+        assert "disable detection" in str(exc_info.value).lower()
+
+    def test_structuring_window_exceeds_max(self, conn, org_id) -> None:
+        """Window > 90 days is rejected."""
+        from amlkit.screening.kyt import save_rule_config
+
+        with pytest.raises(ValueError) as exc_info:
+            save_rule_config(conn, org_id, {"structuring_window_days": 100}, actor="test")
+
+        assert "90" in str(exc_info.value)
+
+    def test_velocity_window_exceeds_max(self, conn, org_id) -> None:
+        """Window > 168 hours is rejected."""
+        from amlkit.screening.kyt import save_rule_config
+
+        with pytest.raises(ValueError) as exc_info:
+            save_rule_config(conn, org_id, {"velocity_window_hours": 200}, actor="test")
+
+        assert "168" in str(exc_info.value)
+
+    def test_velocity_count_exceeds_max(self, conn, org_id) -> None:
+        """Count > 1000 is rejected."""
+        from amlkit.screening.kyt import save_rule_config
+
+        with pytest.raises(ValueError) as exc_info:
+            save_rule_config(conn, org_id, {"velocity_max_count": 1500}, actor="test")
+
+        assert "1000" in str(exc_info.value)
+
+    def test_valid_config_within_bounds(self, conn, org_id) -> None:
+        """Valid config within bounds is accepted."""
+        from amlkit.screening.kyt import save_rule_config
+
+        # Should not raise
+        save_rule_config(conn, org_id, {
+            "large_cash_threshold_aed": 100_000,
+            "structuring_window_days": 14,
+            "velocity_window_hours": 48,
+            "velocity_max_count": 20,
+        }, actor="test")
+        conn.commit()
