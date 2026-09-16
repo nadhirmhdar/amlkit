@@ -1355,6 +1355,7 @@ def execute_freeze(
     conn: sqlite3.Connection,
     freeze_obligation_id: int,
     *,
+    org_id: int,
     executed_by: str,
     assets_frozen: list[dict[str, Any]],
     notes: str = "",
@@ -1370,16 +1371,16 @@ def execute_freeze(
     Logs audit entry (freeze.executed).
 
     Raises:
-        ValueError: obligation already executed or resolved
+        ValueError: obligation already executed, resolved, or not found in this org
     """
-    # Check current status
+    # Check current status (tenant-scoped)
     row = conn.execute(
-        "SELECT status, executed_at, org_id FROM freeze_obligations WHERE id = ?",
-        (freeze_obligation_id,)
+        "SELECT status, executed_at FROM freeze_obligations WHERE id = ? AND org_id = ?",
+        (freeze_obligation_id, org_id)
     ).fetchone()
 
     if not row:
-        raise ValueError(f"Freeze obligation {freeze_obligation_id} not found")
+        raise ValueError(f"Freeze obligation {freeze_obligation_id} not found in org {org_id}")
 
     status = row["status"]
     if row["executed_at"] is not None:
@@ -1428,6 +1429,7 @@ def resolve_freeze_obligation(
     conn: sqlite3.Connection,
     freeze_obligation_id: int,
     *,
+    org_id: int,
     resolved_by: str,
     resolution_reason: str,
     authority_ref: str = "",
@@ -1445,7 +1447,7 @@ def resolve_freeze_obligation(
     Logs audit entry (freeze.resolved).
 
     Raises:
-        ValueError: invalid resolution_reason or obligation not executed
+        ValueError: invalid resolution_reason, obligation not executed, or not found in this org
     """
     # Validate resolution reason
     valid_reasons = {"delisted", "false_positive", "authority_clearance"}
@@ -1455,14 +1457,14 @@ def resolve_freeze_obligation(
             f"Must be one of: {', '.join(sorted(valid_reasons))}"
         )
 
-    # Check current status
+    # Check current status (tenant-scoped)
     row = conn.execute(
-        "SELECT status, executed_at, org_id FROM freeze_obligations WHERE id = ?",
-        (freeze_obligation_id,)
+        "SELECT status, executed_at FROM freeze_obligations WHERE id = ? AND org_id = ?",
+        (freeze_obligation_id, org_id)
     ).fetchone()
 
     if not row:
-        raise ValueError(f"Freeze obligation {freeze_obligation_id} not found")
+        raise ValueError(f"Freeze obligation {freeze_obligation_id} not found in org {org_id}")
 
     status = row["status"]
     org_id = row["org_id"]
