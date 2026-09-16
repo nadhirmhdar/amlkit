@@ -24,6 +24,7 @@ from fastapi import Depends, FastAPI, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.datastructures import FormData
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -355,6 +356,16 @@ app.include_router(mobile_router)
 app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))
 templates.env.globals["has_arabic"] = has_arabic_script
+
+
+async def _async_form(request: Request) -> FormData:
+    """Async dependency to read request form data.
+
+    Allows sync routes to use DB connections (avoiding threading issues)
+    while still reading async form data with dynamic fields.
+    """
+    return await request.form()
+
 
 DB = Annotated[sqlite3.Connection, Depends(get_db)]
 
@@ -938,20 +949,20 @@ def freeze_obligation_detail(request: Request, db: DB, freeze_id: int):
     })
 
 @app.post("/freeze-obligations/{freeze_id}/execute")
-async def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
+def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, form: Annotated[FormData, Depends(_async_form)]):
     """Execute freeze obligation - mark as executed with assets frozen."""
     try:
         session = require_session(request, db)
+        csrf_token = form.get("csrf_token", "")
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
 
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="Execute freeze requires MLRO role")
-    
+
     operator = session.operator_name
-    
-    form = await request.form()
+
     notes = form.get("notes", "")
     
     assets_frozen = []
@@ -990,20 +1001,21 @@ async def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, cs
     return back(f"/freeze-obligations/{freeze_id}", msg="Freeze executed successfully.")
 
 @app.post("/freeze-obligations/{freeze_id}/file-ffr")
-async def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
+def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: Annotated[FormData, Depends(_async_form)]):
     """Create FFR report from freeze obligation."""
     try:
         session = require_session(request, db)
+        csrf_token = form.get("csrf_token", "")
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
 
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="File FFR requires MLRO role")
-    
+
     org_id = session.org_id
     operator = session.operator_name
-    
+
     freeze = db.execute("""
         SELECT f.*, c.reference, c.full_name, c.customer_type,
                c.birth_date, c.gender, c.nationality, c.id_number, c.id_type
@@ -1011,11 +1023,10 @@ async def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, c
         JOIN customers c ON c.id = f.customer_id
         WHERE f.id = ? AND f.org_id = ?
     """, (freeze_id, org_id)).fetchone()
-    
+
     if not freeze or freeze["status"] != "executed_pending_report":
         return back(f"/freeze-obligations/{freeze_id}", err="Freeze not ready for FFR filing")
-    
-    form = await request.form()
+
     reporter_name = form.get("reporter_name") or operator
     reporter_email = form.get("reporter_email", "")
     
@@ -1068,20 +1079,20 @@ async def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, c
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
-async def freeze_obligation_resolve(request: Request, db: DB, freeze_id: int, csrf_token: Annotated[str, Form()] = ""):
+def freeze_obligation_resolve(request: Request, db: DB, freeze_id: int, form: Annotated[FormData, Depends(_async_form)]):
     """Resolve (close) freeze obligation."""
     try:
         session = require_session(request, db)
+        csrf_token = form.get("csrf_token", "")
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
 
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="Resolve freeze requires MLRO role")
-    
+
     operator = session.operator_name
-    
-    form = await request.form()
+
     resolution_reason = form.get("resolution_reason")
     authority_ref = form.get("authority_ref", "")
     notes = form.get("notes", "")
