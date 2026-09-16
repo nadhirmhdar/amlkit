@@ -405,7 +405,7 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
         resp.set_cookie(
             CSRF_COOKIE, token,
-            httponly=False,
+            httponly=True,
             samesite="lax",
             secure=_behind_proxy,
             max_age=_COOKIE_MAX_AGE,
@@ -437,7 +437,7 @@ def _set_csrf_cookie(resp, request: Request) -> None:
     """
     if not request.cookies.get(CSRF_COOKIE):
         _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
-        resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=False,
+        resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
                         samesite="lax", secure=_behind_proxy,
                         max_age=_COOKIE_MAX_AGE)
 
@@ -568,8 +568,9 @@ def login_submit(
             })
         return _login_page_error(request, str(exc))
     resp = RedirectResponse("/", status_code=303)
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
-                    max_age=_COOKIE_MAX_AGE)
+                    secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
@@ -673,8 +674,9 @@ def setup_submit(
 
     session_token, _ = auth.login(db, email.strip().lower(), password)
     resp = RedirectResponse("/", status_code=303)
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
-                    max_age=_COOKIE_MAX_AGE)
+                    secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
@@ -821,8 +823,9 @@ def verify_email(request: Request, db: DB, token: str = ""):
           None, org_id=operator["org_id"])
     db.commit()
     resp = RedirectResponse("/?msg=" + quote("Email verified. Welcome to amlkit."), status_code=303)
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
-                    max_age=_COOKIE_MAX_AGE)
+                    secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
