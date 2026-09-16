@@ -210,3 +210,130 @@ def test_ubo_ownership_sum_slightly_over_100_percent_rejected(tmp_path, monkeypa
         )
 
     conn.close()
+
+
+def test_ubo_ownership_floating_point_rounding(tmp_path, monkeypatch):
+    """Floating point edge case: 33.34 + 33.33 + 33.33 = 100.00 should be accepted."""
+    from amlkit.db import connect
+    from amlkit.cases.manager import onboard
+
+    db_file = tmp_path / "test.db"
+    monkeypatch.setenv("AMLKIT_DB", str(db_file))
+
+    conn = connect(str(db_file))
+    conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at) VALUES ('Test Org', 'test', 'active', datetime('now'))"
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    _create_fresh_dataset(conn)
+    conn.commit()
+
+    # This sums to exactly 100.00 when rounded to 2 decimal places
+    result = onboard(
+        conn,
+        org_id=org_id,
+        reference="TEST-FP",
+        full_name="Float Corp",
+        ubos=[
+            {"person_name": "Alice", "ownership_pct": 33.34},
+            {"person_name": "Bob", "ownership_pct": 33.33},
+            {"person_name": "Charlie", "ownership_pct": 33.33},
+        ],
+        actor="test",
+    )
+
+    assert result.customer_id is not None
+    ubo_count = conn.execute(
+        "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+        (result.customer_id,)
+    ).fetchone()[0]
+    assert ubo_count == 3
+
+    conn.close()
+
+
+def test_indirect_ubo_chain_does_not_trigger_limit(tmp_path, monkeypatch):
+    """Indirect UBOs (parent_ubo_id set) should not count toward the 100% direct limit.
+
+    A corporate shareholder at 60% has its own UBOs. The indirect chain members
+    don't count against the customer's direct ownership limit.
+    """
+    from amlkit.db import connect
+    from amlkit.cases.manager import onboard, add_ubo
+
+    db_file = tmp_path / "test.db"
+    monkeypatch.setenv("AMLKIT_DB", str(db_file))
+
+    conn = connect(str(db_file))
+    conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at) VALUES ('Test Org', 'test', 'active', datetime('now'))"
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    _create_fresh_dataset(conn)
+    conn.commit()
+
+    # Onboard with 60% direct ownership
+    result = onboard(
+        conn,
+        org_id=org_id,
+        reference="TEST-INDIRECT",
+        full_name="Corp With Chain",
+        ubos=[
+            {"person_name": "Corporate Shareholder", "ownership_pct": 60.0},
+        ],
+        actor="test",
+    )
+
+    # Get the UBO ID for the corporate shareholder (direct link)
+    corporate_ubo_id = conn.execute(
+        "SELECT id FROM ubo_links WHERE customer_id=? AND person_name=?",
+        (result.customer_id, "Corporate Shareholder")
+    ).fetchone()[0]
+
+    # Add indirect UBOs (children of the corporate shareholder)
+    # These have parent_ubo_id set, so they're indirect links
+    # Total indirect: 50 + 50 = 100%, but doesn't count against customer's direct limit
+    add_ubo(
+        conn, result.customer_id, org_id=org_id,
+        person_name="Ultimate Owner A", ownership_pct=50.0,
+        parent_ubo_id=corporate_ubo_id, actor="test"
+    )
+    add_ubo(
+        conn, result.customer_id, org_id=org_id,
+        person_name="Ultimate Owner B", ownership_pct=50.0,
+        parent_ubo_id=corporate_ubo_id, actor="test"
+    )
+
+    # Should have 3 total UBO links: 1 direct + 2 indirect
+    total_ubos = conn.execute(
+        "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+        (result.customer_id,)
+    ).fetchone()[0]
+    assert total_ubos == 3
+
+    # Verify direct ownership is only 60% (corporate shareholder)
+    direct_total = conn.execute(
+        "SELECT SUM(ownership_pct) FROM ubo_links WHERE customer_id=? AND parent_ubo_id IS NULL",
+        (result.customer_id,)
+    ).fetchone()[0]
+    assert direct_total == 60.0
+
+    # Now add another direct UBO at 40% - should succeed (60 + 40 = 100)
+    add_ubo(
+        conn, result.customer_id, org_id=org_id,
+        person_name="Direct UBO", ownership_pct=40.0,
+        actor="test"
+    )
+
+    # Direct total should now be 100%
+    direct_total = conn.execute(
+        "SELECT SUM(ownership_pct) FROM ubo_links WHERE customer_id=? AND parent_ubo_id IS NULL",
+        (result.customer_id,)
+    ).fetchone()[0]
+    assert direct_total == 100.0
+
+    conn.close()
+
+

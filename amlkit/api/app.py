@@ -1429,6 +1429,21 @@ def customer_add_ubo(
         pct = float(ownership_pct) if ownership_pct.strip() else None
     except ValueError:
         pct = None
+
+    # H-01: Validate total direct UBO ownership won't exceed 100%
+    if pct is not None:
+        existing_total = db.execute(
+            """SELECT COALESCE(SUM(ownership_pct), 0) FROM ubo_links
+               WHERE customer_id=? AND org_id=? AND parent_ubo_id IS NULL""",
+            (customer_id, session.org_id)
+        ).fetchone()[0]
+        new_total = existing_total + pct
+        if round(new_total, 2) > 100:
+            return back(
+                f"/customers/{customer_id}",
+                err=f"Total UBO ownership would be {round(new_total, 2)}% (cannot exceed 100%)"
+            )
+
     try:
         ubo_id = add_ubo(db, customer_id, org_id=session.org_id, person_name=person_name.strip(),
                          ownership_pct=pct, control_type=control_type, actor=session.operator_name)
