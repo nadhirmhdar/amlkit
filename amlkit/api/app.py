@@ -571,6 +571,9 @@ def login_submit(
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    # M-01: Rotate CSRF token on login (defence-in-depth)
+    resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
+                    samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
@@ -677,6 +680,9 @@ def setup_submit(
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    # M-01: Rotate CSRF token on setup completion
+    resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
+                    samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
@@ -826,6 +832,9 @@ def verify_email(request: Request, db: DB, token: str = ""):
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    # M-01: Rotate CSRF token on email verification (creates new session)
+    resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
+                    samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
