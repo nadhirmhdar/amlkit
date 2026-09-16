@@ -47,6 +47,8 @@ def _seed_sanctions_data(db_file) -> None:
         for tok in blocking_keys(nm):
             conn.execute("INSERT OR IGNORE INTO name_tokens (token, entity_id) VALUES (?,?)",
                          (tok, eid))
+    # Make dataset fresh so onboard() passes the staleness guard
+    conn.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
     conn.commit()
     conn.close()
 

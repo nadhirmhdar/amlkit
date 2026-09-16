@@ -133,7 +133,8 @@ def onboard(
 
     if not datasets_fresh(conn):
         raise StaleDatasetsError(
-            "Cannot onboard: no fresh mandatory sanctions dataset available"
+            "Cannot onboard: no fresh mandatory sanctions dataset available. "
+            "Ask an MLRO to run Admin → Refresh sources"
         )
 
     now = utcnow()
@@ -454,9 +455,10 @@ def purge_expired(
             ).fetchall()
             for doc in doc_paths:
                 p = doc["stored_path"]
-                if p and not p.startswith("gs://"):
+                if p:
                     try:
-                        Path(p).unlink(missing_ok=True)
+                        from .. import storage
+                        storage.delete(p)
                     except OSError as e:
                         import logging
                         logging.getLogger(__name__).warning(
@@ -465,7 +467,7 @@ def purge_expired(
 
             conn.execute("DELETE FROM adverse_media_findings WHERE customer_id=? AND org_id=?", (cid, org_id))
             conn.execute("DELETE FROM adverse_media_screenings WHERE customer_id=? AND org_id=?", (cid, org_id))
-            conn.execute("DELETE FROM alert_reviews WHERE alert_id IN (SELECT a.id FROM alerts a JOIN screenings s ON s.id=a.screening_id WHERE s.customer_id=? AND a.org_id=?)", (cid, org_id))
+            conn.execute("DELETE FROM alert_reviews WHERE org_id=? AND alert_id IN (SELECT a.id FROM alerts a JOIN screenings s ON s.id=a.screening_id WHERE s.customer_id=? AND a.org_id=?)", (org_id, cid, org_id))
             conn.execute("DELETE FROM alerts WHERE screening_id IN (SELECT id FROM screenings WHERE customer_id=?) AND org_id=?", (cid, org_id))
             conn.execute("DELETE FROM screenings WHERE customer_id=? AND org_id=?", (cid, org_id))
             conn.execute("DELETE FROM transaction_alerts WHERE customer_id=? AND org_id=?", (cid, org_id))
