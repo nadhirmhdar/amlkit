@@ -110,6 +110,56 @@ class TestDatasetErrorColumns:
         assert before == 0 and after == 0  # no row created, no error
         conn.close()
 
+    def test_record_dataset_error_redacts_secrets(self) -> None:
+        """Tokens and query strings in error messages must be redacted before
+        storage. The EU adapter puts AMLKIT_EU_FSF_TOKEN in its URL."""
+        from amlkit.db import connect, upsert_dataset, record_dataset_error
+
+        conn = connect(":memory:")
+        upsert_dataset(conn, "eu_fsf", "EU FSF", is_mandatory=True)
+
+        # Simulate an HTTP error that includes the token in the URL
+        error_with_secret = (
+            "HTTPError: 401 Unauthorized for URL: "
+            "https://webgate.ec.europa.eu/fsd/fsf?token=SUPER_SECRET_TOKEN_12345&format=xml"
+        )
+        record_dataset_error(conn, "eu_fsf", error_with_secret)
+
+        row = conn.execute(
+            "SELECT last_error FROM datasets WHERE key='eu_fsf'"
+        ).fetchone()
+        stored_error = row["last_error"]
+
+        # The secret token must not appear in the stored error
+        assert "SUPER_SECRET_TOKEN_12345" not in stored_error, \
+            f"Secret token found in stored error: {stored_error}"
+        # Query string should be redacted
+        assert "?token=" not in stored_error or "[REDACTED]" in stored_error, \
+            f"Query string not redacted: {stored_error}"
+        conn.close()
+
+    def test_record_dataset_error_caps_length(self) -> None:
+        """Error messages should be capped to prevent huge strings from
+        clogging the DB and dashboard."""
+        from amlkit.db import connect, upsert_dataset, record_dataset_error
+
+        conn = connect(":memory:")
+        upsert_dataset(conn, "test_ds", "Test DS", is_mandatory=True)
+
+        # Create a very long error message (1000 chars)
+        long_error = "HTTP 500 Internal Server Error: " + ("X" * 1000)
+        record_dataset_error(conn, "test_ds", long_error)
+
+        row = conn.execute(
+            "SELECT last_error FROM datasets WHERE key='test_ds'"
+        ).fetchone()
+        stored_error = row["last_error"]
+
+        # Should be capped at 500 chars
+        assert len(stored_error) <= 500, \
+            f"Error not capped: {len(stored_error)} chars (expected ≤500)"
+        conn.close()
+
 
 class TestComplianceRoute:
     """The route that actually 500'd. A single GET as an MLRO would have
@@ -144,6 +194,25 @@ class TestComplianceRoute:
         r = c.get("/admin/compliance", follow_redirects=False)
         assert r.status_code in (302, 303)
         assert "/login" in r.headers.get("location", "")
+
+    def test_compliance_page_redacts_secrets_in_display(self, client) -> None:
+        """The compliance page must not display secrets even if an old error
+        was stored before redaction was implemented."""
+        import os
+        from amlkit.db import connect, upsert_dataset, record_dataset_error
+
+        conn = connect(os.environ["AMLKIT_DB"])
+        upsert_dataset(conn, "eu_fsf_test", "EU FSF Test", is_mandatory=True)
+        error_with_secret = "HTTPError: 401 for https://api.example.com/data?token=LEAKED_SECRET&format=json"
+        record_dataset_error(conn, "eu_fsf_test", error_with_secret)
+        conn.close()
+
+        r = client.get("/admin/compliance")
+        assert r.status_code == 200
+        # The secret must not appear in the rendered page
+        assert "LEAKED_SECRET" not in r.text, "Secret token visible in compliance page"
+        # The redacted marker should be present
+        assert "[REDACTED]" in r.text, "Expected [REDACTED] marker in page"
 
     def test_compliance_respects_dataset_max_age(self, client) -> None:
         """Datasets with long max_age_hours (like FATF at 2160h/90d) should

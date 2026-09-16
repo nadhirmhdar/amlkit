@@ -1052,15 +1052,29 @@ def upsert_dataset(
     return int(row["id"])
 
 
+def _redact_secrets(error: str) -> str:
+    """Strip query strings (especially ?token=...) and cap length before
+    storage to prevent token leakage (EU FSF adapter puts AMLKIT_EU_FSF_TOKEN
+    in URLs) and DB bloat."""
+    import re
+    # Strip query strings from URLs: ?anything → ?[REDACTED]
+    redacted = re.sub(r'\?[^\s<>"\']+', '?[REDACTED]', error)
+    # Cap at 500 chars
+    if len(redacted) > 500:
+        redacted = redacted[:497] + "..."
+    return redacted
+
+
 def record_dataset_error(conn: sqlite3.Connection, key: str, error: str) -> None:
     """Persist a refresh failure onto the dataset row so the compliance
     dashboard can surface *which* source failed and *why*, instead of the
     error living only in stderr/logs. Best-effort: the dataset row may not
     exist yet on a first-ever refresh that fails before upsert_dataset(),
     so this is a no-op UPDATE in that case rather than an error."""
+    safe_error = _redact_secrets(error)
     conn.execute(
         "UPDATE datasets SET last_error=?, error_at=? WHERE key=?",
-        (error, utcnow(), key),
+        (safe_error, utcnow(), key),
     )
     conn.commit()
 
