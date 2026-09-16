@@ -77,7 +77,9 @@ CREATE TABLE IF NOT EXISTS datasets (
     is_mandatory  INTEGER NOT NULL DEFAULT 0, -- required by UAE law
     last_refresh  TEXT,
     entity_count  INTEGER NOT NULL DEFAULT 0,
-    max_age_hours INTEGER NOT NULL DEFAULT 24  -- breach threshold; 24 = daily (sanctions), 2160 = 90d (FATF)
+    max_age_hours INTEGER NOT NULL DEFAULT 24, -- breach threshold; 24 = daily (sanctions), 2160 = 90d (FATF)
+    last_error    TEXT,                        -- last refresh failure message, NULL when healthy
+    error_at      TEXT                         -- UTC timestamp of last_error
 );
 
 CREATE TABLE IF NOT EXISTS entities (
@@ -703,6 +705,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("ubo_links", "is_nominee",    "ALTER TABLE ubo_links ADD COLUMN is_nominee INTEGER NOT NULL DEFAULT 0"),
     ("ubo_links", "parent_ubo_id", "ALTER TABLE ubo_links ADD COLUMN parent_ubo_id INTEGER REFERENCES ubo_links(id) ON DELETE SET NULL"),
     ("operators", "disclaimer_acknowledged_at", "ALTER TABLE operators ADD COLUMN disclaimer_acknowledged_at TEXT"),
+    ("datasets",  "last_error",    "ALTER TABLE datasets ADD COLUMN last_error TEXT"),
+    ("datasets",  "error_at",      "ALTER TABLE datasets ADD COLUMN error_at TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -1046,6 +1050,42 @@ def upsert_dataset(
     )
     row = conn.execute("SELECT id FROM datasets WHERE key=?", (key,)).fetchone()
     return int(row["id"])
+
+
+def _redact_secrets(error: str) -> str:
+    """Strip query strings (especially ?token=...) and cap length before
+    storage to prevent token leakage (EU FSF adapter puts AMLKIT_EU_FSF_TOKEN
+    in URLs) and DB bloat."""
+    import re
+    # Strip query strings from URLs: ?anything → ?[REDACTED]
+    redacted = re.sub(r'\?[^\s<>"\']+', '?[REDACTED]', error)
+    # Cap at 500 chars
+    if len(redacted) > 500:
+        redacted = redacted[:497] + "..."
+    return redacted
+
+
+def record_dataset_error(conn: sqlite3.Connection, key: str, error: str) -> None:
+    """Persist a refresh failure onto the dataset row so the compliance
+    dashboard can surface *which* source failed and *why*, instead of the
+    error living only in stderr/logs. Best-effort: the dataset row may not
+    exist yet on a first-ever refresh that fails before upsert_dataset(),
+    so this is a no-op UPDATE in that case rather than an error."""
+    safe_error = _redact_secrets(error)
+    conn.execute(
+        "UPDATE datasets SET last_error=?, error_at=? WHERE key=?",
+        (safe_error, utcnow(), key),
+    )
+    conn.commit()
+
+
+def clear_dataset_error(conn: sqlite3.Connection, key: str) -> None:
+    """Clear a previously recorded refresh error after a successful load."""
+    conn.execute(
+        "UPDATE datasets SET last_error=NULL, error_at=NULL WHERE key=?",
+        (key,),
+    )
+    conn.commit()
 
 
 def fetch_all(conn: sqlite3.Connection, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
