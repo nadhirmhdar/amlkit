@@ -2604,6 +2604,13 @@ def report_save(
     except ValueError:
         return back("/reports", err=f"Amount {amount!r} is not a valid number.")
 
+    # For CTR: fetch org's configured large_cash_threshold to use as validation threshold
+    threshold = None
+    if report_type == "CTR":
+        from ..screening.kyt import get_rule_config
+        config = get_rule_config(db, session.org_id)
+        threshold = config["large_cash_threshold_aed"]
+
     # Bundle all collected parameters into a payload dict
     payload_dict = {
         "customer_id": customer_id,
@@ -2629,6 +2636,8 @@ def report_save(
         "action_taken": action_taken.strip(),
         "evidence_pack_attached": bool(evidence_pack_attached),
     }
+    if threshold is not None:
+        payload_dict["threshold"] = threshold
 
     payload_json = json.dumps(payload_dict)
     now = utcnow()
