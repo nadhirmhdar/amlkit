@@ -945,8 +945,8 @@ async def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, cs
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
-    
-    if session.role != "mlro":
+
+    if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="Execute freeze requires MLRO role")
     
     operator = session.operator_name
@@ -993,8 +993,8 @@ async def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, c
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
-    
-    if session.role != "mlro":
+
+    if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="File FFR requires MLRO role")
     
     org_id = session.org_id
@@ -1071,8 +1071,8 @@ async def freeze_obligation_resolve(request: Request, db: DB, freeze_id: int, cs
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
-    
-    if session.role != "mlro":
+
+    if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="Resolve freeze requires MLRO role")
     
     operator = session.operator_name
