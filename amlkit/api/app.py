@@ -1322,6 +1322,8 @@ def customer_create(
         )
     except StaleDatasetsError as exc:
         return back("/customers/new", err=str(exc))
+    except ValueError as exc:
+        return back("/customers/new", err=str(exc))
     except sqlite3.IntegrityError:
         return back("/customers/new", err=f"Reference {reference!r} already exists.")
 
