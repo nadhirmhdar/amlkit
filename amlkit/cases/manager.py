@@ -1560,6 +1560,25 @@ def check_unexecuted_freeze_obligations(
 
     # Send email alert if any overdue obligations found
     if overdue:
+        # Get MLRO email for this org
+        mlro_row = conn.execute(
+            "SELECT email FROM operators WHERE org_id = ? AND role = 'mlro' LIMIT 1",
+            (org_id,)
+        ).fetchone()
+        mlro_email = mlro_row["email"] if mlro_row else None
+
+        # Send alert for each overdue obligation
+        from .. import mail
+        for ob in overdue:
+            if mlro_email:
+                mail.send_freeze_obligation_alert(
+                    to_email=mlro_email,
+                    freeze_obligation_id=ob["id"],
+                    customer_reference=ob["customer_reference"],
+                    obligation_type=ob["obligation_type"],
+                    risk_category=ob["risk_category"]
+                )
+
         # Log to audit that overdue obligations were detected
         audit(
             conn,

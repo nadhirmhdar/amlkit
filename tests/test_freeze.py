@@ -1011,3 +1011,65 @@ def test_cross_org_resolve_freeze_blocked():
     assert audit == 0
 
     conn.close()
+
+
+def test_check_unexecuted_freeze_obligations_sends_email():
+    """check_unexecuted_freeze_obligations calls mailer for overdue obligations."""
+    from amlkit.cases import manager
+    from datetime import timedelta, datetime, timezone
+    from unittest.mock import patch
+
+    conn = db.connect(":memory:")
+
+    # Setup org and MLRO
+    now = db.utcnow()
+    conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at) VALUES (?, ?, ?, ?)",
+        ("Test Org", "test", "active", now)
+    )
+    org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    conn.execute(
+        """INSERT INTO operators (org_id, email, name, role, password_hash, email_verified, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "mlro@test.com", "MLRO", "mlro", "hash", 1, now, now)
+    )
+
+    # Create customer
+    conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+           onboarded_at, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, "C-001", "Test Customer", "natural", "test", now, "active", now, now)
+    )
+    customer_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Create overdue freeze obligation (36 hours old)
+    overdue_time = (datetime.now(timezone.utc) - timedelta(hours=36)).isoformat()
+    conn.execute(
+        """INSERT INTO freeze_obligations (org_id, customer_id, obligation_type, risk_category,
+           identified_at, identified_by, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (org_id, customer_id, "proliferation", "critical", overdue_time, "mlro", "pending_execution")
+    )
+    freeze_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+
+    # Mock the mailer
+    with patch('amlkit.mail.send_freeze_obligation_alert') as mock_mailer:
+        mock_mailer.return_value = "SENT"
+
+        overdue = manager.check_unexecuted_freeze_obligations(conn, org_id)
+
+        # Verify mailer was called
+        assert mock_mailer.called, "Mailer should be called for overdue obligations"
+        mock_mailer.assert_called_once_with(
+            to_email="mlro@test.com",
+            freeze_obligation_id=freeze_id,
+            customer_reference="C-001",
+            obligation_type="proliferation",
+            risk_category="critical"
+        )
+
+    assert len(overdue) == 1
+    conn.close()
