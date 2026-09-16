@@ -1736,7 +1736,7 @@ def compliance_health_view(request: Request, db: DB):
         ei = error_info.get(ds["key"], {})
         last_error = ei.get("last_error")
         error_at = ei.get("error_at")
-        max_age = 24  # default
+        max_age = ds["max_age_hours"]
         # Determine status
         if last_error:
             status = "FAIL"

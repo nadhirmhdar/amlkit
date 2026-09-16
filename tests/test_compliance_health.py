@@ -24,6 +24,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from test_api import client, _seed_sanctions_data, _csrf  # noqa: E402,F401
 
 
+class TestStalenessReport:
+    """Verify staleness_report returns max_age_hours for each dataset."""
+
+    def test_staleness_report_includes_max_age_hours(self) -> None:
+        from datetime import datetime, timedelta, timezone
+        from amlkit.db import connect, upsert_dataset
+        from amlkit.ingest.loader import staleness_report
+
+        conn = connect(":memory:")
+        ds_id = upsert_dataset(conn, "test_source", "Test Source", is_mandatory=True)
+        thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        conn.execute(
+            "UPDATE datasets SET last_refresh=?, entity_count=5, max_age_hours=2160 WHERE id=?",
+            (thirty_days_ago, ds_id)
+        )
+        conn.commit()
+
+        report = staleness_report(conn)
+        test_ds = [ds for ds in report if ds["key"] == "test_source"][0]
+        assert "max_age_hours" in test_ds, "staleness_report should include max_age_hours"
+        assert test_ds["max_age_hours"] == 2160, f"Expected 2160, got {test_ds['max_age_hours']}"
+        conn.close()
+
+
 class TestDatasetErrorColumns:
     """The columns must exist on a FRESH database, not only after a
     migration runs. connect(':memory:') builds from CREATE TABLE and never
@@ -120,3 +144,36 @@ class TestComplianceRoute:
         r = c.get("/admin/compliance", follow_redirects=False)
         assert r.status_code in (302, 303)
         assert "/login" in r.headers.get("location", "")
+
+    def test_compliance_respects_dataset_max_age(self, client) -> None:
+        """Datasets with long max_age_hours (like FATF at 2160h/90d) should
+        show OK when refreshed within their window, not STALE from the
+        hardcoded 24h default."""
+        import os
+        from datetime import datetime, timedelta, timezone
+        from amlkit.db import connect, upsert_dataset
+
+        conn = connect(os.environ["AMLKIT_DB"])
+        # OFAC SDN refreshed 30 days ago (720 hours), max_age 2160h (90 days)
+        ds_id = upsert_dataset(conn, "ofac_sdn_test", "OFAC SDN Long-Window Test",
+                               is_mandatory=True)
+        thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        conn.execute(
+            "UPDATE datasets SET last_refresh=?, entity_count=5, max_age_hours=2160 WHERE id=?",
+            (thirty_days_ago, ds_id)
+        )
+        conn.commit()
+        conn.close()
+
+        r = client.get("/admin/compliance")
+        assert r.status_code == 200
+        # Should show OK (not STALE) because 30d < 90d max_age
+        assert "OFAC SDN Long-Window Test" in r.text
+
+        # Find the test dataset row and extract its status badge
+        import re
+        pattern = r'OFAC SDN Long-Window Test.*?<span class="tag[^"]*"[^>]*>(.*?)</span>'
+        match = re.search(pattern, r.text, re.DOTALL)
+        assert match, "Could not find test dataset row with status badge"
+        status = match.group(1).strip()
+        assert status == "OK", f"Dataset with 2160h max_age and 720h age should show OK, not {status}"
