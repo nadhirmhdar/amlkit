@@ -170,6 +170,31 @@ def _parse(ts: str) -> datetime:
     return dt
 
 
+def _get_high_risk_countries(conn, org_additional: list[str] | None) -> list[str]:
+    """Build high-risk country list: FATF baseline + org additive watchlist.
+
+    Falls back to HIGH_RISK_COUNTRIES constant only when FATF table is empty.
+    org_additional (from org_settings.kyt_high_risk_countries) is ADDITIVE (union),
+    never replaces the FATF baseline.
+    """
+    # Query FATF countries as authoritative baseline
+    fatf_rows = conn.execute("SELECT country_code FROM fatf_countries").fetchall()
+    fatf_codes = {row["country_code"] for row in fatf_rows}
+
+    if fatf_codes:
+        # FATF data exists: use it as baseline
+        baseline = fatf_codes
+    else:
+        # FATF table empty (not yet refreshed): fall back to module constant
+        baseline = set(HIGH_RISK_COUNTRIES)
+
+    # Add org-specific countries (additive watchlist)
+    if org_additional:
+        baseline = baseline | set(org_additional)
+
+    return sorted(baseline)
+
+
 def get_rule_config(conn, org_id: int) -> dict[str, Any]:
     """Load KYT rule configuration from DB, falling back to module defaults.
 
@@ -191,6 +216,9 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
         (org_id,)
     ).fetchone()
 
+    # Parse org-specific additional countries
+    org_additional = json.loads(row["kyt_high_risk_countries"]) if row and row["kyt_high_risk_countries"] else None
+
     if row:
         return {
             "large_cash_threshold_aed": row["kyt_large_cash_threshold"] if row["kyt_large_cash_threshold"] is not None else LARGE_CASH_THRESHOLD_AED,
@@ -198,17 +226,17 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
             "structuring_min_count": STRUCTURING_MIN_COUNT,  # Not configurable yet
             "velocity_window_hours": row["kyt_velocity_window_hours"] if row["kyt_velocity_window_hours"] is not None else VELOCITY_WINDOW_HOURS,
             "velocity_max_count": row["kyt_velocity_max_count"] if row["kyt_velocity_max_count"] is not None else VELOCITY_MAX_COUNT,
-            "high_risk_countries": json.loads(row["kyt_high_risk_countries"]) if row["kyt_high_risk_countries"] else list(HIGH_RISK_COUNTRIES),
+            "high_risk_countries": _get_high_risk_countries(conn, org_additional),
         }
 
-    # No org_settings row yet - return module defaults
+    # No org_settings row yet - return module defaults with FATF baseline
     return {
         "large_cash_threshold_aed": LARGE_CASH_THRESHOLD_AED,
         "structuring_window_days": STRUCTURING_WINDOW_DAYS,
         "structuring_min_count": STRUCTURING_MIN_COUNT,
         "velocity_window_hours": VELOCITY_WINDOW_HOURS,
         "velocity_max_count": VELOCITY_MAX_COUNT,
-        "high_risk_countries": list(HIGH_RISK_COUNTRIES),
+        "high_risk_countries": _get_high_risk_countries(conn, None),
     }
 
 

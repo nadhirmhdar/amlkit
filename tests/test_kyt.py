@@ -387,3 +387,64 @@ class TestConfigurableKYTRules:
             amount=110000.0, actor="tester",
         )
         assert any(t.rule_key == "large_cash" for t in triggered), "110k should trigger with 100k threshold"
+
+
+class TestHighRiskCountriesFATFBaseline:
+    """Tests for high-risk countries using FATF dataset as baseline."""
+
+    def test_fatf_countries_used_as_baseline(self, conn, org_id) -> None:
+        """High-risk countries come from FATF dataset when available."""
+        from amlkit.ingest.fatf import load_fatf_data
+        from amlkit.screening.kyt import get_rule_config
+
+        # Load FATF data (includes KP, IR, MM from blacklist)
+        load_fatf_data(conn)
+
+        config = get_rule_config(conn, org_id)
+        countries = config["high_risk_countries"]
+
+        # FATF blacklist countries must be present
+        assert "KP" in countries, "North Korea (FATF blacklist) should be included"
+        assert "IR" in countries, "Iran (FATF blacklist) should be included"
+        assert "MM" in countries, "Myanmar (FATF blacklist) should be included"
+
+    def test_org_override_is_additive(self, conn, org_id) -> None:
+        """Org-specific high-risk countries ADD to FATF, never replace."""
+        from amlkit.ingest.fatf import load_fatf_data
+        from amlkit.screening.kyt import get_rule_config, save_rule_config
+
+        # Load FATF data
+        load_fatf_data(conn)
+
+        # Get baseline (should include FATF countries)
+        baseline_config = get_rule_config(conn, org_id)
+        baseline_countries = set(baseline_config["high_risk_countries"])
+
+        # Add org-specific country (e.g., "RU")
+        save_rule_config(conn, org_id, {"high_risk_countries": ["RU"]}, actor="test")
+        conn.commit()
+
+        # Get updated config
+        new_config = get_rule_config(conn, org_id)
+        new_countries = set(new_config["high_risk_countries"])
+
+        # FATF countries must still be present (not replaced)
+        assert baseline_countries.issubset(new_countries), \
+            "FATF baseline countries should not be removed by org override"
+        # Org-specific country should be added
+        assert "RU" in new_countries, "Org-specific country should be added"
+
+    def test_fallback_to_constant_when_fatf_empty(self, conn, org_id) -> None:
+        """Falls back to HIGH_RISK_COUNTRIES when FATF table is empty."""
+        from amlkit.screening.kyt import get_rule_config, HIGH_RISK_COUNTRIES
+
+        # Ensure FATF table is empty (don't load FATF data)
+        conn.execute("DELETE FROM fatf_countries")
+        conn.commit()
+
+        config = get_rule_config(conn, org_id)
+        countries = set(config["high_risk_countries"])
+
+        # Should match the module constant
+        assert countries == HIGH_RISK_COUNTRIES, \
+            "Should fall back to HIGH_RISK_COUNTRIES when FATF table is empty"
