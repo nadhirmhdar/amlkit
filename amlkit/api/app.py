@@ -1058,7 +1058,7 @@ async def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, c
     """, (report_id, now, freeze_id))
     
     from ..db import audit
-    audit(db, operator, "freeze.reported", "freeze_obligation", str(freeze_id),
+    audit(db, operator, "freeze.reported", "freeze_obligation", freeze_id,
           {"report_id": report_id}, org_id=org_id)
     db.commit()
     

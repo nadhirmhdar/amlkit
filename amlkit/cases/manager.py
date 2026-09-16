@@ -1320,34 +1320,34 @@ def create_freeze_obligation(
 
     now = utcnow()
 
-    # Insert freeze obligation
-    cursor = conn.execute(
-        """INSERT INTO freeze_obligations
-           (org_id, customer_id, alert_id, obligation_type, risk_category,
-            identified_at, identified_by, notes, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (org_id, customer_id, alert_id, obligation_type, risk_category,
-         now, identified_by, notes, "pending_execution")
-    )
-    freeze_id = cursor.lastrowid
+    # Insert freeze obligation and log audit atomically
+    with conn:
+        cursor = conn.execute(
+            """INSERT INTO freeze_obligations
+               (org_id, customer_id, alert_id, obligation_type, risk_category,
+                identified_at, identified_by, notes, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (org_id, customer_id, alert_id, obligation_type, risk_category,
+             now, identified_by, notes, "pending_execution")
+        )
+        freeze_id = cursor.lastrowid
 
-    # Log audit entry
-    audit(
-        conn,
-        identified_by,
-        "freeze.identified",
-        "freeze_obligation",
-        str(freeze_id),
-        {
-            "customer_id": customer_id,
-            "alert_id": alert_id,
-            "obligation_type": obligation_type,
-            "risk_category": risk_category,
-        },
-        org_id=org_id,
-    )
+        # Log audit entry
+        audit(
+            conn,
+            identified_by,
+            "freeze.identified",
+            "freeze_obligation",
+            freeze_id,
+            {
+                "customer_id": customer_id,
+                "alert_id": alert_id,
+                "obligation_type": obligation_type,
+                "risk_category": risk_category,
+            },
+            org_id=org_id,
+        )
 
-    conn.commit()
     return freeze_id
 
 
@@ -1395,33 +1395,32 @@ def execute_freeze(
 
     now = utcnow()
 
-    # Update freeze obligation (tenant-scoped)
-    conn.execute(
-        """UPDATE freeze_obligations
-           SET status = 'executed_pending_report',
-               executed_at = ?,
-               executed_by = ?,
-               assets_frozen = ?,
-               notes = ?
-           WHERE id = ? AND org_id = ?""",
-        (now, executed_by, json.dumps(assets_frozen), notes, freeze_obligation_id, org_id)
-    )
+    # Update freeze obligation and log audit atomically
+    with conn:
+        conn.execute(
+            """UPDATE freeze_obligations
+               SET status = 'executed_pending_report',
+                   executed_at = ?,
+                   executed_by = ?,
+                   assets_frozen = ?,
+                   notes = ?
+               WHERE id = ? AND org_id = ?""",
+            (now, executed_by, json.dumps(assets_frozen), notes, freeze_obligation_id, org_id)
+        )
 
-    # Log audit entry
-    audit(
-        conn,
-        executed_by,
-        "freeze.executed",
-        "freeze_obligation",
-        str(freeze_obligation_id),
-        {
-            "asset_count": len(assets_frozen),
-            "total_amount_aed": sum(a.get("amount_aed", 0) for a in assets_frozen),
-        },
-        org_id=org_id,
-    )
-
-    conn.commit()
+        # Log audit entry
+        audit(
+            conn,
+            executed_by,
+            "freeze.executed",
+            "freeze_obligation",
+            freeze_obligation_id,
+            {
+                "asset_count": len(assets_frozen),
+                "total_amount_aed": sum(a.get("amount_aed", 0) for a in assets_frozen),
+            },
+            org_id=org_id,
+        )
 
 
 def resolve_freeze_obligation(
@@ -1482,34 +1481,33 @@ def resolve_freeze_obligation(
 
     now = utcnow()
 
-    # Update freeze obligation (tenant-scoped)
-    conn.execute(
-        """UPDATE freeze_obligations
-           SET status = 'resolved',
-               resolved_at = ?,
-               resolved_by = ?,
-               resolution_reason = ?,
-               authority_ref = ?,
-               notes = ?
-           WHERE id = ? AND org_id = ?""",
-        (now, resolved_by, resolution_reason, authority_ref, notes, freeze_obligation_id, org_id)
-    )
+    # Update freeze obligation and log audit atomically
+    with conn:
+        conn.execute(
+            """UPDATE freeze_obligations
+               SET status = 'resolved',
+                   resolved_at = ?,
+                   resolved_by = ?,
+                   resolution_reason = ?,
+                   authority_ref = ?,
+                   notes = ?
+               WHERE id = ? AND org_id = ?""",
+            (now, resolved_by, resolution_reason, authority_ref, notes, freeze_obligation_id, org_id)
+        )
 
-    # Log audit entry
-    audit(
-        conn,
-        resolved_by,
-        "freeze.resolved",
-        "freeze_obligation",
-        str(freeze_obligation_id),
-        {
-            "resolution_reason": resolution_reason,
-            "authority_ref": authority_ref,
-        },
-        org_id=org_id,
-    )
-
-    conn.commit()
+        # Log audit entry
+        audit(
+            conn,
+            resolved_by,
+            "freeze.resolved",
+            "freeze_obligation",
+            freeze_obligation_id,
+            {
+                "resolution_reason": resolution_reason,
+                "authority_ref": authority_ref,
+            },
+            org_id=org_id,
+        )
 
 
 def check_unexecuted_freeze_obligations(
