@@ -141,8 +141,8 @@ class TestPurgeExpiredWithDocuments:
         mock_storage_delete.assert_called_with("/var/data/documents/1/789/id.pdf")
 
     @patch('amlkit.storage.delete')
-    def test_purge_expired_logs_delete_failure_and_continues(self, mock_storage_delete, conn, org_id):
-        """purge_expired logs storage.delete failures but continues purging."""
+    def test_purge_expired_skips_customer_on_document_delete_failure(self, mock_storage_delete, conn, org_id):
+        """purge_expired skips customer with undeletable documents, allowing retry."""
         from amlkit.cases.manager import onboard, purge_expired
 
         # Create two customers with documents
@@ -161,11 +161,55 @@ class TestPurgeExpiredWithDocuments:
             )
         conn.commit()
 
-        # First delete fails, second succeeds
+        # First customer's document delete fails
         mock_storage_delete.side_effect = [OSError("Permission denied"), None]
 
         result = purge_expired(conn, org_id)
 
-        # Both customers should be purged despite the first delete failure
-        assert result["purged"] == 2
-        assert mock_storage_delete.call_count >= 2
+        # First customer should be skipped, second purged
+        assert result["purged"] == 1
+        assert mock_storage_delete.call_count == 2
+
+        # First customer row should still exist for retry
+        row = conn.execute("SELECT id FROM customers WHERE id=?", (res1.customer_id,)).fetchone()
+        assert row is not None, "Customer with undeletable document should be skipped"
+
+        # Audit log should record the failure
+        audit_row = conn.execute(
+            "SELECT action FROM audit_log WHERE action='retention.purge_failed' AND object_id=?",
+            (str(res1.customer_id,))
+        ).fetchone()
+        assert audit_row is not None, "Failed purge should be logged"
+
+    @patch('amlkit.storage.delete')
+    def test_purge_expired_handles_gcs_exceptions(self, mock_storage_delete, conn, org_id):
+        """purge_expired handles GCS-specific exceptions (not just OSError)."""
+        from google.api_core.exceptions import Forbidden
+        from amlkit.cases.manager import onboard, purge_expired
+
+        res1 = onboard(conn, org_id=org_id, reference="DOC-5", full_name="Customer GCS Error")
+        res2 = onboard(conn, org_id=org_id, reference="DOC-6", full_name="Customer GCS OK")
+
+        for cid in [res1.customer_id, res2.customer_id]:
+            conn.execute(
+                "INSERT INTO documents (customer_id, org_id, doc_type, filename, stored_path, sha256, uploaded_at) "
+                "VALUES (?, ?, 'passport', 'doc.pdf', 'gs://bucket/doc.pdf', 'abc123', datetime('now'))",
+                (cid, org_id)
+            )
+            conn.execute(
+                "UPDATE customers SET status='closed', retention_until='2020-01-01' WHERE id=?",
+                (cid,)
+            )
+        conn.commit()
+
+        # First delete fails with GCS exception, second succeeds
+        mock_storage_delete.side_effect = [Forbidden("Access denied to bucket"), None]
+
+        result = purge_expired(conn, org_id)
+
+        # First customer skipped, second purged
+        assert result["purged"] == 1
+
+        # First customer still exists
+        row = conn.execute("SELECT id FROM customers WHERE id=?", (res1.customer_id,)).fetchone()
+        assert row is not None
