@@ -941,7 +941,7 @@ class TestCookieSecurity:
         from fastapi.testclient import TestClient
         from amlkit.api.app import app
 
-        client = TestClient(app)
+        client = TestClient(app, base_url="https://testserver")
 
         # Register and verify to get session cookie
         client.get("/register-organization")
@@ -1023,7 +1023,7 @@ class TestCookieSecurity:
 
         r = client.post("/login", data={
             "email": "alice@testfirm.ae",
-            "password": "test123",
+            "password": "a-strong-password-1",
             "csrf_token": csrf_before,
         }, follow_redirects=False)
 
@@ -1093,7 +1093,7 @@ class TestCookieSecurity:
 
         r1 = client.post("/login", data={
             "email": "alice@testfirm.ae",
-            "password": "test123",
+            "password": "a-strong-password-1",
             "csrf_token": csrf_before,
         }, follow_redirects=True)
 
@@ -1112,19 +1112,11 @@ class TestCookieSecurity:
 
     def test_no_other_session_cookie_sites(self) -> None:
         """Verify all SESSION_COOKIE set_cookie() calls are accounted for."""
-        import subprocess
-        result = subprocess.run(
-            ["grep", "-n", "set_cookie(SESSION_COOKIE",
-             "C:/Users/nizam/qa-fixes/amlkit/api/app.py"],
-            capture_output=True, text=True
-        )
+        import re
+        from pathlib import Path
 
-        lines = result.stdout.strip().split("\n") if result.stdout.strip() else []
+        src = (Path(__file__).resolve().parent.parent / "amlkit" / "api" / "app.py").read_text(encoding="utf-8")
+        matches = re.findall(r"set_cookie\(\s*SESSION_COOKIE", src)
 
-        assert len(lines) == 3, \
-            f"Expected 3 SESSION_COOKIE set_cookie calls, found {len(lines)}: {lines}"
-
-        combined = "\n".join(lines)
-        assert any(x in combined for x in ["login", "556"]), "Should have login route"
-        assert any(x in combined for x in ["setup", "665", "661"]), "Should have setup route"
-        assert any(x in combined for x in ["verify", "817", "809"]), "Should have verify route"
+        assert len(matches) == 3, \
+            f"Expected 3 SESSION_COOKIE set_cookie calls, found {len(matches)}"
