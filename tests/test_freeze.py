@@ -315,6 +315,7 @@ def test_execute_freeze_success():
     manager.execute_freeze(
         conn,
         freeze_id,
+        org_id=org_id,
         executed_by="test_mlro",
         assets_frozen=assets,
         notes="Freeze executed per UNSCR 1718"
@@ -381,6 +382,7 @@ def test_execute_freeze_already_executed():
     # Execute once
     manager.execute_freeze(
         conn, freeze_id,
+        org_id=org_id,
         executed_by="test_mlro",
         assets_frozen=[]
     )
@@ -389,6 +391,7 @@ def test_execute_freeze_already_executed():
     with pytest.raises(ValueError, match="already executed"):
         manager.execute_freeze(
             conn, freeze_id,
+        org_id=org_id,
             executed_by="test_mlro",
             assets_frozen=[]
         )
@@ -427,6 +430,7 @@ def test_resolve_freeze_obligation_success():
 
     manager.execute_freeze(
         conn, freeze_id,
+        org_id=org_id,
         executed_by="test_mlro",
         assets_frozen=[]
     )
@@ -435,6 +439,7 @@ def test_resolve_freeze_obligation_success():
     manager.resolve_freeze_obligation(
         conn,
         freeze_id,
+        org_id=org_id,
         resolved_by="test_mlro",
         resolution_reason="delisted",
         authority_ref="FIU-2026-001",
@@ -499,6 +504,7 @@ def test_resolve_false_positive_before_execution():
     manager.resolve_freeze_obligation(
         conn,
         freeze_id,
+        org_id=org_id,
         resolved_by="test_mlro",
         resolution_reason="false_positive",
         notes="Name match error - different person"
@@ -1030,9 +1036,9 @@ def test_check_unexecuted_freeze_obligations_sends_email():
     org_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
     conn.execute(
-        """INSERT INTO operators (org_id, email, name, role, password_hash, email_verified, created_at, updated_at)
+        """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, failed_login_count, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (org_id, "mlro@test.com", "MLRO", "mlro", "hash", 1, now, now)
+        (org_id, "MLRO", "mlro@test.com", "hash", "mlro", 1, 0, now)
     )
 
     # Create customer
