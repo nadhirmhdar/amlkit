@@ -39,6 +39,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .. import auth, mail, queries, storage
+from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     StaleDatasetsError,
@@ -179,7 +180,9 @@ class RegisterOrgRequest(BaseModel):
     invite_code: str = ""
 
 
-def _api_register_organization_impl(request: Request, body: RegisterOrgRequest, db: DB):
+@router.post("/auth/register-organization")
+@limiter.limit("5/minute")
+def api_register_organization(request: Request, body: RegisterOrgRequest, db: DB):
     import os
     import secrets
 
@@ -273,10 +276,6 @@ def _api_register_organization_impl(request: Request, body: RegisterOrgRequest, 
             "request a new link."
         )
     return response
-
-
-# Register the endpoint
-api_register_organization = router.post("/auth/register-organization")(_api_register_organization_impl)
 
 
 class VerifyEmailRequest(BaseModel):

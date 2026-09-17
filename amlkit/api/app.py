@@ -25,11 +25,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, queries
+from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     StaleDatasetsError,
@@ -346,7 +347,6 @@ def login_rate_limit_key(request: Request) -> str:
     return ip
 
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -355,12 +355,6 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 from .mobile import router as mobile_router  # noqa: E402
 
 app.include_router(mobile_router)
-
-# Apply rate limit to mobile registration route after inclusion
-for route in app.routes:
-    if hasattr(route, "path") and route.path == "/api/v1/auth/register-organization":
-        if hasattr(route, "endpoint"):
-            route.endpoint = limiter.limit("5/minute")(route.endpoint)
 
 app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))

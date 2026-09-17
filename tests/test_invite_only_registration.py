@@ -225,9 +225,37 @@ class TestNonRegression:
         assert r.status_code == 200
         assert r.json()["status"] == "created"
 
-    # NOTE: Rate limiting decorator is applied in app.py after route inclusion.
-    # Unit testing the 429 response requires mocking slowapi internals or load testing.
-    # Production verification: manual curl or load test confirms 5/minute gate.
+    def test_api_registration_rate_limited_to_5_per_minute(self, client):
+        """POST /api/v1/auth/register-organization is rate-limited to 5/minute."""
+        for i in range(5):
+            r = client.post("/api/v1/auth/register-organization", json={
+                "org_name": f"Firm {i}", "name": f"user{i}", "email": f"user{i}@test.ae",
+                "password": "strong-enough-1", "invite_code": INVITE_CODE,
+            })
+            assert r.status_code == 200, f"attempt {i+1} should succeed: {r.status_code}"
+
+        r = client.post("/api/v1/auth/register-organization", json={
+            "org_name": "ExtraFirm", "name": "extra", "email": "extra@test.ae",
+            "password": "strong-enough-1", "invite_code": INVITE_CODE,
+        })
+        assert r.status_code == 429, f"6th attempt should be 429 (got {r.status_code})"
+
+    def test_web_registration_rate_limited_to_5_per_minute(self, client):
+        """POST /register-organization is rate-limited to 5/minute."""
+        for i in range(5):
+            csrf = _csrf(client)
+            r = client.post("/register-organization", data={
+                "org_name": f"WebFirm{i}", "name": f"user{i}", "email": f"web{i}@test.ae",
+                "password": "strong-enough-1", "csrf_token": csrf, "invite_code": INVITE_CODE,
+            })
+            assert r.status_code in (200, 303), f"attempt {i+1} should succeed: {r.status_code}"
+
+        csrf = _csrf(client)
+        r = client.post("/register-organization", data={
+            "org_name": "WebFirmExtra", "name": "extra", "email": "webextra@test.ae",
+            "password": "strong-enough-1", "csrf_token": csrf, "invite_code": INVITE_CODE,
+        })
+        assert r.status_code == 429, f"6th attempt should be 429 (got {r.status_code})"
 
 
 class TestConsoleOrgAlerts:
