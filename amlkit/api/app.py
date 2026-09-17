@@ -2253,6 +2253,79 @@ def admin_rescreen(
         return back("/admin", err=f"Re-screening failed: {exc}")
 
 
+# ---------------------------------------------------------------------- KYT rule config (Phase 4 enhancement, Step 8)
+@app.get("/admin/rule-config", response_class=HTMLResponse)
+def admin_rule_config_get(request: Request, db: DB):
+    """Show KYT rule configuration form."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin", err=str(exc))
+
+    from ..screening.kyt import get_rule_config
+
+    config = get_rule_config(db, session.org_id)
+    return render(request, "admin/rule-config.html", {
+        "session": session,
+        "large_cash_threshold_aed": config["large_cash_threshold_aed"],
+        "structuring_window_days": config["structuring_window_days"],
+        "velocity_window_hours": config["velocity_window_hours"],
+        "velocity_max_count": config["velocity_max_count"],
+        "high_risk_countries": ", ".join(config["high_risk_countries"]),
+    })
+
+
+@app.post("/admin/rule-config")
+@limiter.limit("10/minute")
+def admin_rule_config_post(
+    request: Request, db: DB,
+    large_cash_threshold_aed: Annotated[str, Form()] = "",
+    structuring_window_days: Annotated[str, Form()] = "",
+    velocity_window_hours: Annotated[str, Form()] = "",
+    velocity_max_count: Annotated[str, Form()] = "",
+    high_risk_countries: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Update KYT rule configuration."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin/rule-config", err=str(exc))
+
+    from ..screening.kyt import save_rule_config, get_rule_config
+
+    config_update = {}
+    try:
+        if large_cash_threshold_aed:
+            config_update["large_cash_threshold_aed"] = float(large_cash_threshold_aed)
+        if structuring_window_days:
+            config_update["structuring_window_days"] = int(structuring_window_days)
+        if velocity_window_hours:
+            config_update["velocity_window_hours"] = int(velocity_window_hours)
+        if velocity_max_count:
+            config_update["velocity_max_count"] = int(velocity_max_count)
+        if high_risk_countries:
+            config_update["high_risk_countries"] = [
+                c.strip().upper() for c in high_risk_countries.split(",") if c.strip()
+            ]
+
+        save_rule_config(db, session.org_id, config_update, actor=session.operator_name)
+        db.commit()
+        return back("/admin/rule-config", msg="Rule configuration updated successfully")
+    except ValueError as exc:
+        return back("/admin/rule-config", err=str(exc))
+    except Exception as exc:
+        log.exception("Failed to save rule config: %s", exc)
+        return back("/admin/rule-config", err=f"Failed to save configuration: {exc}")
+
+
 # ---------------------------------------------------------------------- policies (Phase 4 enhancement)
 @app.get("/policies", response_class=HTMLResponse)
 def policies_list(request: Request, db: DB):
