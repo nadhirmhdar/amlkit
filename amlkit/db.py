@@ -670,7 +670,7 @@ CREATE INDEX IF NOT EXISTS ix_audit_ts  ON audit_log(ts);
 -- User feedback from pilot users. Deliberately org-scoped so each firm's
 -- feedback stays with their own data, not mixed into a global pool.
 -- operator_id (not just actor name) so deactivated operators' feedback
--- can be retained per the 5-year rule even after the operator row is gone.
+-- can be retained per the 10-year rule even after the operator row is gone.
 CREATE TABLE IF NOT EXISTS feedback (
     id          INTEGER PRIMARY KEY,
     org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

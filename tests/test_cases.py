@@ -314,10 +314,10 @@ class TestRetention:
         assert len(nominee_ubos) == 1
         assert nominee_ubos[0]["person_name"] == "Visible Nominee"
 
-    def test_retention_years_is_eight(self) -> None:
-        assert RETENTION_YEARS == 8
+    def test_retention_years_is_ten(self) -> None:
+        assert RETENTION_YEARS == 10
 
-    def test_close_relationship_sets_eight_year_retention(self, conn, org_id) -> None:
+    def test_close_relationship_sets_ten_year_retention(self, conn, org_id) -> None:
         res = onboard(conn, org_id=org_id, reference="C-300", full_name="Ahmed Al Mansoori")
         until = close_relationship(conn, res.customer_id, org_id=org_id)
         row = conn.execute(
@@ -326,8 +326,12 @@ class TestRetention:
         assert row["status"] == "closed"
         assert row["retention_until"] == until
         from datetime import date
-        expected = date.today().replace(year=date.today().year + 8)
-        assert until == expected.isoformat()
+        today = date.today()
+        # Cabinet Resolution 134/2025 requires 10-year retention.
+        # Allow ±1 day tolerance for leap-year edge cases.
+        expected = today.replace(year=today.year + 10)
+        delta = abs((date.fromisoformat(until) - expected).days)
+        assert delta <= 1, f"retention_until {until!r} should be ~10 years from today ({expected})"
 
 
 class TestPurgeExpired:
