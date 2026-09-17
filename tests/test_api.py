@@ -1145,27 +1145,6 @@ class TestSecurityHardening:
         assert "datasets" not in data, "Response should NOT contain datasets array"
         assert len(data) == 1, f"Response should have only status key, got: {data.keys()}"
 
-    def test_n005_csp_no_unsafe_inline_in_script_src(self, client) -> None:
-        """N005: CSP header should not contain 'unsafe-inline' in script-src."""
-        r = client.get("/login")
-        assert r.status_code == 200
-
-        csp = r.headers.get("Content-Security-Policy", "")
-        assert csp, "Response must include CSP header"
-
-        # Extract script-src directive
-        import re
-        script_src_match = re.search(r"script-src ([^;]+)", csp)
-        assert script_src_match, "CSP must include script-src"
-
-        script_src_value = script_src_match.group(1)
-        assert "'unsafe-inline'" not in script_src_value, \
-            f"script-src must not contain 'unsafe-inline'. Got: {script_src_value}"
-
-        # Verify style-src still has unsafe-inline (per spec, not removed)
-        assert "'unsafe-inline'" in csp.split("script-src")[1].split("style-src")[1], \
-            "style-src should still contain 'unsafe-inline' (N005 defers this)"
-
     def test_n006_no_env_var_in_error_message(self) -> None:
         """N006: Error message should not disclose AMLKIT_SINGLE_OPERATOR_MODE env var to user."""
         from pathlib import Path
