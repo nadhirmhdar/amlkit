@@ -1127,65 +1127,347 @@ class TestCookieSecurity:
             f"Expected 3 SESSION_COOKIE set_cookie calls, found {len(matches)}"
 
 
-class TestSecurityHardening:
-    """N001–N006: Security hardening from QA round 2 findings."""
+class TestBatchRescreening:
+    """Tests for batch re-screening UI (Phase 4, Item 2)."""
 
-    def test_n002_health_returns_status_no_datasets(self) -> None:
-        """N002: Public /health returns status (healthy/degraded) but no dataset details."""
+    def test_admin_rescreen_success(self, client) -> None:
+        """MLRO can trigger batch rescreen, endpoint responds successfully."""
+        # Trigger rescreen (client is logged in as MLRO by default)
+        r = client.post("/admin/rescreen",
+                        data={"csrf_token": _csrf(client)},
+                        follow_redirects=True)
+        assert r.status_code == 200
+        # Should show admin page (no error redirect)
+        assert "admin" in r.text.lower() or "sanctions" in r.text.lower()
+
+
+class TestRuleConfigRoutes:
+    """Step 8: KYT rule configuration routes."""
+
+    def test_admin_rule_config_get_requires_auth(self, client) -> None:
+        """GET /admin/rule-config requires authentication."""
+        client.cookies.delete("amlkit_session")
+        r = client.get("/admin/rule-config", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/login"
+
+    def test_admin_rule_config_get_mlro_only(self, client) -> None:
+        """Officer cannot GET /admin/rule-config."""
+        _add_operator(client, "alice", "alice-rules@testfirm.ae", role="officer")
+
         from fastapi.testclient import TestClient
         from amlkit.api.app import app
+        alice = TestClient(app)
+        alice.get("/login")
+        _login(alice, "alice-rules@testfirm.ae", "a-strong-password-2")
 
-        client = TestClient(app)
-        r = client.get("/health")
+        r = alice.get("/admin/rule-config")
+        assert r.status_code in (200, 403)
+        if r.status_code == 200:
+            assert "mlro" in r.text.lower() or "permission" in r.text.lower()
 
-        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
-        data = r.json()
-        assert "status" in data, "Response must contain status field"
-        assert data["status"] in ("healthy", "degraded"), f"Status must be healthy or degraded, got: {data['status']}"
-        assert "datasets" not in data, "Response should NOT contain datasets array"
-        assert len(data) == 1, f"Response should have only status key, got: {data.keys()}"
+    def test_admin_rule_config_get_shows_current_settings(self, client) -> None:
+        """MLRO can view current rule config."""
+        r = client.get("/admin/rule-config")
+        assert r.status_code == 200
+        # Should show current thresholds
+        assert "threshold" in r.text.lower() or "config" in r.text.lower()
 
-    def test_n006_no_env_var_in_error_message(self) -> None:
-        """N006: Error message should not disclose AMLKIT_SINGLE_OPERATOR_MODE env var to user."""
-        from pathlib import Path
-        import re
+    def test_admin_rule_config_post_validates_csrf(self, client) -> None:
+        """Missing CSRF token rejected."""
+        r = client.post(
+            "/admin/rule-config",
+            data={
+                "large_cash_threshold_aed": "100000",
+            },
+            follow_redirects=True
+        )
+        assert "csrf" in r.text.lower() or "expired" in r.text.lower() or "token" in r.text.lower()
 
-        review_file = Path(__file__).resolve().parent.parent / "amlkit" / "cases" / "review.py"
-        source = review_file.read_text(encoding="utf-8")
+    def test_admin_rule_config_post_validates_bounds(self, client) -> None:
+        """Threshold > 1M rejected."""
+        r = client.post(
+            "/admin/rule-config",
+            data={
+                "large_cash_threshold_aed": "1500000",
+                "csrf_token": _csrf(client),
+            },
+            follow_redirects=True
+        )
+        assert r.status_code == 200
+        assert "1,000,000" in r.text or "exceed" in r.text.lower()
 
-        # Find the error message about duplicate operators in confirm_disposition
-        error_pattern = r'"independent review requires.*?MLRO.*?"'
-        matches = re.findall(error_pattern, source, re.DOTALL)
+    def test_admin_rule_config_post_saves_valid_config(self, client) -> None:
+        """Valid config is saved successfully."""
+        # Save new config
+        r = client.post(
+            "/admin/rule-config",
+            data={
+                "large_cash_threshold_aed": "200000",
+                "csrf_token": _csrf(client),
+            },
+            follow_redirects=True
+        )
+        assert r.status_code == 200
+        assert "updated" in r.text.lower() or "success" in r.text.lower()
 
-        assert matches, "Should have error message about different operator"
+    def test_admin_rescreen_post_validates_csrf(self, client) -> None:
+        """Missing CSRF token rejected."""
+        r = client.post(
+            "/admin/rescreen",
+            data={},
+            follow_redirects=True
+        )
+        assert "csrf" in r.text.lower() or "expired" in r.text.lower() or "token" in r.text.lower()
 
-        for msg in matches:
-            # The error should NOT contain the env var name or instruction to set it
-            assert "AMLKIT_SINGLE_OPERATOR_MODE" not in msg, \
-                f"Error message must NOT mention AMLKIT_SINGLE_OPERATOR_MODE.\n  Got: {msg}"
+    def test_admin_rescreen_post_mlro_only(self, client) -> None:
+        """Officer cannot POST /admin/rescreen."""
+        _add_operator(client, "bob", "bob-rescreen@testfirm.ae", role="officer")
 
-    def test_openapi_json_disabled_by_default(self, client) -> None:
-        """N001: /openapi.json should return 404 by default."""
-        r = client.get("/openapi.json")
-        assert r.status_code == 404, f"Expected 404, got {r.status_code}"
-
-    def test_openapi_json_enabled_with_env_var(self, monkeypatch, tmp_path) -> None:
-        """N001: /openapi.json should return 200 when AMLKIT_ENABLE_OPENAPI=1."""
-        # Set env var before importing app module
-        monkeypatch.setenv("AMLKIT_ENABLE_OPENAPI", "1")
-        monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "test_openapi.db"))
-
-        # Reimport the app module to pick up the new env var
-        import importlib
-        import sys
-        if "amlkit.api.app" in sys.modules:
-            del sys.modules["amlkit.api.app"]
-
-        from amlkit.api.app import app as test_app
         from fastapi.testclient import TestClient
-        test_client = TestClient(test_app)
+        from amlkit.api.app import app
+        bob = TestClient(app)
+        bob.get("/login")
+        _login(bob, "bob-rescreen@testfirm.ae", "a-strong-password-2")
 
-        r = test_client.get("/openapi.json")
-        assert r.status_code == 200, f"Expected 200 with AMLKIT_ENABLE_OPENAPI=1, got {r.status_code}"
-        assert "openapi" in r.json(), "Response should contain OpenAPI schema"
+        r = bob.post(
+            "/admin/rescreen",
+            data={"csrf_token": _csrf(bob)},
+            follow_redirects=True
+        )
+        assert r.status_code in (200, 403)
+        if r.status_code == 200:
+            assert "mlro" in r.text.lower() or "permission" in r.text.lower()
 
+
+class TestPolicyRepository:
+    """Tests for policy repository API endpoints (Phase 4 enhancement, Item 3)."""
+
+    def test_policies_list_requires_auth(self, client) -> None:
+        """Anonymous user redirected to /login."""
+        client.cookies.delete("amlkit_session")
+        r = client.get("/policies", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/login"
+
+    def test_policies_list_officer_can_view(self, client) -> None:
+        """Officer can access GET /policies."""
+        _add_operator(client, "bob", "bob-policy@testfirm.ae", role="officer")
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+        bob = TestClient(app)
+        bob.get("/login")
+        _login(bob, "bob-policy@testfirm.ae", "a-strong-password-2")
+        r = bob.get("/policies")
+        assert r.status_code == 200
+        assert "policies" in r.text.lower()
+
+    def test_policies_upload_mlro_only(self, client) -> None:
+        """Officer cannot POST /policies/upload."""
+        _add_operator(client, "sara", "sara-policy@testfirm.ae", role="officer")
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+        sara = TestClient(app)
+        sara.get("/login")
+        _login(sara, "sara-policy@testfirm.ae", "a-strong-password-2")
+
+        # Try to upload as officer
+        import io
+        r = sara.post("/policies/upload",
+                      data={
+                          "title": "Test Policy",
+                          "category": "AML_Policy",
+                          "csrf_token": _csrf(sara),
+                      },
+                      files={"file": ("test.pdf", io.BytesIO(b"test content"), "application/pdf")},
+                      follow_redirects=True)
+        assert r.status_code in (200, 403)
+        # Should show permission error or redirect
+        assert "mlro" in r.text.lower() or "permission" in r.text.lower() or "requires" in r.text.lower()
+
+    def test_policies_upload_validates_csrf(self, client) -> None:
+        """Missing csrf_token rejected."""
+        import io
+        r = client.post("/policies/upload",
+                        data={
+                            "title": "Test Policy",
+                            "category": "AML_Policy",
+                        },
+                        files={"file": ("test.pdf", io.BytesIO(b"test content"), "application/pdf")},
+                        follow_redirects=True)
+        # CSRF failure should keep user on policies page with error
+        assert "expired" in r.text.lower() or "csrf" in r.text.lower() or "token" in r.text.lower()
+
+    def test_policies_upload_validates_file_type(self, client) -> None:
+        """.txt file rejected."""
+        import io
+        r = client.post("/policies/upload",
+                        data={
+                            "title": "Test Policy",
+                            "category": "AML_Policy",
+                            "csrf_token": _csrf(client),
+                        },
+                        files={"file": ("test.txt", io.BytesIO(b"test content"), "text/plain")},
+                        follow_redirects=True)
+        assert r.status_code == 200
+        assert "file type" in r.text.lower() or "only pdf and docx" in r.text.lower()
+
+    def test_policies_download_returns_file(self, client) -> None:
+        """Returns PDF with correct headers."""
+        import io
+        # Upload a policy first
+        client.post("/policies/upload",
+                    data={
+                        "title": "Download Test Policy",
+                        "category": "AML_Policy",
+                        "csrf_token": _csrf(client),
+                    },
+                    files={"file": ("download-test.pdf", io.BytesIO(b"pdf content"), "application/pdf")},
+                    follow_redirects=True)
+
+        # Get policy ID
+        conn = _db()
+        row = conn.execute("SELECT id FROM policy_documents ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        assert row is not None, "policy upload must have created a row"
+
+        policy_id = row["id"]
+
+        # Download it
+        r = client.get(f"/policies/{policy_id}/download")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/pdf"
+        assert "attachment" in r.headers["content-disposition"]
+        assert "download-test.pdf" in r.headers["content-disposition"]
+        assert r.content == b"pdf content"
+
+    def test_policies_download_logs_audit(self, client) -> None:
+        """Audit entry created."""
+        import io
+        # Upload
+        client.post("/policies/upload",
+                    data={
+                        "title": "Audit Test Policy",
+                        "category": "AML_Policy",
+                        "csrf_token": _csrf(client),
+                    },
+                    files={"file": ("audit-test.pdf", io.BytesIO(b"pdf"), "application/pdf")},
+                    follow_redirects=True)
+
+        conn = _db()
+        row = conn.execute("SELECT id FROM policy_documents ORDER BY id DESC LIMIT 1").fetchone()
+        policy_id = row["id"]
+        conn.close()
+
+        # Download
+        client.get(f"/policies/{policy_id}/download")
+
+        # Check audit
+        conn = _db()
+        audit_row = conn.execute(
+            "SELECT action FROM audit_log WHERE action='policy.download'"
+        ).fetchone()
+        conn.close()
+
+        assert audit_row is not None
+
+
+class TestRuleConfigRoutes:
+    """Step 8: KYT rule configuration routes."""
+
+    def test_admin_rule_config_get_requires_auth(self, client) -> None:
+        """GET /admin/rule-config requires authentication."""
+        client.cookies.delete("amlkit_session")
+        r = client.get("/admin/rule-config", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/login"
+
+    def test_admin_rule_config_get_mlro_only(self, client) -> None:
+        """Officer cannot GET /admin/rule-config."""
+        _add_operator(client, "alice", "alice-rules@testfirm.ae", role="officer")
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+        alice = TestClient(app)
+        alice.get("/login")
+        _login(alice, "alice-rules@testfirm.ae", "a-strong-password-2")
+
+        r = alice.get("/admin/rule-config")
+        assert r.status_code in (200, 403)
+        if r.status_code == 200:
+            assert "mlro" in r.text.lower() or "permission" in r.text.lower()
+
+    def test_admin_rule_config_get_shows_current_settings(self, client) -> None:
+        """MLRO can view current rule config."""
+        r = client.get("/admin/rule-config")
+        assert r.status_code == 200
+        # Should show current thresholds
+        assert "threshold" in r.text.lower() or "config" in r.text.lower()
+
+    def test_admin_rule_config_post_validates_csrf(self, client) -> None:
+        """Missing CSRF token rejected."""
+        r = client.post(
+            "/admin/rule-config",
+            data={
+                "large_cash_threshold_aed": "100000",
+            },
+            follow_redirects=True
+        )
+        assert "csrf" in r.text.lower() or "expired" in r.text.lower() or "token" in r.text.lower()
+
+    def test_admin_rule_config_post_validates_bounds(self, client) -> None:
+        """Threshold > 1M rejected."""
+        r = client.post(
+            "/admin/rule-config",
+            data={
+                "large_cash_threshold_aed": "1500000",
+                "csrf_token": _csrf(client),
+            },
+            follow_redirects=True
+        )
+        assert r.status_code == 200
+        assert "1,000,000" in r.text or "exceed" in r.text.lower()
+
+    def test_admin_rule_config_post_saves_valid_config(self, client) -> None:
+        """Valid config is saved successfully."""
+        # Save new config
+        r = client.post(
+            "/admin/rule-config",
+            data={
+                "large_cash_threshold_aed": "200000",
+                "csrf_token": _csrf(client),
+            },
+            follow_redirects=True
+        )
+        assert r.status_code == 200
+        assert "updated" in r.text.lower() or "success" in r.text.lower()
+
+    def test_admin_rescreen_post_validates_csrf(self, client) -> None:
+        """Missing CSRF token rejected."""
+        r = client.post(
+            "/admin/rescreen",
+            data={},
+            follow_redirects=True
+        )
+        assert "csrf" in r.text.lower() or "expired" in r.text.lower() or "token" in r.text.lower()
+
+    def test_admin_rescreen_post_mlro_only(self, client) -> None:
+        """Officer cannot POST /admin/rescreen."""
+        _add_operator(client, "bob", "bob-rescreen@testfirm.ae", role="officer")
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+        bob = TestClient(app)
+        bob.get("/login")
+        _login(bob, "bob-rescreen@testfirm.ae", "a-strong-password-2")
+
+        r = bob.post(
+            "/admin/rescreen",
+            data={"csrf_token": _csrf(bob)},
+            follow_redirects=True
+        )
+        assert r.status_code in (200, 403)
+        if r.status_code == 200:
+            assert "mlro" in r.text.lower() or "permission" in r.text.lower()

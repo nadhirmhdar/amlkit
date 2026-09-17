@@ -618,6 +618,35 @@ CREATE INDEX IF NOT EXISTS ix_freeze_org      ON freeze_obligations(org_id);
 CREATE INDEX IF NOT EXISTS ix_freeze_customer ON freeze_obligations(customer_id);
 CREATE INDEX IF NOT EXISTS ix_freeze_status   ON freeze_obligations(status);
 
+-- -------------------------------------------------------- compliance calendar (Phase 4, Item 6)
+CREATE TABLE IF NOT EXISTS compliance_deadlines (
+    id                 INTEGER PRIMARY KEY,
+    org_id             INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    title              TEXT NOT NULL,
+    description        TEXT,
+    due_date           TEXT NOT NULL,
+    recurrence         TEXT,             -- one-time | annual | monthly
+    reminder_days_before INTEGER NOT NULL DEFAULT 7,
+    completed_at       TEXT,
+    created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_deadlines_org ON compliance_deadlines(org_id);
+CREATE INDEX IF NOT EXISTS ix_deadlines_due ON compliance_deadlines(due_date);
+
+-- ------------------------------------------------- policy document repository (Phase 4, Item 7)
+CREATE TABLE IF NOT EXISTS policy_documents (
+    id          INTEGER PRIMARY KEY,
+    org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    title       TEXT NOT NULL,
+    category    TEXT NOT NULL,        -- AML_Policy | CDD_Procedures | Risk_Methodology | Other
+    filename    TEXT NOT NULL,
+    stored_path TEXT NOT NULL,
+    version     INTEGER NOT NULL DEFAULT 1,
+    uploaded_by TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_policies_org ON policy_documents(org_id);
+
 -- ---------------------------------------------------------------- audit
 -- org_id is nullable here alone: a handful of actions (sanctions-list
 -- refreshes) act on shared reference data and are not tenant-specific. Every
@@ -745,6 +774,16 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("operators", "disclaimer_acknowledged_at", "ALTER TABLE operators ADD COLUMN disclaimer_acknowledged_at TEXT"),
     ("datasets",  "last_error",    "ALTER TABLE datasets ADD COLUMN last_error TEXT"),
     ("datasets",  "error_at",      "ALTER TABLE datasets ADD COLUMN error_at TEXT"),
+    # Document expiry date for KYC documents (passport, Emirates ID, trade license).
+    # NULL for documents without an expiry (e.g., incorporation certificates).
+    ("documents", "expiry_date", "ALTER TABLE documents ADD COLUMN expiry_date TEXT"),
+    # Configurable KYT rule settings (Phase 4, Item 3).
+    # NULL means use module defaults from kyt.py.
+    ("org_settings", "kyt_large_cash_threshold", "ALTER TABLE org_settings ADD COLUMN kyt_large_cash_threshold REAL"),
+    ("org_settings", "kyt_structuring_window_days", "ALTER TABLE org_settings ADD COLUMN kyt_structuring_window_days INTEGER"),
+    ("org_settings", "kyt_velocity_window_hours", "ALTER TABLE org_settings ADD COLUMN kyt_velocity_window_hours INTEGER"),
+    ("org_settings", "kyt_velocity_max_count", "ALTER TABLE org_settings ADD COLUMN kyt_velocity_max_count INTEGER"),
+    ("org_settings", "kyt_high_risk_countries", "ALTER TABLE org_settings ADD COLUMN kyt_high_risk_countries TEXT"),  # JSON list
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)

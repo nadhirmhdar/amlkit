@@ -1602,3 +1602,310 @@ def check_unexecuted_freeze_obligations(
         )
 
     return overdue
+
+
+def check_document_expiry(
+    conn: sqlite3.Connection,
+    org_id: int,
+    *,
+    warning_days: int = 30,
+) -> dict[str, Any]:
+    """Find documents expiring soon or already expired.
+
+    Returns:
+        {
+            "expiring_soon": [{"customer_id": ..., "doc_type": ..., "expiry_date": ..., "days_remaining": ...}],
+            "expired": [{"customer_id": ..., "doc_type": ..., "expiry_date": ..., "days_overdue": ...}],
+        }
+
+    Documents with NULL expiry_date are skipped (not all doc types have expiry).
+    """
+    from datetime import date
+
+    today = date.today()
+    warning_date = (today + timedelta(days=warning_days)).isoformat()
+    today_str = today.isoformat()
+
+    # Find expiring soon (within warning window but not yet expired)
+    expiring_rows = conn.execute(
+        """SELECT d.customer_id, d.doc_type, d.expiry_date, c.reference, c.full_name
+           FROM documents d
+           JOIN customers c ON c.id = d.customer_id
+           WHERE d.org_id = ? AND d.expiry_date IS NOT NULL
+             AND d.expiry_date > ? AND d.expiry_date <= ?
+           ORDER BY d.expiry_date""",
+        (org_id, today_str, warning_date),
+    ).fetchall()
+
+    expiring_soon = []
+    for row in expiring_rows:
+        try:
+            expiry = date.fromisoformat(row["expiry_date"])
+            days_remaining = (expiry - today).days
+            expiring_soon.append({
+                "customer_id": row["customer_id"],
+                "customer_reference": row["reference"],
+                "customer_name": row["full_name"],
+                "doc_type": row["doc_type"],
+                "expiry_date": row["expiry_date"],
+                "days_remaining": days_remaining,
+            })
+        except (ValueError, TypeError):
+            # Invalid date format - skip
+            continue
+
+    # Find expired (expiry_date in the past)
+    expired_rows = conn.execute(
+        """SELECT d.customer_id, d.doc_type, d.expiry_date, c.reference, c.full_name
+           FROM documents d
+           JOIN customers c ON c.id = d.customer_id
+           WHERE d.org_id = ? AND d.expiry_date IS NOT NULL AND d.expiry_date < ?
+           ORDER BY d.expiry_date""",
+        (org_id, today_str),
+    ).fetchall()
+
+    expired = []
+    for row in expired_rows:
+        try:
+            expiry = date.fromisoformat(row["expiry_date"])
+            days_overdue = (today - expiry).days
+            expired.append({
+                "customer_id": row["customer_id"],
+                "customer_reference": row["reference"],
+                "customer_name": row["full_name"],
+                "doc_type": row["doc_type"],
+                "expiry_date": row["expiry_date"],
+                "days_overdue": days_overdue,
+            })
+        except (ValueError, TypeError):
+            # Invalid date format - skip
+            continue
+
+    return {
+        "expiring_soon": expiring_soon,
+        "expired": expired,
+    }
+
+
+# ------------------------------------------------------------------------
+# Policy Document Repository (Phase 4 enhancement)
+# ------------------------------------------------------------------------
+
+VALID_POLICY_CATEGORIES = {"AML_Policy", "CDD_Procedures", "Risk_Methodology", "Other"}
+MAX_POLICY_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def list_policies(
+    conn: sqlite3.Connection,
+    org_id: int,
+    *,
+    category: str | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """List all policy documents grouped by title, showing version history.
+
+    Returns:
+        {
+            "AML Policy": [
+                {
+                    "id": 2,
+                    "version": 2,
+                    "filename": "aml-policy-v2.pdf",
+                    "uploaded_by": "Jane Doe",
+                    "uploaded_at": "2026-06-01T10:00:00Z",
+                    "category": "AML_Policy",
+                    "is_current": True,  # highest version for this title
+                },
+                ...
+            ],
+            ...
+        }
+
+    Sorted by title (alphabetical), then version (descending).
+    """
+    query = """
+        SELECT id, title, category, filename, version, uploaded_by, uploaded_at
+        FROM policy_documents
+        WHERE org_id = ?
+    """
+    params: list[Any] = [org_id]
+
+    if category is not None:
+        query += " AND category = ?"
+        params.append(category)
+
+    query += " ORDER BY title ASC, version DESC"
+
+    rows = conn.execute(query, params).fetchall()
+
+    # Group by title
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        title = row["title"]
+        if title not in grouped:
+            grouped[title] = []
+
+        grouped[title].append({
+            "id": row["id"],
+            "version": row["version"],
+            "filename": row["filename"],
+            "uploaded_by": row["uploaded_by"],
+            "uploaded_at": row["uploaded_at"],
+            "category": row["category"],
+            "is_current": len(grouped[title]) == 0,  # First entry = highest version
+        })
+
+    return grouped
+
+
+def upload_policy(
+    conn: sqlite3.Connection,
+    org_id: int,
+    *,
+    title: str,
+    category: str,
+    filename: str,
+    file_content: bytes,
+    uploaded_by: str,
+) -> tuple[int, int]:
+    """Upload a new policy document, auto-incrementing version if title exists.
+
+    Storage:
+        - Uses storage.upload_policy() for backend-agnostic storage
+        - Local: data/policies/{org_id}/{filename}
+        - GCS: gs://{bucket}/policies/{org_id}/{filename}
+
+    Versioning:
+        - If title already exists, version = MAX(version) + 1
+        - If title is new, version = 1
+        - SELECT MAX + INSERT wrapped in transaction for race-safety
+
+    Validation:
+        - category IN ('AML_Policy', 'CDD_Procedures', 'Risk_Methodology', 'Other')
+        - filename ends with .pdf or .docx
+        - file_content size <= 10 MB
+
+    Returns:
+        (policy_document_id, version) tuple
+
+    Raises:
+        ValueError: invalid category, unsupported file type, or file too large
+    """
+    from ..storage import upload_policy as store_policy
+
+    # Validation
+    if category not in VALID_POLICY_CATEGORIES:
+        raise ValueError(f"Invalid category: {category}")
+
+    # Sanitize filename: reject path traversal and absolute paths
+    import os
+    from pathlib import PurePosixPath, PureWindowsPath
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise ValueError(f"Invalid filename: {filename}")
+    if filename.startswith("/") or PureWindowsPath(filename).is_absolute():
+        raise ValueError(f"Invalid filename: {filename}")
+    clean_name = os.path.basename(filename)
+    if clean_name != filename:
+        raise ValueError(f"Invalid filename: {filename}")
+
+    if not (filename.lower().endswith(".pdf") or filename.lower().endswith(".docx")):
+        raise ValueError(f"Unsupported file type: {filename}. Only PDF and DOCX allowed.")
+
+    if len(file_content) > MAX_POLICY_SIZE_BYTES:
+        size_mb = len(file_content) / (1024 * 1024)
+        raise ValueError(f"File too large: {size_mb:.1f} MB. Maximum size is 10 MB.")
+
+    # Store file via storage abstraction
+    stored_path = store_policy(file_content, org_id, filename)
+
+    # Transaction-safe version increment + insert
+    with conn:
+        # Get current max version for this title
+        max_version_row = conn.execute(
+            "SELECT MAX(version) as max_v FROM policy_documents WHERE org_id=? AND title=?",
+            (org_id, title)
+        ).fetchone()
+
+        version = (max_version_row["max_v"] or 0) + 1
+
+        # Insert new policy
+        cursor = conn.execute(
+            """INSERT INTO policy_documents (
+                org_id, title, category, filename, stored_path, version, uploaded_by, uploaded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (org_id, title, category, filename, stored_path, version, uploaded_by, utcnow())
+        )
+
+        policy_id = cursor.lastrowid
+
+        # Audit
+        audit(conn, uploaded_by, "policy.upload", org_id=org_id, detail={
+            "policy_id": policy_id,
+            "title": title,
+            "category": category,
+            "version": version,
+            "filename": filename,
+        })
+
+    return (policy_id, version)
+
+
+def get_policy(
+    conn: sqlite3.Connection,
+    policy_id: int,
+    *,
+    org_id: int,
+) -> dict[str, Any]:
+    """Retrieve policy metadata and file content.
+
+    Returns:
+        {
+            "id": 1,
+            "title": "AML Policy",
+            "category": "AML_Policy",
+            "filename": "aml-policy-v1.pdf",
+            "version": 1,
+            "uploaded_by": "John Smith",
+            "uploaded_at": "2026-01-15T09:00:00Z",
+            "file_content": b"...",  # raw bytes from storage
+        }
+
+    Logs 'policy.download' audit event.
+
+    Raises:
+        ValueError: policy not found or org_id mismatch
+    """
+    from ..storage import download_policy
+
+    row = conn.execute(
+        """SELECT id, title, category, filename, stored_path, version, uploaded_by, uploaded_at
+           FROM policy_documents
+           WHERE id = ? AND org_id = ?""",
+        (policy_id, org_id)
+    ).fetchone()
+
+    if row is None:
+        raise ValueError(f"Policy not found: id={policy_id}")
+
+    # Read file via storage abstraction
+    try:
+        file_content = download_policy(row["stored_path"])
+    except (FileNotFoundError, OSError) as e:
+        raise ValueError(f"Policy file missing or unreadable: {e}")
+
+    # Audit download (use "system" as actor since we don't have actor context here)
+    audit(conn, "system", "policy.download", org_id=org_id, detail={
+        "policy_id": policy_id,
+        "title": row["title"],
+        "version": row["version"],
+    })
+
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "category": row["category"],
+        "filename": row["filename"],
+        "version": row["version"],
+        "uploaded_by": row["uploaded_by"],
+        "uploaded_at": row["uploaded_at"],
+        "file_content": file_content,
+    }

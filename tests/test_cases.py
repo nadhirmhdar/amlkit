@@ -483,3 +483,83 @@ class TestStalenessGuard:
         """onboard proceeds normally when datasets are fresh."""
         res = onboard(conn, org_id=org_id, reference="FRESH-1", full_name="Test Customer")
         assert res.customer_id > 0
+
+
+class TestDocumentExpiry:
+    """Tests for document expiry alerts (Phase 4, Item 1)."""
+
+    def test_documents_table_has_expiry_date(self, conn) -> None:
+        """Verify migration added expiry_date column to documents table."""
+        cursor = conn.execute("PRAGMA table_info(documents)")
+        columns = {row["name"] for row in cursor.fetchall()}
+        assert "expiry_date" in columns, "documents table should have expiry_date column"
+
+    def test_check_document_expiry_finds_expiring(self, conn, org_id) -> None:
+        """Document expiring in 15 days appears in 'expiring_soon' list."""
+        from datetime import date, timedelta
+        from amlkit.cases.manager import check_document_expiry
+
+        # Create customer with document expiring in 15 days
+        res = onboard(conn, org_id=org_id, reference="C-EXP1", full_name="Test Customer")
+        expiry = (date.today() + timedelta(days=15)).isoformat()
+        conn.execute(
+            """INSERT INTO documents (org_id, customer_id, doc_type, filename, stored_path,
+               sha256, uploaded_at, expiry_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (org_id, res.customer_id, "passport", "pass.pdf", "/tmp/pass.pdf",
+             "abc123", utcnow(), expiry)
+        )
+        conn.commit()
+
+        result = check_document_expiry(conn, org_id, warning_days=30)
+
+        assert len(result["expiring_soon"]) == 1
+        doc = result["expiring_soon"][0]
+        assert doc["customer_id"] == res.customer_id
+        assert doc["doc_type"] == "passport"
+        assert doc["days_remaining"] == 15
+
+    def test_check_document_expiry_finds_expired(self, conn, org_id) -> None:
+        """Document past expiry_date appears in 'expired' list."""
+        from datetime import date, timedelta
+        from amlkit.cases.manager import check_document_expiry
+
+        # Create customer with expired document (5 days ago)
+        res = onboard(conn, org_id=org_id, reference="C-EXP2", full_name="Test Customer 2")
+        expiry = (date.today() - timedelta(days=5)).isoformat()
+        conn.execute(
+            """INSERT INTO documents (org_id, customer_id, doc_type, filename, stored_path,
+               sha256, uploaded_at, expiry_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (org_id, res.customer_id, "trade_license", "lic.pdf", "/tmp/lic.pdf",
+             "def456", utcnow(), expiry)
+        )
+        conn.commit()
+
+        result = check_document_expiry(conn, org_id, warning_days=30)
+
+        assert len(result["expired"]) == 1
+        doc = result["expired"][0]
+        assert doc["customer_id"] == res.customer_id
+        assert doc["doc_type"] == "trade_license"
+        assert doc["days_overdue"] == 5
+
+    def test_check_document_expiry_skips_null_expiry(self, conn, org_id) -> None:
+        """Document with NULL expiry_date not included in results."""
+        from amlkit.cases.manager import check_document_expiry
+
+        # Create customer with document without expiry date
+        res = onboard(conn, org_id=org_id, reference="C-EXP3", full_name="Test Customer 3")
+        conn.execute(
+            """INSERT INTO documents (org_id, customer_id, doc_type, filename, stored_path,
+               sha256, uploaded_at, expiry_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
+            (org_id, res.customer_id, "other", "doc.pdf", "/tmp/doc.pdf",
+             "ghi789", utcnow())
+        )
+        conn.commit()
+
+        result = check_document_expiry(conn, org_id, warning_days=30)
+
+        assert len(result["expiring_soon"]) == 0
+        assert len(result["expired"]) == 0

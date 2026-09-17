@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
@@ -2215,6 +2215,218 @@ def admin_refresh_sanctions(
     return back("/admin", msg=msg)
 
 
+@app.post("/admin/rescreen")
+@limiter.limit("10/minute")
+def admin_rescreen(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Manually trigger bulk re-screening of all active customers.
+
+    MLRO-only endpoint. Calls rescreen_all() without refreshing sanctions lists.
+    Returns count of customers re-screened and new alerts created.
+    """
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin", err=str(exc))
+
+    from ..match.engine import rescreen_all
+    from ..db import audit
+
+    audit(db, session.operator_name, "system.rescreen_all", org_id=session.org_id)
+
+    try:
+        outcome = rescreen_all(db, session.org_id, actor=session.operator_name)
+        db.commit()
+
+        msg = f"Re-screened {outcome['customers']} customer(s)."
+        if outcome["alerts"]:
+            msg += f" {outcome['alerts']} new alert(s) raised — check Alerts."
+        return back("/admin", msg=msg)
+    except Exception as exc:
+        log.exception("rescreen_all failed for org %s: %s", session.org_id, exc)
+        return back("/admin", err=f"Re-screening failed: {exc}")
+
+
+# ---------------------------------------------------------------------- KYT rule config (Phase 4 enhancement, Step 8)
+@app.get("/admin/rule-config", response_class=HTMLResponse)
+def admin_rule_config_get(request: Request, db: DB):
+    """Show KYT rule configuration form."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin", err=str(exc))
+
+    from ..screening.kyt import get_rule_config
+
+    config = get_rule_config(db, session.org_id)
+    return render(request, "admin/rule-config.html", {
+        "session": session,
+        "large_cash_threshold_aed": config["large_cash_threshold_aed"],
+        "structuring_window_days": config["structuring_window_days"],
+        "velocity_window_hours": config["velocity_window_hours"],
+        "velocity_max_count": config["velocity_max_count"],
+        "high_risk_countries": ", ".join(config["high_risk_countries"]),
+    })
+
+
+@app.post("/admin/rule-config")
+@limiter.limit("10/minute")
+def admin_rule_config_post(
+    request: Request, db: DB,
+    large_cash_threshold_aed: Annotated[str, Form()] = "",
+    structuring_window_days: Annotated[str, Form()] = "",
+    velocity_window_hours: Annotated[str, Form()] = "",
+    velocity_max_count: Annotated[str, Form()] = "",
+    high_risk_countries: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Update KYT rule configuration."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin/rule-config", err=str(exc))
+
+    from ..screening.kyt import save_rule_config, get_rule_config
+
+    config_update = {}
+    try:
+        if large_cash_threshold_aed:
+            config_update["large_cash_threshold_aed"] = float(large_cash_threshold_aed)
+        if structuring_window_days:
+            config_update["structuring_window_days"] = int(structuring_window_days)
+        if velocity_window_hours:
+            config_update["velocity_window_hours"] = int(velocity_window_hours)
+        if velocity_max_count:
+            config_update["velocity_max_count"] = int(velocity_max_count)
+        if high_risk_countries:
+            config_update["high_risk_countries"] = [
+                c.strip().upper() for c in high_risk_countries.split(",") if c.strip()
+            ]
+
+        save_rule_config(db, session.org_id, config_update, actor=session.operator_name)
+        db.commit()
+        return back("/admin/rule-config", msg="Rule configuration updated successfully")
+    except ValueError as exc:
+        return back("/admin/rule-config", err=str(exc))
+    except Exception as exc:
+        log.exception("Failed to save rule config: %s", exc)
+        return back("/admin/rule-config", err=f"Failed to save configuration: {exc}")
+
+
+# ---------------------------------------------------------------------- policies (Phase 4 enhancement)
+@app.get("/policies", response_class=HTMLResponse)
+def policies_list(request: Request, db: DB):
+    """List all policy documents grouped by title with version history."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    from ..cases.manager import list_policies
+
+    policies_by_title = list_policies(db, session.org_id)
+    categories = ["AML_Policy", "CDD_Procedures", "Risk_Methodology", "Other"]
+
+    return render(
+        request,
+        "policies.html",
+        {
+            "session": session,
+            "policies_by_title": policies_by_title,
+            "categories": categories,
+        },
+        db
+    )
+
+
+@app.post("/policies/upload")
+@limiter.limit("10/hour")
+def policies_upload(
+    request: Request,
+    db: DB,
+    title: Annotated[str, Form()],
+    category: Annotated[str, Form()],
+    file: UploadFile,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Upload new policy document (MLRO only)."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/policies", err=str(exc))
+
+    from ..cases.manager import upload_policy
+
+    try:
+        file_content = file.file.read()
+
+        policy_id, version = upload_policy(
+            db,
+            session.org_id,
+            title=title,
+            category=category,
+            filename=file.filename,
+            file_content=file_content,
+            uploaded_by=session.operator_name,
+        )
+        db.commit()
+
+        return back("/policies", msg=f"Policy '{title}' uploaded successfully (version {version})")
+    except ValueError as e:
+        return back("/policies", err=f"Upload failed: {e}")
+
+
+@app.get("/policies/{policy_id:int}/download")
+def policies_download(request: Request, db: DB, policy_id: int):
+    """Download policy document."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    from ..cases.manager import get_policy
+
+    try:
+        policy = get_policy(db, policy_id, org_id=session.org_id)
+        db.commit()  # Commit audit log
+
+        content_type = (
+            "application/pdf" if policy["filename"].endswith(".pdf")
+            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+        return Response(
+            content=policy["file_content"],
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{policy["filename"]}"'
+            }
+        )
+    except ValueError as e:
+        return templates.TemplateResponse(
+            "error.html",
+            {"request": request, "error": str(e)},
+            status_code=404
+        )
+
+
 # ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)
 @app.post("/system/refresh")
 def system_refresh(request: Request):
@@ -2465,6 +2677,13 @@ def report_save(
     except ValueError:
         return back("/reports", err=f"Amount {amount!r} is not a valid number.")
 
+    # For CTR: fetch org's configured large_cash_threshold to use as validation threshold
+    threshold = None
+    if report_type == "CTR":
+        from ..screening.kyt import get_rule_config
+        config = get_rule_config(db, session.org_id)
+        threshold = config["large_cash_threshold_aed"]
+
     # Bundle all collected parameters into a payload dict
     payload_dict = {
         "customer_id": customer_id,
@@ -2490,6 +2709,8 @@ def report_save(
         "action_taken": action_taken.strip(),
         "evidence_pack_attached": bool(evidence_pack_attached),
     }
+    if threshold is not None:
+        payload_dict["threshold"] = threshold
 
     payload_json = json.dumps(payload_dict)
     now = utcnow()

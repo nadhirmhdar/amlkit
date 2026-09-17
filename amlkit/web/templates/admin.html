@@ -113,6 +113,11 @@
     <button type="submit" id="refresh-btn" data-loading="Refreshing lists…">Refresh sanctions lists now</button>
     <span class="muted small ml-4">Takes 30–60 seconds</span>
   </form>
+  <form method="post" action="/admin/rescreen" class="mt-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" id="rescreen-btn" class="secondary" data-loading="Re-screening…">Re-screen all active customers</button>
+    <span class="muted small ml-4">Re-screen without refreshing lists</span>
+  </form>
 </div>
 
 <div>
