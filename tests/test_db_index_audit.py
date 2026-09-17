@@ -15,10 +15,14 @@ def test_db_index_audit_exits_cleanly():
     safe to run in CI. Exit code 0 means all hot paths are indexed, 1
     means some fall back to full scans (which gates CI if uncommented).
     """
+    repo_root = Path(__file__).resolve().parent.parent
+    script_path = repo_root / "scripts" / "db_index_audit.py"
+
     result = subprocess.run(
-        [sys.executable, "scripts/db_index_audit.py"],
+        [sys.executable, str(script_path)],
         capture_output=True,
         text=True,
+        cwd=str(repo_root),
     )
 
     # Should exit 0 (all covered) or 1 (some full scans found)
