@@ -7,6 +7,26 @@ from amlkit.names.arabic import blocking_keys, canonical_key
 INVITE_CODE = "test-invite"
 
 
+def register_org(client, org_name, name, email, password="a-strong-password-1", invite_code="test-invite"):
+    """Register an organization and verify email to get a logged-in session.
+
+    Used by test files that need a working organization fixture but don't use
+    the main `client` fixture (e.g., files with their own setUp).
+    """
+    import re
+    client.get("/register-organization")
+    csrf = client.cookies.get("amlkit_csrf")
+    r = client.post("/register-organization", data={
+        "org_name": org_name, "name": name, "email": email, "password": password,
+        "csrf_token": csrf, "invite_code": invite_code,
+    }, follow_redirects=True)
+    assert "Check your email" in r.text or "Welcome" in r.text, f"registration failed: {r.text[:300]}"
+    m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
+    if m:
+        client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+    return client
+
+
 @pytest.fixture(autouse=True)
 def _invite_code_and_limiter_reset(monkeypatch):
     """Every test gets AMLKIT_REGISTRATION_INVITE_CODE set and a fresh rate-limiter."""
