@@ -353,6 +353,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # JSON API for the native mobile app -- bearer-token auth, no CSRF, no HTML.
 # Registered before the static mount so /api/v1/* never falls through to it.
 from .mobile import router as mobile_router  # noqa: E402
+from .mobile import _api_register_organization_impl  # noqa: E402
+
+# Apply rate limit to the mobile registration endpoint implementation before inclusion
+_api_register_organization_impl = limiter.limit("5/minute")(_api_register_organization_impl)
 
 app.include_router(mobile_router)
 
@@ -711,10 +715,14 @@ def _valid_setup_token(db: sqlite3.Connection, raw_token: str):
 
 @app.get("/register-organization", response_class=HTMLResponse)
 def register_org_form(request: Request, db: DB):
-    return render(request, "register_organization.html", {"session": None})
+    invite_configured = bool(os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip())
+    return render(request, "register_organization.html", {
+        "session": None, "registration_open": invite_configured,
+    })
 
 
 @app.post("/register-organization")
+@limiter.limit("5/minute")
 def register_org_submit(
     request: Request, db: DB,
     org_name: Annotated[str, Form()],
@@ -722,18 +730,31 @@ def register_org_submit(
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()] = "",
+    invite_code: Annotated[str, Form()] = "",
 ):
     try:
         require_csrf(request, csrf_token)
     except PermissionError as exc:
-        return render(request, "register_organization.html", {"session": None, "err": str(exc)})
+        return render(request, "register_organization.html", {
+            "session": None, "registration_open": True, "err": str(exc),
+        })
+
+    expected = os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()
+    if not expected or not secrets.compare_digest(invite_code.strip().encode(), expected.encode()):
+        auth._log_auth_event(db, "register_denied", email.strip().lower(),
+                             {"reason": "invalid_invite_code", "via": "web"})
+        db.commit()
+        return render(request, "register_organization.html", {
+            "session": None, "registration_open": bool(expected), "err": "Invalid invite code.",
+        })
 
     if len(password) < 10:
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "Password must be at least 10 characters."})
+        return render(request, "register_organization.html", {
+            "session": None, "registration_open": True, "err": "Password must be at least 10 characters.",
+        })
     if not auth.looks_like_email(email):
         return render(request, "register_organization.html",
-                      {"session": None, "err": "Enter a valid email address."})
+                      {"session": None, "registration_open": True, "err": "Enter a valid email address."})
 
     import re
     slug = re.sub(r"[^a-z0-9]+", "-", org_name.strip().lower()).strip("-") or "org"
@@ -745,7 +766,7 @@ def register_org_submit(
         )
     except sqlite3.IntegrityError:
         return render(request, "register_organization.html",
-                      {"session": None, "err": f"An organization with a similar name already exists."})
+                      {"session": None, "registration_open": True, "err": "An organization with a similar name already exists."})
     org_id = cur.lastrowid
     try:
         cur2 = db.execute(
@@ -760,7 +781,7 @@ def register_org_submit(
         # no operator in it. Roll that back too, not just report the error.
         db.rollback()
         return render(request, "register_organization.html",
-                      {"session": None, "err": "An account with that email already exists. Try signing in instead."})
+                      {"session": None, "registration_open": True, "err": "An account with that email already exists. Try signing in instead."})
     operator_id = cur2.lastrowid
     db.commit()
     from .. import mail

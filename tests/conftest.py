@@ -4,6 +4,18 @@ import pytest
 from amlkit.db import connect, upsert_dataset, utcnow
 from amlkit.names.arabic import blocking_keys, canonical_key
 
+INVITE_CODE = "test-invite"
+
+
+@pytest.fixture(autouse=True)
+def _invite_code_and_limiter_reset(monkeypatch):
+    """Every test gets AMLKIT_REGISTRATION_INVITE_CODE set and a fresh rate-limiter."""
+    monkeypatch.setenv("AMLKIT_REGISTRATION_INVITE_CODE", INVITE_CODE)
+    from amlkit.api.app import limiter
+    limiter.reset()
+    yield
+    limiter.reset()
+
 
 LISTED = "AHMED ABD AL-JALEEL AL-HASNAWI"
 
