@@ -176,10 +176,20 @@ class RegisterOrgRequest(BaseModel):
     name: str
     email: str
     password: str
+    invite_code: str = ""
 
 
-@router.post("/auth/register-organization")
-def api_register_organization(body: RegisterOrgRequest, db: DB):
+def _api_register_organization_impl(request: Request, body: RegisterOrgRequest, db: DB):
+    import os
+    import secrets
+
+    expected = os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()
+    if not expected or not secrets.compare_digest(body.invite_code.strip().encode(), expected.encode()):
+        auth._log_auth_event(db, "register_denied", body.email.strip().lower(),
+                             {"reason": "invalid_invite_code", "via": "api"})
+        db.commit()
+        raise HTTPException(status_code=403, detail="Registration requires a valid invite code.")
+
     if len(body.password) < 10:
         raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
     if not auth.looks_like_email(body.email):
@@ -263,6 +273,10 @@ def api_register_organization(body: RegisterOrgRequest, db: DB):
             "request a new link."
         )
     return response
+
+
+# Register the endpoint
+api_register_organization = router.post("/auth/register-organization")(_api_register_organization_impl)
 
 
 class VerifyEmailRequest(BaseModel):

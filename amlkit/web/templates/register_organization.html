@@ -27,6 +27,12 @@
           <input type="hidden" name="email" value="{{ pending_email }}">
           <button type="submit" class="btn-glow">Resend verification email</button>
         </form>
+      {% elif not registration_open %}
+        <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Registration not available</h2>
+        <p class="muted small mt-0">
+          Organization registration is not available on this deployment.
+          Contact your administrator for an invite code.
+        </p>
       {% else %}
         <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Register your firm</h2>
         <p class="muted small mt-0">
@@ -36,6 +42,10 @@
         </p>
         <form method="post" action="/register-organization">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="field">
+            <label>Invite code</label>
+            <input type="text" name="invite_code" autocomplete="off" required>
+          </div>
           <div class="field">
             <label>Firm name</label>
             <input type="text" name="org_name" autofocus required>

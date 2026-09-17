@@ -591,7 +591,7 @@ class TestMobileApi:
         client = TestClient(app)
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "API Firm", "name": "alice", "email": "alice@apifirm.ae",
-            "password": "a-strong-password-1",
+            "password": "a-strong-password-1", "invite_code": "test-invite",
         })
         token = r.json()["dev_verification_token"]
         r = client.post("/api/v1/auth/verify-email", json={"token": token})
