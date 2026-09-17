@@ -51,6 +51,18 @@ HIGH_RISK_COUNTRIES: frozenset[str] = frozenset({
     "AF", "YE", "SS", "SD",              # unstable / high AML risk
 })
 
+# Step 7: Per-org config cache. Invalidated on save_rule_config().
+_config_cache: dict[int, dict[str, Any]] = {}
+
+
+def _clear_config_cache(org_id: int | None = None) -> None:
+    """Clear the rule config cache. If org_id is None, clear all."""
+    global _config_cache
+    if org_id is None:
+        _config_cache.clear()
+    else:
+        _config_cache.pop(org_id, None)
+
 
 @dataclass(slots=True)
 class TriggeredRule:
@@ -199,6 +211,9 @@ def _get_high_risk_countries(conn, org_additional: list[str] | None) -> list[str
 def get_rule_config(conn, org_id: int) -> dict[str, Any]:
     """Load KYT rule configuration from DB, falling back to module defaults.
 
+    Cached per org to avoid repeated DB queries during batch transaction processing.
+    Invalidated on save_rule_config() for that org.
+
     Returns:
         {
             "large_cash_threshold_aed": 55000.0,
@@ -211,6 +226,10 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
     Note: structuring_min_count is not configurable yet and is not included in the
     returned dict. Code using it should reference STRUCTURING_MIN_COUNT directly.
     """
+    global _config_cache
+    if org_id in _config_cache:
+        return _config_cache[org_id]
+
     row = conn.execute(
         """SELECT kyt_large_cash_threshold, kyt_structuring_window_days,
                   kyt_velocity_window_hours, kyt_velocity_max_count,
@@ -223,22 +242,24 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
     org_additional = json.loads(row["kyt_high_risk_countries"]) if row and row["kyt_high_risk_countries"] else None
 
     if row:
-        return {
+        config = {
             "large_cash_threshold_aed": row["kyt_large_cash_threshold"] if row["kyt_large_cash_threshold"] is not None else LARGE_CASH_THRESHOLD_AED,
             "structuring_window_days": row["kyt_structuring_window_days"] if row["kyt_structuring_window_days"] is not None else STRUCTURING_WINDOW_DAYS,
             "velocity_window_hours": row["kyt_velocity_window_hours"] if row["kyt_velocity_window_hours"] is not None else VELOCITY_WINDOW_HOURS,
             "velocity_max_count": row["kyt_velocity_max_count"] if row["kyt_velocity_max_count"] is not None else VELOCITY_MAX_COUNT,
             "high_risk_countries": _get_high_risk_countries(conn, org_additional),
         }
+    else:
+        config = {
+            "large_cash_threshold_aed": LARGE_CASH_THRESHOLD_AED,
+            "structuring_window_days": STRUCTURING_WINDOW_DAYS,
+            "velocity_window_hours": VELOCITY_WINDOW_HOURS,
+            "velocity_max_count": VELOCITY_MAX_COUNT,
+            "high_risk_countries": _get_high_risk_countries(conn, None),
+        }
 
-    # No org_settings row yet - return module defaults with FATF baseline
-    return {
-        "large_cash_threshold_aed": LARGE_CASH_THRESHOLD_AED,
-        "structuring_window_days": STRUCTURING_WINDOW_DAYS,
-        "velocity_window_hours": VELOCITY_WINDOW_HOURS,
-        "velocity_max_count": VELOCITY_MAX_COUNT,
-        "high_risk_countries": _get_high_risk_countries(conn, None),
-    }
+    _config_cache[org_id] = config
+    return config
 
 
 def save_rule_config(
@@ -317,3 +338,5 @@ def save_rule_config(
         )
 
     audit(conn, actor, "settings.kyt_rules_update", detail=config, org_id=org_id)
+
+    _clear_config_cache(org_id)

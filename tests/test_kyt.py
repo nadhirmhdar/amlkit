@@ -21,6 +21,8 @@ from amlkit.screening.kyt import LARGE_CASH_THRESHOLD_AED  # noqa: E402
 
 @pytest.fixture()
 def conn():
+    from amlkit.screening.kyt import _clear_config_cache
+    _clear_config_cache()
     c = connect(":memory:")
     # Create a fresh mandatory dataset so onboard() passes the staleness guard
     ds = upsert_dataset(c, "test_list", "Test List", is_mandatory=True)
@@ -29,6 +31,7 @@ def conn():
     c.commit()
     yield c
     c.close()
+    _clear_config_cache()
 
 
 @pytest.fixture()
@@ -504,3 +507,61 @@ class TestSaveRuleConfigValidation:
             "velocity_max_count": 20,
         }, actor="test")
         conn.commit()
+
+
+class TestGetRuleConfigCache:
+    """Step 7: get_rule_config() caching per org."""
+
+    def test_get_rule_config_uses_cache(self, conn, org_id) -> None:
+        """Second call returns same dict object (cache hit)."""
+        from amlkit.screening.kyt import get_rule_config, _clear_config_cache
+
+        _clear_config_cache()
+        config1 = get_rule_config(conn, org_id)
+        config2 = get_rule_config(conn, org_id)
+
+        # Same object = cache hit
+        assert config1 is config2
+
+    def test_get_rule_config_cache_per_org(self, conn) -> None:
+        """Different orgs have separate cache entries."""
+        from amlkit.screening.kyt import get_rule_config, _clear_config_cache
+
+        _clear_config_cache()
+        org_id_1 = conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+            " RETURNING id",
+            ("Firm 1", "firm-1", "active", utcnow()),
+        ).fetchone()["id"]
+        org_id_2 = conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+            " RETURNING id",
+            ("Firm 2", "firm-2", "active", utcnow()),
+        ).fetchone()["id"]
+        conn.commit()
+
+        config1 = get_rule_config(conn, org_id_1)
+        config2 = get_rule_config(conn, org_id_2)
+
+        # Different objects = separate caches
+        assert config1 is not config2
+
+    def test_get_rule_config_cache_invalidated_on_save(self, conn, org_id) -> None:
+        """Saving config invalidates the cache for that org."""
+        from amlkit.screening.kyt import get_rule_config, save_rule_config, _clear_config_cache
+
+        _clear_config_cache()
+        config1 = get_rule_config(conn, org_id)
+        threshold_1 = config1["large_cash_threshold_aed"]
+
+        # Save new config
+        save_rule_config(conn, org_id, {"large_cash_threshold_aed": 200_000}, actor="mlro")
+        conn.commit()
+
+        # Get again - should be cache miss (new object)
+        config2 = get_rule_config(conn, org_id)
+        threshold_2 = config2["large_cash_threshold_aed"]
+
+        assert config1 is not config2
+        assert threshold_1 != threshold_2
+        assert threshold_2 == 200_000
