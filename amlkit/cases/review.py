@@ -24,9 +24,12 @@ absent review on the alert rather than pretending it happened.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 from ..db import audit, utcnow
 from ..screening.pf import classify_programs
@@ -341,11 +344,11 @@ def confirm_disposition(
         raise ReviewError(f"alert {alert_id} is not awaiting review (status={current['status']})")
 
     if operator.strip() == (proposal["operator"] or "").strip():
+        logger.warning(f"Same operator ({operator}) attempted to confirm own disposition; "
+                      "ask your MLRO to add an independent operator or enable single-operator mode")
         raise ReviewError(
             "independent review requires a different operator than the one who "
-            "proposed the disposition. If this firm has a single compliance "
-            "officer, set AMLKIT_SINGLE_OPERATOR_MODE=1 - the absence of "
-            "independent review is then recorded on the alert rather than hidden."
+            "proposed the disposition. Ask your MLRO to add a second compliance officer."
         )
 
     if agree:

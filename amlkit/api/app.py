@@ -321,7 +321,10 @@ async def _lifespan(app):
         yield
 
 
-app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, lifespan=_lifespan)
+# N001: Disable OpenAPI by default unless explicitly enabled
+_openapi_url = "/openapi.json" if os.getenv("AMLKIT_ENABLE_OPENAPI") == "1" else None
+
+app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
 
 # Rate limiting to prevent brute-force attacks and DoS
 
@@ -506,7 +509,7 @@ async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; "  # N005: WIP — unsafe-inline temporarily retained; removal requires inline-script migration
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "font-src 'self'; "
@@ -527,12 +530,13 @@ async def security_headers(request: Request, call_next):
 def health_check(db: DB):
     from fastapi.responses import JSONResponse
     from ..ingest.loader import staleness_report
-
+    # N002: Public /health returns status (healthy/degraded) but not dataset details.
+    # Degraded = mandatory list breach (compliance signal for Cloud Run probes).
+    # Details moved to /admin/compliance (auth-required).
     datasets = staleness_report(db)
     any_breach = any(d["breach"] for d in datasets)
     return JSONResponse({
         "status": "degraded" if any_breach else "healthy",
-        "datasets": datasets,
     })
 
 
