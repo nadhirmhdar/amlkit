@@ -1130,8 +1130,8 @@ class TestCookieSecurity:
 class TestSecurityHardening:
     """N001–N006: Security hardening from QA round 2 findings."""
 
-    def test_n002_health_public_returns_only_status(self) -> None:
-        """N002: Public /health should return only {status:ok}, no dataset details."""
+    def test_n002_health_returns_status_no_datasets(self) -> None:
+        """N002: Public /health returns status (healthy/degraded) but no dataset details."""
         from fastapi.testclient import TestClient
         from amlkit.api.app import app
 
@@ -1140,9 +1140,10 @@ class TestSecurityHardening:
 
         assert r.status_code == 200, f"Expected 200, got {r.status_code}"
         data = r.json()
-        assert data == {"status": "ok"}, f"Expected minimal response, got: {data}"
-        assert "datasets" not in data, "Response should not contain dataset details"
-        assert "hours_since_refresh" not in data, "Response should not contain refresh details"
+        assert "status" in data, "Response must contain status field"
+        assert data["status"] in ("healthy", "degraded"), f"Status must be healthy or degraded, got: {data['status']}"
+        assert "datasets" not in data, "Response should NOT contain datasets array"
+        assert len(data) == 1, f"Response should have only status key, got: {data.keys()}"
 
     def test_n006_no_env_var_in_error_message(self) -> None:
         """N006: Error message should not disclose AMLKIT_SINGLE_OPERATOR_MODE env var to user."""

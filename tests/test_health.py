@@ -75,7 +75,7 @@ class TestHealthEndpoint:
         r = client.get("/health")
         body = r.json()
         assert body["status"] == "degraded"
-        assert any(d["breach"] for d in body["datasets"])
+        assert "datasets" not in body, "Response should not contain dataset details (N002)"
 
     def test_degraded_when_mandatory_list_never_refreshed(self, client) -> None:
         conn = _db()
