@@ -210,6 +210,45 @@ class TestNonRegression:
         r = client.post("/system/create-operator", json={
             "name": "officer", "email": "officer@sys.ae",
             "password": "strong-enough-1", "role": "officer",
+            "org_slug": "system-test-firm",
         }, headers={"Authorization": "Bearer test-admin-secret"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "created"
+
+    def test_api_registration_rate_limited_to_5_per_minute(self, client):
+        """POST /api/v1/auth/register-organization is rate-limited to 5/minute."""
+        for i in range(5):
+            r = client.post("/api/v1/auth/register-organization", json={
+                "org_name": f"Firm {i}", "name": f"user{i}", "email": f"user{i}@test.ae",
+                "password": "strong-enough-1", "invite_code": INVITE_CODE,
+            })
+            assert r.status_code == 200, f"attempt {i+1} should succeed: {r.text[:200]}"
+
+        r = client.post("/api/v1/auth/register-organization", json={
+            "org_name": "ExtraFirm", "name": "extra", "email": "extra@test.ae",
+            "password": "strong-enough-1", "invite_code": INVITE_CODE,
+        })
+        assert r.status_code == 429, f"6th attempt should be 429 (got {r.status_code})"
+
+
+class TestConsoleOrgAlerts:
+    def test_console_org_alerts_renders_with_zero_alerts(self, monkeypatch, tmp_path):
+        """Super-admin viewing /console/org/{id}/alerts for org with no alerts renders 200, not 500."""
+        from amlkit.db import connect
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        db_file = tmp_path / "test.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
+        monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
+
+        conn = connect(str(db_file))
+        conn.execute("INSERT INTO organizations (name, slug, status, created_at) VALUES ('Empty Org', 'empty', 'active', datetime('now'))")
+        conn.commit()
+        org_id = conn.lastrowid
+        conn.close()
+
+        client = TestClient(app)
+        r = client.get(f"/console/org/{org_id}/alerts")
         assert r.status_code == 200
 
