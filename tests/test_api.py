@@ -1086,29 +1086,34 @@ class TestCookieSecurity:
         assert csrf_after is not None
         assert csrf_after != csrf_before
 
-    def test_csrf_validation_works_after_rotation(self, client) -> None:
-        """M-01: Form POST should pass CSRF validation after token rotation."""
-        client.get("/login")
-        csrf_before = _csrf(client)
+    def test_csrf_validation_works_after_rotation(self, tmp_path, monkeypatch) -> None:
+        """M-01: Form POST should pass CSRF validation after token rotation.
 
-        r1 = client.post("/login", data={
-            "email": "alice@testfirm.ae",
-            "password": "a-strong-password-1",
-            "csrf_token": csrf_before,
-        }, follow_redirects=True)
+        Uses a fresh client to avoid hitting per-account rate limits
+        from other login tests in this class.
+        """
+        db_file = tmp_path / "test_csrf_val.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
+        monkeypatch.delenv("AMLKIT_BEHIND_PROXY", raising=False)
 
-        assert r1.status_code == 200
+        _seed_sanctions_data(db_file)
 
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        client = TestClient(app)
+        _register(client, "CSRF Firm", "carol", "carol@csrftest.ae")
+
+        # client is now logged in with a rotated CSRF token
         csrf_after = _csrf(client)
-        assert csrf_after != csrf_before
 
-        # Make a form POST with new token
-        r2 = client.post("/screen", data={
+        # Make a form POST with the post-rotation token
+        r = client.post("/screen", data={
             "name": "Test Person",
             "csrf_token": csrf_after,
         }, follow_redirects=False)
 
-        assert r2.status_code != 403
+        assert r.status_code != 403, "CSRF validation should pass with rotated token"
 
     def test_no_other_session_cookie_sites(self) -> None:
         """Verify all SESSION_COOKIE set_cookie() calls are accounted for."""
