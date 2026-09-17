@@ -1130,6 +1130,25 @@ class TestCookieSecurity:
 class TestSecurityHardening:
     """N001–N006: Security hardening from QA round 2 findings."""
 
+    def test_n006_no_env_var_in_error_message(self) -> None:
+        """N006: Error message should not disclose AMLKIT_SINGLE_OPERATOR_MODE env var to user."""
+        from pathlib import Path
+        import re
+
+        review_file = Path(__file__).resolve().parent.parent / "amlkit" / "cases" / "review.py"
+        source = review_file.read_text(encoding="utf-8")
+
+        # Find the error message about duplicate operators in confirm_disposition
+        error_pattern = r'"independent review requires.*?MLRO.*?"'
+        matches = re.findall(error_pattern, source, re.DOTALL)
+
+        assert matches, "Should have error message about different operator"
+
+        for msg in matches:
+            # The error should NOT contain the env var name or instruction to set it
+            assert "AMLKIT_SINGLE_OPERATOR_MODE" not in msg, \
+                f"Error message must NOT mention AMLKIT_SINGLE_OPERATOR_MODE.\n  Got: {msg}"
+
     def test_openapi_json_disabled_by_default(self, client) -> None:
         """N001: /openapi.json should return 404 by default."""
         r = client.get("/openapi.json")
