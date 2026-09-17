@@ -529,14 +529,9 @@ async def security_headers(request: Request, call_next):
 @app.get("/health")
 def health_check(db: DB):
     from fastapi.responses import JSONResponse
-    from ..ingest.loader import staleness_report
-
-    datasets = staleness_report(db)
-    any_breach = any(d["breach"] for d in datasets)
-    return JSONResponse({
-        "status": "degraded" if any_breach else "healthy",
-        "datasets": datasets,
-    })
+    # N002: Public /health returns only {status:ok} for liveness probes.
+    # Dataset details moved to /admin/compliance (auth-required).
+    return JSONResponse({"status": "ok"})
 
 
 # ----------------------------------------------------------------- sign-in
