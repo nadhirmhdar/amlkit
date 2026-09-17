@@ -353,12 +353,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # JSON API for the native mobile app -- bearer-token auth, no CSRF, no HTML.
 # Registered before the static mount so /api/v1/* never falls through to it.
 from .mobile import router as mobile_router  # noqa: E402
-from .mobile import _api_register_organization_impl  # noqa: E402
-
-# Apply rate limit to the mobile registration endpoint implementation before inclusion
-_api_register_organization_impl = limiter.limit("5/minute")(_api_register_organization_impl)
 
 app.include_router(mobile_router)
+
+# Apply rate limit to mobile registration route after inclusion
+for route in app.routes:
+    if hasattr(route, "path") and route.path == "/api/v1/auth/register-organization":
+        if hasattr(route, "endpoint"):
+            route.endpoint = limiter.limit("5/minute")(route.endpoint)
 
 app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))
