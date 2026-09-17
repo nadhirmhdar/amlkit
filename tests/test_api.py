@@ -1125,3 +1125,33 @@ class TestCookieSecurity:
 
         assert len(matches) == 3, \
             f"Expected 3 SESSION_COOKIE set_cookie calls, found {len(matches)}"
+
+
+class TestSecurityHardening:
+    """N001–N006: Security hardening from QA round 2 findings."""
+
+    def test_openapi_json_disabled_by_default(self, client) -> None:
+        """N001: /openapi.json should return 404 by default."""
+        r = client.get("/openapi.json")
+        assert r.status_code == 404, f"Expected 404, got {r.status_code}"
+
+    def test_openapi_json_enabled_with_env_var(self, monkeypatch, tmp_path) -> None:
+        """N001: /openapi.json should return 200 when AMLKIT_ENABLE_OPENAPI=1."""
+        # Set env var before importing app module
+        monkeypatch.setenv("AMLKIT_ENABLE_OPENAPI", "1")
+        monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "test_openapi.db"))
+
+        # Reimport the app module to pick up the new env var
+        import importlib
+        import sys
+        if "amlkit.api.app" in sys.modules:
+            del sys.modules["amlkit.api.app"]
+
+        from amlkit.api.app import app as test_app
+        from fastapi.testclient import TestClient
+        test_client = TestClient(test_app)
+
+        r = test_client.get("/openapi.json")
+        assert r.status_code == 200, f"Expected 200 with AMLKIT_ENABLE_OPENAPI=1, got {r.status_code}"
+        assert "openapi" in r.json(), "Response should contain OpenAPI schema"
+

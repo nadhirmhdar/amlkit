@@ -321,7 +321,10 @@ async def _lifespan(app):
         yield
 
 
-app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, lifespan=_lifespan)
+# N001: Disable OpenAPI by default unless explicitly enabled
+_openapi_url = "/openapi.json" if os.getenv("AMLKIT_ENABLE_OPENAPI") == "1" else None
+
+app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
 
 # Rate limiting to prevent brute-force attacks and DoS
 
