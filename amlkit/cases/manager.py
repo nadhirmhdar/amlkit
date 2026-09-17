@@ -1796,6 +1796,17 @@ def upload_policy(
     if category not in VALID_POLICY_CATEGORIES:
         raise ValueError(f"Invalid category: {category}")
 
+    # Sanitize filename: reject path traversal and absolute paths
+    import os
+    from pathlib import PurePosixPath, PureWindowsPath
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise ValueError(f"Invalid filename: {filename}")
+    if filename.startswith("/") or PureWindowsPath(filename).is_absolute():
+        raise ValueError(f"Invalid filename: {filename}")
+    clean_name = os.path.basename(filename)
+    if clean_name != filename:
+        raise ValueError(f"Invalid filename: {filename}")
+
     if not (filename.lower().endswith(".pdf") or filename.lower().endswith(".docx")):
         raise ValueError(f"Unsupported file type: {filename}. Only PDF and DOCX allowed.")
 

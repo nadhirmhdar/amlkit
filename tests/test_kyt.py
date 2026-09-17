@@ -354,7 +354,9 @@ class TestConfigurableKYTRules:
         assert config["structuring_window_days"] == 14
         assert config["velocity_window_hours"] == 48
         assert config["velocity_max_count"] == 10
-        assert config["high_risk_countries"] == ["KP", "IR"]
+        # Org countries are additive to FATF baseline, not a replacement
+        assert "KP" in config["high_risk_countries"]
+        assert "IR" in config["high_risk_countries"]
 
     def test_save_rule_config_validates_thresholds(self, conn, org_id) -> None:
         """Rejects negative or zero thresholds."""

@@ -308,3 +308,68 @@ class TestGetPolicy:
 
         with pytest.raises(ValueError, match="not found"):
             get_policy(conn, policy_id, org_id=org_id + 999)
+
+
+class TestPolicyFilenameSanitization:
+    """Step 6: filename sanitization prevents path traversal."""
+
+    def test_rejects_path_traversal(self, conn, org_id) -> None:
+        """../../etc/passwd must be rejected."""
+        with pytest.raises(ValueError, match="[Ii]nvalid filename"):
+            upload_policy(
+                conn, org_id,
+                title="Sneaky",
+                category="AML_Policy",
+                filename="../../etc/passwd.pdf",
+                file_content=b"evil",
+                uploaded_by="attacker",
+            )
+
+    def test_rejects_absolute_path(self, conn, org_id) -> None:
+        """Absolute paths must be rejected."""
+        with pytest.raises(ValueError, match="[Ii]nvalid filename"):
+            upload_policy(
+                conn, org_id,
+                title="Sneaky",
+                category="AML_Policy",
+                filename="/etc/passwd.pdf",
+                file_content=b"evil",
+                uploaded_by="attacker",
+            )
+
+    def test_rejects_windows_absolute_path(self, conn, org_id) -> None:
+        """Windows absolute paths must be rejected."""
+        with pytest.raises(ValueError, match="[Ii]nvalid filename"):
+            upload_policy(
+                conn, org_id,
+                title="Sneaky",
+                category="AML_Policy",
+                filename="C:\\Windows\\system32\\evil.pdf",
+                file_content=b"evil",
+                uploaded_by="attacker",
+            )
+
+    def test_rejects_backslash_traversal(self, conn, org_id) -> None:
+        """Backslash path traversal must be rejected."""
+        with pytest.raises(ValueError, match="[Ii]nvalid filename"):
+            upload_policy(
+                conn, org_id,
+                title="Sneaky",
+                category="AML_Policy",
+                filename="..\\..\\evil.pdf",
+                file_content=b"evil",
+                uploaded_by="attacker",
+            )
+
+    def test_clean_filename_passes(self, conn, org_id) -> None:
+        """A normal filename should work fine."""
+        policy_id, version = upload_policy(
+            conn, org_id,
+            title="AML Policy 2024",
+            category="AML_Policy",
+            filename="aml_policy_v3.pdf",
+            file_content=b"valid content",
+            uploaded_by="mlro",
+        )
+        assert policy_id > 0
+        assert version == 1
