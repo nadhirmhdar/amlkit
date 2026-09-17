@@ -10,8 +10,10 @@ an inspection. Three obligations drive the design:
 * **Identify the UBO at 25%, with fallback.** Cabinet Res. 134/2025 sets the
   threshold and requires falling back to the senior managing official where no
   one meets it. Inability to identify a UBO is scored as opacity, not ignored.
-* **Retain for eight years after the relationship ends.** The retention date is
+* **Retain for ten years after the relationship ends.** The retention date is
   computed and stored rather than left to policy.
+  Cabinet Resolution No. 134 of 2025 (effective 14 December 2025) extended
+  the UAE AML/CFT record retention period from five to ten years.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ class StaleDatasetsError(Exception):
 
 
 UBO_THRESHOLD_PCT = 25.0
-RETENTION_YEARS = 8
+RETENTION_YEARS = 10
 
 
 @dataclass(slots=True)
