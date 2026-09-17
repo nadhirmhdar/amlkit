@@ -216,9 +216,11 @@ def _validate(status: str, reason_code: str, narrative: str) -> None:
         )
     narrative = (narrative or "").strip()
     if status in NARRATIVE_REQUIRED and not narrative:
+        # M-06: Fix grammar - "escalated" needs special handling
+        status_label = "an escalation" if status == "escalated" else f"a {status.replace('_', ' ')}"
         raise ReviewError(
-            f"a written narrative is required for a {status.replace('_', ' ')} - "
-            "this is the record a supervisor reconstructs the decision from"
+            f"A written narrative is required for {status_label}. "
+            "This is the record a supervisor reconstructs the decision from."
         )
     if reason_code in NARRATIVE_REQUIRED_CODES and not narrative:
         raise ReviewError(

@@ -405,7 +405,7 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
         resp.set_cookie(
             CSRF_COOKIE, token,
-            httponly=False,
+            httponly=True,
             samesite="lax",
             secure=_behind_proxy,
             max_age=_COOKIE_MAX_AGE,
@@ -437,7 +437,7 @@ def _set_csrf_cookie(resp, request: Request) -> None:
     """
     if not request.cookies.get(CSRF_COOKIE):
         _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
-        resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=False,
+        resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
                         samesite="lax", secure=_behind_proxy,
                         max_age=_COOKIE_MAX_AGE)
 
@@ -568,8 +568,12 @@ def login_submit(
             })
         return _login_page_error(request, str(exc))
     resp = RedirectResponse("/", status_code=303)
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
-                    max_age=_COOKIE_MAX_AGE)
+                    secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    # M-01: Rotate CSRF token on login (defence-in-depth)
+    resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
+                    samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
@@ -673,8 +677,12 @@ def setup_submit(
 
     session_token, _ = auth.login(db, email.strip().lower(), password)
     resp = RedirectResponse("/", status_code=303)
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
-                    max_age=_COOKIE_MAX_AGE)
+                    secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    # M-01: Rotate CSRF token on setup completion
+    resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
+                    samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
@@ -821,8 +829,12 @@ def verify_email(request: Request, db: DB, token: str = ""):
           None, org_id=operator["org_id"])
     db.commit()
     resp = RedirectResponse("/?msg=" + quote("Email verified. Welcome to amlkit."), status_code=303)
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
-                    max_age=_COOKIE_MAX_AGE)
+                    secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    # M-01: Rotate CSRF token on email verification (creates new session)
+    resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
+                    samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
@@ -1310,6 +1322,8 @@ def customer_create(
         )
     except StaleDatasetsError as exc:
         return back("/customers/new", err=str(exc))
+    except ValueError as exc:
+        return back("/customers/new", err=str(exc))
     except sqlite3.IntegrityError:
         return back("/customers/new", err=f"Reference {reference!r} already exists.")
 
@@ -1417,6 +1431,21 @@ def customer_add_ubo(
         pct = float(ownership_pct) if ownership_pct.strip() else None
     except ValueError:
         pct = None
+
+    # H-01: Validate total direct UBO ownership won't exceed 100%
+    if pct is not None:
+        existing_total = db.execute(
+            """SELECT COALESCE(SUM(ownership_pct), 0) FROM ubo_links
+               WHERE customer_id=? AND org_id=? AND parent_ubo_id IS NULL""",
+            (customer_id, session.org_id)
+        ).fetchone()[0]
+        new_total = existing_total + pct
+        if round(new_total, 2) > 100:
+            return back(
+                f"/customers/{customer_id}",
+                err=f"Total UBO ownership would be {round(new_total, 2)}% (cannot exceed 100%)"
+            )
+
     try:
         ubo_id = add_ubo(db, customer_id, org_id=session.org_id, person_name=person_name.strip(),
                          ownership_pct=pct, control_type=control_type, actor=session.operator_name)

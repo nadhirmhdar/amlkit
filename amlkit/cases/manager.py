@@ -137,6 +137,19 @@ def onboard(
             "Ask an MLRO to run Admin → Refresh sources"
         )
 
+    # H-01: Validate UBO ownership sum cannot exceed 100%
+    # All UBOs passed to onboard() are direct links (no parent_ubo_id)
+    if ubos:
+        total_ownership = sum(
+            ubo.get("ownership_pct", 0) or 0
+            for ubo in ubos
+            if ubo.get("ownership_pct") is not None
+        )
+        if round(total_ownership, 2) > 100:
+            raise ValueError(
+                f"Total UBO ownership is {round(total_ownership, 2)}% (cannot exceed 100%)"
+            )
+
     now = utcnow()
     ck = canonical_key(full_name)
 

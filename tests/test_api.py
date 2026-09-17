@@ -827,3 +827,301 @@ class TestAdminThreshold:
         client.post("/admin/threshold", data={"threshold": "0.99", "csrf_token": _csrf(client)})
         r = client.post("/screen", data={"name": LISTED, "csrf_token": _csrf(client)})
         assert "match(es)" in r.text, "exact match must still clear a 0.99 threshold"
+
+
+class TestUboValidation:
+    """H-01: UBO ownership sum validation route-level tests."""
+
+    def test_route_onboard_rejects_over_100_with_form_error(self, client) -> None:
+        """POST /customers with 3×60% returns form error (not 500)."""
+        # Attempt to create customer with 3 UBOs at 60% each
+        r = client.post("/customers", data={
+            "reference": "ROUTE-TEST-180",
+            "full_name": "Route Over Corp",
+            "customer_type": "legal",
+            "ubo_names": ["Alice", "Bob", "Charlie"],
+            "ubo_pcts": ["60", "60", "60"],
+            "ubo_controls": ["ownership", "ownership", "ownership"],
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        # Should get a redirect back to the form with error
+        assert r.status_code == 303
+        assert "err=" in r.headers["location"]
+        assert "100" in r.headers["location"]
+
+        # Verify no customer was created
+        conn = _db()
+        customer_count = conn.execute(
+            "SELECT COUNT(*) FROM customers WHERE reference='ROUTE-TEST-180'"
+        ).fetchone()[0]
+        assert customer_count == 0
+
+    def test_route_add_ubo_rejects_pushing_sum_over_100(self, client) -> None:
+        """POST /customers/{id}/ubo pushing sum over 100 is rejected with form error."""
+        # Create customer with 60% ownership
+        r1 = client.post("/customers", data={
+            "reference": "ROUTE-TEST-ADD",
+            "full_name": "Route Add Test",
+            "customer_type": "legal",
+            "ubo_names": ["Alice"],
+            "ubo_pcts": ["60"],
+            "ubo_controls": ["ownership"],
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r1.status_code == 200
+
+        # Get customer ID
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='ROUTE-TEST-ADD'"
+        ).fetchone()
+        assert customer is not None
+        customer_id = customer[0]
+
+        # Try to add another UBO at 50% (total would be 110%)
+        r2 = client.post(f"/customers/{customer_id}/ubo", data={
+            "person_name": "Bob",
+            "ownership_pct": "50",
+            "control_type": "ownership",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        # Should get redirect back with error
+        assert r2.status_code == 303
+        assert "err=" in r2.headers["location"]
+        assert "110" in r2.headers["location"]
+
+        # Verify only 1 UBO exists (the first one)
+        ubo_count = conn.execute(
+            "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+            (customer_id,)
+        ).fetchone()[0]
+        assert ubo_count == 1
+
+
+class TestCookieSecurity:
+    """H-02 (session Secure flag) and M-02 (CSRF HttpOnly) tests."""
+
+    def test_csrf_cookie_is_httponly(self, tmp_path, monkeypatch) -> None:
+        """M-02: CSRF cookie must have HttpOnly flag."""
+        # Create fresh client without existing cookies
+        db_file = tmp_path / "test_csrf.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
+
+        _seed_sanctions_data(db_file)
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        client = TestClient(app)
+
+        # First request should set CSRF cookie
+        r = client.get("/login")
+
+        set_cookie_headers = r.headers.get_list("set-cookie")
+        csrf_cookie = None
+        for header in set_cookie_headers:
+            if "amlkit_csrf=" in header:
+                csrf_cookie = header
+                break
+
+        assert csrf_cookie is not None, "CSRF cookie not set"
+        assert "httponly" in csrf_cookie.lower(), \
+            f"CSRF cookie missing HttpOnly flag. Cookie: {csrf_cookie}"
+
+    def test_session_cookie_has_secure_flag_when_behind_proxy(self, tmp_path, monkeypatch) -> None:
+        """H-02: Session cookie should have Secure flag when AMLKIT_BEHIND_PROXY=1."""
+        monkeypatch.setenv("AMLKIT_BEHIND_PROXY", "1")
+        db_file = tmp_path / "test_secure.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
+
+        _seed_sanctions_data(db_file)
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        client = TestClient(app, base_url="https://testserver")
+
+        # Register and verify to get session cookie
+        client.get("/register-organization")
+        csrf = _csrf(client)
+
+        r1 = client.post("/register-organization", data={
+            "org_name": "Secure Test Org",
+            "name": "Admin",
+            "email": "secure@test.local",
+            "password": "SecurePass123",
+            "csrf_token": csrf,
+        }, follow_redirects=True)
+
+        # Extract verification token
+        import re
+        m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r1.text)
+        assert m, "No verification link"
+
+        # Follow verification link
+        r = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=False)
+
+        # Check session cookie has Secure flag
+        set_cookie_headers = r.headers.get_list("set-cookie")
+        session_cookie = None
+        for header in set_cookie_headers:
+            if "amlkit_session=" in header:
+                session_cookie = header
+                break
+
+        assert session_cookie is not None
+        assert "secure" in session_cookie.lower(), \
+            f"Session cookie missing Secure flag. Cookie: {session_cookie}"
+
+    def test_session_cookie_no_secure_flag_in_dev_mode(self, tmp_path, monkeypatch) -> None:
+        """H-02: Session cookie should NOT have Secure flag without BEHIND_PROXY."""
+        monkeypatch.delenv("AMLKIT_BEHIND_PROXY", raising=False)
+        db_file = tmp_path / "test_dev.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
+
+        _seed_sanctions_data(db_file)
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        client = TestClient(app)
+
+        client.get("/register-organization")
+        csrf = _csrf(client)
+
+        r1 = client.post("/register-organization", data={
+            "org_name": "Dev Org",
+            "name": "Dev Admin",
+            "email": "dev@test.local",
+            "password": "DevPass123",
+            "csrf_token": csrf,
+        }, follow_redirects=True)
+
+        import re
+        m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r1.text)
+        assert m
+
+        r = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=False)
+
+        set_cookie_headers = r.headers.get_list("set-cookie")
+        session_cookie = None
+        for header in set_cookie_headers:
+            if "amlkit_session=" in header:
+                session_cookie = header
+                break
+
+        assert session_cookie is not None
+        assert "secure" not in session_cookie.lower(), \
+            f"Session cookie has Secure flag in dev mode. Cookie: {session_cookie}"
+
+    def test_csrf_token_rotates_on_login(self, client) -> None:
+        """M-01: CSRF token should change after login."""
+        client.get("/login")
+        csrf_before = _csrf(client)
+
+        r = client.post("/login", data={
+            "email": "alice@testfirm.ae",
+            "password": "a-strong-password-1",
+            "csrf_token": csrf_before,
+        }, follow_redirects=False)
+
+        assert r.status_code == 303
+
+        # Extract new CSRF from Set-Cookie
+        set_cookie_headers = r.headers.get_list("set-cookie")
+        csrf_after = None
+        for header in set_cookie_headers:
+            if "amlkit_csrf=" in header:
+                import re
+                m = re.search(r"amlkit_csrf=([^;]+)", header)
+                if m:
+                    csrf_after = m.group(1)
+                    break
+
+        assert csrf_after is not None
+        assert csrf_after != csrf_before, \
+            f"CSRF should rotate on login. Before: {csrf_before}, After: {csrf_after}"
+
+    def test_csrf_token_rotates_on_email_verification(self, tmp_path, monkeypatch) -> None:
+        """M-01: CSRF token should rotate after email verification."""
+        db_file = tmp_path / "test_verify.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
+
+        _seed_sanctions_data(db_file)
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        client = TestClient(app)
+
+        client.get("/register-organization")
+        r1 = client.post("/register-organization", data={
+            "org_name": "Verify Org",
+            "name": "Admin",
+            "email": "verify@test.local",
+            "password": "VerifyPass123",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+
+        csrf_before = _csrf(client)
+
+        import re
+        m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r1.text)
+        assert m
+
+        r = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=False)
+        assert r.status_code == 303
+
+        set_cookie_headers = r.headers.get_list("set-cookie")
+        csrf_after = None
+        for header in set_cookie_headers:
+            if "amlkit_csrf=" in header:
+                m2 = re.search(r"amlkit_csrf=([^;]+)", header)
+                if m2:
+                    csrf_after = m2.group(1)
+                    break
+
+        assert csrf_after is not None
+        assert csrf_after != csrf_before
+
+    def test_csrf_validation_works_after_rotation(self, tmp_path, monkeypatch) -> None:
+        """M-01: Form POST should pass CSRF validation after token rotation.
+
+        Uses a fresh client to avoid hitting per-account rate limits
+        from other login tests in this class.
+        """
+        db_file = tmp_path / "test_csrf_val.db"
+        monkeypatch.setenv("AMLKIT_DB", str(db_file))
+        monkeypatch.delenv("AMLKIT_BEHIND_PROXY", raising=False)
+
+        _seed_sanctions_data(db_file)
+
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        client = TestClient(app)
+        _register(client, "CSRF Firm", "carol", "carol@csrftest.ae")
+
+        # client is now logged in with a rotated CSRF token
+        csrf_after = _csrf(client)
+
+        # Make a form POST with the post-rotation token
+        r = client.post("/screen", data={
+            "name": "Test Person",
+            "csrf_token": csrf_after,
+        }, follow_redirects=False)
+
+        assert r.status_code != 403, "CSRF validation should pass with rotated token"
+
+    def test_no_other_session_cookie_sites(self) -> None:
+        """Verify all SESSION_COOKIE set_cookie() calls are accounted for."""
+        import re
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parent.parent / "amlkit" / "api" / "app.py").read_text(encoding="utf-8")
+        matches = re.findall(r"set_cookie\(\s*SESSION_COOKIE", src)
+
+        assert len(matches) == 3, \
+            f"Expected 3 SESSION_COOKIE set_cookie calls, found {len(matches)}"
