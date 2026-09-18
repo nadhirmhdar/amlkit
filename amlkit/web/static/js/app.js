@@ -89,6 +89,16 @@ window.addEventListener('click', function(e) {
   if (e.target === modal) closeFeedback();
 });
 
+// Customer search filter (customers page)
+function filterCustomers(query) {
+  const q = query.toLowerCase();
+  const rows = document.querySelectorAll('.customer-row');
+  rows.forEach(row => {
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+
 // Password toggle (login page)
 function togglePassword() {
   const pwd = document.getElementById('password-input');
@@ -103,6 +113,14 @@ document.addEventListener('DOMContentLoaded', function() {
   var passwordToggle = document.querySelector('[data-action="toggle-password"]');
   if (passwordToggle) {
     passwordToggle.addEventListener('click', togglePassword);
+  }
+
+  // Customer search input
+  var customerSearch = document.querySelector('[data-action="filter-customers"]');
+  if (customerSearch) {
+    customerSearch.addEventListener('keyup', function(e) {
+      filterCustomers(e.target.value);
+    });
   }
   // Feedback button
   var feedbackBtn = document.querySelector('[data-action="open-feedback"]');
