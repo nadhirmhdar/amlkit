@@ -506,66 +506,25 @@ def setup_submit(
     except PermissionError as exc:
         return render(request, "setup.html", {"session": None, "valid": True, "token": token, "err": str(exc)})
 
-    row = _valid_setup_token(db, token)
-    if row is None:
+    from ..cases.operators import complete_initial_setup
+
+    try:
+        result = complete_initial_setup(db, token, name, email, password)
+    except ValueError as exc:
         return render(request, "setup.html", {
-            "session": None, "valid": False,
-            "err": "This setup link is invalid, expired, or already used.",
-        })
-    if len(password) < 10:
-        return render(request, "setup.html", {
-            "session": None, "valid": True, "token": token,
-            "err": "Password must be at least 10 characters.",
+            "session": None, "valid": False, "err": str(exc),
         })
 
-    now = utcnow()
-    cur = db.execute(
-        # email_verified_at=now, not NULL: claiming this link already proves
-        # control of *a* channel the admin trusted enough to hand the link
-        # through -- unlike public self-registration, there is no separate
-        # email-ownership gap left to close here (see auth.login()'s guard).
-        """INSERT INTO operators
-               (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-           VALUES (?,?,?,?,?,1,?,?)""",
-        (row["org_id"], name.strip(), email.strip().lower(),
-         auth.hash_password(password), "mlro", now, now),
-    )
-    operator_id = cur.lastrowid
-    db.execute("UPDATE setup_tokens SET used_at=? WHERE id=?", (now, row["id"]))
-    db.commit()
-    from ..db import audit
-    audit(db, name.strip(), "operator.setup_claimed", "operator", operator_id,
-          {"email": email.strip().lower()}, org_id=row["org_id"])
-    db.commit()
-
-    session_token, _ = auth.login(db, email.strip().lower(), password)
+    session_token, _ = auth.login(db, result["email"], password)
     resp = RedirectResponse("/", status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
-    # M-01: Rotate CSRF token on setup completion
     resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
                     samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
-def _valid_setup_token(db: sqlite3.Connection, raw_token: str):
-    if not raw_token:
-        return None
-    from datetime import datetime, timezone
-    from hashlib import sha256
-    row = db.execute(
-        "SELECT id, org_id, used_at, expires_at FROM setup_tokens WHERE token_hash=?",
-        (sha256(raw_token.encode()).hexdigest(),),
-    ).fetchone()
-    if row is None or row["used_at"] is not None:
-        return None
-    # NULL expires_at (a row from before setup_tokens had this column) is
-    # treated as already expired -- fail closed rather than granting an old,
-    # possibly long-forwarded link an unbounded lifetime.
-    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
-        return None
-    return row
 
 
 @app.get("/register-organization", response_class=HTMLResponse)
@@ -587,79 +546,24 @@ def register_org_submit(
     except PermissionError as exc:
         return render(request, "register_organization.html", {"session": None, "err": str(exc)})
 
-    if len(password) < 10:
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "Password must be at least 10 characters."})
-    if not auth.looks_like_email(email):
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "Enter a valid email address."})
-
-    import re
-    slug = re.sub(r"[^a-z0-9]+", "-", org_name.strip().lower()).strip("-") or "org"
-    now = utcnow()
-    try:
-        cur = db.execute(
-            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-            (org_name.strip(), slug, "active", now),
-        )
-    except sqlite3.IntegrityError:
-        return render(request, "register_organization.html",
-                      {"session": None, "err": f"An organization with a similar name already exists."})
-    org_id = cur.lastrowid
-    try:
-        cur2 = db.execute(
-            """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-               VALUES (?,?,?,?,?,1,?)""",
-            (org_id, name.strip(), email.strip().lower(), auth.hash_password(password), "mlro", now),
-        )
-    except sqlite3.IntegrityError:
-        # operators.email is UNIQUE across the whole app, not just this org
-        # (see db.py) -- previously uncaught here, which both surfaced as a
-        # bare 500 and left the just-inserted organizations row behind with
-        # no operator in it. Roll that back too, not just report the error.
-        db.rollback()
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "An account with that email already exists. Try signing in instead."})
-    operator_id = cur2.lastrowid
-    db.commit()
+    from ..cases.operators import register_organization
     from .. import mail
-    from ..db import audit
 
-    clean_email = email.strip().lower()
-    audit(db, name.strip(), "organization.register", "organization", org_id,
-          {"org_name": org_name.strip()}, org_id=org_id)
-    db.commit()
-
-    # Not activated yet -- see auth.login()'s email_verified_at guard. Show a
-    # "check your email" panel instead of signing the operator straight in.
-    raw_token = auth.create_email_verify_token(db, operator_id)
-    delivery = mail.send_verification_email(clean_email, name.strip(), raw_token)
-    # The outcome is recorded, not just the attempt. A provider that has
-    # started failing every send is otherwise invisible here -- the symptom is
-    # nobody completing registration, which looks like disinterest rather than
-    # an outage.
-    audit(db, name.strip(), "operator.verification_sent", "operator", operator_id,
-          {"email": clean_email, "delivery": delivery}, org_id=org_id)
-    db.commit()
+    try:
+        result = register_organization(db, org_name, name, email, password)
+    except ValueError as exc:
+        return render(request, "register_organization.html", {"session": None, "err": str(exc)})
 
     ctx = {
-        "session": None, "pending_email": clean_email,
-        "msg": f"Account created. Check {clean_email} for a verification link before signing in.",
+        "session": None,
+        "pending_email": result["email"],
+        "msg": f"Account created. Check {result['email']} for a verification link before signing in.",
     }
-    if delivery == mail.NOT_CONFIGURED:
-        # No SMTP configured at all -- see amlkit/mail.py. Surface the same
-        # link that was printed to the console so registration stays testable
-        # without real mail infrastructure.
-        #
-        # ONLY in this case. When mail is configured and the send merely
-        # failed, showing the link here would hand a live verification token
-        # -- which activates a fully-privileged MLRO account -- to whoever
-        # submitted the form, without them having proved control of the
-        # mailbox. That is the whole point of the check.
-        ctx["dev_verify_url"] = mail.verify_url(raw_token)
-    elif delivery == mail.FAILED:
+    if result["delivery"] == mail.NOT_CONFIGURED:
+        ctx["dev_verify_url"] = mail.verify_url(result["verification_token"])
+    elif result["delivery"] == mail.FAILED:
         ctx["msg"] = (
-            f"Account created, but the verification email to {clean_email} "
+            f"Account created, but the verification email to {result['email']} "
             "could not be sent. The mail service is not responding — ask your "
             "administrator to check it, then use the resend link below."
         )
@@ -2309,21 +2213,7 @@ def system_refresh(request: Request):
 
 @app.post("/system/create-operator")
 async def system_create_operator(request: Request):
-    """Provision an operator without a browser session.
-
-    For the same reason /system/refresh exists: some trusted, system-level
-    actions need to happen without an interactive login being available --
-    here, provisioning a test/bootstrap operator on a deployment nobody is
-    currently signed into. Protected by its own secret (ADMIN_API_SECRET),
-    deliberately separate from SCHEDULER_SECRET: creating a login is a more
-    sensitive capability than re-running a read-mostly sanctions refresh,
-    and the two shouldn't share a blast radius. Disabled (403) exactly like
-    /system/refresh when its secret isn't configured.
-
-    Reuses the exact insert + hashing amlkit/admin/operators (the real
-    admin-panel route) uses, so a provisioned account is indistinguishable
-    from one an MLRO created by hand.
-    """
+    """Provision an operator without a browser session."""
     secret = os.environ.get("ADMIN_API_SECRET", "").strip()
     if not secret:
         from fastapi.responses import JSONResponse
@@ -2335,6 +2225,8 @@ async def system_create_operator(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     from fastapi.responses import JSONResponse
+    from ..db import connect
+    from ..cases.operators import provision_operator
 
     body = await request.json()
     name = (body.get("name") or "").strip()
@@ -2343,49 +2235,19 @@ async def system_create_operator(request: Request):
     role = body.get("role") or "officer"
     org_slug = (body.get("org_slug") or "").strip()
 
-    if not name or not email:
-        return JSONResponse({"error": "name and email are required"}, status_code=400)
-    if len(password) < 10:
-        return JSONResponse({"error": "password must be at least 10 characters"}, status_code=400)
-    if role not in ("officer", "mlro"):
-        return JSONResponse({"error": "role must be 'officer' or 'mlro'"}, status_code=400)
-
-    from ..db import connect, audit, utcnow
-
     conn = connect(db_path())
     try:
-        if org_slug:
-            org = conn.execute(
-                "SELECT id, name FROM organizations WHERE slug=? AND status='active'", (org_slug,)
-            ).fetchone()
-        else:
-            org = conn.execute(
-                "SELECT id, name FROM organizations WHERE status='active' ORDER BY id LIMIT 1"
-            ).fetchone()
-        if org is None:
-            return JSONResponse({"error": "no matching active organization"}, status_code=404)
-
-        try:
-            now = utcnow()
-            cur = conn.execute(
-                # email_verified_at=now, matching admin_create_operator's
-                # reasoning above -- whoever holds ADMIN_API_SECRET is
-                # already a trusted operator, not a public self-signup.
-                """INSERT INTO operators
-                       (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-                   VALUES (?,?,?,?,?,1,?,?)""",
-                (org["id"], name, email, auth.hash_password(password), role, now, now),
-            )
-        except sqlite3.IntegrityError:
-            return JSONResponse({"error": "an operator with that name or email already exists"}, status_code=409)
-
-        audit(conn, "system", "operator.create", "operator", cur.lastrowid,
-              {"email": email, "role": role, "via": "system_create_operator"}, org_id=org["id"])
-        conn.commit()
+        result = provision_operator(conn, name, email, password, role, org_slug, actor="system")
         return JSONResponse({
-            "status": "created", "operator_id": cur.lastrowid,
-            "organization": org["name"], "email": email, "role": role,
+            "status": "created",
+            "operator_id": result["operator_id"],
+            "organization": result["organization"],
+            "email": result["email"],
+            "role": result["role"],
         })
+    except ValueError as exc:
+        status = 404 if "no matching" in str(exc) else 409 if "already exists" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status)
     finally:
         conn.close()
 
