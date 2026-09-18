@@ -89,6 +89,19 @@ window.addEventListener('click', function(e) {
   if (e.target === modal) closeFeedback();
 });
 
+// Asset freeze execution: add asset row (freeze_execute_form page)
+let assetCount = 1;
+function addAssetRow() {
+  assetCount++;
+  const container = document.getElementById('assets-container');
+  const row = container.children[0].cloneNode(true);
+  row.querySelectorAll('[name]').forEach(el => {
+    el.name = el.name.replace(/_\d+$/, '_' + assetCount);
+    if (el.tagName === 'INPUT') el.value = '';
+  });
+  container.appendChild(row);
+}
+
 // Customer onboarding: toggle fields based on type (customer_new page)
 function toggleCustomerFields() {
   const type = document.getElementById('customer_type').value;
@@ -223,6 +236,12 @@ document.addEventListener('DOMContentLoaded', function() {
     passportInput.addEventListener('change', function(e) {
       performPassportOCR(e.target);
     });
+  }
+
+  // Add asset row button (freeze_execute_form page)
+  var addAssetBtn = document.querySelector('[data-action="add-asset-row"]');
+  if (addAssetBtn) {
+    addAssetBtn.addEventListener('click', addAssetRow);
   }
 
   // Feedback button
