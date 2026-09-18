@@ -6,10 +6,10 @@ Refactor `api/app.py` from 2,753 lines to <1,500 lines (30% reduction) by extrac
 ## Current Status
 
 **Starting**: 2,753 lines  
-**Current**: 2,572 lines  
-**Saved**: 181 lines (6.6%)  
+**Current**: 2,434 lines  
+**Saved**: 319 lines (11.6%)  
 **Target**: <1,500 lines  
-**Remaining**: 1,072 lines needed (38.9% more)
+**Remaining**: 934 lines needed (33.9% more)
 
 ## Completed Work
 
@@ -32,6 +32,19 @@ Refactor `api/app.py` from 2,753 lines to <1,500 lines (30% reduction) by extrac
 
 **Commit**: `cf1d83c` - refactor: extract freeze obligation SQL to queries.py
 
+### Phase 3: Operator Provisioning (138 lines saved)
+✅ Created `amlkit/cases/operators.py`  
+✅ Extracted `register_organization()` - org + MLRO creation with email verification  
+✅ Extracted `complete_initial_setup()` - setup token validation + operator creation  
+✅ Extracted `provision_operator()` - API-based operator provisioning  
+✅ Simplified 3 heavy routes:
+  - `register_org_submit`: 94 → 26 lines
+  - `setup_submit`: 56 → 22 lines
+  - `system_create_operator`: 84 → 36 lines
+✅ Tests: All 95 API + 13 system endpoint tests pass
+
+**Commit**: `c247d58` - refactor: extract operator provisioning to cases/operators.py
+
 ### Test Coverage
 ✅ All 95 main API tests pass (`tests/test_api.py`)  
 ✅ All 13 system endpoint tests pass (`tests/test_system_endpoints.py`)  
@@ -40,12 +53,7 @@ Refactor `api/app.py` from 2,753 lines to <1,500 lines (30% reduction) by extrac
 
 ## Remaining Work
 
-To reach <1,500 lines, extract business logic from these heavy routes:
-
-### Phase 3: Operator Provisioning (234 lines potential)
-- `register_org_submit` (94 lines) → `cases/operators.py::register_organization()`
-- `system_create_operator` (84 lines) → `cases/operators.py::provision_operator()`
-- `setup_submit` (56 lines) → `cases/operators.py::complete_initial_setup()`
+To reach <1,500 lines (need 934 more lines), continue with:
 
 ### Phase 4: Freeze Obligation Business Logic (130 lines potential)
 - `freeze_obligation_file_ffr` (78 lines) → `cases/freeze.py::file_ffr_report()`
