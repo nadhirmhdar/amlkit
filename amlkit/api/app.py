@@ -397,6 +397,11 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     ctx.setdefault("msg", request.query_params.get("msg"))
     ctx.setdefault("err", request.query_params.get("err"))
 
+    # Check dataset health for authenticated sessions
+    if session and db is not None:
+        banner = queries.dataset_health_banner(db)
+        ctx.setdefault("dataset_banner", banner)
+
     # Use the cookie value if already present; otherwise mint one token that
     # goes into BOTH the form field AND the cookie on this same response.
     existing = request.cookies.get(CSRF_COOKIE)
@@ -1163,7 +1168,7 @@ def home(request: Request, db: DB):
         "greeting": greeting,
         "first_name": first_name,
         "today": gst_now.strftime("%A, %d %B %Y"),
-    })
+    }, db)
 
 
 # ------------------------------------------------------------------ dashboard

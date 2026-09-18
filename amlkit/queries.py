@@ -45,6 +45,61 @@ def _category(topics: list[str], programs: list[str]) -> str:
     return "other"
 
 
+def dataset_health_banner(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Check dataset health and return banner info if action needed.
+
+    Returns None when all datasets are healthy (no banner needed).
+    Returns dict with 'severity' ('critical' or 'warning'), 'message', and 'link' when issues exist.
+
+    Critical (red): mandatory dataset stale or has error
+    Warning (amber): optional dataset stale or has error
+    """
+    # Check for errors first (higher priority)
+    error_rows = conn.execute(
+        "SELECT title, is_mandatory, last_error FROM datasets WHERE last_error IS NOT NULL"
+    ).fetchall()
+
+    if error_rows:
+        mandatory_errors = [r for r in error_rows if r["is_mandatory"]]
+        if mandatory_errors:
+            count = len(mandatory_errors)
+            return {
+                "severity": "critical",
+                "message": f"{count} mandatory sanctions source{'s' if count != 1 else ''} failing to update",
+                "link": "/admin/compliance"
+            }
+        else:
+            count = len(error_rows)
+            return {
+                "severity": "warning",
+                "message": f"{count} optional source{'s' if count != 1 else ''} failing to update",
+                "link": "/admin/compliance"
+            }
+
+    # Check for staleness
+    staleness = staleness_report(conn)
+    stale_mandatory = [d for d in staleness if d["breach"] and d["mandatory"]]
+    stale_optional = [d for d in staleness if d.get("hours_since_refresh") and
+                      d["hours_since_refresh"] > d.get("max_age_hours", 24) and not d["mandatory"]]
+
+    if stale_mandatory:
+        count = len(stale_mandatory)
+        return {
+            "severity": "critical",
+            "message": f"{count} mandatory sanctions source{'s' if count != 1 else ''} out of date",
+            "link": "/admin/compliance"
+        }
+    elif stale_optional:
+        count = len(stale_optional)
+        return {
+            "severity": "warning",
+            "message": f"{count} optional source{'s' if count != 1 else ''} out of date",
+            "link": "/admin/compliance"
+        }
+
+    return None
+
+
 def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
     """Everything the 'am I compliant right now' view needs, for one org.
 

@@ -109,6 +109,14 @@
     {% endif %}
     {% if msg %}<div class="banner ok">{{ msg }}</div>{% endif %}
     {% if err %}<div class="banner err">{{ err }}</div>{% endif %}
+    {% if dataset_banner %}
+      <div class="banner {{ 'err' if dataset_banner.severity == 'critical' else 'warning' }}">
+        <strong>{{ dataset_banner.message }}</strong>
+        {% if session.operator_role == 'mlro' %}
+          — <a href="{{ dataset_banner.link }}" style="text-decoration:underline;">View compliance dashboard</a>
+        {% endif %}
+      </div>
+    {% endif %}
 {% else %}
 <div class="fade-in">
   {% if security_warning %}
