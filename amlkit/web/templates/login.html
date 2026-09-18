@@ -24,7 +24,7 @@
           <label>Password</label>
           <input type="password" name="password" id="password-input" class="input-underline"
                  autocomplete="current-password" style="font-size:16px;" required>
-          <button type="button" onclick="togglePassword()"
+          <button type="button" data-action="toggle-password"
                   style="position:absolute; right:0; top:26px; background:none; border:none; color:var(--ink-3); padding:4px; font-size:15px;">👁</button>
         </div>
         <button type="submit" class="btn-glow" style="margin-top:10px;" data-loading="Signing in…">SIGN IN</button>
@@ -52,11 +52,6 @@
   </div>
 </div>
 
-<script>
-function togglePassword() {
-  const pwd = document.getElementById('password-input');
-  pwd.type = pwd.type === 'password' ? 'text' : 'password';
-}
-</script>
+<script src="/static/js/app.js"></script>
 
 {% endblock %}

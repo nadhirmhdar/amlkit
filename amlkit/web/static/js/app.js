@@ -89,8 +89,21 @@ window.addEventListener('click', function(e) {
   if (e.target === modal) closeFeedback();
 });
 
+// Password toggle (login page)
+function togglePassword() {
+  const pwd = document.getElementById('password-input');
+  if (pwd) {
+    pwd.type = pwd.type === 'password' ? 'text' : 'password';
+  }
+}
+
 // Wire up event handlers from data attributes
 document.addEventListener('DOMContentLoaded', function() {
+  // Password toggle button
+  var passwordToggle = document.querySelector('[data-action="toggle-password"]');
+  if (passwordToggle) {
+    passwordToggle.addEventListener('click', togglePassword);
+  }
   // Feedback button
   var feedbackBtn = document.querySelector('[data-action="open-feedback"]');
   if (feedbackBtn) {
