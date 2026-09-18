@@ -333,6 +333,67 @@ class TestRetention:
         delta = abs((date.fromisoformat(until) - expected).days)
         assert delta <= 1, f"retention_until {until!r} should be ~10 years from today ({expected})"
 
+    def test_migration_backfills_closed_customer_retention(self, tmp_path) -> None:
+        """Closed customers with NULL retention_until get backfilled by migration."""
+        from datetime import date, timedelta
+        db_file = tmp_path / "test_migration.db"
+
+        # Create DB with test org and customer
+        conn = connect(db_file)
+
+        # Seed mandatory sanctions data (required for onboard())
+        ds = upsert_dataset(conn, "test_list", "Test List", is_mandatory=True)
+        now = utcnow()
+        conn.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
+        conn.commit()
+
+        org_row = conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?) RETURNING id",
+            ("Migration Test Org", "migration-test", "active", utcnow())
+        ).fetchone()
+        org_id = org_row["id"]
+
+        res = onboard(conn, org_id=org_id, reference="M-1", full_name="Historical Customer")
+        customer_id = res.customer_id
+
+        # Simulate old closed customer: set status='closed' with NULL retention_until
+        # Use updated_at from 1 year ago to verify backfill uses updated_at
+        one_year_ago = (date.today() - timedelta(days=365)).isoformat()
+        conn.execute(
+            "UPDATE customers SET status='closed', retention_until=NULL, updated_at=? WHERE id=?",
+            (one_year_ago + "T00:00:00+00:00", customer_id)
+        )
+        conn.commit()
+
+        # Verify retention_until is NULL before migration
+        row = conn.execute(
+            "SELECT status, retention_until, updated_at FROM customers WHERE id=?",
+            (customer_id,)
+        ).fetchone()
+        assert row["status"] == "closed"
+        assert row["retention_until"] is None
+        conn.close()
+
+        # Reconnect to trigger migration
+        conn2 = connect(db_file)
+
+        # Verify retention_until was backfilled
+        row2 = conn2.execute(
+            "SELECT status, retention_until, updated_at FROM customers WHERE id=?",
+            (customer_id,)
+        ).fetchone()
+        assert row2["status"] == "closed"
+        assert row2["retention_until"] is not None
+
+        # Verify it's based on updated_at + 10 years
+        updated_date = date.fromisoformat(row2["updated_at"][:10])
+        retention_date = date.fromisoformat(row2["retention_until"])
+        expected_retention = updated_date.replace(year=updated_date.year + RETENTION_YEARS)
+        delta = abs((retention_date - expected_retention).days)
+        assert delta <= 1, f"retention_until should be ~10 years from updated_at"
+
+        conn2.close()
+
 
 class TestPurgeExpired:
     def test_purge_expired_deletes_closed_customer(self, conn, org_id) -> None:

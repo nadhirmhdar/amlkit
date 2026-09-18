@@ -818,6 +818,59 @@ def _backfill_email_verified(conn: sqlite3.Connection) -> None:
     )
 
 
+def _backfill_closed_customer_retention(conn: sqlite3.Connection) -> None:
+    """Backfill retention_until for closed customers with NULL values.
+
+    Historical customers closed before close_relationship() logic existed
+    have NULL retention_until, which breaks purge_expired() and violates
+    Cabinet Resolution 134/2025 (10-year retention requirement). This
+    backfills them based on updated_at + 10 years.
+
+    Idempotent: only affects closed customers with NULL retention_until.
+    A fresh install never calls this: close_relationship() always sets
+    retention_until, so there is nothing to backfill.
+    """
+    from datetime import date, timedelta
+
+    # Find all closed customers with NULL retention_until
+    rows = conn.execute(
+        "SELECT id, updated_at, created_at FROM customers "
+        "WHERE status='closed' AND retention_until IS NULL"
+    ).fetchall()
+
+    if not rows:
+        return  # Nothing to backfill
+
+    backfilled = 0
+    for row in rows:
+        # Use updated_at as the base date (when relationship ended),
+        # fall back to created_at if updated_at is somehow NULL
+        base_date_str = row["updated_at"] or row["created_at"]
+
+        # Parse ISO timestamp, extract date portion
+        base_date = date.fromisoformat(base_date_str[:10])
+
+        # Calculate retention date: base + 10 years (RETENTION_YEARS)
+        try:
+            retention_date = base_date.replace(year=base_date.year + 10)
+        except ValueError:
+            # Feb 29 → Feb 28 in non-leap year
+            retention_date = base_date + timedelta(days=365 * 10 + 1)
+
+        # Update the customer
+        conn.execute(
+            "UPDATE customers SET retention_until=? WHERE id=?",
+            (retention_date.isoformat(), row["id"])
+        )
+        backfilled += 1
+
+    conn.commit()
+
+    if backfilled > 0:
+        # Log to console for visibility during migration
+        print(f"INFO: Backfilled retention_until for {backfilled} closed customer(s)")
+
+
 def _migrate_operators_table(conn: sqlite3.Connection) -> None:
     """Rebuild `operators` to change its uniqueness constraint.
 
@@ -1054,6 +1107,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     _migrate(conn)
     if "email_verified_at" not in _operators_cols_before_migrate:
         _backfill_email_verified(conn)
+    _backfill_closed_customer_retention(conn)
     _create_org_indexes(conn)
     from .ingest.fatf import load_fatf_data
     load_fatf_data(conn)
