@@ -77,6 +77,32 @@ SQLite with WAL mode. Schema is in `db.py:SCHEMA`. Migrations are additive colum
 
 `connect()` handles schema creation + all migrations on every open — safe for fresh installs and upgrades alike.
 
+## Automated routines
+
+Recurring triggers registered in the claude.ai Routines UI (Settings → Routines). All fire in fresh sessions.
+
+| ID | Name | Schedule (UTC) | Environment | Purpose |
+|----|------|----------------|-------------|---------|
+| `trig_01ETKZRFYHGqii6o5K8WH9wR` | Issue triage | `50 */6 * * *` | Default (trusted network) | CI health check, GitHub issue triage, Monday improvement log |
+| `trig_01JHC5b92KEvfhgnk5yVdbkM` | amlkit GitHub Issues Sync | `55 */6 * * *` | Full access to internet | Syncs open GitHub issues → artifact DB task tracker (`LvtQxP7THXZEvM1zS8f34p`) |
+| `trig_01UttF6za6bvcduTB5g5uhaN` | amlkit My Tasks → /dreamon dispatch | `0 1,7,13,19 * * *` | Full access to internet | Reads updated task list, filters actionable tasks, dispatches each to /dreamon |
+
+**Sequence every 6 hours (UTC):**
+```
+HH:50  Issue triage
+HH:55  GitHub Issues Sync  →  updates My Tasks artifact DB
+HH+1:00  My Tasks → /dreamon dispatch  →  picks up actionable tasks, invokes /dreamon
+```
+
+**Note on connectors:** The `My Tasks → /dreamon dispatch` trigger was created via API and carries no MCP connectors. If `/dreamon` requires connectors (e.g. `Claude_Code_Remote`, `Claude_Docs`), open the Routines UI, edit `trig_01UttF6za6bvcduTB5g5uhaN`, and add them there.
+
+**Task status fields** used in the artifact DB (`tasks` collection):
+- `done: true` — completed
+- `in_progress: true` — PR opened / work underway
+- `blocked: true` — blocked mid-task
+- `awaiting_input: true` — waiting on owner input
+- (absent / false) — actionable, eligible for /dreamon
+
 ## Environment variables
 
 - `AMLKIT_DB` — path to SQLite database (default: `data/aml.db`)
