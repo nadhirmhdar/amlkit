@@ -81,7 +81,7 @@
       Submitting marks the report as officially filed and freezes the draft from further editing.
       Ensure all details match your goAML portal expectations.
     </p>
-    <form method="post" action="/reports/{{ report.id }}/submit" onsubmit="return confirm('Officially submit this report? This action is irreversible.');">
+    <form method="post" action="/reports/{{ report.id }}/submit" data-confirm="Officially submit this report? This action is irreversible.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="danger mt-4">Confirm submission</button>
     </form>

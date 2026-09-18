@@ -89,6 +89,26 @@ window.addEventListener('click', function(e) {
   if (e.target === modal) closeFeedback();
 });
 
+// Generic confirm handler for buttons and forms with data-confirm attribute
+function handleConfirm(e) {
+  const message = e.currentTarget.getAttribute('data-confirm');
+  if (message && !confirm(message)) {
+    e.preventDefault();
+    return false;
+  }
+  return true;
+}
+
+// Print button handler (evidence page)
+function handlePrint() {
+  window.print();
+}
+
+// Auto-submit form on select change (freeze_obligations page)
+function handleAutoSubmit(e) {
+  e.target.form.submit();
+}
+
 // Password strength indicator (register_organization page)
 function checkStrength() {
   const pwd = document.getElementById('reg-password').value;
@@ -279,6 +299,25 @@ document.addEventListener('DOMContentLoaded', function() {
   if (regPassword) {
     regPassword.addEventListener('keyup', checkStrength);
   }
+
+  // Print button handler
+  document.querySelectorAll('[data-action="print"]').forEach(function(btn) {
+    btn.addEventListener('click', handlePrint);
+  });
+
+  // Auto-submit select elements
+  document.querySelectorAll('[data-action="auto-submit"]').forEach(function(select) {
+    select.addEventListener('change', handleAutoSubmit);
+  });
+
+  // Confirm dialogs for buttons and forms
+  document.querySelectorAll('[data-confirm]').forEach(function(el) {
+    if (el.tagName === 'FORM') {
+      el.addEventListener('submit', handleConfirm);
+    } else {
+      el.addEventListener('click', handleConfirm);
+    }
+  });
 
   // Feedback button
   var feedbackBtn = document.querySelector('[data-action="open-feedback"]');

@@ -32,7 +32,7 @@
         <form method="post" action="/admin/operators/{{ op.id }}/deactivate" class="d-inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="small ghost" type="submit"
-                  onclick="return confirm('Deactivate {{ op.name }}? They will be signed out of every session immediately.')">
+                  data-confirm="Deactivate {{ op.name }}? They will be signed out of every session immediately.">
             Deactivate
           </button>
         </form>
