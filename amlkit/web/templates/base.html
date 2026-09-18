@@ -19,6 +19,9 @@
     <div class="brand-block">
       <img src="/static/img/grovisor-logo.png" alt="Grovisor">
       <div class="product">amlkit</div>
+      {% if org_name %}
+        <div class="muted small" style="margin-top:4px;">{{ org_name }}</div>
+      {% endif %}
     </div>
     <nav>
       <a href="/"          class="{{ 'on' if nav=='home' }}">Home</a>
@@ -94,6 +97,9 @@
         <div class="user-dropdown__header">
           <strong>{{ session.operator_name }}</strong>
           <span class="user-dropdown__role">{{ session.operator_role }}</span>
+          {% if org_name %}
+            <span class="user-dropdown__role muted">{{ org_name }}</span>
+          {% endif %}
         </div>
         <a href="/reports" class="user-dropdown__item" role="menuitem">Reports</a>
         <a href="/audit"   class="user-dropdown__item" role="menuitem">Audit trail</a>
@@ -167,7 +173,7 @@
           proliferation match — a different operator must confirm.
         {% endif %}
       </p>
-      {% if not session.disclaimer_acknowledged %}
+      {% if session and not session.disclaimer_acknowledged %}
       <p class="muted small">
         Screening results are decision support, not legal advice. A UAE-qualified
         adviser should sign off the risk model and reporting workflow before use on
@@ -201,7 +207,7 @@
     </div>
 
     {# Disclaimer acknowledgement modal — shown once on first login #}
-    {% if not session.disclaimer_acknowledged %}
+    {% if session and not session.disclaimer_acknowledged %}
     <div id="disclaimer-modal" class="feedback-modal" style="display:block;">
       <div class="feedback-modal-content">
         <h3>Important Notice</h3>

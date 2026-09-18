@@ -286,6 +286,10 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         banner = queries.dataset_health_banner(db)
         ctx.setdefault("dataset_banner", banner)
 
+    # Inject organization name for authenticated sessions
+    if session:
+        ctx.setdefault("org_name", session.org_name)
+
     # Use the cookie value if already present; otherwise mint one token that
     # goes into BOTH the form field AND the cookie on this same response.
     existing = request.cookies.get(CSRF_COOKIE)
@@ -951,7 +955,7 @@ def dashboard(request: Request, db: DB):
         "session": session,
         "d": queries.dashboard(db, session.org_id),
         "datasets": queries.datasets(db),
-    })
+    }, db)
 
 
 # --------------------------------------------------------------------- screen
@@ -961,7 +965,7 @@ def screen_form(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    return render(request, "screen.html", {"session": session, "result": None, "query": ""})
+    return render(request, "screen.html", {"session": session, "result": None, "query": ""}, db)
 
 
 @app.post("/screen", response_class=HTMLResponse)
@@ -981,12 +985,12 @@ def screen_run(
     try:
         require_csrf(request, csrf_token)
     except PermissionError as exc:
-        return render(request, "screen.html", {"session": session, "result": None, "query": name, "err": str(exc)})
+        return render(request, "screen.html", {"session": session, "result": None, "query": name, "err": str(exc)}, db)
 
     name = name.strip()
     if not name:
         return render(request, "screen.html",
-                      {"session": session, "result": None, "query": "", "err": "Enter a name to screen."})
+                      {"session": session, "result": None, "query": "", "err": "Enter a name to screen."}, db)
 
     result = screen(
         db, name, org_id=session.org_id, trigger="adhoc",
@@ -1011,7 +1015,7 @@ def screen_run(
     return render(request, "screen.html", {
         "session": session, "query": name, "result": result, "hits": hits,
         "low_confidence": len(name.split()) < 2,
-    })
+    }, db)
 
 
 # ------------------------------------------------------------------ customers
@@ -1026,7 +1030,7 @@ def customers(request: Request, db: DB, q: str = ""):
     else:
         results = queries.customer_list(db, session.org_id)
     return render(request, "customers.html",
-                 {"session": session, "customers": results, "search_query": q})
+                 {"session": session, "customers": results, "search_query": q}, db)
 
 
 @app.get("/customers/new", response_class=HTMLResponse)
@@ -1184,7 +1188,7 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
         return back("/customers", err=f"Customer {customer_id} not found.")
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
-    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()})
+    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()}, db)
 
 
 @app.post("/customers/{customer_id}/close")
@@ -1504,14 +1508,14 @@ def alerts(request: Request, db: DB, status: str = "open", sort: str = "age_asc"
         return render(request, "alerts.html", {
             "session": session, "alerts": [], "grouped": grouped,
             "status": status, "sort": sort_by, "group_by": group_by, "reason_codes": REASON_CODES,
-        })
+        }, db)
     queue = queries.alert_queue(db, session.org_id, status=effective_status, sort_by=sort_by)
     for a in queue:
         a["reviews"] = review_history(db, a["id"], session.org_id)
     return render(request, "alerts.html", {
         "session": session, "alerts": queue, "grouped": [],
         "status": status, "sort": sort_by, "group_by": group_by, "reason_codes": REASON_CODES,
-    })
+    }, db)
 
 
 @app.post("/alerts/bulk-dismiss")
@@ -1686,7 +1690,7 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
 @app.get("/about", response_class=HTMLResponse)
 def about_view(request: Request, db: DB):
     session = current_session(request, db)
-    return render(request, "about.html", {"session": session})
+    return render(request, "about.html", {"session": session}, db)
 
 
 # ---------------------------------------------------------------------- feedback
@@ -2449,7 +2453,7 @@ def reports_view(request: Request, db: DB):
         return RedirectResponse("/login", status_code=303)
     
     r_list = queries.report_list(db, session.org_id)
-    return render(request, "reports.html", {"session": session, "reports": r_list})
+    return render(request, "reports.html", {"session": session, "reports": r_list}, db)
 
 
 @app.get("/reports/new", response_class=HTMLResponse)
@@ -2458,9 +2462,9 @@ def report_new_view(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    
+
     customers = queries.customer_list(db, session.org_id)
-    return render(request, "report_new.html", {"session": session, "customers": customers})
+    return render(request, "report_new.html", {"session": session, "customers": customers}, db)
 
 
 @app.get("/reports/build", response_class=HTMLResponse)
@@ -2492,7 +2496,7 @@ def report_build_view(
         "type": report_type,
         "payload": payload,
         "report_id": report_id,
-    })
+    }, db)
 
 
 @app.post("/reports")
@@ -2556,12 +2560,12 @@ def report_detail_view(request: Request, db: DB, report_id: int):
         
     import json
     payload = json.loads(rep["payload"] or "{}")
-    
+
     return render(request, "report_detail.html", {
         "session": session,
         "report": rep,
         "payload": payload,
-    })
+    }, db)
 
 
 @app.post("/reports/{report_id}/submit")
