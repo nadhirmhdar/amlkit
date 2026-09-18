@@ -75,7 +75,7 @@ Add to `queries.py`:
 - `customer_run_adverse_media` (50 lines)
 - `adverse_media_run_due` (41 lines)
 
-**Estimated total available**: ~636 lines from phases 3-7
+**Estimated total available**: ~636 lines from phases 4-7
 
 ## Methodology
 
@@ -95,7 +95,6 @@ Add to `queries.py`:
 
 ## Next Steps
 
-1. Complete Phase 3 (operator provisioning → cases/operators.py)
-2. Complete Phase 4 (freeze business logic → cases/freeze.py)  
-3. Continue with phases 5-7 until target reached
-4. Final verification: full test suite + line count check
+1. Complete Phase 4 (freeze business logic → cases/freeze.py)  
+2. Continue with phases 5-7 until target reached
+3. Final verification: full test suite + line count check
