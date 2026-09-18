@@ -741,40 +741,17 @@ def resend_verification(
 # ------------------------------------------------------------------ freeze obligations
 
 @app.get("/freeze-obligations", response_class=HTMLResponse)
-def freeze_obligations_list(request: Request, db: DB):
+def freeze_obligations_list_route(request: Request, db: DB):
     """List all freeze obligations for current org."""
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-        
-    org_id = session.org_id
+
     filter_status = request.query_params.get("status", "all")
-    
-    query = """
-        SELECT f.*, c.reference AS customer_reference, c.full_name,
-               CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_since_identified
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        WHERE f.org_id = ?
-    """
-    params = [org_id]
-    
-    if filter_status != "all":
-        query += " AND f.status = ?"
-        params.append(filter_status)
-    
-    query += " ORDER BY f.identified_at DESC"
-    
-    obligations = [dict(row) for row in db.execute(query, params).fetchall()]
-    
-    stats = dict(db.execute("""
-        SELECT status, COUNT(*) as count
-        FROM freeze_obligations
-        WHERE org_id = ?
-        GROUP BY status
-    """, (org_id,)).fetchall())
-    
+    obligations = queries.freeze_obligations_list(db, session.org_id, filter_status)
+    stats = queries.freeze_obligations_stats(db, session.org_id)
+
     return render(request, "freeze_obligations.html", {
         "session": session,
         "obligations": obligations,
@@ -783,34 +760,17 @@ def freeze_obligations_list(request: Request, db: DB):
     })
 
 @app.get("/freeze-obligations/{freeze_id}", response_class=HTMLResponse)
-def freeze_obligation_detail(request: Request, db: DB, freeze_id: int):
+def freeze_obligation_detail_route(request: Request, db: DB, freeze_id: int):
     """Show freeze obligation details with full lifecycle timeline."""
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-        
-    org_id = session.org_id
-    
-    row = db.execute("""
-        SELECT f.*, c.reference AS customer_reference, c.full_name,
-               a.id AS alert_id, a.matched_name,
-               r.id AS report_id, r.reference AS report_reference
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        LEFT JOIN alerts a ON a.id = f.alert_id
-        LEFT JOIN reports r ON r.id = f.report_id
-        WHERE f.id = ? AND f.org_id = ?
-    """, (freeze_id, org_id)).fetchone()
-    
-    if not row:
+
+    obligation = queries.freeze_obligation_detail(db, session.org_id, freeze_id)
+    if not obligation:
         return back("/freeze-obligations", err="Freeze obligation not found")
-    
-    obligation = dict(row)
-    
-    import json
-    obligation["assets_frozen_parsed"] = json.loads(obligation["assets_frozen"] or "[]")
-    
+
     can_execute = obligation["status"] == "pending_execution"
     can_file_ffr = obligation["status"] == "executed_pending_report"
     can_resolve = obligation["status"] in ["executed_pending_report", "reported"]
