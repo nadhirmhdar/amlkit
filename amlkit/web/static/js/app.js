@@ -89,6 +89,85 @@ window.addEventListener('click', function(e) {
   if (e.target === modal) closeFeedback();
 });
 
+// Customer onboarding: toggle fields based on type (customer_new page)
+function toggleCustomerFields() {
+  const type = document.getElementById('customer_type').value;
+  const isLegal = type === 'legal';
+
+  // Toggle field visibility
+  document.getElementById('field-gender').style.display = isLegal ? 'none' : '';
+  document.getElementById('field-trade-licence').style.display = isLegal ? '' : 'none';
+
+  // Update labels
+  document.getElementById('label-nationality').textContent = isLegal ? 'Country of incorporation' : 'Nationality (ISO)';
+  document.getElementById('label-birth-date').textContent = isLegal ? 'Date of incorporation' : 'Date of birth';
+
+  // Toggle OCR section text
+  const ocrTitle = document.querySelector('.ocr-upload-zone h3');
+  const ocrDesc = document.querySelector('.ocr-upload-zone p');
+  if (isLegal) {
+    ocrTitle.textContent = 'Scan Trade Licence (OCR)';
+    ocrDesc.textContent = 'Upload trade licence image to auto-fill company details.';
+  } else {
+    ocrTitle.textContent = 'Scan Passport (MRZ / OCR)';
+    ocrDesc.textContent = 'Upload passport image to auto-fill name, DOB, nationality and gender.';
+  }
+}
+
+async function performPassportOCR(input) {
+  if (!input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  const statusEl = document.getElementById('scan-status');
+  statusEl.style.display = 'inline';
+  statusEl.textContent = 'Scanning…';
+
+  const formData = new FormData();
+  formData.append('passport_file', file);
+  formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+
+  try {
+    const res = await fetch('/customers/scan-passport', {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) throw new Error('Scan failed');
+    const data = await res.json();
+
+    // Auto-fill form fields
+    if (data.full_name) {
+      document.querySelector('input[name="full_name"]').value = data.full_name;
+    }
+    if (data.nationality) {
+      document.querySelector('input[name="nationality"]').value = data.nationality.substring(0, 2);
+    }
+    if (data.birth_date) {
+      document.querySelector('input[name="birth_date"]').value = data.birth_date;
+    }
+    if (data.gender) {
+      document.querySelector('select[name="gender"]').value = data.gender;
+    }
+
+    const warnEl = document.getElementById('scan-authenticity');
+    const flags = [
+      ...((data.authenticity && data.authenticity.flags) || []),
+      ...((data.expiry_check && data.expiry_check.flags) || []),
+    ];
+    if (flags.length > 0) {
+      warnEl.textContent = 'Document check: ' + flags.join('; ') +
+        '. Verify this document manually before relying on the extracted fields.';
+      warnEl.style.display = 'block';
+      statusEl.textContent = 'Scan complete — see warning below.';
+    } else {
+      warnEl.style.display = 'none';
+      statusEl.textContent = data.authenticity
+        ? 'Scan complete. MRZ checksums verified.'
+        : 'Scan complete (MRZ not read — fields extracted via OCR fallback have no authenticity check).';
+    }
+  } catch (err) {
+    statusEl.textContent = 'Scan failed. Please enter manually.';
+  }
+}
+
 // Customer search filter (customers page)
 function filterCustomers(query) {
   const q = query.toLowerCase();
@@ -122,6 +201,30 @@ document.addEventListener('DOMContentLoaded', function() {
       filterCustomers(e.target.value);
     });
   }
+
+  // Customer type toggle (customer_new page)
+  var customerType = document.querySelector('[data-action="toggle-customer-fields"]');
+  if (customerType) {
+    customerType.addEventListener('change', toggleCustomerFields);
+  }
+
+  // Passport upload trigger button (customer_new page)
+  var uploadBtn = document.querySelector('[data-action="trigger-passport-upload"]');
+  if (uploadBtn) {
+    uploadBtn.addEventListener('click', function() {
+      var fileInput = document.getElementById('passport-upload');
+      if (fileInput) fileInput.click();
+    });
+  }
+
+  // Passport file input OCR (customer_new page)
+  var passportInput = document.querySelector('[data-action="perform-ocr"]');
+  if (passportInput) {
+    passportInput.addEventListener('change', function(e) {
+      performPassportOCR(e.target);
+    });
+  }
+
   // Feedback button
   var feedbackBtn = document.querySelector('[data-action="open-feedback"]');
   if (feedbackBtn) {
