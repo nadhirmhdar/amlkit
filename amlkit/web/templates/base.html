@@ -59,7 +59,7 @@
       amlkit
     </a>
     <div class="user-menu-wrap" id="user-menu-wrap">
-      <button class="user-menu-btn" onclick="toggleUserMenu(event)" aria-label="User menu" aria-expanded="false">
+      <button class="user-menu-btn" data-action="toggle-user-menu" aria-label="User menu" aria-expanded="false">
         <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
       </button>
       <div class="user-dropdown" role="menu">
@@ -141,23 +141,23 @@
     </footer>
 
     {# Feedback button — floating button in bottom-right corner #}
-    <button class="feedback-btn no-print" onclick="openFeedback()" aria-label="Send feedback" title="Send feedback">
+    <button class="feedback-btn no-print" data-action="open-feedback" aria-label="Send feedback" title="Send feedback">
       💬
     </button>
 
     {# Feedback modal #}
     <div id="feedback-modal" class="feedback-modal">
       <div class="feedback-modal-content">
-        <span class="feedback-modal-close" onclick="closeFeedback()">&times;</span>
+        <span class="feedback-modal-close" data-action="close-feedback">&times;</span>
         <h3>Send Feedback</h3>
         <p class="muted small">Report bugs, suggest features, or share your experience.</p>
-        <form id="feedback-form" onsubmit="submitFeedback(event)">
+        <form id="feedback-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="page" value="{{ request.url.path }}">
           <textarea name="message" rows="5" placeholder="Your feedback..." required></textarea>
           <div style="display:flex;gap:8px;margin-top:8px;">
             <button type="submit">Send</button>
-            <button type="button" onclick="closeFeedback()">Cancel</button>
+            <button type="button" data-action="close-feedback">Cancel</button>
           </div>
         </form>
         <div id="feedback-result" style="margin-top:12px;"></div>
@@ -183,86 +183,6 @@
 </div>
 {% endif %}
 
-<script>
-(function () {
-  document.addEventListener('submit', function (e) {
-    var form = e.target;
-    if (form.classList.contains('no-loading')) return;
-    var btn = form.querySelector('button[type="submit"]');
-    if (!btn || form.classList.contains('is-submitting')) return;
-    form.classList.add('is-submitting');
-    var orig = btn.innerHTML;
-    btn.innerHTML = '<span class="spinner"></span>' + (btn.dataset.loading || 'Processing…');
-    setTimeout(function () {
-      form.classList.remove('is-submitting');
-      btn.innerHTML = orig;
-    }, 30000);
-  });
-}());
-(function () {
-  var wrap = document.getElementById('user-menu-wrap');
-  function close() {
-    if (!wrap) return;
-    wrap.classList.remove('open');
-    var btn = wrap.querySelector('.user-menu-btn');
-    if (btn) btn.setAttribute('aria-expanded', 'false');
-  }
-  window.toggleUserMenu = function (e) {
-    e.stopPropagation();
-    if (!wrap) return;
-    var opening = !wrap.classList.contains('open');
-    wrap.classList.toggle('open');
-    var btn = wrap.querySelector('.user-menu-btn');
-    if (btn) btn.setAttribute('aria-expanded', String(opening));
-  };
-  document.addEventListener('click', function (e) {
-    if (wrap && !wrap.contains(e.target)) close();
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') close();
-  });
-}());
-
-// Feedback modal functions
-function openFeedback() {
-  document.getElementById('feedback-modal').style.display = 'block';
-  document.getElementById('feedback-result').innerHTML = '';
-  document.querySelector('#feedback-form textarea').focus();
-}
-function closeFeedback() {
-  document.getElementById('feedback-modal').style.display = 'none';
-  document.getElementById('feedback-form').reset();
-  document.getElementById('feedback-result').innerHTML = '';
-}
-function submitFeedback(e) {
-  e.preventDefault();
-  var form = e.target;
-  var formData = new FormData(form);
-  var resultDiv = document.getElementById('feedback-result');
-  resultDiv.innerHTML = '<span class="muted">Sending...</span>';
-  fetch('/feedback', {
-    method: 'POST',
-    body: formData
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if (data.success) {
-      resultDiv.innerHTML = '<span style="color:#059669;">✓ ' + data.message + '</span>';
-      form.reset();
-      setTimeout(closeFeedback, 2000);
-    } else {
-      resultDiv.innerHTML = '<span style="color:#dc2626;">✗ ' + (data.error || 'Failed to send feedback.') + '</span>';
-    }
-  })
-  .catch(function(err) {
-    resultDiv.innerHTML = '<span style="color:#dc2626;">✗ Network error. Try again.</span>';
-  });
-}
-// Close modal on click outside
-window.addEventListener('click', function(e) {
-  var modal = document.getElementById('feedback-modal');
-  if (e.target === modal) closeFeedback();
-});
-</script>
+<script src="/static/js/app.js"></script>
 </body>
 </html>
