@@ -36,11 +36,12 @@ COPY litestream.yml ./litestream.yml
 RUN mkdir -p /app/data && chmod +x /app/scripts/entrypoint.sh
 
 # Environment defaults
-ENV PORT=8000
+# PORT is injected by Cloud Run at runtime (default 8080). AMLKIT_PORT is
+# mapped from it in entrypoint.sh so the app picks it up via AMLKIT_PORT.
 ENV AMLKIT_DB=/app/data/amlkit.db
 ENV AMLKIT_BIND_HOST=0.0.0.0
 ENV AMLKIT_BEHIND_PROXY=1
 
-EXPOSE 8000
+EXPOSE 8080
 
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]
