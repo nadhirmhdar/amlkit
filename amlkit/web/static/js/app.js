@@ -89,6 +89,16 @@ window.addEventListener('click', function(e) {
   if (e.target === modal) closeFeedback();
 });
 
+// Policy upload form toggle (policies page)
+function toggleUploadForm() {
+  const form = document.getElementById('upload-form');
+  if (form.style.display === 'none') {
+    form.style.display = 'block';
+  } else {
+    form.style.display = 'none';
+  }
+}
+
 // Asset freeze execution: add asset row (freeze_execute_form page)
 let assetCount = 1;
 function addAssetRow() {
@@ -243,6 +253,11 @@ document.addEventListener('DOMContentLoaded', function() {
   if (addAssetBtn) {
     addAssetBtn.addEventListener('click', addAssetRow);
   }
+
+  // Policy upload form toggle buttons (policies page)
+  document.querySelectorAll('[data-action="toggle-upload-form"]').forEach(function(btn) {
+    btn.addEventListener('click', toggleUploadForm);
+  });
 
   // Feedback button
   var feedbackBtn = document.querySelector('[data-action="open-feedback"]');
