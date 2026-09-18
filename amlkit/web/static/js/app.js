@@ -89,6 +89,21 @@ window.addEventListener('click', function(e) {
   if (e.target === modal) closeFeedback();
 });
 
+// Password strength indicator (register_organization page)
+function checkStrength() {
+  const pwd = document.getElementById('reg-password').value;
+  const bar = document.getElementById('pwd-strength');
+  let score = 0;
+  if (pwd.length >= 10) score += 1;
+  if (/[A-Z]/.test(pwd)) score += 1;
+  if (/[0-9]/.test(pwd)) score += 1;
+
+  if (score === 0) { bar.style.width = '0%'; }
+  if (score === 1) { bar.style.width = '33%'; bar.style.background = 'var(--danger)'; }
+  if (score === 2) { bar.style.width = '66%'; bar.style.background = 'var(--warn)'; }
+  if (score === 3) { bar.style.width = '100%'; bar.style.background = 'var(--good)'; }
+}
+
 // Policy upload form toggle (policies page)
 function toggleUploadForm() {
   const form = document.getElementById('upload-form');
@@ -258,6 +273,12 @@ document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('[data-action="toggle-upload-form"]').forEach(function(btn) {
     btn.addEventListener('click', toggleUploadForm);
   });
+
+  // Password strength check (register_organization page)
+  var regPassword = document.querySelector('[data-action="check-strength"]');
+  if (regPassword) {
+    regPassword.addEventListener('keyup', checkStrength);
+  }
 
   // Feedback button
   var feedbackBtn = document.querySelector('[data-action="open-feedback"]');
