@@ -509,7 +509,7 @@ async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "  # N005: WIP — unsafe-inline temporarily retained; removal requires inline-script migration
+        "script-src 'self'; "  # All inline scripts migrated to external files (Issue #82)
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "font-src 'self'; "
