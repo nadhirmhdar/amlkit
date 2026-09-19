@@ -41,7 +41,7 @@ GREYLIST = {
 
 
 _FATF_DATA_AS_OF = "2025-02-01T00:00:00+00:00"  # update this when BLACKLIST/GREYLIST change
-_FATF_MAX_AGE_HOURS = 2160  # 90 days — aligns with quarterly FATF plenary cycle
+_FATF_MAX_AGE_HOURS = 168  # 7 days — show staleness warning if not refreshed weekly
 
 
 def load_fatf_data(conn: sqlite3.Connection) -> None:
@@ -85,10 +85,11 @@ def load_fatf_data(conn: sqlite3.Connection) -> None:
                        'FATF High-Risk & Other Monitored Jurisdictions',
                        'Financial Action Task Force',
                        'https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html',
-                       0, ?, ?, ?)
+                       1, ?, ?, ?)
                ON CONFLICT(key) DO UPDATE SET
                    entity_count  = excluded.entity_count,
                    max_age_hours = excluded.max_age_hours,
+                   is_mandatory  = excluded.is_mandatory,
                    last_refresh  = excluded.last_refresh""",
             (_FATF_DATA_AS_OF, entity_count, _FATF_MAX_AGE_HOURS),
         )
