@@ -65,6 +65,10 @@ class AuthError(RuntimeError):
     """
 
 
+class PasswordComplexityError(ValueError):
+    """Raised when a password does not meet complexity requirements."""
+
+
 # Shape-only check, matching the client-side regex the mobile app already
 # uses (RegisterOrgScreen.kt's EMAIL_PATTERN) -- catches "not an email at
 # all" cheaply before a registration attempt tries to send mail to it. It
@@ -75,6 +79,29 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 def looks_like_email(value: str) -> bool:
     return bool(EMAIL_RE.match(value.strip()))
+
+
+def validate_password_complexity(password: str) -> None:
+    """Validate password meets complexity requirements.
+
+    Raises PasswordComplexityError if password fails any requirement:
+    - At least 10 characters
+    - At least 1 uppercase letter
+    - At least 1 digit
+    - At least 1 special character
+    """
+    if len(password) < 10:
+        raise PasswordComplexityError("Password must be at least 10 characters long")
+
+    if not any(c.isupper() for c in password):
+        raise PasswordComplexityError("Password must contain at least one uppercase letter")
+
+    if not any(c.isdigit() for c in password):
+        raise PasswordComplexityError("Password must contain at least one digit")
+
+    # Special characters: anything that's not alphanumeric
+    if not any(not c.isalnum() for c in password):
+        raise PasswordComplexityError("Password must contain at least one special character")
 
 
 # --------------------------------------------------------------------- hash
@@ -305,6 +332,7 @@ def set_password(conn: sqlite3.Connection, operator_id: int, new_password: str) 
     The revocation is not optional: leaving old sessions alive after a
     password change defeats the reason someone changes a password.
     """
+    validate_password_complexity(new_password)
     conn.execute(
         "UPDATE operators SET password_hash=?, failed_login_count=0, locked_until=NULL WHERE id=?",
         (hash_password(new_password), operator_id),
