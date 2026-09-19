@@ -2659,88 +2659,19 @@ def report_save(
     except PermissionError as exc:
         return back("/reports", err=str(exc))
 
-    import json
-    # Look up customer type for correct goAML XML serialisation. A miss here
-    # means customer_id doesn't belong to this org -- reject rather than
-    # silently defaulting to "natural" and saving a report against a
-    # customer_id from another tenant.
-    cust_row = db.execute(
-        "SELECT customer_type, full_name FROM customers WHERE id = ? AND org_id = ?",
-        (customer_id, session.org_id)
-    ).fetchone()
-    if cust_row is None:
-        return back("/reports", err=f"Customer {customer_id} not found.")
-    cust_type = cust_row["customer_type"]
+    from ..cases.reports import save_report
+    result = save_report(
+        db, session.org_id, session.operator_name,
+        customer_id, report_type, reporting_entity_name, entity_reference,
+        reporter_name, reporter_email, first_name, last_name, nationality,
+        birth_date, gender, id_type, id_number, amount, transaction_type,
+        transaction_date, source_account, destination_account,
+        reason_description, action_taken, evidence_pack_attached, report_id
+    )
 
-    try:
-        parsed_amount = float(amount) if amount.strip() else None
-    except ValueError:
-        return back("/reports", err=f"Amount {amount!r} is not a valid number.")
-
-    # For CTR: fetch org's configured large_cash_threshold to use as validation threshold
-    threshold = None
-    if report_type == "CTR":
-        from ..screening.kyt import get_rule_config
-        config = get_rule_config(db, session.org_id)
-        threshold = config["large_cash_threshold_aed"]
-
-    # Bundle all collected parameters into a payload dict
-    payload_dict = {
-        "customer_id": customer_id,
-        "customer_type": cust_type,
-        "report_type": report_type,
-        "reporting_entity_name": reporting_entity_name.strip(),
-        "entity_reference": entity_reference.strip(),
-        "reporter_name": reporter_name.strip(),
-        "reporter_email": reporter_email.strip(),
-        "first_name": first_name.strip(),
-        "last_name": last_name.strip(),
-        "nationality": nationality.strip().upper(),
-        "birth_date": birth_date.strip(),
-        "gender": gender.strip(),
-        "id_type": id_type.strip(),
-        "id_number": id_number.strip(),
-        "amount": parsed_amount,
-        "transaction_type": transaction_type.strip() if transaction_type else None,
-        "transaction_date": transaction_date.strip() if transaction_date else None,
-        "source_account": source_account.strip(),
-        "destination_account": destination_account.strip(),
-        "reason_description": reason_description.strip(),
-        "action_taken": action_taken.strip(),
-        "evidence_pack_attached": bool(evidence_pack_attached),
-    }
-    if threshold is not None:
-        payload_dict["threshold"] = threshold
-
-    payload_json = json.dumps(payload_dict)
-    now = utcnow()
-
-    with db:
-        if report_id:
-            db.execute(
-                """UPDATE reports 
-                   SET payload=?, reference=? 
-                   WHERE id=? AND org_id=?""",
-                (payload_json, f"goAML-{report_type}-{report_id}", report_id, session.org_id)
-            )
-            rid = report_id
-        else:
-            cur = db.execute(
-                """INSERT INTO reports (org_id, customer_id, report_type, status, payload, created_at)
-                   VALUES (?,?,?,?,?,?)""",
-                (session.org_id, customer_id, report_type, "draft", payload_json, now)
-            )
-            rid = cur.lastrowid
-            db.execute(
-                "UPDATE reports SET reference=? WHERE id=?",
-                (f"goAML-{report_type}-{rid}", rid)
-            )
-
-        from ..db import audit
-        audit(db, session.operator_name, "report.save", "report", rid,
-              {"report_type": report_type}, org_id=session.org_id)
-
-    return back(f"/reports/{rid}", msg="Draft report saved.")
+    if not result.success:
+        return back("/reports", err=result.error)
+    return back(f"/reports/{result.report_id}", msg="Draft report saved.")
 
 
 @app.get("/reports/{report_id}", response_class=HTMLResponse)
