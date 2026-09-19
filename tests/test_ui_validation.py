@@ -82,9 +82,11 @@ class TestProgressIndicators:
         assert 'data-loading="Onboarding' in r.text
 
     def test_base_template_has_spinner_js(self, client) -> None:
-        r = client.get("/screen")
-        assert 'is-submitting' in r.text
-        assert 'spinner' in r.text
+        # Spinner JS moved to app.js (CSP no-unsafe-inline compliance)
+        app_js_path = Path(__file__).resolve().parent.parent / "amlkit/web/static/js/app.js"
+        app_js_content = app_js_path.read_text()
+        assert 'is-submitting' in app_js_content
+        assert 'spinner' in app_js_content
 
     def test_login_has_data_loading(self, anon_client) -> None:
         r = anon_client.get("/login")
