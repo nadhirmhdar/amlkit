@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Install system dependencies + Google Cloud SDK (for gsutil to restore DB from GCS)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -43,5 +43,8 @@ ENV AMLKIT_BIND_HOST=0.0.0.0
 ENV AMLKIT_BEHIND_PROXY=1
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:${AMLKIT_PORT:-8080}/health || exit 1
 
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]
