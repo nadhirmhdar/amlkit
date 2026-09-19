@@ -2631,6 +2631,90 @@ def ai_draft_narrative(
     })
 
 
+# ----------------------------------------------------- compliance calendar (p21)
+@app.get("/compliance/calendar", response_class=HTMLResponse)
+def compliance_calendar_view(request: Request, db: DB):
+    """Compliance calendar list view."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    deadlines = queries.compliance_deadlines(db, session.org_id)
+    from ..db import utcnow
+    now = utcnow()
+    for d in deadlines:
+        d["is_overdue"] = d["due_date"] < now and d["completed_at"] is None
+
+    return render(request, "compliance_calendar.html", {"session": session, "deadlines": deadlines})
+
+@app.get("/compliance/deadlines")
+def compliance_deadlines_list(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return queries.compliance_deadlines(db, session.org_id)
+
+@app.post("/compliance/deadlines")
+def compliance_deadlines_create(
+    request: Request, db: DB,
+    title: Annotated[str, Form()],
+    due_date: Annotated[str, Form()],
+    description: Annotated[str, Form()] = "",
+    recurrence: Annotated[str, Form()] = "one-time",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return Response(status_code=403)
+    from ..db import audit, utcnow
+    cur = db.execute(
+        "INSERT INTO compliance_deadlines (org_id, title, description, due_date, recurrence, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (session.org_id, title, description, due_date, recurrence, utcnow())
+    )
+    deadline_id = cur.lastrowid
+    audit(db, session.operator_name, "compliance.deadline_created", "compliance_deadline", deadline_id,
+          {"title": title}, org_id=session.org_id)
+    db.commit()
+    return queries.compliance_deadline(db, session.org_id, deadline_id)
+
+@app.patch("/compliance/deadlines/{deadline_id}")
+def compliance_deadlines_update(
+    request: Request, db: DB, deadline_id: int,
+    title: Annotated[str | None, Form()] = None,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return Response(status_code=403)
+    existing = queries.compliance_deadline(db, session.org_id, deadline_id)
+    if existing is None:
+        return Response(status_code=404)
+    if title:
+        db.execute("UPDATE compliance_deadlines SET title=? WHERE id=? AND org_id=?", (title, deadline_id, session.org_id))
+        db.commit()
+    return queries.compliance_deadline(db, session.org_id, deadline_id)
+
+@app.delete("/compliance/deadlines/{deadline_id}")
+def compliance_deadlines_delete(request: Request, db: DB, deadline_id: int, csrf_token: Annotated[str, Form()] = ""):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return Response(status_code=403)
+    existing = queries.compliance_deadline(db, session.org_id, deadline_id)
+    if existing is None:
+        return Response(status_code=404)
+    db.execute("DELETE FROM compliance_deadlines WHERE id=? AND org_id=?", (deadline_id, session.org_id))
+    db.commit()
+    return {"ok": True}
+
+
 # ------------------------------------------------------------------ profile/password change (p16)
 @app.get("/profile", response_class=HTMLResponse)
 def profile_view(request: Request, db: DB):
@@ -2657,28 +2741,25 @@ def change_password(
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
         return back("/profile", err=str(exc))
-    
-    # Get operator
+
     operator = db.execute(
         "SELECT id, password_hash FROM operators WHERE id=?",
         (session.operator_id,)
     ).fetchone()
-    
+
     if not operator or not auth.verify_password(old_password, operator["password_hash"]):
         return back("/profile", err="Current password is incorrect.")
-    
-    # Validate new password complexity
+
     try:
         auth.validate_password_complexity(new_password)
     except auth.PasswordComplexityError as exc:
         return back("/profile", err=str(exc))
-    
-    # Update password
+
     auth.set_password(db, session.operator_id, new_password)
-    
+
     from ..db import audit
     audit(db, session.operator_name, "operator.password_changed", "operator", session.operator_id,
           None, org_id=session.org_id)
     db.commit()
-    
+
     return back("/profile", msg="Password changed successfully. All other sessions have been signed out.")

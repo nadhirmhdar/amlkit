@@ -758,3 +758,26 @@ def freeze_obligation_detail(conn: sqlite3.Connection, org_id: int, freeze_id: i
     obligation["assets_frozen_parsed"] = json.loads(obligation["assets_frozen"] or "[]")
     return obligation
 
+
+
+def compliance_deadlines(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
+    """All compliance deadlines for an org, ordered by due date."""
+    rows = conn.execute("""
+        SELECT id, title, description, due_date, recurrence,
+               reminder_days_before, completed_at, created_at
+        FROM compliance_deadlines
+        WHERE org_id = ?
+        ORDER BY due_date ASC
+    """, (org_id,)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def compliance_deadline(conn: sqlite3.Connection, org_id: int, deadline_id: int) -> dict[str, Any] | None:
+    """Single compliance deadline, org-isolated."""
+    row = conn.execute("""
+        SELECT id, title, description, due_date, recurrence,
+               reminder_days_before, completed_at, created_at
+        FROM compliance_deadlines
+        WHERE id = ? AND org_id = ?
+    """, (deadline_id, org_id)).fetchone()
+    return dict(row) if row else None
