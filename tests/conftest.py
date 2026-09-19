@@ -36,6 +36,13 @@ def seed_fresh_dataset(conn, key="test_list", title="Synthetic Test List"):
     return ds
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _disable_rate_limiter():
+    """Prevent slowapi from throttling test clients (e.g. the 10/min login limit)."""
+    from amlkit.api.app import app
+    app.state.limiter._enabled = False
+
+
 @pytest.fixture()
 def conn():
     """In-memory database with fresh mandatory dataset."""
