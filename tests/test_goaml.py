@@ -126,6 +126,105 @@ class TestValidPayload:
         assert root.find("report_code").text == "DTR"
 
 
+class TestUnroutedReportTypes:
+    """Tests for report types without dedicated creation routes.
+
+    These report types (PNMR, HRCT, HRCA, DPMSR, REAR) are supported by the
+    goAML serializer but don't have route-level tests elsewhere in the test suite.
+    """
+
+    def test_pnmr_serializes_with_activity_block(self) -> None:
+        """PNMR (Partial Name Match Report) should serialize with SUSPENDED status."""
+        payload = _base_payload(
+            report_type="PNMR",
+            first_name="Mohammed",
+            last_name="Al Hassan",
+            nationality="SA",
+        )
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+
+        assert root.find("report_code").text == "PNMR"
+        assert root.find("subject/person/first_name").text == "Mohammed"
+        # PNMR uses activity block (no transaction)
+        assert root.find("activity") is not None
+        assert root.find("activity/status_code").text == "SUSPENDED"
+
+    def test_hrct_serializes_with_transaction_details(self) -> None:
+        """HRCT (High Risk Country Transaction Report) should serialize with transaction block."""
+        payload = _base_payload(
+            report_type="HRCT",
+            first_name="Ivan",
+            last_name="Petrov",
+            nationality="RU",
+            amount=50000.0,
+            transaction_type="Wire Transfer",
+            source_account="RU123456789",
+            destination_account="AE987654321",
+        )
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+
+        assert root.find("report_code").text == "HRCT"
+        assert root.find("subject/person/nationality1").text == "RU"
+        assert root.find("transaction/amount_local").text == "50000.0"
+
+    def test_hrca_serializes_with_activity_block(self) -> None:
+        """HRCA (High Risk Country Activity Report) should serialize with monitored status."""
+        payload = _base_payload(
+            report_type="HRCA",
+            first_name="Corporate Structures LLC",
+            customer_type="legal",
+            nationality="IR",
+        )
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+
+        assert root.find("report_code").text == "HRCA"
+        assert root.find("subject/entity/name").text == "Corporate Structures LLC"
+        # HRCA uses activity block (no transaction)
+        assert root.find("activity") is not None
+        assert root.find("activity/status_code").text == "MONITORED"
+
+    def test_dpmsr_serializes_with_transaction_block(self) -> None:
+        """DPMSR (Dealers in Precious Metals and Stones Report) should serialize with transaction details."""
+        payload = _base_payload(
+            report_type="DPMSR",
+            first_name="Diamond Trading Corp",
+            customer_type="legal",
+            nationality="AE",
+            amount=150000.0,
+            transaction_type="Purchase",
+            source_account="CASH",
+            destination_account="AE111222333",
+        )
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+
+        assert root.find("report_code").text == "DPMSR"
+        assert root.find("transaction/transmode_code").text == "Purchase"
+        assert root.find("transaction/amount_local").text == "150000.0"
+
+    def test_rear_serializes_with_property_transaction(self) -> None:
+        """REAR (Real Estate Activity Report) should serialize with transaction details."""
+        payload = _base_payload(
+            report_type="REAR",
+            first_name="Property Investments Ltd",
+            customer_type="legal",
+            nationality="GB",
+            amount=2500000.0,
+            transaction_type="Property Purchase",
+            source_account="GB123456789",
+            destination_account="AE999888777",
+        )
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+
+        assert root.find("report_code").text == "REAR"
+        assert root.find("transaction/amount_local").text == "2500000.0"
+        assert root.find("transaction/transmode_code").text == "Property Purchase"
+
+
 class TestCTRThreshold:
     """Tests for CTR threshold using org configuration."""
 
