@@ -105,7 +105,7 @@
       <div class="row">
         <div>
           <label>Decision</label>
-          <select name="status">
+          <select name="status" id="status_{{ alert.id }}">
             <option value="false_positive">Not a match — dismiss</option>
             <option value="true_positive">Confirmed match</option>
             <option value="escalated">Escalate to MLRO</option>
@@ -113,7 +113,7 @@
         </div>
         <div>
           <label>Reason</label>
-          <select name="reason_code">
+          <select name="reason_code" id="reason_code_{{ alert.id }}">
             {% for code, label in reason_codes.items() %}
               <option value="{{ code }}">{{ label }}</option>
             {% endfor %}
