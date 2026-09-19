@@ -801,6 +801,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute(ddl)
 
 
+def _backfill_retention_until(conn: sqlite3.Connection) -> None:
+    """Set retention_until for existing customers where it is NULL.
+
+    Uses onboarded_at + RETENTION_YEARS (from cases/manager.py). Called once
+    during connect() to fix rows that predate the onboard() fix.
+    """
+    from .cases.manager import RETENTION_YEARS
+    conn.execute(
+        "UPDATE customers SET retention_until ="
+        " date(substr(onboarded_at, 1, 10), '+' || ? || ' years')"
+        " WHERE retention_until IS NULL AND onboarded_at IS NOT NULL",
+        (RETENTION_YEARS,),
+    )
+
+
 def _backfill_email_verified(conn: sqlite3.Connection) -> None:
     """One-time grandfathering, run only in the same connect() call that adds
     the email_verified_at column to an existing (pre-verification) database.
@@ -1056,6 +1071,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     _migrate(conn)
     if "email_verified_at" not in _operators_cols_before_migrate:
         _backfill_email_verified(conn)
+    _backfill_retention_until(conn)
     _create_org_indexes(conn)
     from .ingest.fatf import load_fatf_data
     load_fatf_data(conn)
