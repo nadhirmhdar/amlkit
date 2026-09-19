@@ -2566,3 +2566,56 @@ async def ai_draft_narrative(
             "MLRO before use in any regulatory filing."
         ),
     })
+
+
+# ------------------------------------------------------------------ profile/password change (p16)
+@app.get("/profile", response_class=HTMLResponse)
+def profile_view(request: Request, db: DB):
+    """User profile page with password change form."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "profile.html", {"session": session})
+
+
+@app.post("/profile/change-password")
+def change_password(
+    request: Request, db: DB,
+    old_password: Annotated[str, Form()],
+    new_password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Self-service password change."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/profile", err=str(exc))
+    
+    # Get operator
+    operator = db.execute(
+        "SELECT id, password_hash FROM operators WHERE id=?",
+        (session.operator_id,)
+    ).fetchone()
+    
+    if not operator or not auth.verify_password(old_password, operator["password_hash"]):
+        return back("/profile", err="Current password is incorrect.")
+    
+    # Validate new password complexity
+    try:
+        auth.validate_password_complexity(new_password)
+    except auth.PasswordComplexityError as exc:
+        return back("/profile", err=str(exc))
+    
+    # Update password
+    auth.set_password(db, session.operator_id, new_password)
+    
+    from ..db import audit
+    audit(db, session.operator_name, "operator.password_changed", "operator", session.operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+    
+    return back("/profile", msg="Password changed successfully. All other sessions have been signed out.")
