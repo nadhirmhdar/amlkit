@@ -155,6 +155,12 @@ def onboard(
     now = utcnow()
     ck = canonical_key(full_name)
 
+    today = date.today()
+    try:
+        retention = today.replace(year=today.year + RETENTION_YEARS).isoformat()
+    except ValueError:
+        retention = (today + timedelta(days=365 * RETENTION_YEARS + 1)).isoformat()
+
     with conn:
         cur = conn.execute(
             """INSERT INTO customers
@@ -163,8 +169,8 @@ def onboard(
                 trade_licence, sector, delivery_channel, is_cash_intensive,
                 email, phone, address_line1, address_line2, city, postal_code,
                 contact_person, contact_phone, contact_email,
-                onboarded_at, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                onboarded_at, retention_until, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, reference, customer_type, full_name, name_arabic, ck,
                 nationality, country, birth_date, gender, id_number, id_type,
@@ -172,7 +178,7 @@ def onboard(
                 int(cash_level == "predominantly_cash"),
                 email, phone, address_line1, address_line2, city, postal_code,
                 contact_person, contact_phone, contact_email,
-                now, now, now,
+                now, retention, now, now,
             ),
         )
         customer_id = cur.lastrowid
