@@ -14,7 +14,12 @@ mkdir -p /app/data
 # Cloud Run always injects PORT=8080; fall back to 8080 if absent.
 export AMLKIT_PORT="${PORT:-8080}"
 
-LITESTREAM_CFG=/app/litestream.yml
+# Default to the original hardcoded bucket if not set
+export LITESTREAM_REPLICA_URL="${LITESTREAM_REPLICA_URL:-gs://gen-lang-client-0153967509-aml-data/litestream/amlkit.db}"
+
+# Template the litestream config (litestream doesn't do env-var substitution itself)
+LITESTREAM_CFG=/tmp/litestream.yml
+envsubst < /app/litestream.yml > "$LITESTREAM_CFG"
 
 if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
     echo "Restoring from litestream replica at gs://${GCS_BUCKET}/litestream/amlkit.db, if one exists..."

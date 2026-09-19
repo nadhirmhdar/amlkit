@@ -11,7 +11,7 @@ dbs:
     # Confirmed by reading that switch statement directly, not by guessing
     # again after three failed deploys.
     #
-    # Bucket name is a literal, not a ${GCS_BUCKET} placeholder: litestream
-    # does not do shell-style env-var substitution inside config values.
+    # Bucket URL now templated via ${LITESTREAM_REPLICA_URL} — entrypoint.sh
+    # runs envsubst to substitute it before litestream sees this file.
     replica:
-      url: gs://gen-lang-client-0153967509-aml-data/litestream/amlkit.db
+      url: ${LITESTREAM_REPLICA_URL}
