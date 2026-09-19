@@ -458,6 +458,62 @@ def logout_submit(request: Request, db: DB):
     return resp
 
 
+
+
+@app.get("/account/password")
+def password_change_form(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "password_change.html", {"session": session, "nav": None})
+
+
+@app.post("/account/password")
+def password_change_submit(
+    request: Request, db: DB,
+    current_password: Annotated[str, Form()],
+    new_password: Annotated[str, Form()],
+    confirm_password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return RedirectResponse("/login", status_code=303)
+
+    # Verify current password
+    op_row = db.execute("SELECT password_hash FROM operators WHERE id=?", (session.operator_id,)).fetchone()
+    if not auth.verify_password(current_password, op_row["password_hash"]):
+        return render(request, "password_change.html", {
+            "session": session, "nav": None, "err": "Current password is incorrect."
+        })
+
+    # Verify new passwords match
+    if new_password != confirm_password:
+        return render(request, "password_change.html", {
+            "session": session, "nav": None, "err": "New passwords do not match."
+        })
+
+    # Validate password complexity
+    try:
+        auth.validate_password_complexity(new_password)
+    except auth.PasswordComplexityError as exc:
+        return render(request, "password_change.html", {
+            "session": session, "nav": None, "err": str(exc)
+        })
+
+    # Update password
+    auth.set_password(db, session.operator_id, new_password)
+    
+    from ..db import audit
+    audit(db, session.operator_name, "operator.password_changed", "operator", session.operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+
+    return back("/", msg="Password changed successfully. All other sessions have been signed out.")
+
 @app.post("/acknowledge-disclaimer")
 def acknowledge_disclaimer(
     request: Request, db: DB,
@@ -1663,7 +1719,7 @@ def feedback_submit(
 
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
-def audit_view(request: Request, db: DB):
+def audit_view(request: Request, db: DB, page: int = 1):
     try:
         session = require_session(request, db)
         require_role(session, "mlro")
@@ -1671,8 +1727,16 @@ def audit_view(request: Request, db: DB):
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
-    return render(request, "audit.html",
-                 {"session": session, "entries": queries.audit_trail(db, session.org_id, limit=300)})
+
+    per_page = 50
+    offset = (page - 1) * per_page
+
+    return render(request, "audit.html", {
+        "session": session,
+        "entries": queries.audit_trail(db, session.org_id, limit=per_page, offset=offset),
+        "page": page,
+        "per_page": per_page,
+    })
 
 
 # ---------------------------------------------------------------------- super-admin console
