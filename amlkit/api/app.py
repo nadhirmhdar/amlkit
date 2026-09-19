@@ -1755,12 +1755,45 @@ def admin_view(request: Request, db: DB):
     if org is None:
         return back("/", err="Organization not found.")
     from ..ingest.loader import staleness_report
+
+    # Check for EU FSF token configuration issues
+    eu_warning = None
+    import os
+    from datetime import datetime, timezone, timedelta
+
+    # Check if token is unset or using the demo default
+    eu_token = os.environ.get("AMLKIT_EU_FSF_TOKEN", "").strip()
+    demo_token = "dG9rZW4tMjAxNy0xMS0xMw"  # from ingest/eu.py
+
+    if not eu_token or eu_token == demo_token:
+        eu_warning = (
+            "EU Consolidated Sanctions List is using the demo token. "
+            "Register at https://webgate.ec.europa.eu/fsd/fsf and set AMLKIT_EU_FSF_TOKEN "
+            "before production use — the demo token may be rate-limited or rotated without notice."
+        )
+    else:
+        # Check if EU refresh has been failing for >3 days
+        eu_ds = db.execute(
+            "SELECT last_error, error_at FROM datasets WHERE key='eu_sanctions'"
+        ).fetchone()
+        if eu_ds and eu_ds["last_error"] and eu_ds["error_at"]:
+            error_time = datetime.fromisoformat(eu_ds["error_at"])
+            # Make timezone-aware if naive (database stores UTC timestamps)
+            if error_time.tzinfo is None:
+                error_time = error_time.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - error_time > timedelta(days=3):
+                eu_warning = (
+                    f"EU sanctions refresh has been failing for >3 days (since {error_time.strftime('%Y-%m-%d')}). "
+                    f"Error: {eu_ds['last_error'][:200]}"
+                )
+
     return render(request, "admin.html", {
         "session": session, "org": dict(org),
         "operators": queries.operators(db, session.org_id),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
         "sanctions": staleness_report(db),
+        "eu_warning": eu_warning,
     })
 
 
