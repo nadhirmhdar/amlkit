@@ -196,7 +196,22 @@ async function performPassportOCR(input) {
       document.querySelector('input[name="full_name"]').value = data.full_name;
     }
     if (data.nationality) {
-      document.querySelector('input[name="nationality"]').value = data.nationality.substring(0, 2);
+      // Find the hidden input that stores the country code (from country dropdown)
+      var nationalityHidden = document.querySelector('input[name="nationality"][type="hidden"]');
+      if (nationalityHidden) {
+        nationalityHidden.value = data.nationality.substring(0, 2).toUpperCase();
+        // Update display input too
+        var nationalityDisplay = nationalityHidden.previousElementSibling;
+        if (nationalityDisplay) {
+          var code = data.nationality.substring(0, 2).toUpperCase();
+          var country = window.COUNTRIES && window.COUNTRIES.find(function(c) { return c.code === code; });
+          if (country) nationalityDisplay.value = country.name + ' (' + country.code + ')';
+        }
+      } else {
+        // Fallback if country dropdown not initialized yet
+        var nationalityInput = document.querySelector('input[name="nationality"]');
+        if (nationalityInput) nationalityInput.value = data.nationality.substring(0, 2);
+      }
     }
     if (data.birth_date) {
       document.querySelector('input[name="birth_date"]').value = data.birth_date;
