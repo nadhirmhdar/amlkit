@@ -10,6 +10,10 @@ mkdir -p /app/data
 # replicate -exec runs the app as its child process and streams the SQLite
 # WAL to GCS as it's written, so a restart picks up from litestream's own
 # replica rather than losing everything since the last manual snapshot.
+# Map Cloud Run's PORT to the env var the app reads (AMLKIT_PORT).
+# Cloud Run always injects PORT=8080; fall back to 8080 if absent.
+export AMLKIT_PORT="${PORT:-8080}"
+
 LITESTREAM_CFG=/app/litestream.yml
 
 if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
