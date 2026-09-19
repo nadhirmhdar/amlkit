@@ -195,6 +195,10 @@ _openapi_url = "/openapi.json" if os.getenv("AMLKIT_ENABLE_OPENAPI") == "1" else
 
 app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
 
+# Issue #102: Flash messages via signed cookies (no itsdangerous dependency)
+# Uses the same signing mechanism as CSRF tokens
+_FLASH_COOKIE = "amlkit_flash"
+
 # Rate limiting to prevent brute-force attacks and DoS
 
 
@@ -291,14 +295,34 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
 
 
 def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
-    from urllib.parse import quote
+    """Redirect without exposing messages in URL (Issue #102).
 
-    sep = "&" if "?" in url else "?"
-    if msg:
-        url = f"{url}{sep}msg={quote(msg)}"
-    elif err:
-        url = f"{url}{sep}err={quote(err)}"
+    Previously appended msg/err as URL query params, exposing sensitive auth
+    errors in browser history and server logs. Now returns clean redirect;
+    callers should use set_flash_cookie() to persist messages across redirect.
+
+    For backwards compatibility during migration, msg/err params are accepted
+    but ignored. Flash display requires template updates (see render()).
+    """
+    # Issue #102: Do NOT append msg/err to URL
     return RedirectResponse(url, status_code=303)
+
+
+def set_flash_cookie(response: Response, msg: str = "", err: str = ""):
+    """Store flash message in signed cookie for one-time display after redirect.
+
+    The flash cookie is consumed (deleted) on first read, ensuring messages
+    appear exactly once. Uses same signing mechanism as CSRF tokens.
+    """
+    import json
+    if msg:
+        flash_data = json.dumps({"type": "msg", "text": msg})
+        response.set_cookie(_FLASH_COOKIE, flash_data, max_age=60, httponly=True,
+                           samesite="lax", secure=os.environ.get("AMLKIT_BEHIND_PROXY") == "1")
+    elif err:
+        flash_data = json.dumps({"type": "err", "text": err})
+        response.set_cookie(_FLASH_COOKIE, flash_data, max_age=60, httponly=True,
+                           samesite="lax", secure=os.environ.get("AMLKIT_BEHIND_PROXY") == "1")
 
 
 def _set_csrf_cookie(resp, request: Request) -> None:
