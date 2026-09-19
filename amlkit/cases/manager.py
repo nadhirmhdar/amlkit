@@ -292,6 +292,18 @@ def add_ubo(
                     f"parent_ubo_id {parent_ubo_id} not found for customer {customer_id}"
                 )
 
+        if ownership_pct is not None and parent_ubo_id is None:
+            existing = conn.execute(
+                "SELECT COALESCE(SUM(ownership_pct), 0) FROM ubo_links"
+                " WHERE customer_id=? AND org_id=? AND parent_ubo_id IS NULL",
+                (customer_id, org_id),
+            ).fetchone()[0]
+            new_total = round(existing + ownership_pct, 2)
+            if new_total > 100:
+                raise ValueError(
+                    f"Total UBO ownership would be {new_total}% (cannot exceed 100%)"
+                )
+
         cur = conn.execute(
             """INSERT INTO ubo_links
                (org_id, customer_id, person_name, name_arabic, canonical_key, nationality,

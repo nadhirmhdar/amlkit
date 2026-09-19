@@ -460,6 +460,13 @@ class UboIn(BaseModel):
     ownership_pct: float | None = None
     control_type: str = "ownership"
 
+    @field_validator("ownership_pct")
+    @classmethod
+    def validate_ownership_pct(cls, v: float | None) -> float | None:
+        if v is not None and not (0 <= v <= 100):
+            raise ValueError(f"ownership_pct must be between 0 and 100, got {v}")
+        return v
+
 
 class CustomerCreateRequest(BaseModel):
     reference: str
@@ -518,6 +525,8 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
         )
     except StaleDatasetsError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except sqlite3.IntegrityError as exc:
         raise HTTPException(
             status_code=400, detail=f"Reference {body.reference!r} already exists."
@@ -756,7 +765,7 @@ def api_customer_add_ubo(customer_id: int, body: UboAddRequest, db: DB, session:
             actor=session.operator_name,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     result = screen(
         db, body.person_name.strip(), org_id=session.org_id, trigger="onboarding",
         customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name,
