@@ -2820,3 +2820,61 @@ def report_export_xml(request: Request, db: DB, report_id: int):
             "Content-Disposition": f"attachment; filename=goAML_{rep['report_type']}_{report_id}.xml"
         }
     )
+
+
+# ------------------------------------------------------------------ AI assist
+
+@app.post("/api/ai/draft-narrative")
+async def ai_draft_narrative(
+    request: Request,
+    db: DB,
+    customer_id: int = Form(...),
+    include_notes: bool = Form(False),
+):
+    """Return an AI-generated STR narrative draft for a customer.
+
+    Form fields:
+        customer_id   — required
+        include_notes — bool, default false
+
+    Response (JSON):
+        { "narrative": "...", "model": "gemini-...", "advisory": "..." }
+
+    Returns 503 when GEMINI_API_KEY is unset or the Gemini call fails —
+    the UI should show a degraded state, not an error page.
+    """
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    case = queries.customer(db, customer_id, session.org_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    from ..ai.gemini import GeminiUnavailable, draft_str_narrative, GEMINI_MODEL
+
+    try:
+        narrative = draft_str_narrative(
+            customer=case["customer"],
+            alerts=case["alerts"][:20],
+            risk=case["risk"],
+            notes=case["notes"][:5] if include_notes else [],
+        )
+    except GeminiUnavailable as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"error": str(exc), "advisory": "AI assistant unavailable."},
+        )
+
+    return JSONResponse({
+        "narrative": narrative,
+        "model": GEMINI_MODEL,
+        "advisory": (
+            "AI-GENERATED DRAFT — must be reviewed and approved by a qualified "
+            "MLRO before use in any regulatory filing."
+        ),
+    })
