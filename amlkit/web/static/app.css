@@ -772,6 +772,72 @@ form.is-submitting button[type="submit"] {
   pointer-events: none; opacity: 0.6;
 }
 
+/* ----------------------------------------------------- freeze obligations panel */
+.freeze-obligations-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 24px;
+}
+
+.freeze-obligations-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.freeze-obligations-summary::-webkit-details-marker {
+  display: none;
+}
+
+.freeze-obligations-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+.freeze-obligations-chevron {
+  font-size: 10px;
+  color: var(--ink-3);
+  transition: transform 180ms;
+}
+
+.freeze-obligations-panel[open] .freeze-obligations-chevron {
+  transform: rotate(-180deg);
+}
+
+.freeze-obligations-content {
+  padding: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--line-soft);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+.stat-chip strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.alert-box {
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
 /* ------------------------------------------------------------------- feedback */
 .feedback-btn {
   position: fixed; bottom: 24px; right: 24px; z-index: 999;
