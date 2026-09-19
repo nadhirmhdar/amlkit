@@ -6,6 +6,7 @@ python-multipart>=0.0.32
 pydantic>=2.13
 slowapi>=0.1.9
 argon2-cffi>=23.1
+cryptography>=42.0.4
 rapidfuzz>=3.14
 jellyfish>=1.2
 pyyaml>=6.0
