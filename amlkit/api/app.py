@@ -423,7 +423,7 @@ def login_submit(
     except PermissionError as exc:
         return _login_page_error(request, str(exc))
     try:
-        token, info = auth.login(db, email, password)
+        token, info = auth.login(db, email, password, ip=client_ip(request))
     except auth.AuthError as exc:
         if "verify your email" in str(exc):
             return render(request, "login.html", {
@@ -445,7 +445,7 @@ def logout_submit(request: Request, db: DB):
     session = current_session(request, db)
     token = request.cookies.get(SESSION_COOKIE)
     if token:
-        auth.logout(db, token, session)
+        auth.logout(db, token, session, ip=client_ip(request))
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie(SESSION_COOKIE)
     return resp

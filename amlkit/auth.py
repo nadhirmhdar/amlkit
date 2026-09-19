@@ -184,18 +184,18 @@ def revoke_sessions_for(conn: sqlite3.Connection, operator_id: int) -> None:
 
 # ------------------------------------------------------------------- login
 def _log_auth_event(
-    conn: sqlite3.Connection, event: str, email: str | None, detail: dict | None = None,
+    conn: sqlite3.Connection, event: str, email: str | None, detail: dict | None = None, *, ip: str | None = None,
 ) -> None:
     import json
 
     conn.execute(
-        "INSERT INTO auth_log (ts, email_attempted, event, detail) VALUES (?,?,?,?)",
-        (utcnow(), email, event, json.dumps(detail) if detail else None),
+        "INSERT INTO auth_log (ts, email_attempted, event, detail, ip) VALUES (?,?,?,?,?)",
+        (utcnow(), email, event, json.dumps(detail) if detail else None, ip),
     )
     conn.commit()
 
 
-def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, SessionInfo]:
+def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None = None) -> tuple[str, SessionInfo]:
     """Authenticate and return (raw_session_token, SessionInfo).
 
     Raises AuthError with one generic message on any failure -- unknown
@@ -222,13 +222,13 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
         # by hashing a dummy value, so a timing side-channel cannot be used to
         # enumerate which emails exist.
         _hasher.hash(password)
-        _log_auth_event(conn, "login_failure", email, {"reason": "unknown_email"})
+        _log_auth_event(conn, "login_failure", email, {"reason": "unknown_email"}, ip=ip)
         raise generic
 
     if row["locked_until"]:
         locked_until = datetime.fromisoformat(row["locked_until"])
         if locked_until > datetime.now(timezone.utc):
-            _log_auth_event(conn, "login_failure", email, {"reason": "locked"})
+            _log_auth_event(conn, "login_failure", email, {"reason": "locked"}, ip=ip)
             raise AuthError(
                 f"Account locked after repeated failed attempts. Try again after "
                 f"{locked_until.strftime('%H:%M UTC')}, or ask an admin to reset it."
@@ -240,7 +240,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
     # NULL password_hash) and being logged into.
     if row["password_hash"] is None or not row["is_active"]:
         _hasher.hash(password)
-        _log_auth_event(conn, "login_failure", email, {"reason": "no_credentials_or_inactive"})
+        _log_auth_event(conn, "login_failure", email, {"reason": "no_credentials_or_inactive"}, ip=ip)
         raise generic
 
     if not verify_password(password, row["password_hash"]):
@@ -257,7 +257,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
         )
         conn.commit()
         _log_auth_event(conn, "login_failure", email,
-                        {"reason": "bad_password", "failed_count": failed})
+                        {"reason": "bad_password", "failed_count": failed}, ip=ip)
         raise generic
 
     if row["email_verified_at"] is None:
@@ -265,7 +265,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
         # specific here -- see AuthError's docstring -- and this is the one
         # case where telling the user exactly what to do (check their inbox,
         # or request a new link) matters more than a uniform error string.
-        _log_auth_event(conn, "login_failure", email, {"reason": "email_not_verified"})
+        _log_auth_event(conn, "login_failure", email, {"reason": "email_not_verified"}, ip=ip)
         raise AuthError(
             "Please verify your email before signing in. Check your inbox for the "
             "verification link, or request a new one."
@@ -276,7 +276,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
     )
     conn.commit()
     token = create_session(conn, row["id"], row["org_id"])
-    _log_auth_event(conn, "login_success", email)
+    _log_auth_event(conn, "login_success", email, ip=ip)
     audit(conn, row["name"], "operator.login", "operator", row["id"], None, org_id=row["org_id"])
     # audit() only executes the INSERT; every other write in this function
     # commits itself (create_session, _log_auth_event), and a caller that
@@ -294,9 +294,9 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
     return token, info
 
 
-def logout(conn: sqlite3.Connection, raw_token: str, info: SessionInfo | None = None) -> None:
+def logout(conn: sqlite3.Connection, raw_token: str, info: SessionInfo | None = None, *, ip: str | None = None) -> None:
     revoke_session(conn, raw_token)
-    _log_auth_event(conn, "logout", info.email if info else None)
+    _log_auth_event(conn, "logout", info.email if info else None, ip=ip)
 
 
 def set_password(conn: sqlite3.Connection, operator_id: int, new_password: str) -> None:
