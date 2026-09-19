@@ -148,6 +148,7 @@ def create_session(conn: sqlite3.Connection, operator_id: int, org_id: int) -> s
     the token IS a credential for the lifetime of the session.
     """
     raw = _new_token()
+    _enforce_session_limit(conn, operator_id)
     now = datetime.now(timezone.utc)
     now_str = utcnow()
     conn.execute(
@@ -448,6 +449,34 @@ def consume_email_verify_token(conn: sqlite3.Connection, raw_token: str):
     ).fetchone()
     conn.commit()
     return operator
+
+
+
+
+def _enforce_session_limit(conn: sqlite3.Connection, operator_id: int) -> None:
+    """Revoke oldest sessions if operator has reached MAX_CONCURRENT_SESSIONS."""
+    import os
+    max_sessions = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "3"))
+    
+    # Count active (non-revoked, non-expired) sessions
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    active = conn.execute(
+        """SELECT COUNT(*) c FROM sessions
+           WHERE operator_id = ? AND revoked_at IS NULL AND expires_at > ?""",
+        (operator_id, now)
+    ).fetchone()["c"]
+    
+    if active >= max_sessions:
+        # Revoke oldest session
+        oldest = conn.execute(
+            """SELECT id FROM sessions
+               WHERE operator_id = ? AND revoked_at IS NULL AND expires_at > ?
+               ORDER BY created_at ASC LIMIT 1""",
+            (operator_id, now)
+        ).fetchone()
+        if oldest:
+            conn.execute("UPDATE sessions SET revoked_at=? WHERE id=?",
+                        (utcnow(), oldest["id"]))
 
 
 # --------------------------------------------------------------------- csrf
