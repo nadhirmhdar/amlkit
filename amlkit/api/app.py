@@ -2501,7 +2501,7 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
         audit(db, session.operator_name, "report.submit", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
-    return back(f"/reports/{report_id}", msg="Report submitted to UAE FIU successfully.")
+    return back(f"/reports/{report_id}", msg="Report finalized. Download goAML XML and submit manually to UAE FIU portal.")
 
 
 @app.get("/reports/{report_id}/export")
