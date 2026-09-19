@@ -804,14 +804,24 @@ def _migrate(conn: sqlite3.Connection) -> None:
 def _backfill_retention_until(conn: sqlite3.Connection) -> None:
     """Set retention_until for existing customers where it is NULL.
 
-    Uses onboarded_at + RETENTION_YEARS (from cases/manager.py). Called once
-    during connect() to fix rows that predate the onboard() fix.
+    UAE Federal Decree-Law No. 10/2025: retention for closed customers runs
+    from relationship termination (updated_at); for active customers it runs
+    from onboarding (onboarded_at). Called once during connect().
     """
     from .cases.manager import RETENTION_YEARS
+    # Closed customers: 10 years from closure date (updated_at).
+    conn.execute(
+        "UPDATE customers SET retention_until ="
+        " date(substr(COALESCE(updated_at, onboarded_at), 1, 10), '+' || ? || ' years')"
+        " WHERE status = 'closed' AND retention_until IS NULL"
+        " AND (updated_at IS NOT NULL OR onboarded_at IS NOT NULL)",
+        (RETENTION_YEARS,),
+    )
+    # Active / other customers: 10 years from onboarding date.
     conn.execute(
         "UPDATE customers SET retention_until ="
         " date(substr(onboarded_at, 1, 10), '+' || ? || ' years')"
-        " WHERE retention_until IS NULL AND onboarded_at IS NOT NULL",
+        " WHERE status != 'closed' AND retention_until IS NULL AND onboarded_at IS NOT NULL",
         (RETENTION_YEARS,),
     )
 
