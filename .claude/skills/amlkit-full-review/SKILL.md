@@ -1,11 +1,11 @@
 ---
 name: amlkit-full-review
-description: Comprehensive review of the amlkit UAE AML/CFT codebase using 13 specialist reference repositories. Covers security audit, QA, TDD gap-fill, UX audit, live webapp testing, autonomous agent bug-hunt, scraping robustness, RAG/NLP benchmarking, MCP integration, public API survey, AI automation patterns, workflow pipeline validation, and infrastructure audit.
+description: Comprehensive review of the amlkit UAE AML/CFT codebase using 18 specialist reference repositories. Covers security audit, QA, TDD gap-fill, UX audit, live webapp testing, autonomous agent bug-hunt, scraping robustness, RAG/NLP benchmarking, MCP integration, public API survey, AI automation patterns, workflow pipeline validation, infrastructure audit, and Google Cloud integration (Secret Manager, Cloud Storage, Cloud SQL, MCP Toolbox, GCP Python samples).
 ---
 
 # amlkit Full Review
 
-Run this skill at the start of any session in which you want a thorough, multi-angle review of the amlkit codebase. It maps each of the 13 reference repositories to a specific area of the app and gives you a step-by-step workflow to execute.
+Run this skill at the start of any session in which you want a thorough, multi-angle review of the amlkit codebase. It maps each of the 18 reference repositories to a specific area of the app and gives you a step-by-step workflow to execute.
 
 ## Reference Repositories
 
@@ -26,6 +26,11 @@ All repos are cloned (shallow) under `/home/user/`. Re-clone with `git clone --d
 | `/home/user/mcp-servers-cloned` | nadhirmhdar/mcp-servers-cloned | Curated awesome-list of MCP server implementations — canonical reference for integrations. |
 | `/home/user/public-APIS-cloned` | nadhirmhdar/public-APIS-cloned | 1600+ free public APIs across 40+ domains — sanctions, financial crime, PEP, adverse media. |
 | `/home/user/freefordev-cloned` | nadhirmhdar/freefordev-cloned | 1600+ permanently-free infrastructure/SaaS services — CI/CD, monitoring, auth, storage, observability. |
+| `/home/user/google-cloud-python` | googleapis/google-cloud-python | Official Google Cloud Python client libraries — Secret Manager, Cloud Storage, BigQuery, Cloud SQL, Pub/Sub, Cloud Run metadata. |
+| `/home/user/google-cloud-go` | googleapis/google-cloud-go | Google Cloud Go client libraries — reference for GCP service architecture patterns and API design across languages. |
+| `/home/user/google-cloud-java` | googleapis/google-cloud-java | Google Cloud Java client libraries — enterprise-grade compliance and audit patterns applicable to amlkit's regulated context. |
+| `/home/user/python-docs-samples` | GoogleCloudPlatform/python-docs-samples | Canonical production Python samples for every GCP service — Secret Manager, Cloud Storage, BigQuery, Cloud Run, Pub/Sub. |
+| `/home/user/mcp-toolbox` | googleapis/mcp-toolbox | Google's MCP Toolbox for Databases — MCP server that connects AI agents directly to PostgreSQL, MySQL, SQLite, Spanner. |
 
 ## Review Workflow
 
@@ -191,6 +196,72 @@ Skill: /home/user/awesome-claude-skills-cloned/webapp-testing/SKILL.md
 
 ---
 
+### Step 14 — GCP Python Client Integration (HIGH)
+**Repo:** googleapis/google-cloud-python  
+**Clone:** `git clone --depth 1 https://github.com/googleapis/google-cloud-python /home/user/google-cloud-python`  
+**Target:** `amlkit/storage.py`, `amlkit/db.py`, env-var handling across `api/`  
+**What to evaluate:**
+- **Secret Manager**: replace raw `os.environ` reads for `AMLKIT_DB`, `ADMIN_API_SECRET`, `SCHEDULER_SECRET` with `google-cloud-secret-manager` — eliminates plaintext secrets in Cloud Run env vars
+- **Cloud Storage**: evaluate `google-cloud-storage` as the backend for `storage.py` (document uploads, audit exports)
+- **Cloud SQL**: assess `google-cloud-sql-connector` as the migration path from SQLite WAL to PostgreSQL on Cloud SQL
+- **Pub/Sub**: evaluate `google-cloud-pubsub` for event-driven sanctions re-screening (replace APScheduler polling with push triggers)
+- **BigQuery**: `google-cloud-bigquery` for audit log analytics and regulatory reporting dashboards
+
+---
+
+### Step 15 — GCP Architecture Patterns (MEDIUM)
+**Repo:** googleapis/google-cloud-go  
+**Clone:** `git clone --depth 1 https://github.com/googleapis/google-cloud-go /home/user/google-cloud-go`  
+**Target:** amlkit architecture decisions (multi-tenancy, IAM, audit trail)  
+**What to evaluate:**
+- Survey Go client library idioms for IAM-based tenant isolation — compare to amlkit's current `org_id` session pattern
+- Review Cloud Spanner and Firestore client patterns for multi-tenant schema design (future SQLite migration options)
+- Reference gRPC + REST dual-mode patterns for amlkit's mobile API
+
+---
+
+### Step 16 — Enterprise Compliance Patterns (MEDIUM)
+**Repo:** googleapis/google-cloud-java  
+**Clone:** `git clone --depth 1 https://github.com/googleapis/google-cloud-java /home/user/google-cloud-java`  
+**Target:** amlkit's goAML export, four-eyes review workflow, audit trail  
+**What to evaluate:**
+- Survey enterprise-grade retry, circuit-breaker, and error-handling patterns from Java client library internals
+- Review Cloud DLP (Data Loss Prevention) client patterns for PII redaction — applicable to amlkit's customer record handling
+- Reference BigQuery Storage Write API patterns for high-throughput audit log ingestion
+
+---
+
+### Step 17 — GCP Production Sample Patterns (HIGH)
+**Repo:** GoogleCloudPlatform/python-docs-samples  
+**Clone:** `git clone --depth 1 https://github.com/GoogleCloudPlatform/python-docs-samples /home/user/python-docs-samples`  
+**Target:** `amlkit/storage.py`, `amlkit/mail.py`, `amlkit/api/app.py`  
+**What to apply:**
+- `secretmanager/` samples → hardened pattern for reading secrets in Cloud Run; replace current env-var reads
+- `storage/` samples → production-grade signed URL generation for document access (replace `storage.py` direct file serving)
+- `run/` samples → Cloud Run health-check, graceful shutdown, and warm-start patterns for amlkit's `scripts/serve.py`
+- `pubsub/` samples → event-driven screening refresh pattern (replace APScheduler with Pub/Sub push subscription)
+- `bigquery/` samples → streaming audit log inserts for the append-only audit trail in `db.py`
+
+---
+
+### Step 18 — MCP Toolbox for Database Connectivity (CRITICAL)
+**Repo:** googleapis/mcp-toolbox  
+**Clone:** `git clone --depth 1 https://github.com/googleapis/mcp-toolbox /home/user/mcp-toolbox`  
+**Target:** `amlkit/db.py`, `amlkit/queries.py`, Step 9 (MCP Integration Survey)  
+**What to evaluate:**
+- Deploy MCP Toolbox locally pointed at amlkit's SQLite database — exposes `connect()`, `queries.py` read functions, and `cases/manager.py` write operations as MCP tools for AI agent access
+- Test whether an AI agent can query `sanctions_hits`, `customers`, and `audit_log` tables through the MCP interface without bypassing `org_id` tenant isolation
+- Evaluate Cloud SQL PostgreSQL migration path: MCP Toolbox supports PostgreSQL natively — use it to validate that all `queries.py` functions work against PostgreSQL before switching `db.py`
+- Cross-reference with `mcp-servers-cloned` (Step 9) to determine whether MCP Toolbox or a community MCP server better fits amlkit's database needs
+
+```bash
+# Quick local test (from mcp-toolbox repo):
+cd /home/user/mcp-toolbox
+# Point at amlkit's SQLite DB and expose as MCP server
+```
+
+---
+
 ## Quick-Start Command
 
 To run the full review in one session:
@@ -199,7 +270,7 @@ To run the full review in one session:
 /amlkit-full-review
 ```
 
-The skill will load this file and you can work through Steps 1–13 sequentially or jump to the area most relevant to the current sprint.
+The skill will load this file and you can work through Steps 1–18 sequentially or jump to the area most relevant to the current sprint.
 
 ## Boards Reference
 
