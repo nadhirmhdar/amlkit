@@ -33,7 +33,7 @@ def _db() -> sqlite3.Connection:
     return conn
 
 
-class TestAdminRBAC Enforcement:
+class TestAdminRBACEnforcement:
     """Admin POST endpoints must return HTTP 403 for non-MLRO roles."""
 
     def test_officer_reset_password_returns_403(self, client) -> None:
