@@ -30,6 +30,19 @@
         <button type="submit" class="btn-glow" style="margin-top:10px;" data-loading="Signing in…">SIGN IN</button>
       </form>
 
+      
+      {% if flash_err %}
+      <div style="background:var(--high-bg); border-left:3px solid var(--high); padding:12px 16px; font-size:13px; color:var(--ink); border-radius:4px;">
+        {{ flash_err }}
+      </div>
+      {% endif %}
+      
+      {% if flash_msg %}
+      <div style="background:var(--low-bg); border-left:3px solid var(--low); padding:12px 16px; font-size:13px; color:var(--ink); border-radius:4px;">
+        {{ flash_msg }}
+      </div>
+      {% endif %}
+
       <div style="text-align:center; font-size:12px; color:var(--ink-3);">Single sign-on across your firm's workspace.</div>
 
       {% if unverified_email %}
