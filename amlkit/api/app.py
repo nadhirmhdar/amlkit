@@ -561,7 +561,7 @@ def _login_page_error(request: Request, message: str) -> HTMLResponse:
 
 
 @app.post("/login")
-@limiter.limit("100/minute")  # IP ceiling: catches abusive burst volumes, won't hit during normal office traffic
+@limiter.limit("10/minute")  # IP ceiling: prevents brute force attacks from single IP
 @limiter.limit("3/minute", key_func=login_rate_limit_key)  # Per-account: prevents rapid stuffing of one account
 def login_submit(
     request: Request, db: DB,
