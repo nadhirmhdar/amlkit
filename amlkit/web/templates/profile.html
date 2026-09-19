@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% set nav = 'profile' %}
+{% block title %}Profile — amlkit{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Profile</h1>
+</div>
+
+<div class="panel" style="max-width:500px;">
+  <h2>Change Password</h2>
+  
+  <form method="post" action="/profile/change-password">
+    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('amlkit_csrf') }}">
+    
+    <label for="old_password">Current Password</label>
+    <input type="password" name="old_password" id="old_password" required class="input">
+    
+    <label for="new_password">New Password</label>
+    <input type="password" name="new_password" id="new_password" required class="input" minlength="10">
+    <p class="small muted">At least 10 characters, with uppercase, digit, and special character.</p>
+    
+    <button type="submit" class="btn">Change Password</button>
+  </form>
+</div>
+
+{% endblock %}

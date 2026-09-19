@@ -563,15 +563,31 @@ def _scan_document(content: bytes, extractor) -> dict:
 @router.post("/customers/scan-passport")
 def api_scan_passport(session: Session, passport_file: UploadFile):
     from ..cases.ocr import extract_passport_data
+    from ..validation import validate_file_mime
 
-    return _scan_document(passport_file.file.read(), extract_passport_data)
+    content = passport_file.file.read()
+    # Validate MIME type
+    try:
+        validate_file_mime(content, passport_file.filename or "passport.jpg")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return _scan_document(content, extract_passport_data)
 
 
 @router.post("/customers/scan-emirates-id")
 def api_scan_emirates_id(session: Session, emirates_id_file: UploadFile):
     from ..cases.ocr import extract_emirates_id_data
+    from ..validation import validate_file_mime
 
-    return _scan_document(emirates_id_file.file.read(), extract_emirates_id_data)
+    content = emirates_id_file.file.read()
+    # Validate MIME type
+    try:
+        validate_file_mime(content, emirates_id_file.filename or "emirates_id.jpg")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return _scan_document(content, extract_emirates_id_data)
 
 
 @router.get("/customers/{customer_id}")
@@ -940,6 +956,14 @@ def api_customer_upload_document(
         raise HTTPException(status_code=400, detail="filename is required.")
 
     content = file.file.read()
+
+    # Validate MIME type by magic bytes before accepting upload
+    from ..validation import validate_file_mime
+    try:
+        detected_mime = validate_file_mime(content, file.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     sha256 = hashlib.sha256(content).hexdigest()
 
     # Prevent path traversal: store only the basename, never relative segments.
@@ -1470,4 +1494,46 @@ def api_report_export(report_id: int, db: DB, session: Session):
     return Response(
         content=xml_content, media_type="application/xml",
         headers={"Content-Disposition": f"attachment; filename=goAML_{rep['report_type']}_{report_id}.xml"},
+    )
+
+
+# ----------------------------------------------------------------- audit export
+@router.get("/audit/export")
+def api_audit_export(
+    request: Request,
+    db: DB,
+    session: Session,
+):
+    import csv as _csv
+    from io import StringIO
+
+    _require_mlro(session)
+
+    from_date = request.query_params.get("from", "")
+    to_date = request.query_params.get("to", "")
+
+    query = "SELECT ts, actor, action, object_type, object_id, detail FROM audit_log WHERE org_id = ?"
+    params: list = [session.org_id]
+
+    if from_date:
+        query += " AND ts >= ?"
+        params.append(from_date)
+    if to_date:
+        query += " AND ts <= ?"
+        params.append(to_date + "T23:59:59")
+
+    query += " ORDER BY ts DESC"
+    rows = db.execute(query, params).fetchall()
+
+    buf = StringIO()
+    writer = _csv.writer(buf)
+    writer.writerow(["ts", "actor", "action", "object_type", "object_id", "detail"])
+    for row in rows:
+        writer.writerow([row["ts"], row["actor"], row["action"],
+                         row["object_type"], row["object_id"], row["detail"]])
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=audit_export.csv"},
     )

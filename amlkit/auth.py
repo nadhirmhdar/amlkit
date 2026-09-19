@@ -42,6 +42,8 @@ from .db import EMAIL_VERIFY_TOKEN_LIFETIME, audit, utcnow
 _hasher = PasswordHasher()
 
 SESSION_LIFETIME = timedelta(days=14)
+# p14: Idle timeout - stolen session stays valid until activity, not just absolute expiry
+IDLE_TIMEOUT_HOURS = 8  # Configurable via AMLKIT_IDLE_TIMEOUT_HOURS env var
 SESSION_COOKIE = "amlkit_session"
 CSRF_COOKIE = "amlkit_csrf"
 
@@ -65,6 +67,10 @@ class AuthError(RuntimeError):
     """
 
 
+class PasswordComplexityError(ValueError):
+    """Raised when a password does not meet complexity requirements."""
+
+
 # Shape-only check, matching the client-side regex the mobile app already
 # uses (RegisterOrgScreen.kt's EMAIL_PATTERN) -- catches "not an email at
 # all" cheaply before a registration attempt tries to send mail to it. It
@@ -75,6 +81,29 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 def looks_like_email(value: str) -> bool:
     return bool(EMAIL_RE.match(value.strip()))
+
+
+def validate_password_complexity(password: str) -> None:
+    """Validate password meets complexity requirements.
+
+    Raises PasswordComplexityError if password fails any requirement:
+    - At least 10 characters
+    - At least 1 uppercase letter
+    - At least 1 digit
+    - At least 1 special character
+    """
+    if len(password) < 10:
+        raise PasswordComplexityError("Password must be at least 10 characters long")
+
+    if not any(c.isupper() for c in password):
+        raise PasswordComplexityError("Password must contain at least one uppercase letter")
+
+    if not any(c.isdigit() for c in password):
+        raise PasswordComplexityError("Password must contain at least one digit")
+
+    # Special characters: anything that's not alphanumeric
+    if not any(not c.isalnum() for c in password):
+        raise PasswordComplexityError("Password must contain at least one special character")
 
 
 # --------------------------------------------------------------------- hash
@@ -119,12 +148,14 @@ def create_session(conn: sqlite3.Connection, operator_id: int, org_id: int) -> s
     the token IS a credential for the lifetime of the session.
     """
     raw = _new_token()
+    _enforce_session_limit(conn, operator_id)
     now = datetime.now(timezone.utc)
+    now_str = utcnow()
     conn.execute(
-        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at)
-           VALUES (?,?,?,?,?)""",
-        (_token_hash(raw), operator_id, org_id, utcnow(),
-         (now + SESSION_LIFETIME).isoformat(timespec="seconds")),
+        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at, last_active)
+           VALUES (?,?,?,?,?,?)""",
+        (_token_hash(raw), operator_id, org_id, now_str,
+         (now + SESSION_LIFETIME).isoformat(timespec="seconds"), now_str),
     )
     conn.commit()
     return raw
@@ -138,10 +169,11 @@ def resolve_session(conn: sqlite3.Connection, raw_token: str | None) -> SessionI
     "not logged in" outcome for the caller -- there is no reason to give a
     client-facing distinction between them.
     """
+    import os
     if not raw_token:
         return None
     row = conn.execute(
-        """SELECT s.operator_id, s.org_id, s.expires_at, s.revoked_at,
+        """SELECT s.operator_id, s.org_id, s.expires_at, s.revoked_at, s.last_active,
                   o.name, o.role, o.email, o.is_active, o.super_admin, o.disclaimer_acknowledged_at
            FROM sessions s JOIN operators o ON o.id = s.operator_id
            WHERE s.token_hash = ?""",
@@ -149,14 +181,30 @@ def resolve_session(conn: sqlite3.Connection, raw_token: str | None) -> SessionI
     ).fetchone()
     if row is None or row["revoked_at"] is not None or not row["is_active"]:
         return None
-    if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+    now = datetime.now(timezone.utc)
+    if datetime.fromisoformat(row["expires_at"]) < now:
         return None
+    # p14: Check idle timeout (NULL last_active = grandfathered, skip check)
+    if row["last_active"]:
+        idle_hours = int(os.environ.get("AMLKIT_IDLE_TIMEOUT_HOURS", IDLE_TIMEOUT_HOURS))
+        idle_cutoff = now - timedelta(hours=idle_hours)
+        if datetime.fromisoformat(row["last_active"]) < idle_cutoff:
+            return None
     return SessionInfo(
         operator_id=row["operator_id"], org_id=row["org_id"],
         operator_name=row["name"], operator_role=row["role"], email=row["email"],
         super_admin=bool(row["super_admin"]),
         disclaimer_acknowledged=bool(row["disclaimer_acknowledged_at"]),
     )
+
+
+def update_session_activity(conn: sqlite3.Connection, raw_token: str) -> None:
+    """Update last_active timestamp for idle timeout tracking (p14)."""
+    conn.execute(
+        "UPDATE sessions SET last_active=? WHERE token_hash=? AND revoked_at IS NULL",
+        (utcnow(), _token_hash(raw_token)),
+    )
+    conn.commit()
 
 
 def revoke_session(conn: sqlite3.Connection, raw_token: str) -> None:
@@ -184,18 +232,18 @@ def revoke_sessions_for(conn: sqlite3.Connection, operator_id: int) -> None:
 
 # ------------------------------------------------------------------- login
 def _log_auth_event(
-    conn: sqlite3.Connection, event: str, email: str | None, detail: dict | None = None,
+    conn: sqlite3.Connection, event: str, email: str | None, detail: dict | None = None, *, ip: str | None = None,
 ) -> None:
     import json
 
     conn.execute(
-        "INSERT INTO auth_log (ts, email_attempted, event, detail) VALUES (?,?,?,?)",
-        (utcnow(), email, event, json.dumps(detail) if detail else None),
+        "INSERT INTO auth_log (ts, email_attempted, event, detail, ip) VALUES (?,?,?,?,?)",
+        (utcnow(), email, event, json.dumps(detail) if detail else None, ip),
     )
     conn.commit()
 
 
-def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, SessionInfo]:
+def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None = None) -> tuple[str, SessionInfo]:
     """Authenticate and return (raw_session_token, SessionInfo).
 
     Raises AuthError with one generic message on any failure -- unknown
@@ -222,13 +270,13 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
         # by hashing a dummy value, so a timing side-channel cannot be used to
         # enumerate which emails exist.
         _hasher.hash(password)
-        _log_auth_event(conn, "login_failure", email, {"reason": "unknown_email"})
+        _log_auth_event(conn, "login_failure", email, {"reason": "unknown_email"}, ip=ip)
         raise generic
 
     if row["locked_until"]:
         locked_until = datetime.fromisoformat(row["locked_until"])
         if locked_until > datetime.now(timezone.utc):
-            _log_auth_event(conn, "login_failure", email, {"reason": "locked"})
+            _log_auth_event(conn, "login_failure", email, {"reason": "locked"}, ip=ip)
             raise AuthError(
                 f"Account locked after repeated failed attempts. Try again after "
                 f"{locked_until.strftime('%H:%M UTC')}, or ask an admin to reset it."
@@ -240,7 +288,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
     # NULL password_hash) and being logged into.
     if row["password_hash"] is None or not row["is_active"]:
         _hasher.hash(password)
-        _log_auth_event(conn, "login_failure", email, {"reason": "no_credentials_or_inactive"})
+        _log_auth_event(conn, "login_failure", email, {"reason": "no_credentials_or_inactive"}, ip=ip)
         raise generic
 
     if not verify_password(password, row["password_hash"]):
@@ -257,7 +305,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
         )
         conn.commit()
         _log_auth_event(conn, "login_failure", email,
-                        {"reason": "bad_password", "failed_count": failed})
+                        {"reason": "bad_password", "failed_count": failed}, ip=ip)
         raise generic
 
     if row["email_verified_at"] is None:
@@ -265,7 +313,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
         # specific here -- see AuthError's docstring -- and this is the one
         # case where telling the user exactly what to do (check their inbox,
         # or request a new link) matters more than a uniform error string.
-        _log_auth_event(conn, "login_failure", email, {"reason": "email_not_verified"})
+        _log_auth_event(conn, "login_failure", email, {"reason": "email_not_verified"}, ip=ip)
         raise AuthError(
             "Please verify your email before signing in. Check your inbox for the "
             "verification link, or request a new one."
@@ -276,7 +324,7 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
     )
     conn.commit()
     token = create_session(conn, row["id"], row["org_id"])
-    _log_auth_event(conn, "login_success", email)
+    _log_auth_event(conn, "login_success", email, ip=ip)
     audit(conn, row["name"], "operator.login", "operator", row["id"], None, org_id=row["org_id"])
     # audit() only executes the INSERT; every other write in this function
     # commits itself (create_session, _log_auth_event), and a caller that
@@ -294,9 +342,9 @@ def login(conn: sqlite3.Connection, email: str, password: str) -> tuple[str, Ses
     return token, info
 
 
-def logout(conn: sqlite3.Connection, raw_token: str, info: SessionInfo | None = None) -> None:
+def logout(conn: sqlite3.Connection, raw_token: str, info: SessionInfo | None = None, *, ip: str | None = None) -> None:
     revoke_session(conn, raw_token)
-    _log_auth_event(conn, "logout", info.email if info else None)
+    _log_auth_event(conn, "logout", info.email if info else None, ip=ip)
 
 
 def set_password(conn: sqlite3.Connection, operator_id: int, new_password: str) -> None:
@@ -305,6 +353,7 @@ def set_password(conn: sqlite3.Connection, operator_id: int, new_password: str) 
     The revocation is not optional: leaving old sessions alive after a
     password change defeats the reason someone changes a password.
     """
+    validate_password_complexity(new_password)
     conn.execute(
         "UPDATE operators SET password_hash=?, failed_login_count=0, locked_until=NULL WHERE id=?",
         (hash_password(new_password), operator_id),
@@ -402,6 +451,34 @@ def consume_email_verify_token(conn: sqlite3.Connection, raw_token: str):
     return operator
 
 
+
+
+def _enforce_session_limit(conn: sqlite3.Connection, operator_id: int) -> None:
+    """Revoke oldest sessions if operator has reached MAX_CONCURRENT_SESSIONS."""
+    import os
+    max_sessions = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "3"))
+    
+    # Count active (non-revoked, non-expired) sessions
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    active = conn.execute(
+        """SELECT COUNT(*) c FROM sessions
+           WHERE operator_id = ? AND revoked_at IS NULL AND expires_at > ?""",
+        (operator_id, now)
+    ).fetchone()["c"]
+    
+    if active >= max_sessions:
+        # Revoke oldest session
+        oldest = conn.execute(
+            """SELECT id FROM sessions
+               WHERE operator_id = ? AND revoked_at IS NULL AND expires_at > ?
+               ORDER BY created_at ASC LIMIT 1""",
+            (operator_id, now)
+        ).fetchone()
+        if oldest:
+            conn.execute("UPDATE sessions SET revoked_at=? WHERE id=?",
+                        (utcnow(), oldest["id"]))
+
+
 # --------------------------------------------------------------------- csrf
 def new_csrf_token() -> str:
     return secrets.token_urlsafe(24)
@@ -416,3 +493,107 @@ def csrf_valid(cookie_value: str | None, form_value: str | None) -> bool:
     if not cookie_value or not form_value:
         return False
     return secrets.compare_digest(cookie_value, form_value)
+
+
+# --------------------------------------------------------------------- MFA/TOTP (p15)
+def mfa_enroll(conn, operator_id: int):
+    """Enroll operator in MFA. Returns (secret, qr_uri)."""
+    import pyotp
+    import secrets as sec
+    
+    # Generate secret
+    secret = pyotp.random_base32()
+    
+    # Get operator email for QR code
+    row = conn.execute("SELECT email, name FROM operators WHERE id=?", (operator_id,)).fetchone()
+    email = row["email"]
+    name = row["name"]
+    
+    # Store secret
+    from .db import utcnow
+    now = utcnow()
+    conn.execute(
+        "INSERT OR REPLACE INTO mfa_secrets (operator_id, secret, enrolled_at) VALUES (?,?,?)",
+        (operator_id, secret, now)
+    )
+    
+    # Generate backup codes
+    _generate_backup_codes(conn, operator_id)
+    
+    conn.commit()
+    
+    # Generate QR URI
+    totp = pyotp.TOTP(secret)
+    qr_uri = totp.provisioning_uri(name=email, issuer_name="amlkit")
+    
+    return secret, qr_uri
+
+
+def mfa_verify(conn, operator_id: int, code: str) -> bool:
+    """Verify TOTP code for operator."""
+    import pyotp
+    
+    row = conn.execute(
+        "SELECT secret FROM mfa_secrets WHERE operator_id=?",
+        (operator_id,)
+    ).fetchone()
+    
+    if not row:
+        return False
+    
+    totp = pyotp.TOTP(row["secret"])
+    return totp.verify(code, valid_window=1)
+
+
+def mfa_get_backup_codes(conn, operator_id: int) -> list:
+    """Get backup codes for operator."""
+    rows = conn.execute(
+        "SELECT id, code_hash, used_at FROM mfa_backup_codes WHERE operator_id=? ORDER BY created_at",
+        (operator_id,)
+    ).fetchall()
+    
+    return [{"id": r["id"], "code": r["code_hash"][:8], "used": r["used_at"] is not None} for r in rows]
+
+
+def mfa_verify_backup_code(conn, operator_id: int, code: str) -> bool:
+    """Verify and consume a backup code."""
+    rows = conn.execute(
+        "SELECT id, code_hash FROM mfa_backup_codes WHERE operator_id=? AND used_at IS NULL",
+        (operator_id,)
+    ).fetchall()
+    
+    for row in rows:
+        try:
+            _hasher.verify(row["code_hash"], code)
+            # Mark as used
+            from .db import utcnow
+            conn.execute(
+                "UPDATE mfa_backup_codes SET used_at=? WHERE id=?",
+                (utcnow(), row["id"])
+            )
+            conn.commit()
+            return True
+        except:
+            continue
+    
+    return False
+
+
+def _generate_backup_codes(conn, operator_id: int) -> None:
+    """Generate 10 backup codes for operator."""
+    import secrets as sec
+    from .db import utcnow
+    
+    now = utcnow()
+    
+    # Delete old backup codes
+    conn.execute("DELETE FROM mfa_backup_codes WHERE operator_id=?", (operator_id,))
+    
+    # Generate 10 new codes
+    for _ in range(10):
+        code = sec.token_hex(4)  # 8-character hex code
+        code_hash = _hasher.hash(code)
+        conn.execute(
+            "INSERT INTO mfa_backup_codes (operator_id, code_hash, created_at) VALUES (?,?,?)",
+            (operator_id, code_hash, now)
+        )

@@ -80,150 +80,9 @@ import os
 import secrets
 import uuid
 
+from ..cases.scheduler import check_and_notify_staleness, run_sanctions_refresh
+
 log = logging.getLogger("amlkit.scheduler")
-
-
-@retry_on_lock(max_retries=3, base_delay=0.5)
-def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
-    """Load every mandatory sanctions source and re-screen every active org.
-
-    Single source of truth for "what a refresh actually does" -- previously
-    the interactive /admin/refresh button and the automated scheduler path
-    silently drifted apart: the manual button loaded six sources (including
-    UK and the CIA World Leaders PEP list), the automated path only loaded
-    four. An automated refresh that covers less than the button a human
-    would click is exactly the kind of gap that isn't visible until an
-    examiner asks why UK-sanctioned entities weren't being screened against.
-    Both routes, and the scheduler, now call this one function.
-    """
-    from ..ingest.base import AdapterError
-    from ..ingest.loader import load
-    from ..ingest.eocn import uae_local_terrorists
-    from ..ingest.cia import cia_world_leaders
-    from ..ingest.un import UNSanctionsAdapter
-    from ..ingest.ofac import OFACSDNAdapter
-    from ..ingest.eu import EUSanctionsAdapter
-    from ..ingest.uk import UKSanctionsAdapter
-    from ..match.engine import rescreen_all
-    from ..match.cache import invalidate as invalidate_cache
-    from ..db import audit, record_dataset_error
-
-    loaded: list[str] = []
-    failures: list[str] = []
-    mandatory_failures: list[str] = []
-    for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
-                     EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
-        adapter = factory()
-        try:
-            result = load(conn, adapter, actor=actor)
-            loaded.append(f"{adapter.title}: {result.entities} entities")
-        except AdapterError as exc:
-            msg = f"{adapter.title}: {exc}"
-            failures.append(msg)
-            if adapter.is_mandatory:
-                mandatory_failures.append(msg)
-            # Persist onto the dataset row so /admin/compliance shows which
-            # source failed and why, not just a transient audit-log line.
-            record_dataset_error(conn, adapter.key, str(exc))
-            audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
-                  {"error": str(exc)}, org_id=None)
-    conn.commit()
-
-    # Invalidate the name_tokens cache after loading new data
-    invalidate_cache()
-    log.info("Sanctions cache invalidated after refresh")
-
-    total_alerts = 0
-    screened_orgs = 0
-    rescreen_failures: list[str] = []
-    orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
-    for org in orgs:
-        try:
-            outcome = rescreen_all(conn, org["id"], actor=actor)
-            total_alerts += outcome["alerts"]
-            screened_orgs += 1
-        except Exception as exc:
-            log.exception("rescreen_all failed for org %s (%s): %s", org["id"], org["name"], exc)
-            rescreen_failures.append(f"{org['name']}: {exc}")
-    conn.commit()
-
-    return {
-        "loaded": loaded,
-        "failures": failures,
-        "mandatory_failures": mandatory_failures,
-        "rescreen_failures": rescreen_failures,
-        "orgs_screened": screened_orgs,
-        "new_alerts": total_alerts,
-    }
-
-
-def check_and_notify_staleness(conn: sqlite3.Connection) -> dict:
-    """Check for stale mandatory datasets and send email alerts if needed.
-
-    Only notifies once per staleness breach (tracked via staleness_notified_at)
-    to avoid spam. Returns a summary of what was notified.
-    """
-    from ..ingest.loader import staleness_report
-    from .. import mail
-    from ..db import utcnow
-
-    staleness = staleness_report(conn)
-    breaches = [d for d in staleness if d["breach"] and d["is_mandatory"]]
-
-    if not breaches:
-        # Clear staleness_notified_at for any datasets that are now fresh
-        conn.execute(
-            "UPDATE datasets SET staleness_notified_at=NULL WHERE staleness_notified_at IS NOT NULL"
-        )
-        conn.commit()
-        return {"breaches": 0, "notified": 0}
-
-    # Find datasets that breached and haven't been notified yet
-    needs_notification = []
-    for d in breaches:
-        row = conn.execute(
-            "SELECT staleness_notified_at FROM datasets WHERE key=?", (d["key"],)
-        ).fetchone()
-        if row and row["staleness_notified_at"] is None:
-            needs_notification.append(d)
-
-    if not needs_notification:
-        return {"breaches": len(breaches), "notified": 0}
-
-    # Get all MLRO emails across all active orgs
-    mlro_emails = [
-        r["email"] for r in conn.execute(
-            """SELECT DISTINCT o.email FROM operators o
-               JOIN organizations org ON org.id = o.org_id
-               WHERE org.status='active' AND o.role='mlro' AND o.is_active=1
-                 AND o.email IS NOT NULL"""
-        ).fetchall()
-    ]
-
-    if not mlro_emails:
-        log.warning("Staleness breach detected but no MLRO emails to notify")
-        return {"breaches": len(breaches), "notified": 0}
-
-    # Send notification
-    outcome = mail.send_staleness_alert(mlro_emails, needs_notification)
-
-    # Mark as notified
-    now = utcnow()
-    for d in needs_notification:
-        conn.execute(
-            "UPDATE datasets SET staleness_notified_at=? WHERE key=?", (now, d["key"])
-        )
-    conn.commit()
-
-    log.info("Staleness notification: %d datasets, %d MLROs, outcome=%s",
-             len(needs_notification), len(mlro_emails), outcome)
-
-    return {
-        "breaches": len(breaches),
-        "notified": len(needs_notification),
-        "outcome": outcome,
-        "recipients": len(mlro_emails),
-    }
 
 
 def _run_scheduled_refresh() -> None:
@@ -250,6 +109,16 @@ def _run_scheduled_refresh() -> None:
         conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="scheduler")
         log.info("Scheduled refresh complete: %s", result)
+
+        # Audit the scheduled refresh so MLROs can see automated actions
+        from ..db import audit
+        audit(conn, "scheduler", "system.scheduled_refresh", details={
+            "orgs_screened": result["orgs_screened"],
+            "new_alerts": result["new_alerts"],
+            "datasets_loaded": len(result["loaded"]),
+            "failures": result["failures"]
+        }, org_id=None)
+        conn.commit()
 
         # Check for staleness and notify MLROs if needed
         staleness_result = check_and_notify_staleness(conn)
@@ -460,14 +329,6 @@ async def request_id_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
-async def ensure_csrf_cookie(request: Request, call_next):
-    # CSRF cookie is now set directly by render() so that the same token
-    # goes into both the form hidden field and the cookie. This middleware
-    # is kept as a passthrough only — it no longer generates tokens.
-    return await call_next(request)
-
-
-@app.middleware("http")
 async def extract_login_email(request: Request, call_next):
     """Extract email from login POST requests for rate limiting.
 
@@ -509,7 +370,7 @@ async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "  # N005: WIP — unsafe-inline temporarily retained; removal requires inline-script migration
+        "script-src 'self'; "  # All inline scripts migrated to external files (Issue #82)
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "font-src 'self'; "
@@ -551,7 +412,7 @@ def _login_page_error(request: Request, message: str) -> HTMLResponse:
 
 
 @app.post("/login")
-@limiter.limit("100/minute")  # IP ceiling: catches abusive burst volumes, won't hit during normal office traffic
+@limiter.limit("10/minute")  # IP ceiling: prevents brute force attacks from single IP
 @limiter.limit("3/minute", key_func=login_rate_limit_key)  # Per-account: prevents rapid stuffing of one account
 def login_submit(
     request: Request, db: DB,
@@ -564,7 +425,7 @@ def login_submit(
     except PermissionError as exc:
         return _login_page_error(request, str(exc))
     try:
-        token, info = auth.login(db, email, password)
+        token, info = auth.login(db, email, password, ip=client_ip(request))
     except auth.AuthError as exc:
         if "verify your email" in str(exc):
             return render(request, "login.html", {
@@ -586,7 +447,7 @@ def logout_submit(request: Request, db: DB):
     session = current_session(request, db)
     token = request.cookies.get(SESSION_COOKIE)
     if token:
-        auth.logout(db, token, session)
+        auth.logout(db, token, session, ip=client_ip(request))
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie(SESSION_COOKIE)
     return resp
@@ -612,6 +473,25 @@ def acknowledge_disclaimer(
     )
     db.commit()
     return back("/", msg="Disclaimer acknowledged.")
+
+
+def _valid_setup_token(db: sqlite3.Connection, raw_token: str):
+    if not raw_token:
+        return None
+    from datetime import datetime, timezone
+    from hashlib import sha256
+    row = db.execute(
+        "SELECT id, org_id, used_at, expires_at FROM setup_tokens WHERE token_hash=?",
+        (sha256(raw_token.encode()).hexdigest(),),
+    ).fetchone()
+    if row is None or row["used_at"] is not None:
+        return None
+    # NULL expires_at (a row from before setup_tokens had this column) is
+    # treated as already expired -- fail closed rather than granting an old,
+    # possibly long-forwarded link an unbounded lifetime.
+    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        return None
+    return row
 
 
 @app.get("/setup", response_class=HTMLResponse)
@@ -647,66 +527,25 @@ def setup_submit(
     except PermissionError as exc:
         return render(request, "setup.html", {"session": None, "valid": True, "token": token, "err": str(exc)})
 
-    row = _valid_setup_token(db, token)
-    if row is None:
+    from ..cases.operators import complete_initial_setup
+
+    try:
+        result = complete_initial_setup(db, token, name, email, password)
+    except ValueError as exc:
         return render(request, "setup.html", {
-            "session": None, "valid": False,
-            "err": "This setup link is invalid, expired, or already used.",
-        })
-    if len(password) < 10:
-        return render(request, "setup.html", {
-            "session": None, "valid": True, "token": token,
-            "err": "Password must be at least 10 characters.",
+            "session": None, "valid": False, "err": str(exc),
         })
 
-    now = utcnow()
-    cur = db.execute(
-        # email_verified_at=now, not NULL: claiming this link already proves
-        # control of *a* channel the admin trusted enough to hand the link
-        # through -- unlike public self-registration, there is no separate
-        # email-ownership gap left to close here (see auth.login()'s guard).
-        """INSERT INTO operators
-               (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-           VALUES (?,?,?,?,?,1,?,?)""",
-        (row["org_id"], name.strip(), email.strip().lower(),
-         auth.hash_password(password), "mlro", now, now),
-    )
-    operator_id = cur.lastrowid
-    db.execute("UPDATE setup_tokens SET used_at=? WHERE id=?", (now, row["id"]))
-    db.commit()
-    from ..db import audit
-    audit(db, name.strip(), "operator.setup_claimed", "operator", operator_id,
-          {"email": email.strip().lower()}, org_id=row["org_id"])
-    db.commit()
-
-    session_token, _ = auth.login(db, email.strip().lower(), password)
+    session_token, _ = auth.login(db, result["email"], password)
     resp = RedirectResponse("/", status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
-    # M-01: Rotate CSRF token on setup completion
     resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
                     samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
-def _valid_setup_token(db: sqlite3.Connection, raw_token: str):
-    if not raw_token:
-        return None
-    from datetime import datetime, timezone
-    from hashlib import sha256
-    row = db.execute(
-        "SELECT id, org_id, used_at, expires_at FROM setup_tokens WHERE token_hash=?",
-        (sha256(raw_token.encode()).hexdigest(),),
-    ).fetchone()
-    if row is None or row["used_at"] is not None:
-        return None
-    # NULL expires_at (a row from before setup_tokens had this column) is
-    # treated as already expired -- fail closed rather than granting an old,
-    # possibly long-forwarded link an unbounded lifetime.
-    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
-        return None
-    return row
 
 
 @app.get("/register-organization", response_class=HTMLResponse)
@@ -728,79 +567,24 @@ def register_org_submit(
     except PermissionError as exc:
         return render(request, "register_organization.html", {"session": None, "err": str(exc)})
 
-    if len(password) < 10:
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "Password must be at least 10 characters."})
-    if not auth.looks_like_email(email):
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "Enter a valid email address."})
-
-    import re
-    slug = re.sub(r"[^a-z0-9]+", "-", org_name.strip().lower()).strip("-") or "org"
-    now = utcnow()
-    try:
-        cur = db.execute(
-            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-            (org_name.strip(), slug, "active", now),
-        )
-    except sqlite3.IntegrityError:
-        return render(request, "register_organization.html",
-                      {"session": None, "err": f"An organization with a similar name already exists."})
-    org_id = cur.lastrowid
-    try:
-        cur2 = db.execute(
-            """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-               VALUES (?,?,?,?,?,1,?)""",
-            (org_id, name.strip(), email.strip().lower(), auth.hash_password(password), "mlro", now),
-        )
-    except sqlite3.IntegrityError:
-        # operators.email is UNIQUE across the whole app, not just this org
-        # (see db.py) -- previously uncaught here, which both surfaced as a
-        # bare 500 and left the just-inserted organizations row behind with
-        # no operator in it. Roll that back too, not just report the error.
-        db.rollback()
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "An account with that email already exists. Try signing in instead."})
-    operator_id = cur2.lastrowid
-    db.commit()
+    from ..cases.operators import register_organization
     from .. import mail
-    from ..db import audit
 
-    clean_email = email.strip().lower()
-    audit(db, name.strip(), "organization.register", "organization", org_id,
-          {"org_name": org_name.strip()}, org_id=org_id)
-    db.commit()
-
-    # Not activated yet -- see auth.login()'s email_verified_at guard. Show a
-    # "check your email" panel instead of signing the operator straight in.
-    raw_token = auth.create_email_verify_token(db, operator_id)
-    delivery = mail.send_verification_email(clean_email, name.strip(), raw_token)
-    # The outcome is recorded, not just the attempt. A provider that has
-    # started failing every send is otherwise invisible here -- the symptom is
-    # nobody completing registration, which looks like disinterest rather than
-    # an outage.
-    audit(db, name.strip(), "operator.verification_sent", "operator", operator_id,
-          {"email": clean_email, "delivery": delivery}, org_id=org_id)
-    db.commit()
+    try:
+        result = register_organization(db, org_name, name, email, password)
+    except ValueError as exc:
+        return render(request, "register_organization.html", {"session": None, "err": str(exc)})
 
     ctx = {
-        "session": None, "pending_email": clean_email,
-        "msg": f"Account created. Check {clean_email} for a verification link before signing in.",
+        "session": None,
+        "pending_email": result["email"],
+        "msg": f"Account created. Check {result['email']} for a verification link before signing in.",
     }
-    if delivery == mail.NOT_CONFIGURED:
-        # No SMTP configured at all -- see amlkit/mail.py. Surface the same
-        # link that was printed to the console so registration stays testable
-        # without real mail infrastructure.
-        #
-        # ONLY in this case. When mail is configured and the send merely
-        # failed, showing the link here would hand a live verification token
-        # -- which activates a fully-privileged MLRO account -- to whoever
-        # submitted the form, without them having proved control of the
-        # mailbox. That is the whole point of the check.
-        ctx["dev_verify_url"] = mail.verify_url(raw_token)
-    elif delivery == mail.FAILED:
+    if result["delivery"] == mail.NOT_CONFIGURED:
+        ctx["dev_verify_url"] = mail.verify_url(result["verification_token"])
+    elif result["delivery"] == mail.FAILED:
         ctx["msg"] = (
-            f"Account created, but the verification email to {clean_email} "
+            f"Account created, but the verification email to {result['email']} "
             "could not be sent. The mail service is not responding — ask your "
             "administrator to check it, then use the resend link below."
         )
@@ -882,40 +666,17 @@ def resend_verification(
 # ------------------------------------------------------------------ freeze obligations
 
 @app.get("/freeze-obligations", response_class=HTMLResponse)
-def freeze_obligations_list(request: Request, db: DB):
+def freeze_obligations_list_route(request: Request, db: DB):
     """List all freeze obligations for current org."""
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-        
-    org_id = session.org_id
+
     filter_status = request.query_params.get("status", "all")
-    
-    query = """
-        SELECT f.*, c.reference AS customer_reference, c.full_name,
-               CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_since_identified
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        WHERE f.org_id = ?
-    """
-    params = [org_id]
-    
-    if filter_status != "all":
-        query += " AND f.status = ?"
-        params.append(filter_status)
-    
-    query += " ORDER BY f.identified_at DESC"
-    
-    obligations = [dict(row) for row in db.execute(query, params).fetchall()]
-    
-    stats = dict(db.execute("""
-        SELECT status, COUNT(*) as count
-        FROM freeze_obligations
-        WHERE org_id = ?
-        GROUP BY status
-    """, (org_id,)).fetchall())
-    
+    obligations = queries.freeze_obligations_list(db, session.org_id, filter_status)
+    stats = queries.freeze_obligations_stats(db, session.org_id)
+
     return render(request, "freeze_obligations.html", {
         "session": session,
         "obligations": obligations,
@@ -924,34 +685,17 @@ def freeze_obligations_list(request: Request, db: DB):
     })
 
 @app.get("/freeze-obligations/{freeze_id}", response_class=HTMLResponse)
-def freeze_obligation_detail(request: Request, db: DB, freeze_id: int):
+def freeze_obligation_detail_route(request: Request, db: DB, freeze_id: int):
     """Show freeze obligation details with full lifecycle timeline."""
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-        
-    org_id = session.org_id
-    
-    row = db.execute("""
-        SELECT f.*, c.reference AS customer_reference, c.full_name,
-               a.id AS alert_id, a.matched_name,
-               r.id AS report_id, r.reference AS report_reference
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        LEFT JOIN alerts a ON a.id = f.alert_id
-        LEFT JOIN reports r ON r.id = f.report_id
-        WHERE f.id = ? AND f.org_id = ?
-    """, (freeze_id, org_id)).fetchone()
-    
-    if not row:
+
+    obligation = queries.freeze_obligation_detail(db, session.org_id, freeze_id)
+    if not obligation:
         return back("/freeze-obligations", err="Freeze obligation not found")
-    
-    obligation = dict(row)
-    
-    import json
-    obligation["assets_frozen_parsed"] = json.loads(obligation["assets_frozen"] or "[]")
-    
+
     can_execute = obligation["status"] == "pending_execution"
     can_file_ffr = obligation["status"] == "executed_pending_report"
     can_resolve = obligation["status"] in ["executed_pending_report", "reported"]
@@ -1917,8 +1661,11 @@ def feedback_submit(
 def audit_view(request: Request, db: DB):
     try:
         session = require_session(request, db)
-    except PermissionError:
-        return RedirectResponse("/login", status_code=303)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
     return render(request, "audit.html",
                  {"session": session, "entries": queries.audit_trail(db, session.org_id, limit=300)})
 
@@ -2013,12 +1760,45 @@ def admin_view(request: Request, db: DB):
     if org is None:
         return back("/", err="Organization not found.")
     from ..ingest.loader import staleness_report
+
+    # Check for EU FSF token configuration issues
+    eu_warning = None
+    import os
+    from datetime import datetime, timezone, timedelta
+
+    # Check if token is unset or using the demo default
+    eu_token = os.environ.get("AMLKIT_EU_FSF_TOKEN", "").strip()
+    demo_token = "dG9rZW4tMjAxNy0xMS0xMw"  # from ingest/eu.py
+
+    if not eu_token or eu_token == demo_token:
+        eu_warning = (
+            "EU Consolidated Sanctions List is using the demo token. "
+            "Register at https://webgate.ec.europa.eu/fsd/fsf and set AMLKIT_EU_FSF_TOKEN "
+            "before production use — the demo token may be rate-limited or rotated without notice."
+        )
+    else:
+        # Check if EU refresh has been failing for >3 days
+        eu_ds = db.execute(
+            "SELECT last_error, error_at FROM datasets WHERE key='eu_sanctions'"
+        ).fetchone()
+        if eu_ds and eu_ds["last_error"] and eu_ds["error_at"]:
+            error_time = datetime.fromisoformat(eu_ds["error_at"])
+            # Make timezone-aware if naive (database stores UTC timestamps)
+            if error_time.tzinfo is None:
+                error_time = error_time.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - error_time > timedelta(days=3):
+                eu_warning = (
+                    f"EU sanctions refresh has been failing for >3 days (since {error_time.strftime('%Y-%m-%d')}). "
+                    f"Error: {eu_ds['last_error'][:200]}"
+                )
+
     return render(request, "admin.html", {
         "session": session, "org": dict(org),
         "operators": queries.operators(db, session.org_id),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
         "sanctions": staleness_report(db),
+        "eu_warning": eu_warning,
     })
 
 
@@ -2078,7 +1858,8 @@ def admin_set_threshold(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     raw = threshold.strip()
     if not raw:
@@ -2111,7 +1892,8 @@ def admin_reset_password(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     row = db.execute(
         "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
@@ -2145,7 +1927,8 @@ def admin_create_operator(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     if len(password) < 10:
         return back("/admin", err="Password must be at least 10 characters.")
@@ -2184,7 +1967,8 @@ def admin_deactivate_operator(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     row = db.execute(
         "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
@@ -2214,7 +1998,8 @@ def admin_refresh_sanctions(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     result = run_sanctions_refresh(db, actor=session.operator_name)
 
@@ -2245,7 +2030,8 @@ def admin_rescreen(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     from ..match.engine import rescreen_all
     from ..db import audit
@@ -2309,7 +2095,8 @@ def admin_rule_config_post(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin/rule-config", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     from ..screening.kyt import save_rule_config, get_rule_config
 
@@ -2388,6 +2175,13 @@ def policies_upload(
 
     try:
         file_content = file.file.read()
+
+        # Validate MIME type by magic bytes
+        from ..validation import validate_file_mime
+        try:
+            detected_mime = validate_file_mime(file_content, file.filename or "upload.pdf")
+        except ValueError as exc:
+            return back("/policies", err=f"File validation failed: {exc}")
 
         policy_id, version = upload_policy(
             db,
@@ -2502,21 +2296,7 @@ def system_refresh(request: Request):
 
 @app.post("/system/create-operator")
 async def system_create_operator(request: Request):
-    """Provision an operator without a browser session.
-
-    For the same reason /system/refresh exists: some trusted, system-level
-    actions need to happen without an interactive login being available --
-    here, provisioning a test/bootstrap operator on a deployment nobody is
-    currently signed into. Protected by its own secret (ADMIN_API_SECRET),
-    deliberately separate from SCHEDULER_SECRET: creating a login is a more
-    sensitive capability than re-running a read-mostly sanctions refresh,
-    and the two shouldn't share a blast radius. Disabled (403) exactly like
-    /system/refresh when its secret isn't configured.
-
-    Reuses the exact insert + hashing amlkit/admin/operators (the real
-    admin-panel route) uses, so a provisioned account is indistinguishable
-    from one an MLRO created by hand.
-    """
+    """Provision an operator without a browser session."""
     secret = os.environ.get("ADMIN_API_SECRET", "").strip()
     if not secret:
         from fastapi.responses import JSONResponse
@@ -2528,6 +2308,8 @@ async def system_create_operator(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     from fastapi.responses import JSONResponse
+    from ..db import connect
+    from ..cases.operators import provision_operator
 
     body = await request.json()
     name = (body.get("name") or "").strip()
@@ -2536,49 +2318,19 @@ async def system_create_operator(request: Request):
     role = body.get("role") or "officer"
     org_slug = (body.get("org_slug") or "").strip()
 
-    if not name or not email:
-        return JSONResponse({"error": "name and email are required"}, status_code=400)
-    if len(password) < 10:
-        return JSONResponse({"error": "password must be at least 10 characters"}, status_code=400)
-    if role not in ("officer", "mlro"):
-        return JSONResponse({"error": "role must be 'officer' or 'mlro'"}, status_code=400)
-
-    from ..db import connect, audit, utcnow
-
     conn = connect(db_path())
     try:
-        if org_slug:
-            org = conn.execute(
-                "SELECT id, name FROM organizations WHERE slug=? AND status='active'", (org_slug,)
-            ).fetchone()
-        else:
-            org = conn.execute(
-                "SELECT id, name FROM organizations WHERE status='active' ORDER BY id LIMIT 1"
-            ).fetchone()
-        if org is None:
-            return JSONResponse({"error": "no matching active organization"}, status_code=404)
-
-        try:
-            now = utcnow()
-            cur = conn.execute(
-                # email_verified_at=now, matching admin_create_operator's
-                # reasoning above -- whoever holds ADMIN_API_SECRET is
-                # already a trusted operator, not a public self-signup.
-                """INSERT INTO operators
-                       (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-                   VALUES (?,?,?,?,?,1,?,?)""",
-                (org["id"], name, email, auth.hash_password(password), role, now, now),
-            )
-        except sqlite3.IntegrityError:
-            return JSONResponse({"error": "an operator with that name or email already exists"}, status_code=409)
-
-        audit(conn, "system", "operator.create", "operator", cur.lastrowid,
-              {"email": email, "role": role, "via": "system_create_operator"}, org_id=org["id"])
-        conn.commit()
+        result = provision_operator(conn, name, email, password, role, org_slug, actor="system")
         return JSONResponse({
-            "status": "created", "operator_id": cur.lastrowid,
-            "organization": org["name"], "email": email, "role": role,
+            "status": "created",
+            "operator_id": result["operator_id"],
+            "organization": result["organization"],
+            "email": result["email"],
+            "role": result["role"],
         })
+    except ValueError as exc:
+        status = 404 if "no matching" in str(exc) else 409 if "already exists" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status)
     finally:
         conn.close()
 
@@ -2841,3 +2593,56 @@ async def ai_draft_narrative(
             "MLRO before use in any regulatory filing."
         ),
     })
+
+
+# ------------------------------------------------------------------ profile/password change (p16)
+@app.get("/profile", response_class=HTMLResponse)
+def profile_view(request: Request, db: DB):
+    """User profile page with password change form."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "profile.html", {"session": session})
+
+
+@app.post("/profile/change-password")
+def change_password(
+    request: Request, db: DB,
+    old_password: Annotated[str, Form()],
+    new_password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Self-service password change."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/profile", err=str(exc))
+    
+    # Get operator
+    operator = db.execute(
+        "SELECT id, password_hash FROM operators WHERE id=?",
+        (session.operator_id,)
+    ).fetchone()
+    
+    if not operator or not auth.verify_password(old_password, operator["password_hash"]):
+        return back("/profile", err="Current password is incorrect.")
+    
+    # Validate new password complexity
+    try:
+        auth.validate_password_complexity(new_password)
+    except auth.PasswordComplexityError as exc:
+        return back("/profile", err=str(exc))
+    
+    # Update password
+    auth.set_password(db, session.operator_id, new_password)
+    
+    from ..db import audit
+    audit(db, session.operator_name, "operator.password_changed", "operator", session.operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+    
+    return back("/profile", msg="Password changed successfully. All other sessions have been signed out.")

@@ -642,3 +642,54 @@ def org_customers(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]
     """All customers for a specific org, for super-admin drill-down."""
     return customer_list(conn, org_id)
 
+
+def freeze_obligations_list(conn: sqlite3.Connection, org_id: int, filter_status: str = "all") -> list[dict[str, Any]]:
+    """List all freeze obligations for an org, optionally filtered by status."""
+    query = """
+        SELECT f.*, c.reference AS customer_reference, c.full_name,
+               CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_since_identified
+        FROM freeze_obligations f
+        JOIN customers c ON c.id = f.customer_id
+        WHERE f.org_id = ?
+    """
+    params = [org_id]
+
+    if filter_status != "all":
+        query += " AND f.status = ?"
+        params.append(filter_status)
+
+    query += " ORDER BY f.identified_at DESC"
+
+    return [dict(row) for row in conn.execute(query, params).fetchall()]
+
+
+def freeze_obligations_stats(conn: sqlite3.Connection, org_id: int) -> dict[str, int]:
+    """Count of freeze obligations by status for an org."""
+    return dict(conn.execute("""
+        SELECT status, COUNT(*) as count
+        FROM freeze_obligations
+        WHERE org_id = ?
+        GROUP BY status
+    """, (org_id,)).fetchall())
+
+
+def freeze_obligation_detail(conn: sqlite3.Connection, org_id: int, freeze_id: int) -> dict[str, Any] | None:
+    """Get full freeze obligation details including related customer, alert, and report."""
+    row = conn.execute("""
+        SELECT f.*, c.reference AS customer_reference, c.full_name,
+               a.id AS alert_id, a.matched_name,
+               r.id AS report_id, r.reference AS report_reference
+        FROM freeze_obligations f
+        JOIN customers c ON c.id = f.customer_id
+        LEFT JOIN alerts a ON a.id = f.alert_id
+        LEFT JOIN reports r ON r.id = f.report_id
+        WHERE f.id = ? AND f.org_id = ?
+    """, (freeze_id, org_id)).fetchone()
+
+    if not row:
+        return None
+
+    obligation = dict(row)
+    obligation["assets_frozen_parsed"] = json.loads(obligation["assets_frozen"] or "[]")
+    return obligation
+
