@@ -2389,6 +2389,13 @@ def policies_upload(
     try:
         file_content = file.file.read()
 
+        # Validate MIME type by magic bytes
+        from ..validation import validate_file_mime
+        try:
+            detected_mime = validate_file_mime(file_content, file.filename or "upload.pdf")
+        except ValueError as exc:
+            return back("/policies", err=f"File validation failed: {exc}")
+
         policy_id, version = upload_policy(
             db,
             session.org_id,
