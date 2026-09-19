@@ -1917,8 +1917,11 @@ def feedback_submit(
 def audit_view(request: Request, db: DB):
     try:
         session = require_session(request, db)
-    except PermissionError:
-        return RedirectResponse("/login", status_code=303)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
     return render(request, "audit.html",
                  {"session": session, "entries": queries.audit_trail(db, session.org_id, limit=300)})
 
