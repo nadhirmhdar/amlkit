@@ -463,6 +463,18 @@ def purge_expired(
         cid = row["id"]
         ref = row["reference"]
 
+        active_freeze = conn.execute(
+            "SELECT COUNT(*) FROM freeze_obligations"
+            " WHERE customer_id=? AND org_id=? AND status != 'resolved'",
+            (cid, org_id),
+        ).fetchone()[0]
+        if active_freeze:
+            with conn:
+                audit(conn, actor, "retention.purge_skipped_frozen", "customer", cid,
+                      {"reference": ref, "active_freeze_count": active_freeze},
+                      org_id=org_id)
+            continue
+
         # Try to delete documents first. If any fail, skip this customer
         # entirely so it retries on the next purge run. An orphaned GCS object
         # past retention with no DB pointer is worse than a deferred purge.
