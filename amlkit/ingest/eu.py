@@ -26,13 +26,17 @@ import httpx
 from .base import AdapterError, SourceEntity
 
 BASE_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content"
-DEFAULT_TOKEN = "dG9rZW4tMjAxNy0xMS0xMw"
 ENV_TOKEN = "AMLKIT_EU_FSF_TOKEN"
 USER_AGENT = "amlkit/0.1 (UAE AML screening; compliance tooling)"
 
 
 def list_url() -> str:
-    token = os.environ.get(ENV_TOKEN, "").strip() or DEFAULT_TOKEN
+    token = os.environ.get(ENV_TOKEN, "").strip()
+    if not token:
+        raise AdapterError(
+            f"EU FSF token not configured. Set {ENV_TOKEN} environment variable. "
+            "Register at https://webgate.ec.europa.eu/fsd/fsf"
+        )
     return f"{BASE_URL}?token={token}"
 
 

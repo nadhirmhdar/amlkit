@@ -13,6 +13,7 @@
     {% if c.name_arabic %}<div style="font-size:15px; color:var(--ink-2); margin-top:4px;">{{ name(c.name_arabic) }}</div>{% endif %}
     <div class="mono small muted mt-2">{{ c.reference }} &middot; {{ c.customer_type }} &middot; {{ c.sector }}</div>
     <div class="mt-4">
+      <a class="btn small" href="/customers/{{ c.id }}">Customer Profile</a>
       <a class="btn small ghost" href="/customers/{{ c.id }}/evidence">Evidence pack</a>
       {% if c.status == 'active' %}
       <form method="post" action="/customers/{{ c.id }}/close" class="d-inline">

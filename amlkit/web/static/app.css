@@ -122,6 +122,67 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 #nav-toggle { display: none; }
 .nav-hamburger { display: none; }
 
+/* Desktop top navigation bar with avatar dropdown -- hidden on mobile (<= 680px) */
+.desktop-topnav {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.desktop-topnav .user-menu-wrap {
+  position: relative;
+}
+
+.desktop-topnav .user-menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: white;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  transition: background 120ms;
+}
+
+.desktop-topnav .user-menu-btn:hover {
+  background: var(--line-soft);
+}
+
+.desktop-topnav .user-menu-btn .avatar--sm {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.desktop-topnav .desktop-user-name {
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desktop-topnav .user-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+}
+
 /* Phone bottom tab bar -- hidden by default (desktop/tablet keep the
    sidebar); swapped in at the phone breakpoint below. */
 .mobile-tabbar { display: none; }
@@ -611,7 +672,7 @@ details.evidence summary * { display: none; }
    four-tab bottom bar plus a top header with user menu; same hairline/dot
    vocabulary as the rest of the app. */
 @media (max-width: 680px) {
-  .sidebar, .nav-hamburger { display: none !important; }
+  .sidebar, .nav-hamburger, .desktop-topnav { display: none !important; }
   :root { --tabbar-h: 62px; --mobile-header-h: 52px; }
   main { padding: calc(var(--mobile-header-h) + 16px) 18px calc(var(--tabbar-h) + 28px); }
 

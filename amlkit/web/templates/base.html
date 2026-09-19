@@ -26,29 +26,44 @@
       <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
       <a href="/alerts"    class="{{ 'on' if nav=='alerts' }}">Alerts</a>
       <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
-      <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
-      <a href="/policies"  class="{{ 'on' if nav=='policies' }}">Policies</a>
-      <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
       {% endif %}
       {% if session.operator_role == 'mlro' %}
-        <a href="/admin" class="{{ 'on' if nav=='admin' }}">Admin</a>
         <a href="/freeze-obligations" class="{{ 'on' if nav=='freeze' }}">Freeze Obligations</a>
       {% endif %}
-      <a href="/about" class="{{ 'on' if nav=='about' }}">About</a>
     </nav>
     <div class="spacer"></div>
-    <form method="post" action="/logout" class="operator-box">
-      <span class="avatar">{{ session.operator_name[0]|upper }}</span>
-      <span class="who">
-        <div class="op-name">{{ session.operator_name }}</div>
-        <div class="op-role">{{ session.operator_role }}</div>
-      </span>
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit">Exit</button>
-    </form>
   </aside>
+
+  {# Desktop top nav — visible on tablets/desktop (>680px). Has profile
+     avatar chip top-right with dropdown for profile, admin, audit, policies. #}
+  <div class="desktop-topnav no-print">
+    <div class="user-menu-wrap" id="desktop-user-menu-wrap">
+      <button class="user-menu-btn" data-action="toggle-desktop-user-menu" aria-label="User menu" aria-expanded="false">
+        <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
+        <span class="desktop-user-name">{{ session.operator_name }}</span>
+      </button>
+      <div class="user-dropdown" role="menu">
+        <div class="user-dropdown__header">
+          <strong>{{ session.operator_name }}</strong>
+          <span class="user-dropdown__role">{{ session.operator_role }}</span>
+        </div>
+        <a href="/reports" class="user-dropdown__item">Reports</a>
+        <a href="/audit" class="user-dropdown__item">Audit Trails</a>
+        <a href="/policies" class="user-dropdown__item">Policies</a>
+        {% if session.operator_role == 'mlro' %}
+          <a href="/admin" class="user-dropdown__item">Admin</a>
+        {% endif %}
+        <a href="/about" class="user-dropdown__item">About</a>
+        <div class="user-dropdown__divider"></div>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="user-dropdown__item user-dropdown__logout">Log out</button>
+        </form>
+      </div>
+    </div>
+  </div>
 
   {# Mobile top header — visible only on phones (≤680px). Has app logo on
      left (tap = go home) and user menu button on right. The user menu
