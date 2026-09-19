@@ -80,150 +80,9 @@ import os
 import secrets
 import uuid
 
+from ..cases.scheduler import check_and_notify_staleness, run_sanctions_refresh
+
 log = logging.getLogger("amlkit.scheduler")
-
-
-@retry_on_lock(max_retries=3, base_delay=0.5)
-def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
-    """Load every mandatory sanctions source and re-screen every active org.
-
-    Single source of truth for "what a refresh actually does" -- previously
-    the interactive /admin/refresh button and the automated scheduler path
-    silently drifted apart: the manual button loaded six sources (including
-    UK and the CIA World Leaders PEP list), the automated path only loaded
-    four. An automated refresh that covers less than the button a human
-    would click is exactly the kind of gap that isn't visible until an
-    examiner asks why UK-sanctioned entities weren't being screened against.
-    Both routes, and the scheduler, now call this one function.
-    """
-    from ..ingest.base import AdapterError
-    from ..ingest.loader import load
-    from ..ingest.eocn import uae_local_terrorists
-    from ..ingest.cia import cia_world_leaders
-    from ..ingest.un import UNSanctionsAdapter
-    from ..ingest.ofac import OFACSDNAdapter
-    from ..ingest.eu import EUSanctionsAdapter
-    from ..ingest.uk import UKSanctionsAdapter
-    from ..match.engine import rescreen_all
-    from ..match.cache import invalidate as invalidate_cache
-    from ..db import audit, record_dataset_error
-
-    loaded: list[str] = []
-    failures: list[str] = []
-    mandatory_failures: list[str] = []
-    for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
-                     EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
-        adapter = factory()
-        try:
-            result = load(conn, adapter, actor=actor)
-            loaded.append(f"{adapter.title}: {result.entities} entities")
-        except AdapterError as exc:
-            msg = f"{adapter.title}: {exc}"
-            failures.append(msg)
-            if adapter.is_mandatory:
-                mandatory_failures.append(msg)
-            # Persist onto the dataset row so /admin/compliance shows which
-            # source failed and why, not just a transient audit-log line.
-            record_dataset_error(conn, adapter.key, str(exc))
-            audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
-                  {"error": str(exc)}, org_id=None)
-    conn.commit()
-
-    # Invalidate the name_tokens cache after loading new data
-    invalidate_cache()
-    log.info("Sanctions cache invalidated after refresh")
-
-    total_alerts = 0
-    screened_orgs = 0
-    rescreen_failures: list[str] = []
-    orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
-    for org in orgs:
-        try:
-            outcome = rescreen_all(conn, org["id"], actor=actor)
-            total_alerts += outcome["alerts"]
-            screened_orgs += 1
-        except Exception as exc:
-            log.exception("rescreen_all failed for org %s (%s): %s", org["id"], org["name"], exc)
-            rescreen_failures.append(f"{org['name']}: {exc}")
-    conn.commit()
-
-    return {
-        "loaded": loaded,
-        "failures": failures,
-        "mandatory_failures": mandatory_failures,
-        "rescreen_failures": rescreen_failures,
-        "orgs_screened": screened_orgs,
-        "new_alerts": total_alerts,
-    }
-
-
-def check_and_notify_staleness(conn: sqlite3.Connection) -> dict:
-    """Check for stale mandatory datasets and send email alerts if needed.
-
-    Only notifies once per staleness breach (tracked via staleness_notified_at)
-    to avoid spam. Returns a summary of what was notified.
-    """
-    from ..ingest.loader import staleness_report
-    from .. import mail
-    from ..db import utcnow
-
-    staleness = staleness_report(conn)
-    breaches = [d for d in staleness if d["breach"] and d["is_mandatory"]]
-
-    if not breaches:
-        # Clear staleness_notified_at for any datasets that are now fresh
-        conn.execute(
-            "UPDATE datasets SET staleness_notified_at=NULL WHERE staleness_notified_at IS NOT NULL"
-        )
-        conn.commit()
-        return {"breaches": 0, "notified": 0}
-
-    # Find datasets that breached and haven't been notified yet
-    needs_notification = []
-    for d in breaches:
-        row = conn.execute(
-            "SELECT staleness_notified_at FROM datasets WHERE key=?", (d["key"],)
-        ).fetchone()
-        if row and row["staleness_notified_at"] is None:
-            needs_notification.append(d)
-
-    if not needs_notification:
-        return {"breaches": len(breaches), "notified": 0}
-
-    # Get all MLRO emails across all active orgs
-    mlro_emails = [
-        r["email"] for r in conn.execute(
-            """SELECT DISTINCT o.email FROM operators o
-               JOIN organizations org ON org.id = o.org_id
-               WHERE org.status='active' AND o.role='mlro' AND o.is_active=1
-                 AND o.email IS NOT NULL"""
-        ).fetchall()
-    ]
-
-    if not mlro_emails:
-        log.warning("Staleness breach detected but no MLRO emails to notify")
-        return {"breaches": len(breaches), "notified": 0}
-
-    # Send notification
-    outcome = mail.send_staleness_alert(mlro_emails, needs_notification)
-
-    # Mark as notified
-    now = utcnow()
-    for d in needs_notification:
-        conn.execute(
-            "UPDATE datasets SET staleness_notified_at=? WHERE key=?", (now, d["key"])
-        )
-    conn.commit()
-
-    log.info("Staleness notification: %d datasets, %d MLROs, outcome=%s",
-             len(needs_notification), len(mlro_emails), outcome)
-
-    return {
-        "breaches": len(breaches),
-        "notified": len(needs_notification),
-        "outcome": outcome,
-        "recipients": len(mlro_emails),
-    }
 
 
 def _run_scheduled_refresh() -> None:
@@ -647,66 +506,25 @@ def setup_submit(
     except PermissionError as exc:
         return render(request, "setup.html", {"session": None, "valid": True, "token": token, "err": str(exc)})
 
-    row = _valid_setup_token(db, token)
-    if row is None:
+    from ..cases.operators import complete_initial_setup
+
+    try:
+        result = complete_initial_setup(db, token, name, email, password)
+    except ValueError as exc:
         return render(request, "setup.html", {
-            "session": None, "valid": False,
-            "err": "This setup link is invalid, expired, or already used.",
-        })
-    if len(password) < 10:
-        return render(request, "setup.html", {
-            "session": None, "valid": True, "token": token,
-            "err": "Password must be at least 10 characters.",
+            "session": None, "valid": False, "err": str(exc),
         })
 
-    now = utcnow()
-    cur = db.execute(
-        # email_verified_at=now, not NULL: claiming this link already proves
-        # control of *a* channel the admin trusted enough to hand the link
-        # through -- unlike public self-registration, there is no separate
-        # email-ownership gap left to close here (see auth.login()'s guard).
-        """INSERT INTO operators
-               (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-           VALUES (?,?,?,?,?,1,?,?)""",
-        (row["org_id"], name.strip(), email.strip().lower(),
-         auth.hash_password(password), "mlro", now, now),
-    )
-    operator_id = cur.lastrowid
-    db.execute("UPDATE setup_tokens SET used_at=? WHERE id=?", (now, row["id"]))
-    db.commit()
-    from ..db import audit
-    audit(db, name.strip(), "operator.setup_claimed", "operator", operator_id,
-          {"email": email.strip().lower()}, org_id=row["org_id"])
-    db.commit()
-
-    session_token, _ = auth.login(db, email.strip().lower(), password)
+    session_token, _ = auth.login(db, result["email"], password)
     resp = RedirectResponse("/", status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
-    # M-01: Rotate CSRF token on setup completion
     resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
                     samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
-def _valid_setup_token(db: sqlite3.Connection, raw_token: str):
-    if not raw_token:
-        return None
-    from datetime import datetime, timezone
-    from hashlib import sha256
-    row = db.execute(
-        "SELECT id, org_id, used_at, expires_at FROM setup_tokens WHERE token_hash=?",
-        (sha256(raw_token.encode()).hexdigest(),),
-    ).fetchone()
-    if row is None or row["used_at"] is not None:
-        return None
-    # NULL expires_at (a row from before setup_tokens had this column) is
-    # treated as already expired -- fail closed rather than granting an old,
-    # possibly long-forwarded link an unbounded lifetime.
-    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
-        return None
-    return row
 
 
 @app.get("/register-organization", response_class=HTMLResponse)
@@ -728,79 +546,24 @@ def register_org_submit(
     except PermissionError as exc:
         return render(request, "register_organization.html", {"session": None, "err": str(exc)})
 
-    if len(password) < 10:
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "Password must be at least 10 characters."})
-    if not auth.looks_like_email(email):
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "Enter a valid email address."})
-
-    import re
-    slug = re.sub(r"[^a-z0-9]+", "-", org_name.strip().lower()).strip("-") or "org"
-    now = utcnow()
-    try:
-        cur = db.execute(
-            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-            (org_name.strip(), slug, "active", now),
-        )
-    except sqlite3.IntegrityError:
-        return render(request, "register_organization.html",
-                      {"session": None, "err": f"An organization with a similar name already exists."})
-    org_id = cur.lastrowid
-    try:
-        cur2 = db.execute(
-            """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-               VALUES (?,?,?,?,?,1,?)""",
-            (org_id, name.strip(), email.strip().lower(), auth.hash_password(password), "mlro", now),
-        )
-    except sqlite3.IntegrityError:
-        # operators.email is UNIQUE across the whole app, not just this org
-        # (see db.py) -- previously uncaught here, which both surfaced as a
-        # bare 500 and left the just-inserted organizations row behind with
-        # no operator in it. Roll that back too, not just report the error.
-        db.rollback()
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "An account with that email already exists. Try signing in instead."})
-    operator_id = cur2.lastrowid
-    db.commit()
+    from ..cases.operators import register_organization
     from .. import mail
-    from ..db import audit
 
-    clean_email = email.strip().lower()
-    audit(db, name.strip(), "organization.register", "organization", org_id,
-          {"org_name": org_name.strip()}, org_id=org_id)
-    db.commit()
-
-    # Not activated yet -- see auth.login()'s email_verified_at guard. Show a
-    # "check your email" panel instead of signing the operator straight in.
-    raw_token = auth.create_email_verify_token(db, operator_id)
-    delivery = mail.send_verification_email(clean_email, name.strip(), raw_token)
-    # The outcome is recorded, not just the attempt. A provider that has
-    # started failing every send is otherwise invisible here -- the symptom is
-    # nobody completing registration, which looks like disinterest rather than
-    # an outage.
-    audit(db, name.strip(), "operator.verification_sent", "operator", operator_id,
-          {"email": clean_email, "delivery": delivery}, org_id=org_id)
-    db.commit()
+    try:
+        result = register_organization(db, org_name, name, email, password)
+    except ValueError as exc:
+        return render(request, "register_organization.html", {"session": None, "err": str(exc)})
 
     ctx = {
-        "session": None, "pending_email": clean_email,
-        "msg": f"Account created. Check {clean_email} for a verification link before signing in.",
+        "session": None,
+        "pending_email": result["email"],
+        "msg": f"Account created. Check {result['email']} for a verification link before signing in.",
     }
-    if delivery == mail.NOT_CONFIGURED:
-        # No SMTP configured at all -- see amlkit/mail.py. Surface the same
-        # link that was printed to the console so registration stays testable
-        # without real mail infrastructure.
-        #
-        # ONLY in this case. When mail is configured and the send merely
-        # failed, showing the link here would hand a live verification token
-        # -- which activates a fully-privileged MLRO account -- to whoever
-        # submitted the form, without them having proved control of the
-        # mailbox. That is the whole point of the check.
-        ctx["dev_verify_url"] = mail.verify_url(raw_token)
-    elif delivery == mail.FAILED:
+    if result["delivery"] == mail.NOT_CONFIGURED:
+        ctx["dev_verify_url"] = mail.verify_url(result["verification_token"])
+    elif result["delivery"] == mail.FAILED:
         ctx["msg"] = (
-            f"Account created, but the verification email to {clean_email} "
+            f"Account created, but the verification email to {result['email']} "
             "could not be sent. The mail service is not responding — ask your "
             "administrator to check it, then use the resend link below."
         )
@@ -882,40 +645,17 @@ def resend_verification(
 # ------------------------------------------------------------------ freeze obligations
 
 @app.get("/freeze-obligations", response_class=HTMLResponse)
-def freeze_obligations_list(request: Request, db: DB):
+def freeze_obligations_list_route(request: Request, db: DB):
     """List all freeze obligations for current org."""
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-        
-    org_id = session.org_id
+
     filter_status = request.query_params.get("status", "all")
-    
-    query = """
-        SELECT f.*, c.reference AS customer_reference, c.full_name,
-               CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_since_identified
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        WHERE f.org_id = ?
-    """
-    params = [org_id]
-    
-    if filter_status != "all":
-        query += " AND f.status = ?"
-        params.append(filter_status)
-    
-    query += " ORDER BY f.identified_at DESC"
-    
-    obligations = [dict(row) for row in db.execute(query, params).fetchall()]
-    
-    stats = dict(db.execute("""
-        SELECT status, COUNT(*) as count
-        FROM freeze_obligations
-        WHERE org_id = ?
-        GROUP BY status
-    """, (org_id,)).fetchall())
-    
+    obligations = queries.freeze_obligations_list(db, session.org_id, filter_status)
+    stats = queries.freeze_obligations_stats(db, session.org_id)
+
     return render(request, "freeze_obligations.html", {
         "session": session,
         "obligations": obligations,
@@ -924,34 +664,17 @@ def freeze_obligations_list(request: Request, db: DB):
     })
 
 @app.get("/freeze-obligations/{freeze_id}", response_class=HTMLResponse)
-def freeze_obligation_detail(request: Request, db: DB, freeze_id: int):
+def freeze_obligation_detail_route(request: Request, db: DB, freeze_id: int):
     """Show freeze obligation details with full lifecycle timeline."""
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-        
-    org_id = session.org_id
-    
-    row = db.execute("""
-        SELECT f.*, c.reference AS customer_reference, c.full_name,
-               a.id AS alert_id, a.matched_name,
-               r.id AS report_id, r.reference AS report_reference
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        LEFT JOIN alerts a ON a.id = f.alert_id
-        LEFT JOIN reports r ON r.id = f.report_id
-        WHERE f.id = ? AND f.org_id = ?
-    """, (freeze_id, org_id)).fetchone()
-    
-    if not row:
+
+    obligation = queries.freeze_obligation_detail(db, session.org_id, freeze_id)
+    if not obligation:
         return back("/freeze-obligations", err="Freeze obligation not found")
-    
-    obligation = dict(row)
-    
-    import json
-    obligation["assets_frozen_parsed"] = json.loads(obligation["assets_frozen"] or "[]")
-    
+
     can_execute = obligation["status"] == "pending_execution"
     can_file_ffr = obligation["status"] == "executed_pending_report"
     can_resolve = obligation["status"] in ["executed_pending_report", "reported"]
@@ -977,39 +700,17 @@ def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, form: An
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="Execute freeze requires MLRO role")
 
-    operator = session.operator_name
+    from ..cases import freeze as freeze_ops, manager
+    assets_frozen = freeze_ops.parse_freeze_assets_from_form(form)
 
-    notes = form.get("notes", "")
-    
-    assets_frozen = []
-    i = 1
-    while f"asset_type_{i}" in form:
-        asset_type = form[f"asset_type_{i}"]
-        identifier = form[f"asset_identifier_{i}"]
-        amount_str = form.get(f"asset_amount_{i}", "0")
-        
-        try:
-            amount = float(amount_str) if amount_str else 0.0
-        except ValueError:
-            amount = 0.0
-        
-        if asset_type and identifier:
-            assets_frozen.append({
-                "type": asset_type,
-                "identifier": identifier,
-                "amount_aed": amount
-            })
-        i += 1
-    
-    from ..cases import manager
     try:
         manager.execute_freeze(
             db,
             freeze_id,
             org_id=session.org_id,
-            executed_by=operator,
+            executed_by=session.operator_name,
             assets_frozen=assets_frozen,
-            notes=notes
+            notes=form.get("notes", "")
         )
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
@@ -1029,69 +730,22 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="File FFR requires MLRO role")
 
-    org_id = session.org_id
-    operator = session.operator_name
-
-    freeze = db.execute("""
-        SELECT f.*, c.reference, c.full_name, c.customer_type,
-               c.birth_date, c.gender, c.nationality, c.id_number, c.id_type
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        WHERE f.id = ? AND f.org_id = ?
-    """, (freeze_id, org_id)).fetchone()
-
-    if not freeze or freeze["status"] != "executed_pending_report":
-        return back(f"/freeze-obligations/{freeze_id}", err="Freeze not ready for FFR filing")
-
-    reporter_name = form.get("reporter_name") or operator
+    from ..cases import freeze as freeze_ops
+    reporter_name = form.get("reporter_name") or session.operator_name
     reporter_email = form.get("reporter_email", "")
-    
-    import json
-    report_payload = {
-        "report_type": "FFR",
-        "freeze_obligation_id": freeze_id,
-        "customer_id": freeze["customer_id"],
-        "obligation_type": freeze["obligation_type"],
-        "identified_at": freeze["identified_at"],
-        "executed_at": freeze["executed_at"],
-        "assets_frozen": json.loads(freeze["assets_frozen"] or "[]"),
-        "authority_ref": freeze["authority_ref"],
-        "reporter_name": reporter_name,
-        "reporter_email": reporter_email,
-        "first_name": freeze["full_name"].split()[0],
-        "last_name": " ".join(freeze["full_name"].split()[1:]),
-        "customer_type": freeze["customer_type"],
-        "reference": freeze["reference"],
-        "birth_date": freeze["birth_date"],
-        "gender": freeze["gender"],
-        "nationality": freeze["nationality"],
-        "id_number": freeze["id_number"],
-        "id_type": freeze["id_type"],
-    }
-    
-    from ..reporting import goaml
-    xml_content = goaml.serialize_goaml_xml(report_payload)
-    
-    from ..db import utcnow
-    now = utcnow()
-    cursor = db.execute("""
-        INSERT INTO reports
-        (org_id, customer_id, report_type, status, payload, created_at)
-        VALUES (?, ?, 'FFR', 'draft', ?, ?)
-    """, (org_id, freeze["customer_id"], json.dumps(report_payload), now))
-    report_id = cursor.lastrowid
-    
-    db.execute("""
-        UPDATE freeze_obligations
-        SET report_id = ?, reported_at = ?, status = 'reported'
-        WHERE id = ?
-    """, (report_id, now, freeze_id))
-    
-    from ..db import audit
-    audit(db, operator, "freeze.reported", "freeze_obligation", freeze_id,
-          {"report_id": report_id}, org_id=org_id)
-    db.commit()
-    
+
+    try:
+        report_id = freeze_ops.file_ffr_report(
+            db,
+            freeze_id,
+            session.org_id,
+            reporter_name,
+            reporter_email,
+            session.operator_name
+        )
+    except ValueError as exc:
+        return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
@@ -2502,21 +2156,7 @@ def system_refresh(request: Request):
 
 @app.post("/system/create-operator")
 async def system_create_operator(request: Request):
-    """Provision an operator without a browser session.
-
-    For the same reason /system/refresh exists: some trusted, system-level
-    actions need to happen without an interactive login being available --
-    here, provisioning a test/bootstrap operator on a deployment nobody is
-    currently signed into. Protected by its own secret (ADMIN_API_SECRET),
-    deliberately separate from SCHEDULER_SECRET: creating a login is a more
-    sensitive capability than re-running a read-mostly sanctions refresh,
-    and the two shouldn't share a blast radius. Disabled (403) exactly like
-    /system/refresh when its secret isn't configured.
-
-    Reuses the exact insert + hashing amlkit/admin/operators (the real
-    admin-panel route) uses, so a provisioned account is indistinguishable
-    from one an MLRO created by hand.
-    """
+    """Provision an operator without a browser session."""
     secret = os.environ.get("ADMIN_API_SECRET", "").strip()
     if not secret:
         from fastapi.responses import JSONResponse
@@ -2528,6 +2168,8 @@ async def system_create_operator(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     from fastapi.responses import JSONResponse
+    from ..db import connect
+    from ..cases.operators import provision_operator
 
     body = await request.json()
     name = (body.get("name") or "").strip()
@@ -2536,49 +2178,19 @@ async def system_create_operator(request: Request):
     role = body.get("role") or "officer"
     org_slug = (body.get("org_slug") or "").strip()
 
-    if not name or not email:
-        return JSONResponse({"error": "name and email are required"}, status_code=400)
-    if len(password) < 10:
-        return JSONResponse({"error": "password must be at least 10 characters"}, status_code=400)
-    if role not in ("officer", "mlro"):
-        return JSONResponse({"error": "role must be 'officer' or 'mlro'"}, status_code=400)
-
-    from ..db import connect, audit, utcnow
-
     conn = connect(db_path())
     try:
-        if org_slug:
-            org = conn.execute(
-                "SELECT id, name FROM organizations WHERE slug=? AND status='active'", (org_slug,)
-            ).fetchone()
-        else:
-            org = conn.execute(
-                "SELECT id, name FROM organizations WHERE status='active' ORDER BY id LIMIT 1"
-            ).fetchone()
-        if org is None:
-            return JSONResponse({"error": "no matching active organization"}, status_code=404)
-
-        try:
-            now = utcnow()
-            cur = conn.execute(
-                # email_verified_at=now, matching admin_create_operator's
-                # reasoning above -- whoever holds ADMIN_API_SECRET is
-                # already a trusted operator, not a public self-signup.
-                """INSERT INTO operators
-                       (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-                   VALUES (?,?,?,?,?,1,?,?)""",
-                (org["id"], name, email, auth.hash_password(password), role, now, now),
-            )
-        except sqlite3.IntegrityError:
-            return JSONResponse({"error": "an operator with that name or email already exists"}, status_code=409)
-
-        audit(conn, "system", "operator.create", "operator", cur.lastrowid,
-              {"email": email, "role": role, "via": "system_create_operator"}, org_id=org["id"])
-        conn.commit()
+        result = provision_operator(conn, name, email, password, role, org_slug, actor="system")
         return JSONResponse({
-            "status": "created", "operator_id": cur.lastrowid,
-            "organization": org["name"], "email": email, "role": role,
+            "status": "created",
+            "operator_id": result["operator_id"],
+            "organization": result["organization"],
+            "email": result["email"],
+            "role": result["role"],
         })
+    except ValueError as exc:
+        status = 404 if "no matching" in str(exc) else 409 if "already exists" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status)
     finally:
         conn.close()
 
