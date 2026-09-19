@@ -470,7 +470,7 @@ def signatures_for_customer(
 
 def audit_trail(
     conn: sqlite3.Connection, org_id: int, object_type: str | None = None,
-    object_id: int | str | None = None, limit: int = 200,
+    object_id: int | str | None = None, limit: int = 200, offset: int = 0,
 ) -> list[dict[str, Any]]:
     """Audit entries for one organization, plus shared/system entries.
 
@@ -487,8 +487,9 @@ def audit_trail(
         if object_id is not None:
             sql += " AND object_id=?"
             params.append(str(object_id))
-    sql += " ORDER BY id DESC LIMIT ?"
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
     params.append(limit)
+    params.append(offset)
     return [
         dict(r) | {"detail": json.loads(r["detail"]) if r["detail"] else None}
         for r in conn.execute(sql, params)
