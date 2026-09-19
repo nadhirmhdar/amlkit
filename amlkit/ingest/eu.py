@@ -40,8 +40,6 @@ def list_url() -> str:
     return f"{BASE_URL}?token={token}"
 
 
-# Kept for callers that imported the module-level constant.
-URL = list_url()
 
 
 class EUSanctionsAdapter:
