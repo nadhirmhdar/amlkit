@@ -42,6 +42,8 @@ from .db import EMAIL_VERIFY_TOKEN_LIFETIME, audit, utcnow
 _hasher = PasswordHasher()
 
 SESSION_LIFETIME = timedelta(days=14)
+# p14: Idle timeout - stolen session stays valid until activity, not just absolute expiry
+IDLE_TIMEOUT_HOURS = 8  # Configurable via AMLKIT_IDLE_TIMEOUT_HOURS env var
 SESSION_COOKIE = "amlkit_session"
 CSRF_COOKIE = "amlkit_csrf"
 
@@ -120,11 +122,12 @@ def create_session(conn: sqlite3.Connection, operator_id: int, org_id: int) -> s
     """
     raw = _new_token()
     now = datetime.now(timezone.utc)
+    now_str = utcnow()
     conn.execute(
-        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at)
-           VALUES (?,?,?,?,?)""",
-        (_token_hash(raw), operator_id, org_id, utcnow(),
-         (now + SESSION_LIFETIME).isoformat(timespec="seconds")),
+        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at, last_active)
+           VALUES (?,?,?,?,?,?)""",
+        (_token_hash(raw), operator_id, org_id, now_str,
+         (now + SESSION_LIFETIME).isoformat(timespec="seconds"), now_str),
     )
     conn.commit()
     return raw
@@ -138,10 +141,11 @@ def resolve_session(conn: sqlite3.Connection, raw_token: str | None) -> SessionI
     "not logged in" outcome for the caller -- there is no reason to give a
     client-facing distinction between them.
     """
+    import os
     if not raw_token:
         return None
     row = conn.execute(
-        """SELECT s.operator_id, s.org_id, s.expires_at, s.revoked_at,
+        """SELECT s.operator_id, s.org_id, s.expires_at, s.revoked_at, s.last_active,
                   o.name, o.role, o.email, o.is_active, o.super_admin, o.disclaimer_acknowledged_at
            FROM sessions s JOIN operators o ON o.id = s.operator_id
            WHERE s.token_hash = ?""",
@@ -149,14 +153,30 @@ def resolve_session(conn: sqlite3.Connection, raw_token: str | None) -> SessionI
     ).fetchone()
     if row is None or row["revoked_at"] is not None or not row["is_active"]:
         return None
-    if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+    now = datetime.now(timezone.utc)
+    if datetime.fromisoformat(row["expires_at"]) < now:
         return None
+    # p14: Check idle timeout (NULL last_active = grandfathered, skip check)
+    if row["last_active"]:
+        idle_hours = int(os.environ.get("AMLKIT_IDLE_TIMEOUT_HOURS", IDLE_TIMEOUT_HOURS))
+        idle_cutoff = now - timedelta(hours=idle_hours)
+        if datetime.fromisoformat(row["last_active"]) < idle_cutoff:
+            return None
     return SessionInfo(
         operator_id=row["operator_id"], org_id=row["org_id"],
         operator_name=row["name"], operator_role=row["role"], email=row["email"],
         super_admin=bool(row["super_admin"]),
         disclaimer_acknowledged=bool(row["disclaimer_acknowledged_at"]),
     )
+
+
+def update_session_activity(conn: sqlite3.Connection, raw_token: str) -> None:
+    """Update last_active timestamp for idle timeout tracking (p14)."""
+    conn.execute(
+        "UPDATE sessions SET last_active=? WHERE token_hash=? AND revoked_at IS NULL",
+        (utcnow(), _token_hash(raw_token)),
+    )
+    conn.commit()
 
 
 def revoke_session(conn: sqlite3.Connection, raw_token: str) -> None:
