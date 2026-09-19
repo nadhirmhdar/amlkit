@@ -110,6 +110,16 @@ def _run_scheduled_refresh() -> None:
         result = run_sanctions_refresh(conn, actor="scheduler")
         log.info("Scheduled refresh complete: %s", result)
 
+        # Audit the scheduled refresh so MLROs can see automated actions
+        from ..db import audit
+        audit(conn, "scheduler", "system.scheduled_refresh", details={
+            "orgs_screened": result["orgs_screened"],
+            "new_alerts": result["new_alerts"],
+            "datasets_loaded": len(result["loaded"]),
+            "failures": result["failures"]
+        }, org_id=None)
+        conn.commit()
+
         # Check for staleness and notify MLROs if needed
         staleness_result = check_and_notify_staleness(conn)
         log.info("Staleness check complete: %s", staleness_result)
