@@ -1853,7 +1853,8 @@ def admin_set_threshold(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     raw = threshold.strip()
     if not raw:
@@ -1886,7 +1887,8 @@ def admin_reset_password(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     row = db.execute(
         "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
@@ -1920,7 +1922,8 @@ def admin_create_operator(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     if len(password) < 10:
         return back("/admin", err="Password must be at least 10 characters.")
@@ -1959,7 +1962,8 @@ def admin_deactivate_operator(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     row = db.execute(
         "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
@@ -1989,7 +1993,8 @@ def admin_refresh_sanctions(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     result = run_sanctions_refresh(db, actor=session.operator_name)
 
@@ -2020,7 +2025,8 @@ def admin_rescreen(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     from ..match.engine import rescreen_all
     from ..db import audit
@@ -2084,7 +2090,8 @@ def admin_rule_config_post(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin/rule-config", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     from ..screening.kyt import save_rule_config, get_rule_config
 
