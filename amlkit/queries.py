@@ -79,8 +79,17 @@ def dataset_health_banner(conn: sqlite3.Connection) -> dict[str, Any] | None:
     # Check for staleness
     staleness = staleness_report(conn)
     stale_mandatory = [d for d in staleness if d["breach"] and d["mandatory"]]
+    # Exclude code-embedded, version-tracked datasets (e.g., FATF at its expected version)
+    # from optional staleness checks, since they're not "failing to update"
+    from amlkit.ingest.fatf import _FATF_DATA_AS_OF, _FATF_MAX_AGE_HOURS
+    fatf_at_version = conn.execute(
+        "SELECT 1 FROM datasets WHERE key='fatf_country_risk' AND last_refresh=? AND max_age_hours=?",
+        (_FATF_DATA_AS_OF, _FATF_MAX_AGE_HOURS)
+    ).fetchone()
+
     stale_optional = [d for d in staleness if d.get("hours_since_refresh") and
-                      d["hours_since_refresh"] > d.get("max_age_hours", 24) and not d["mandatory"]]
+                      d["hours_since_refresh"] > d.get("max_age_hours", 24) and not d["mandatory"]
+                      and not (d["key"] == "fatf_country_risk" and fatf_at_version)]
 
     if stale_mandatory:
         count = len(stale_mandatory)

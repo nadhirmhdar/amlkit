@@ -140,16 +140,10 @@ class TestSanctionsBanner:
         """Optional source errors should show amber/warning banner."""
         conn = _db_conn()
         old_time = (datetime.now(timezone.utc) - timedelta(hours=50)).isoformat()
-        # Make an optional dataset stale
+        # Make an optional dataset stale (use UN, not FATF which is version-tracked)
         conn.execute(
-            "UPDATE datasets SET last_refresh=?, is_mandatory=0 WHERE id=(SELECT id FROM datasets LIMIT 1)",
+            "UPDATE datasets SET last_refresh=?, is_mandatory=0 WHERE key='un_sc_consolidated'",
             (old_time,)
-        )
-        # Ensure at least one mandatory is fresh so we only see optional warning
-        now = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "UPDATE datasets SET last_refresh=?, is_mandatory=1 WHERE id=(SELECT id FROM datasets WHERE id != (SELECT id FROM datasets LIMIT 1) LIMIT 1)",
-            (now,)
         )
         conn.commit()
         conn.close()
