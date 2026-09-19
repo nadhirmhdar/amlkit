@@ -208,6 +208,43 @@ class TestCustomers:
         assert r.status_code == 200
         assert r.json()["transaction_id"]
 
+    def test_negative_ubo_percentage_returns_422(self, api):
+        """POST /api/v1/customers/{id}/ubo with negative percentage returns 422 validation error."""
+        client, headers = api
+        # Create customer first
+        cid = client.post("/api/v1/customers", headers=headers, json={
+            "reference": "UBO-NEG-TEST", "full_name": "Test Company", "customer_type": "legal",
+        }).json()["customer_id"]
+
+        # Try to add UBO with negative percentage
+        r = client.post(f"/api/v1/customers/{cid}/ubo", headers=headers, json={
+            "person_name": "Negative Owner",
+            "ownership_pct": -25.0,
+            "control_type": "ownership",
+        })
+
+        # Should return 422 (validation error), not 400 or 500
+        assert r.status_code == 422
+        assert "ownership_pct" in r.json()["detail"][0]["loc"]
+
+    def test_ubo_percentage_above_100_returns_422(self, api):
+        """POST /api/v1/customers/{id}/ubo with percentage > 100 returns 422 validation error."""
+        client, headers = api
+        cid = client.post("/api/v1/customers", headers=headers, json={
+            "reference": "UBO-OVER-TEST", "full_name": "Test Company 2", "customer_type": "legal",
+        }).json()["customer_id"]
+
+        # Try to add UBO with percentage > 100
+        r = client.post(f"/api/v1/customers/{cid}/ubo", headers=headers, json={
+            "person_name": "Over Owner",
+            "ownership_pct": 150.0,
+            "control_type": "ownership",
+        })
+
+        # Should return 422 (validation error)
+        assert r.status_code == 422
+        assert "ownership_pct" in r.json()["detail"][0]["loc"]
+
 
 class TestDocumentScan:
     """Route-wiring tests only, not OCR correctness -- `tests/test_ocr.py`

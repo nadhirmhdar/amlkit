@@ -1307,6 +1307,11 @@ def customer_create(
             pct = float(pct_raw) if str(pct_raw).strip() else None
         except ValueError:
             pct = None
+
+        # Validate ownership percentage is in valid range
+        if pct is not None and not (0 <= pct <= 100):
+            return back("/customers/new", err=f"UBO ownership percentage must be between 0 and 100, got {pct}")
+
         ubos.append({
             "person_name": nm,
             "ownership_pct": pct,
@@ -1435,6 +1440,13 @@ def customer_add_ubo(
         pct = float(ownership_pct) if ownership_pct.strip() else None
     except ValueError:
         pct = None
+
+    # Validate ownership percentage is in valid range
+    if pct is not None and not (0 <= pct <= 100):
+        return back(
+            f"/customers/{customer_id}",
+            err=f"UBO ownership percentage must be between 0 and 100, got {pct}"
+        )
 
     # H-01: Validate total direct UBO ownership won't exceed 100%
     if pct is not None:

@@ -36,7 +36,7 @@ from urllib.parse import quote as _urlquote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .. import auth, mail, queries, storage
 from ..cases.manager import (
@@ -722,6 +722,13 @@ class UboAddRequest(BaseModel):
     person_name: str
     ownership_pct: float | None = None
     control_type: str = "ownership"
+
+    @field_validator("ownership_pct")
+    @classmethod
+    def validate_ownership_percentage(cls, v: float | None) -> float | None:
+        if v is not None and not (0 <= v <= 100):
+            raise ValueError(f"ownership_pct must be between 0 and 100, got {v}")
+        return v
 
 
 @router.post("/customers/{customer_id}/ubo")

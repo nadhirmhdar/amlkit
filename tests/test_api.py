@@ -899,6 +899,172 @@ class TestUboValidation:
         ).fetchone()[0]
         assert ubo_count == 1
 
+    def test_negative_ubo_percentage_rejected_on_create(self, client) -> None:
+        """POST /customers with negative UBO percentage is rejected."""
+        r = client.post("/customers", data={
+            "reference": "NEG-TEST-1",
+            "full_name": "Negative Test Company",
+            "customer_type": "legal",
+            "ubo_names": ["Negative Owner"],
+            "ubo_pcts": ["-10.5"],
+            "ubo_controls": ["ownership"],
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+
+        # Should show error message
+        assert "ownership percentage" in r.text.lower() or "must be between" in r.text.lower()
+
+        # Verify customer was NOT created
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='NEG-TEST-1'"
+        ).fetchone()
+        assert customer is None
+
+    def test_negative_ubo_percentage_rejected_on_add(self, client) -> None:
+        """POST /customers/{id}/ubo with negative percentage is rejected."""
+        # Create customer first
+        r1 = client.post("/customers", data={
+            "reference": "NEG-TEST-2",
+            "full_name": "Test Company 2",
+            "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r1.status_code == 200
+
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='NEG-TEST-2'"
+        ).fetchone()
+        assert customer is not None
+        customer_id = customer[0]
+
+        # Try to add UBO with negative percentage
+        r2 = client.post(f"/customers/{customer_id}/ubo", data={
+            "person_name": "Negative Owner",
+            "ownership_pct": "-25",
+            "control_type": "ownership",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        # Should redirect with error
+        assert r2.status_code == 303
+        assert "err=" in r2.headers["location"]
+
+        # Verify UBO was NOT added
+        ubo_count = conn.execute(
+            "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+            (customer_id,)
+        ).fetchone()[0]
+        assert ubo_count == 0
+
+    def test_ubo_percentage_above_100_rejected(self, client) -> None:
+        """POST /customers/{id}/ubo with percentage > 100 is rejected."""
+        # Create customer first
+        r1 = client.post("/customers", data={
+            "reference": "OVER-TEST",
+            "full_name": "Over 100 Test",
+            "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r1.status_code == 200
+
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='OVER-TEST'"
+        ).fetchone()
+        assert customer is not None
+        customer_id = customer[0]
+
+        # Try to add UBO with percentage > 100
+        r2 = client.post(f"/customers/{customer_id}/ubo", data={
+            "person_name": "Over Owner",
+            "ownership_pct": "150",
+            "control_type": "ownership",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        # Should redirect with error
+        assert r2.status_code == 303
+        assert "err=" in r2.headers["location"]
+
+        # Verify UBO was NOT added
+        ubo_count = conn.execute(
+            "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+            (customer_id,)
+        ).fetchone()[0]
+        assert ubo_count == 0
+
+    def test_boundary_zero_percentage_accepted(self, client) -> None:
+        """POST /customers/{id}/ubo with 0% is accepted (boundary case)."""
+        r1 = client.post("/customers", data={
+            "reference": "ZERO-TEST",
+            "full_name": "Zero Test",
+            "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r1.status_code == 200
+
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='ZERO-TEST'"
+        ).fetchone()
+        assert customer is not None
+        customer_id = customer[0]
+
+        # Add UBO with 0% (should be accepted)
+        r2 = client.post(f"/customers/{customer_id}/ubo", data={
+            "person_name": "Zero Owner",
+            "ownership_pct": "0",
+            "control_type": "ownership",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        assert r2.status_code == 303
+        assert "err=" not in r2.headers.get("location", "")
+
+        # Verify UBO was added
+        ubo_count = conn.execute(
+            "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+            (customer_id,)
+        ).fetchone()[0]
+        assert ubo_count == 1
+
+    def test_boundary_100_percentage_accepted(self, client) -> None:
+        """POST /customers/{id}/ubo with 100% is accepted (boundary case)."""
+        r1 = client.post("/customers", data={
+            "reference": "FULL-TEST",
+            "full_name": "Full Test",
+            "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r1.status_code == 200
+
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='FULL-TEST'"
+        ).fetchone()
+        assert customer is not None
+        customer_id = customer[0]
+
+        # Add UBO with 100%
+        r2 = client.post(f"/customers/{customer_id}/ubo", data={
+            "person_name": "Full Owner",
+            "ownership_pct": "100",
+            "control_type": "ownership",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        assert r2.status_code == 303
+        assert "err=" not in r2.headers.get("location", "")
+
+        # Verify UBO was added
+        ubo_count = conn.execute(
+            "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+            (customer_id,)
+        ).fetchone()[0]
+        assert ubo_count == 1
+
 
 class TestCookieSecurity:
     """H-02 (session Secure flag) and M-02 (CSRF HttpOnly) tests."""
