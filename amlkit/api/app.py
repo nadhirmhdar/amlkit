@@ -536,7 +536,7 @@ def setup_submit(
             "session": None, "valid": False, "err": str(exc),
         })
 
-    session_token, _ = auth.login(db, result["email"], password)
+    session_token, _ = auth.login(db, result["email"], password, ip=client_ip(request))
     resp = RedirectResponse("/", status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
