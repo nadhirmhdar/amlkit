@@ -1471,3 +1471,45 @@ def api_report_export(report_id: int, db: DB, session: Session):
         content=xml_content, media_type="application/xml",
         headers={"Content-Disposition": f"attachment; filename=goAML_{rep['report_type']}_{report_id}.xml"},
     )
+
+
+# ----------------------------------------------------------------- audit export
+@router.get("/audit/export")
+def api_audit_export(
+    request: Request,
+    db: DB,
+    session: Session,
+):
+    import csv as _csv
+    from io import StringIO
+
+    _require_mlro(session)
+
+    from_date = request.query_params.get("from", "")
+    to_date = request.query_params.get("to", "")
+
+    query = "SELECT ts, actor, action, object_type, object_id, detail FROM audit_log WHERE org_id = ?"
+    params: list = [session.org_id]
+
+    if from_date:
+        query += " AND ts >= ?"
+        params.append(from_date)
+    if to_date:
+        query += " AND ts <= ?"
+        params.append(to_date + "T23:59:59")
+
+    query += " ORDER BY ts DESC"
+    rows = db.execute(query, params).fetchall()
+
+    buf = StringIO()
+    writer = _csv.writer(buf)
+    writer.writerow(["ts", "actor", "action", "object_type", "object_id", "detail"])
+    for row in rows:
+        writer.writerow([row["ts"], row["actor"], row["action"],
+                         row["object_type"], row["object_id"], row["detail"]])
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=audit_export.csv"},
+    )
