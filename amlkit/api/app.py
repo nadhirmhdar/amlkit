@@ -113,7 +113,16 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     mandatory_failures: list[str] = []
     for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
                      EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
-        adapter = factory()
+        try:
+            adapter = factory()
+        except (ValueError, AdapterError) as exc:
+            # Configuration error (e.g. missing EU token) or adapter initialization failure
+            adapter_name = getattr(factory, "__name__", str(factory))
+            msg = f"{adapter_name}: Configuration error - {exc}"
+            failures.append(msg)
+            log.warning("Adapter initialization failed: %s", msg)
+            continue
+
         try:
             result = load(conn, adapter, actor=actor)
             loaded.append(f"{adapter.title}: {result.entities} entities")

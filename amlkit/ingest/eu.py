@@ -26,18 +26,19 @@ import httpx
 from .base import AdapterError, SourceEntity
 
 BASE_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content"
-DEFAULT_TOKEN = "dG9rZW4tMjAxNy0xMS0xMw"
 ENV_TOKEN = "AMLKIT_EU_FSF_TOKEN"
 USER_AGENT = "amlkit/0.1 (UAE AML screening; compliance tooling)"
 
 
 def list_url() -> str:
-    token = os.environ.get(ENV_TOKEN, "").strip() or DEFAULT_TOKEN
+    token = os.environ.get(ENV_TOKEN, "").strip()
+    if not token:
+        raise ValueError(
+            f"{ENV_TOKEN} environment variable is required. "
+            "Register at https://webgate.ec.europa.eu/fsd/fsf to obtain a token. "
+            "The EU Consolidated Sanctions List cannot be fetched without authentication."
+        )
     return f"{BASE_URL}?token={token}"
-
-
-# Kept for callers that imported the module-level constant.
-URL = list_url()
 
 
 class EUSanctionsAdapter:
