@@ -784,6 +784,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("org_settings", "kyt_velocity_window_hours", "ALTER TABLE org_settings ADD COLUMN kyt_velocity_window_hours INTEGER"),
     ("org_settings", "kyt_velocity_max_count", "ALTER TABLE org_settings ADD COLUMN kyt_velocity_max_count INTEGER"),
     ("org_settings", "kyt_high_risk_countries", "ALTER TABLE org_settings ADD COLUMN kyt_high_risk_countries TEXT"),  # JSON list
+    # p14: Idle session timeout. NULL on existing sessions; grandfathered until absolute expiry.
+    ("sessions", "last_active", "ALTER TABLE sessions ADD COLUMN last_active TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
