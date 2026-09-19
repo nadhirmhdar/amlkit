@@ -563,15 +563,31 @@ def _scan_document(content: bytes, extractor) -> dict:
 @router.post("/customers/scan-passport")
 def api_scan_passport(session: Session, passport_file: UploadFile):
     from ..cases.ocr import extract_passport_data
+    from ..validation import validate_file_mime
 
-    return _scan_document(passport_file.file.read(), extract_passport_data)
+    content = passport_file.file.read()
+    # Validate MIME type
+    try:
+        validate_file_mime(content, passport_file.filename or "passport.jpg")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return _scan_document(content, extract_passport_data)
 
 
 @router.post("/customers/scan-emirates-id")
 def api_scan_emirates_id(session: Session, emirates_id_file: UploadFile):
     from ..cases.ocr import extract_emirates_id_data
+    from ..validation import validate_file_mime
 
-    return _scan_document(emirates_id_file.file.read(), extract_emirates_id_data)
+    content = emirates_id_file.file.read()
+    # Validate MIME type
+    try:
+        validate_file_mime(content, emirates_id_file.filename or "emirates_id.jpg")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return _scan_document(content, extract_emirates_id_data)
 
 
 @router.get("/customers/{customer_id}")
@@ -940,6 +956,14 @@ def api_customer_upload_document(
         raise HTTPException(status_code=400, detail="filename is required.")
 
     content = file.file.read()
+
+    # Validate MIME type by magic bytes before accepting upload
+    from ..validation import validate_file_mime
+    try:
+        detected_mime = validate_file_mime(content, file.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     sha256 = hashlib.sha256(content).hexdigest()
 
     # Prevent path traversal: store only the basename, never relative segments.
