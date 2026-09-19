@@ -809,39 +809,17 @@ def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, form: An
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="Execute freeze requires MLRO role")
 
-    operator = session.operator_name
+    from ..cases import freeze as freeze_ops, manager
+    assets_frozen = freeze_ops.parse_freeze_assets_from_form(form)
 
-    notes = form.get("notes", "")
-    
-    assets_frozen = []
-    i = 1
-    while f"asset_type_{i}" in form:
-        asset_type = form[f"asset_type_{i}"]
-        identifier = form[f"asset_identifier_{i}"]
-        amount_str = form.get(f"asset_amount_{i}", "0")
-        
-        try:
-            amount = float(amount_str) if amount_str else 0.0
-        except ValueError:
-            amount = 0.0
-        
-        if asset_type and identifier:
-            assets_frozen.append({
-                "type": asset_type,
-                "identifier": identifier,
-                "amount_aed": amount
-            })
-        i += 1
-    
-    from ..cases import manager
     try:
         manager.execute_freeze(
             db,
             freeze_id,
             org_id=session.org_id,
-            executed_by=operator,
+            executed_by=session.operator_name,
             assets_frozen=assets_frozen,
-            notes=notes
+            notes=form.get("notes", "")
         )
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
@@ -861,69 +839,22 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="File FFR requires MLRO role")
 
-    org_id = session.org_id
-    operator = session.operator_name
-
-    freeze = db.execute("""
-        SELECT f.*, c.reference, c.full_name, c.customer_type,
-               c.birth_date, c.gender, c.nationality, c.id_number, c.id_type
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        WHERE f.id = ? AND f.org_id = ?
-    """, (freeze_id, org_id)).fetchone()
-
-    if not freeze or freeze["status"] != "executed_pending_report":
-        return back(f"/freeze-obligations/{freeze_id}", err="Freeze not ready for FFR filing")
-
-    reporter_name = form.get("reporter_name") or operator
+    from ..cases import freeze as freeze_ops
+    reporter_name = form.get("reporter_name") or session.operator_name
     reporter_email = form.get("reporter_email", "")
-    
-    import json
-    report_payload = {
-        "report_type": "FFR",
-        "freeze_obligation_id": freeze_id,
-        "customer_id": freeze["customer_id"],
-        "obligation_type": freeze["obligation_type"],
-        "identified_at": freeze["identified_at"],
-        "executed_at": freeze["executed_at"],
-        "assets_frozen": json.loads(freeze["assets_frozen"] or "[]"),
-        "authority_ref": freeze["authority_ref"],
-        "reporter_name": reporter_name,
-        "reporter_email": reporter_email,
-        "first_name": freeze["full_name"].split()[0],
-        "last_name": " ".join(freeze["full_name"].split()[1:]),
-        "customer_type": freeze["customer_type"],
-        "reference": freeze["reference"],
-        "birth_date": freeze["birth_date"],
-        "gender": freeze["gender"],
-        "nationality": freeze["nationality"],
-        "id_number": freeze["id_number"],
-        "id_type": freeze["id_type"],
-    }
-    
-    from ..reporting import goaml
-    xml_content = goaml.serialize_goaml_xml(report_payload)
-    
-    from ..db import utcnow
-    now = utcnow()
-    cursor = db.execute("""
-        INSERT INTO reports
-        (org_id, customer_id, report_type, status, payload, created_at)
-        VALUES (?, ?, 'FFR', 'draft', ?, ?)
-    """, (org_id, freeze["customer_id"], json.dumps(report_payload), now))
-    report_id = cursor.lastrowid
-    
-    db.execute("""
-        UPDATE freeze_obligations
-        SET report_id = ?, reported_at = ?, status = 'reported'
-        WHERE id = ?
-    """, (report_id, now, freeze_id))
-    
-    from ..db import audit
-    audit(db, operator, "freeze.reported", "freeze_obligation", freeze_id,
-          {"report_id": report_id}, org_id=org_id)
-    db.commit()
-    
+
+    try:
+        report_id = freeze_ops.file_ffr_report(
+            db,
+            freeze_id,
+            session.org_id,
+            reporter_name,
+            reporter_email,
+            session.operator_name
+        )
+    except ValueError as exc:
+        return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
