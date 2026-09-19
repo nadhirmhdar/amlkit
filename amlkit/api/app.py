@@ -319,14 +319,6 @@ async def request_id_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
-async def ensure_csrf_cookie(request: Request, call_next):
-    # CSRF cookie is now set directly by render() so that the same token
-    # goes into both the form hidden field and the cookie. This middleware
-    # is kept as a passthrough only — it no longer generates tokens.
-    return await call_next(request)
-
-
-@app.middleware("http")
 async def extract_login_email(request: Request, call_next):
     """Extract email from login POST requests for rate limiting.
 
