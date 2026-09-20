@@ -174,6 +174,22 @@ CREATE TABLE IF NOT EXISTS auth_log (
 CREATE INDEX IF NOT EXISTS ix_authlog_ts    ON auth_log(ts);
 CREATE INDEX IF NOT EXISTS ix_authlog_email ON auth_log(email_attempted);
 
+-- ---------------------------------------------------------------- MFA (p15)
+CREATE TABLE IF NOT EXISTS mfa_secrets (
+    operator_id  INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
+    secret       TEXT NOT NULL,
+    enrolled_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mfa_backup_codes (
+    id           INTEGER PRIMARY KEY,
+    operator_id  INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    code_hash    TEXT NOT NULL,
+    used_at      TEXT,
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_mfa_backup_op ON mfa_backup_codes(operator_id);
+
 -- One-time tokens for claiming the first admin login after a fresh-from-v1
 -- migration. Hashed at rest like everything else login-adjacent; the raw
 -- value only ever appears once, printed to the console at startup.

@@ -2751,3 +2751,70 @@ def change_password(
     db.commit()
     
     return back("/profile", msg="Password changed successfully. All other sessions have been signed out.")
+
+
+# ------------------------------------------------------------------ MFA TOTP (p15)
+@app.get("/mfa/setup", response_class=HTMLResponse)
+def mfa_setup_form(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    enrolled = auth.mfa_is_enrolled(db, session.operator_id)
+    secret, qr_uri, backup_codes = None, None, []
+    if not enrolled:
+        secret, qr_uri, backup_codes = auth.mfa_enroll(db, session.operator_id)
+
+    return render(request, "mfa_setup.html", {
+        "session": session,
+        "enrolled": enrolled,
+        "qr_uri": qr_uri,
+        "secret": secret,
+        "backup_codes": backup_codes,
+    })
+
+
+@app.post("/mfa/setup")
+def mfa_setup_confirm(
+    request: Request, db: DB,
+    code: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/mfa/setup", err=str(exc))
+
+    if auth.mfa_verify(db, session.operator_id, code):
+        from ..db import audit
+        audit(db, session.operator_name, "operator.mfa_enabled", "operator",
+              session.operator_id, None, org_id=session.org_id)
+        db.commit()
+        return back("/mfa/setup", msg="MFA enabled successfully.")
+
+    return back("/mfa/setup", err="Invalid code. Please try again.")
+
+
+@app.post("/mfa/disable")
+def mfa_disable_submit(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/mfa/setup", err=str(exc))
+
+    auth.mfa_disable(db, session.operator_id)
+    from ..db import audit
+    audit(db, session.operator_name, "operator.mfa_disabled", "operator",
+          session.operator_id, None, org_id=session.org_id)
+    db.commit()
+    return back("/mfa/setup", msg="MFA disabled.")

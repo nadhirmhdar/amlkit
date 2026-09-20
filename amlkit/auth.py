@@ -508,52 +508,59 @@ def csrf_valid(cookie_value: str | None, form_value: str | None) -> bool:
 
 # --------------------------------------------------------------------- MFA/TOTP (p15)
 def mfa_enroll(conn, operator_id: int):
-    """Enroll operator in MFA. Returns (secret, qr_uri)."""
+    """Enroll operator in MFA. Returns (secret, qr_uri, backup_codes)."""
     import pyotp
-    import secrets as sec
-    
-    # Generate secret
+
     secret = pyotp.random_base32()
-    
-    # Get operator email for QR code
+
     row = conn.execute("SELECT email, name FROM operators WHERE id=?", (operator_id,)).fetchone()
     email = row["email"]
-    name = row["name"]
-    
-    # Store secret
+
     from .db import utcnow
     now = utcnow()
     conn.execute(
         "INSERT OR REPLACE INTO mfa_secrets (operator_id, secret, enrolled_at) VALUES (?,?,?)",
         (operator_id, secret, now)
     )
-    
-    # Generate backup codes
-    _generate_backup_codes(conn, operator_id)
-    
+
+    backup_codes = _generate_backup_codes(conn, operator_id)
     conn.commit()
-    
-    # Generate QR URI
+
     totp = pyotp.TOTP(secret)
     qr_uri = totp.provisioning_uri(name=email, issuer_name="amlkit")
-    
-    return secret, qr_uri
+
+    return secret, qr_uri, backup_codes
+
+
+def mfa_is_enrolled(conn, operator_id: int) -> bool:
+    """Check if operator has MFA enrolled."""
+    row = conn.execute(
+        "SELECT 1 FROM mfa_secrets WHERE operator_id=?", (operator_id,)
+    ).fetchone()
+    return row is not None
 
 
 def mfa_verify(conn, operator_id: int, code: str) -> bool:
     """Verify TOTP code for operator."""
     import pyotp
-    
+
     row = conn.execute(
         "SELECT secret FROM mfa_secrets WHERE operator_id=?",
         (operator_id,)
     ).fetchone()
-    
+
     if not row:
         return False
-    
+
     totp = pyotp.TOTP(row["secret"])
     return totp.verify(code, valid_window=1)
+
+
+def mfa_disable(conn, operator_id: int) -> None:
+    """Remove MFA enrollment for operator."""
+    conn.execute("DELETE FROM mfa_secrets WHERE operator_id=?", (operator_id,))
+    conn.execute("DELETE FROM mfa_backup_codes WHERE operator_id=?", (operator_id,))
+    conn.commit()
 
 
 def mfa_get_backup_codes(conn, operator_id: int) -> list:
@@ -590,21 +597,21 @@ def mfa_verify_backup_code(conn, operator_id: int, code: str) -> bool:
     return False
 
 
-def _generate_backup_codes(conn, operator_id: int) -> None:
-    """Generate 10 backup codes for operator."""
+def _generate_backup_codes(conn, operator_id: int) -> list[str]:
+    """Generate 10 backup codes for operator. Returns the raw codes."""
     import secrets as sec
     from .db import utcnow
-    
+
     now = utcnow()
-    
-    # Delete old backup codes
     conn.execute("DELETE FROM mfa_backup_codes WHERE operator_id=?", (operator_id,))
-    
-    # Generate 10 new codes
+
+    raw_codes = []
     for _ in range(10):
-        code = sec.token_hex(4)  # 8-character hex code
+        code = sec.token_hex(4)
         code_hash = _hasher.hash(code)
         conn.execute(
             "INSERT INTO mfa_backup_codes (operator_id, code_hash, created_at) VALUES (?,?,?)",
             (operator_id, code_hash, now)
         )
+        raw_codes.append(code)
+    return raw_codes

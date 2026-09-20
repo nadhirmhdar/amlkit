@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% set nav = 'profile' %}
+{% block title %}MFA Setup — amlkit{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Two-Factor Authentication</h1>
+</div>
+
+{% if enrolled %}
+<div class="panel" style="max-width:500px;">
+  <p>MFA is <strong>enabled</strong> for your account.</p>
+  <form method="post" action="/mfa/disable">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="btn btn--danger">Disable MFA</button>
+  </form>
+</div>
+
+{% else %}
+<div class="panel" style="max-width:500px;">
+  <p>Scan the QR code below with your authenticator app (Google Authenticator, Authy, etc.).</p>
+
+  {% if qr_uri %}
+  <div style="margin:1rem 0;word-break:break-all;">
+    <code>{{ qr_uri }}</code>
+  </div>
+
+  {% if secret %}
+  <p><strong>Manual entry key:</strong> <code>{{ secret }}</code></p>
+  {% endif %}
+  {% endif %}
+
+  <form method="post" action="/mfa/setup">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="code">Enter the 6-digit code from your authenticator</label>
+    <input type="text" name="code" id="code" required class="input"
+           pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" inputmode="numeric">
+    <button type="submit" class="btn">Verify &amp; Enable MFA</button>
+  </form>
+
+  {% if backup_codes %}
+  <div style="margin-top:1.5rem;">
+    <h3>Backup Codes</h3>
+    <p class="small muted">Save these codes in a safe place. Each can be used once if you lose access to your authenticator.</p>
+    <pre style="background:#f5f5f5;padding:1rem;border-radius:4px;">{% for c in backup_codes %}{{ c }}
+{% endfor %}</pre>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}
