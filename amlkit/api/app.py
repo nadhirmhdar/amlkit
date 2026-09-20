@@ -809,39 +809,17 @@ def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, form: An
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="Execute freeze requires MLRO role")
 
-    operator = session.operator_name
+    from ..cases import freeze as freeze_ops, manager
+    assets_frozen = freeze_ops.parse_freeze_assets_from_form(form)
 
-    notes = form.get("notes", "")
-    
-    assets_frozen = []
-    i = 1
-    while f"asset_type_{i}" in form:
-        asset_type = form[f"asset_type_{i}"]
-        identifier = form[f"asset_identifier_{i}"]
-        amount_str = form.get(f"asset_amount_{i}", "0")
-        
-        try:
-            amount = float(amount_str) if amount_str else 0.0
-        except ValueError:
-            amount = 0.0
-        
-        if asset_type and identifier:
-            assets_frozen.append({
-                "type": asset_type,
-                "identifier": identifier,
-                "amount_aed": amount
-            })
-        i += 1
-    
-    from ..cases import manager
     try:
         manager.execute_freeze(
             db,
             freeze_id,
             org_id=session.org_id,
-            executed_by=operator,
+            executed_by=session.operator_name,
             assets_frozen=assets_frozen,
-            notes=notes
+            notes=form.get("notes", "")
         )
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
@@ -861,69 +839,22 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="File FFR requires MLRO role")
 
-    org_id = session.org_id
-    operator = session.operator_name
-
-    freeze = db.execute("""
-        SELECT f.*, c.reference, c.full_name, c.customer_type,
-               c.birth_date, c.gender, c.nationality, c.id_number, c.id_type
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        WHERE f.id = ? AND f.org_id = ?
-    """, (freeze_id, org_id)).fetchone()
-
-    if not freeze or freeze["status"] != "executed_pending_report":
-        return back(f"/freeze-obligations/{freeze_id}", err="Freeze not ready for FFR filing")
-
-    reporter_name = form.get("reporter_name") or operator
+    from ..cases import freeze as freeze_ops
+    reporter_name = form.get("reporter_name") or session.operator_name
     reporter_email = form.get("reporter_email", "")
-    
-    import json
-    report_payload = {
-        "report_type": "FFR",
-        "freeze_obligation_id": freeze_id,
-        "customer_id": freeze["customer_id"],
-        "obligation_type": freeze["obligation_type"],
-        "identified_at": freeze["identified_at"],
-        "executed_at": freeze["executed_at"],
-        "assets_frozen": json.loads(freeze["assets_frozen"] or "[]"),
-        "authority_ref": freeze["authority_ref"],
-        "reporter_name": reporter_name,
-        "reporter_email": reporter_email,
-        "first_name": freeze["full_name"].split()[0],
-        "last_name": " ".join(freeze["full_name"].split()[1:]),
-        "customer_type": freeze["customer_type"],
-        "reference": freeze["reference"],
-        "birth_date": freeze["birth_date"],
-        "gender": freeze["gender"],
-        "nationality": freeze["nationality"],
-        "id_number": freeze["id_number"],
-        "id_type": freeze["id_type"],
-    }
-    
-    from ..reporting import goaml
-    xml_content = goaml.serialize_goaml_xml(report_payload)
-    
-    from ..db import utcnow
-    now = utcnow()
-    cursor = db.execute("""
-        INSERT INTO reports
-        (org_id, customer_id, report_type, status, payload, created_at)
-        VALUES (?, ?, 'FFR', 'draft', ?, ?)
-    """, (org_id, freeze["customer_id"], json.dumps(report_payload), now))
-    report_id = cursor.lastrowid
-    
-    db.execute("""
-        UPDATE freeze_obligations
-        SET report_id = ?, reported_at = ?, status = 'reported'
-        WHERE id = ?
-    """, (report_id, now, freeze_id))
-    
-    from ..db import audit
-    audit(db, operator, "freeze.reported", "freeze_obligation", freeze_id,
-          {"report_id": report_id}, org_id=org_id)
-    db.commit()
-    
+
+    try:
+        report_id = freeze_ops.file_ffr_report(
+            db,
+            freeze_id,
+            session.org_id,
+            reporter_name,
+            reporter_email,
+            session.operator_name
+        )
+    except ValueError as exc:
+        return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
@@ -2700,6 +2631,90 @@ def ai_draft_narrative(
     })
 
 
+# ----------------------------------------------------- compliance calendar (p21)
+@app.get("/compliance/calendar", response_class=HTMLResponse)
+def compliance_calendar_view(request: Request, db: DB):
+    """Compliance calendar list view."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    deadlines = queries.compliance_deadlines(db, session.org_id)
+    from ..db import utcnow
+    now = utcnow()
+    for d in deadlines:
+        d["is_overdue"] = d["due_date"] < now and d["completed_at"] is None
+
+    return render(request, "compliance_calendar.html", {"session": session, "deadlines": deadlines})
+
+@app.get("/compliance/deadlines")
+def compliance_deadlines_list(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return queries.compliance_deadlines(db, session.org_id)
+
+@app.post("/compliance/deadlines")
+def compliance_deadlines_create(
+    request: Request, db: DB,
+    title: Annotated[str, Form()],
+    due_date: Annotated[str, Form()],
+    description: Annotated[str, Form()] = "",
+    recurrence: Annotated[str, Form()] = "one-time",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return Response(status_code=403)
+    from ..db import audit, utcnow
+    cur = db.execute(
+        "INSERT INTO compliance_deadlines (org_id, title, description, due_date, recurrence, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (session.org_id, title, description, due_date, recurrence, utcnow())
+    )
+    deadline_id = cur.lastrowid
+    audit(db, session.operator_name, "compliance.deadline_created", "compliance_deadline", deadline_id,
+          {"title": title}, org_id=session.org_id)
+    db.commit()
+    return queries.compliance_deadline(db, session.org_id, deadline_id)
+
+@app.patch("/compliance/deadlines/{deadline_id}")
+def compliance_deadlines_update(
+    request: Request, db: DB, deadline_id: int,
+    title: Annotated[str | None, Form()] = None,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return Response(status_code=403)
+    existing = queries.compliance_deadline(db, session.org_id, deadline_id)
+    if existing is None:
+        return Response(status_code=404)
+    if title:
+        db.execute("UPDATE compliance_deadlines SET title=? WHERE id=? AND org_id=?", (title, deadline_id, session.org_id))
+        db.commit()
+    return queries.compliance_deadline(db, session.org_id, deadline_id)
+
+@app.delete("/compliance/deadlines/{deadline_id}")
+def compliance_deadlines_delete(request: Request, db: DB, deadline_id: int, csrf_token: Annotated[str, Form()] = ""):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return Response(status_code=403)
+    existing = queries.compliance_deadline(db, session.org_id, deadline_id)
+    if existing is None:
+        return Response(status_code=404)
+    db.execute("DELETE FROM compliance_deadlines WHERE id=? AND org_id=?", (deadline_id, session.org_id))
+    db.commit()
+    return {"ok": True}
+
+
 # ------------------------------------------------------------------ profile/password change (p16)
 @app.get("/profile", response_class=HTMLResponse)
 def profile_view(request: Request, db: DB):
@@ -2726,28 +2741,25 @@ def change_password(
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
         return back("/profile", err=str(exc))
-    
-    # Get operator
+
     operator = db.execute(
         "SELECT id, password_hash FROM operators WHERE id=?",
         (session.operator_id,)
     ).fetchone()
-    
+
     if not operator or not auth.verify_password(old_password, operator["password_hash"]):
         return back("/profile", err="Current password is incorrect.")
-    
-    # Validate new password complexity
+
     try:
         auth.validate_password_complexity(new_password)
     except auth.PasswordComplexityError as exc:
         return back("/profile", err=str(exc))
-    
-    # Update password
+
     auth.set_password(db, session.operator_id, new_password)
-    
+
     from ..db import audit
     audit(db, session.operator_name, "operator.password_changed", "operator", session.operator_id,
           None, org_id=session.org_id)
     db.commit()
-    
+
     return back("/profile", msg="Password changed successfully. All other sessions have been signed out.")
