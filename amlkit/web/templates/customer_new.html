@@ -53,6 +53,12 @@
   <div class="step-indicator">2</div>
   <h2>Risk factors</h2>
   <div class="row">
+    <div><label>Purpose of relationship</label>
+      <input type="text" name="purpose_of_relationship" placeholder="e.g., investment advisory, payment processing"></div>
+    <div><label>Expected activity</label>
+      <input type="text" name="expected_activity" placeholder="e.g., monthly transfers under AED 50,000"></div>
+  </div>
+  <div class="row">
     <div><label>Sector</label><select name="sector">
       {% for s in sectors %}<option value="{{ s }}">{{ s.replace('_',' ') }}</option>{% endfor %}
     </select></div>

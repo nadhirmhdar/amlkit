@@ -766,6 +766,9 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "contact_person", "ALTER TABLE customers ADD COLUMN contact_person TEXT"),
     ("customers", "contact_phone",  "ALTER TABLE customers ADD COLUMN contact_phone  TEXT"),
     ("customers", "contact_email",  "ALTER TABLE customers ADD COLUMN contact_email  TEXT"),
+    # p35: CDD enhancement — purpose of relationship and expected activity
+    ("customers", "purpose_of_relationship", "ALTER TABLE customers ADD COLUMN purpose_of_relationship TEXT"),
+    ("customers", "expected_activity",       "ALTER TABLE customers ADD COLUMN expected_activity       TEXT"),
     ("datasets",  "max_age_hours",  "ALTER TABLE datasets ADD COLUMN max_age_hours INTEGER NOT NULL DEFAULT 24"),
     ("operators", "super_admin",    "ALTER TABLE operators ADD COLUMN super_admin INTEGER NOT NULL DEFAULT 0"),
     ("datasets",  "staleness_notified_at", "ALTER TABLE datasets ADD COLUMN staleness_notified_at TEXT"),

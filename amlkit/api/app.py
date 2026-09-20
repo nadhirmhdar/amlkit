@@ -1063,6 +1063,8 @@ def customer_create(
     ubo_names: Annotated[list[str], Form()] = [],
     ubo_pcts: Annotated[list[str], Form()] = [],
     ubo_controls: Annotated[list[str], Form()] = [],
+    purpose_of_relationship: Annotated[str, Form()] = "",
+    expected_activity: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
 ):
     try:
@@ -1103,6 +1105,8 @@ def customer_create(
             gender=gender.strip() or None, trade_licence=trade_licence.strip() or None,
             sector=sector, delivery_channel=delivery_channel, cash_level=cash_level,
             jurisdiction_tier=jurisdiction_tier, structure=structure,
+            purpose_of_relationship=purpose_of_relationship.strip() or None,
+            expected_activity=expected_activity.strip() or None,
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         )
