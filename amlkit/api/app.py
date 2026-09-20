@@ -639,6 +639,7 @@ def register_org_form(request: Request, db: DB):
 
 
 @app.post("/register-organization")
+@limiter.limit("10/minute")
 def register_org_submit(
     request: Request, db: DB,
     org_name: Annotated[str, Form()],
@@ -712,6 +713,7 @@ def verify_email(request: Request, db: DB, token: str = ""):
 
 
 @app.post("/resend-verification")
+@limiter.limit("10/minute")
 def resend_verification(
     request: Request, db: DB,
     email: Annotated[str, Form()],
@@ -2564,7 +2566,11 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
     rep = queries.report(db, report_id, session.org_id)
     if not rep:
         return back("/reports", err="Report not found")
-    
+
+    # Check if already submitted (t2)
+    if rep["status"] == "submitted":
+        return back(f"/reports/{report_id}", err="Report has already been submitted to UAE FIU.")
+
     # Validate required fields before submission (p17)
     import json
     try:
