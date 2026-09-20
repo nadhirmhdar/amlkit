@@ -2618,17 +2618,17 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
     except (json.JSONDecodeError, TypeError):
         return back(f"/reports/{report_id}", err="Report data is invalid. Cannot submit.")
     
-    # Check for required fields based on report type
-    required_fields = ["reporting_entity_name", "report_code", "submission_code", "reason"]
+    # Check for required fields (match save_report payload keys)
+    required_fields = ["reporting_entity_name", "report_type", "first_name", "reason_description"]
     missing = [f for f in required_fields if not payload.get(f)]
-    
+
     if missing:
-        return back(f"/reports/{report_id}", 
+        return back(f"/reports/{report_id}",
                    err=f"Cannot submit report. Missing required fields: {', '.join(missing)}")
-    
+
     # Validate at least one transaction or subject
     if not payload.get("transactions") and not payload.get("entities"):
-        return back(f"/reports/{report_id}", 
+        return back(f"/reports/{report_id}",
                    err="Cannot submit report. Must include at least one transaction or entity.")
 
     now = utcnow()
