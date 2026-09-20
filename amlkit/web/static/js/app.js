@@ -279,8 +279,11 @@ function filterCustomers(query) {
 // Password toggle (login page)
 function togglePassword() {
   const pwd = document.getElementById('password-input');
-  if (pwd) {
-    pwd.type = pwd.type === 'password' ? 'text' : 'password';
+  const toggle = document.querySelector('[data-action="toggle-password"]');
+  if (pwd && toggle) {
+    const isPassword = pwd.type === 'password';
+    pwd.type = isPassword ? 'text' : 'password';
+    toggle.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
   }
 }
 
