@@ -1484,16 +1484,18 @@ def customer_add_signature(
 
 # --------------------------------------------------------------------- alerts
 @app.get("/alerts", response_class=HTMLResponse)
-def alerts(request: Request, db: DB, status: str = "open"):
+def alerts(request: Request, db: DB, status: str = "open", sort: str = "age_asc"):
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status)
+    # Validate sort parameter
+    sort_by = sort if sort in ("age_asc", "age_desc") else "age_asc"
+    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status, sort_by=sort_by)
     for a in queue:
         a["reviews"] = review_history(db, a["id"], session.org_id)
     return render(request, "alerts.html", {
-        "session": session, "alerts": queue, "status": status, "reason_codes": REASON_CODES,
+        "session": session, "alerts": queue, "status": status, "sort": sort_by, "reason_codes": REASON_CODES,
     })
 
 
