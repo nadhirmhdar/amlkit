@@ -254,17 +254,19 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     ctx.setdefault("security_warning", startup_warning())
     ctx.setdefault("single_operator", single_operator_mode())
     # Read flash message from cookie (Issue #102) with URL param fallback.
+    # Cookie value is base64-encoded JSON to avoid HTTP quoting of {/"/} chars.
     import json as _json
+    import base64 as _b64
     _flash_raw = request.cookies.get(_FLASH_COOKIE)
     _flash_msg = _flash_err = ""
     if _flash_raw:
         try:
-            _flash = _json.loads(_flash_raw)
+            _flash = _json.loads(_b64.b64decode(_flash_raw.encode()).decode())
             if _flash.get("type") == "msg":
                 _flash_msg = _flash.get("text", "")
             elif _flash.get("type") == "err":
                 _flash_err = _flash.get("text", "")
-        except (ValueError, KeyError):
+        except Exception:
             pass
     ctx.setdefault("msg", _flash_msg or request.query_params.get("msg"))
     ctx.setdefault("err", _flash_err or request.query_params.get("err"))
@@ -334,15 +336,19 @@ def set_flash_cookie(response: Response, msg: str = "", err: str = ""):
     """Store flash message in signed cookie for one-time display after redirect.
 
     The flash cookie is consumed (deleted) on first read, ensuring messages
-    appear exactly once. Uses same signing mechanism as CSRF tokens.
+    appear exactly once.  Value is base64-encoded JSON so the cookie contains
+    only safe characters and avoids HTTP quoting of { / " / } which causes
+    JSONDecodeError when the quoted value is read back with backslash escapes.
     """
-    import json
+    import json, base64
     if msg:
-        flash_data = json.dumps({"type": "msg", "text": msg})
+        raw = json.dumps({"type": "msg", "text": msg})
+        flash_data = base64.b64encode(raw.encode()).decode()
         response.set_cookie(_FLASH_COOKIE, flash_data, max_age=60, httponly=True,
                            samesite="lax", secure=os.environ.get("AMLKIT_BEHIND_PROXY") == "1")
     elif err:
-        flash_data = json.dumps({"type": "err", "text": err})
+        raw = json.dumps({"type": "err", "text": err})
+        flash_data = base64.b64encode(raw.encode()).decode()
         response.set_cookie(_FLASH_COOKIE, flash_data, max_age=60, httponly=True,
                            samesite="lax", secure=os.environ.get("AMLKIT_BEHIND_PROXY") == "1")
 
