@@ -32,6 +32,15 @@ from .screening.pf import classify_programs, obligation_note
 CATEGORY_RANK = {"proliferation": 0, "terrorism": 1, "sanction": 2, "pep": 3, "other": 4}
 
 
+def organization_name(conn: sqlite3.Connection, org_id: int) -> str | None:
+    """Fetch the organization name for the given org_id.
+
+    Returns None if the organization does not exist.
+    """
+    row = conn.execute("SELECT name FROM organizations WHERE id = ?", (org_id,)).fetchone()
+    return row["name"] if row else None
+
+
 def _category(topics: list[str], programs: list[str]) -> str:
     cats = classify_programs(programs)
     if "proliferation" in cats:

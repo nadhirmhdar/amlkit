@@ -33,35 +33,17 @@
   </div>
 </div>
 
-{% if alerts %}
-<div class="mb-6">
-  <div class="section-label">Alerts on this customer</div>
-  <div class="stack">
-    {% for a in alerts %}
-      <div class="alert-card">
-        <div class="alert-head">
-          <h3 style="font-size:16px;">{{ name(a.caption) }}</h3>
-          <div style="display:flex; gap:12px; align-items:center;">
-            <span class="tag {{ a.category }}">{{ a.category }}</span>
-            <span class="score">{{ '%.3f'|format(a.score) }}</span>
-          </div>
-        </div>
-        <div class="muted small">
-          {{ a.dataset_title }}
-          {% if a.via_ubo %} · matched via beneficial owner
-            <strong>{{ a.matched_party }}</strong>{% endif %}
-        </div>
-        {{ aliases(a.aliases) }}
-        <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
-        <details class="evidence"><summary></summary>
-          {{ score_breakdown(a.detail) }}</details>
-        {{ review_trail(a.reviews) }}
-        {{ disposition_form(a, reason_codes, '/customers/' ~ c.id) }}
-      </div>
-    {% endfor %}
-  </div>
+{# ---- Tab bar ---- #}
+<div class="tab-filter" id="customer-tabs">
+  <a href="#overview" data-tab="overview" onclick="switchTab('overview');return false;">Overview</a>
+  <a href="#alerts" data-tab="alerts" onclick="switchTab('alerts');return false;">Alerts{% if alerts %} <span style="font-weight:800; color:var(--danger); margin-left:4px;">{{ alerts|length }}</span>{% endif %}</a>
+  <a href="#monitoring" data-tab="monitoring" onclick="switchTab('monitoring');return false;">Monitoring</a>
+  <a href="#casefile" data-tab="casefile" onclick="switchTab('casefile');return false;">Case file</a>
+  <a href="#history" data-tab="history" onclick="switchTab('history');return false;">History</a>
 </div>
-{% endif %}
+
+{# ---- Tab: Overview ---- #}
+<div class="tab-panel" id="tab-overview">
 
 <div class="grid two mb-6">
   <div>
@@ -135,36 +117,47 @@
 </div>
 {% endif %}
 
+</div>{# end tab-overview #}
+
+{# ---- Tab: Alerts ---- #}
+<div class="tab-panel" id="tab-alerts">
+
+{% if alerts %}
 <div class="mb-6">
-  <div class="section-label">Notes</div>
-  <p class="muted small mt-0">
-    Investigative narrative not tied to any one alert — periodic review
-    commentary, source-of-wealth notes, anything that belongs in the case
-    file but isn't a disposition decision.
-  </p>
-  {% if notes %}
-    <div class="flat-list mb-4">
-      {% for n in notes %}
-      <div class="list-row" style="align-items:flex-start; display:block;">
-        <div class="small">
-          <strong>{{ n.author }}</strong> ·
-          <span class="muted">{{ n.created_at[:16].replace('T',' ') }}</span>
+  <div class="section-label">Alerts on this customer</div>
+  <div class="stack">
+    {% for a in alerts %}
+      <div class="alert-card">
+        <div class="alert-head">
+          <h3 style="font-size:16px;">{{ name(a.caption) }}</h3>
+          <div style="display:flex; gap:12px; align-items:center;">
+            <span class="tag {{ a.category }}">{{ a.category }}</span>
+            <span class="score">{{ '%.3f'|format(a.score) }}</span>
+          </div>
         </div>
-        <div class="mt-2">{{ n.body }}</div>
+        <div class="muted small">
+          {{ a.dataset_title }}
+          {% if a.via_ubo %} · matched via beneficial owner
+            <strong>{{ a.matched_party }}</strong>{% endif %}
+        </div>
+        {{ aliases(a.aliases) }}
+        <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
+        <details class="evidence"><summary></summary>
+          {{ score_breakdown(a.detail) }}</details>
+        {{ review_trail(a.reviews) }}
+        {{ disposition_form(a, reason_codes, '/customers/' ~ c.id) }}
       </div>
-      {% endfor %}
-    </div>
-  {% else %}
-    <p class="muted small">No notes yet.</p>
-  {% endif %}
-  <form method="post" action="/customers/{{ c.id }}/notes" class="mt-4">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="field">
-      <textarea name="body" placeholder="Add a note to this case file" required></textarea>
-    </div>
-    <button class="small" type="submit">Add note</button>
-  </form>
+    {% endfor %}
+  </div>
 </div>
+{% else %}
+  <p class="muted">No alerts on this customer.</p>
+{% endif %}
+
+</div>{# end tab-alerts #}
+
+{# ---- Tab: Monitoring ---- #}
+<div class="tab-panel" id="tab-monitoring">
 
 <div class="mb-6">
   <div class="section-label">Transaction monitoring</div>
@@ -339,6 +332,42 @@
   </p>
 </div>
 
+</div>{# end tab-monitoring #}
+
+{# ---- Tab: Case File ---- #}
+<div class="tab-panel" id="tab-casefile">
+
+<div class="mb-6">
+  <div class="section-label">Notes</div>
+  <p class="muted small mt-0">
+    Investigative narrative not tied to any one alert — periodic review
+    commentary, source-of-wealth notes, anything that belongs in the case
+    file but isn't a disposition decision.
+  </p>
+  {% if notes %}
+    <div class="flat-list mb-4">
+      {% for n in notes %}
+      <div class="list-row" style="align-items:flex-start; display:block;">
+        <div class="small">
+          <strong>{{ n.author }}</strong> ·
+          <span class="muted">{{ n.created_at[:16].replace('T',' ') }}</span>
+        </div>
+        <div class="mt-2">{{ n.body }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted small">No notes yet.</p>
+  {% endif %}
+  <form method="post" action="/customers/{{ c.id }}/notes" class="mt-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field">
+      <textarea name="body" placeholder="Add a note to this case file" required></textarea>
+    </div>
+    <button class="small" type="submit">Add note</button>
+  </form>
+</div>
+
 <div class="mb-6">
   <div class="section-label">Signatures &amp; acknowledgments</div>
   <p class="muted small mt-0">
@@ -384,6 +413,11 @@
   </form>
 </div>
 
+</div>{# end tab-casefile #}
+
+{# ---- Tab: History ---- #}
+<div class="tab-panel" id="tab-history">
+
 <div class="mb-6">
   <div class="section-label">Screening history</div>
   <p class="muted small mt-0">
@@ -426,5 +460,33 @@
   </div>
   </div>
 </div>
+
+</div>{# end tab-history #}
+
+<script>
+(function () {
+  var tabs = ['overview', 'alerts', 'monitoring', 'casefile', 'history'];
+  var hasAlerts = {{ 'true' if alerts else 'false' }};
+
+  window.switchTab = function (id) {
+    tabs.forEach(function (t) {
+      var panel = document.getElementById('tab-' + t);
+      var link = document.querySelector('[data-tab="' + t + '"]');
+      if (t === id) {
+        panel.style.display = 'block';
+        link.classList.add('on');
+      } else {
+        panel.style.display = 'none';
+        link.classList.remove('on');
+      }
+    });
+    history.replaceState(null, '', '#' + id);
+  };
+
+  var hash = location.hash.slice(1);
+  var initial = tabs.indexOf(hash) !== -1 ? hash : (hasAlerts ? 'alerts' : 'overview');
+  switchTab(initial);
+}());
+</script>
 
 {% endblock %}

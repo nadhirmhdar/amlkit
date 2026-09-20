@@ -290,8 +290,9 @@ def api_verify_email(body: VerifyEmailRequest, db: DB):
     audit(db, operator["name"], "operator.login", "operator", operator["id"],
           None, org_id=operator["org_id"])
     db.commit()
+    org_name_row = db.execute("SELECT name FROM organizations WHERE id = ?", (operator["org_id"],)).fetchone()
     info = auth.SessionInfo(
-        operator_id=operator["id"], org_id=operator["org_id"],
+        operator_id=operator["id"], org_id=operator["org_id"], org_name=org_name_row["name"] if org_name_row else "",
         operator_name=operator["name"], operator_role=operator["role"], email=operator["email"],
     )
     return {"token": token, "operator": _operator_json(info)}

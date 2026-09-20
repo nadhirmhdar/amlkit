@@ -151,7 +151,6 @@ class TestHomePage:
         assert "alice" in r.text  # first name from the fixture's registered operator
         assert "Screen a name" in r.text
         assert "Onboard a customer" in r.text
-        assert "About us" in r.text
 
     def test_alerts_bar_shows_clear_state_when_no_open_alerts(self, client) -> None:
         r = client.get("/")

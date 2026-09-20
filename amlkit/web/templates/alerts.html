@@ -108,7 +108,7 @@
 {% elif not alerts and not grouped %}
   <div class="panel empty-state">
     <div class="empty-state__icon">✓</div>
-    <div class="empty-state__title">No alerts</div>
+    <div class="empty-state__title">No alerts{% if org_name %} in {{ org_name }}{% endif %}</div>
     <p class="empty-state__text mt-0">No alerts with this status.</p>
   </div>
 

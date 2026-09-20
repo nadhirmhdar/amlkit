@@ -56,7 +56,7 @@
 {% else %}
   <div class="panel empty-state">
     <div class="empty-state__icon">👥</div>
-    <div class="empty-state__title">No customers yet</div>
+    <div class="empty-state__title">No customers{% if org_name %} in {{ org_name }}{% endif %} yet</div>
     <p class="empty-state__text mt-0">Onboard your first customer to get started.</p>
   </div>
 {% endif %}

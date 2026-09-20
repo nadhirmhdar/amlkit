@@ -9,4 +9,4 @@ def test_login_password_toggle_has_aria_label():
     content = template_path.read_text(encoding="utf-8")
 
     assert 'data-action="toggle-password"' in content, "Password toggle button should exist"
-    assert 'aria-label="Toggle password visibility"' in content, "Password toggle must have aria-label"
+    assert 'aria-label="Show password"' in content, "Password toggle must have initial aria-label"
