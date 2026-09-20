@@ -2587,6 +2587,11 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
         return back(f"/reports/{report_id}",
                    err=f"Cannot submit report. Missing required fields: {', '.join(missing)}")
 
+    # Validate at least one transaction or subject
+    if not payload.get("transactions") and not payload.get("entities"):
+        return back(f"/reports/{report_id}",
+                   err="Cannot submit report. Must include at least one transaction or entity.")
+
     now = utcnow()
     with db:
         db.execute(
