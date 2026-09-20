@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 # Install system dependencies + Google Cloud SDK (for gsutil to restore DB from GCS)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates sqlite3 gnupg apt-transport-https \
+    curl ca-certificates sqlite3 gnupg apt-transport-https gettext-base \
     graphviz tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara \
     && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
        | tee /etc/apt/sources.list.d/google-cloud-sdk.list \
