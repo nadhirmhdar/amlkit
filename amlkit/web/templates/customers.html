@@ -15,8 +15,12 @@
   </div>
 </div>
 
-<input type="text" id="customer-search" class="input-underline mb-6" style="max-width:320px; font-size:15px; display:block;"
-       placeholder="Search customers…" data-action="filter-customers">
+<form method="get" action="/customers" style="display:flex; gap:8px; max-width:400px; margin-bottom:24px;">
+  <input type="text" name="q" value="{{ search_query or '' }}" class="input-underline" style="flex:1; font-size:15px;"
+         placeholder="Search customers…" autofocus>
+  <button type="submit" class="btn small ghost">Search</button>
+  {% if search_query %}<a class="btn small ghost" href="/customers">Clear</a>{% endif %}
+</form>
 
 {% if customers %}
 <div class="list-head" style="grid-template-columns:110px 1.6fr 1fr 0.8fr 70px 110px 90px;">
