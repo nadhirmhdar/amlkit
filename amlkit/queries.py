@@ -341,6 +341,25 @@ def alert_queue(
     return out
 
 
+def alert_queue_grouped(
+    conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Alerts bucketed by customer, for the group-by-customer view."""
+    flat = alert_queue(conn, org_id, status=status, limit=limit)
+    buckets: dict[int | None, dict[str, Any]] = {}
+    for a in flat:
+        cid = a.get("customer_id")
+        if cid not in buckets:
+            buckets[cid] = {
+                "customer_id": cid,
+                "customer_name": a.get("customer_name") or a.get("query_name") or "Ad-hoc",
+                "reference": a.get("reference", ""),
+                "alerts": [],
+            }
+        buckets[cid]["alerts"].append(a)
+    return sorted(buckets.values(), key=lambda g: g["customer_name"] or "")
+
+
 def entity_names(conn: sqlite3.Connection, entity_id: int) -> list[dict[str, str]]:
     return [
         {"name": r["name"], "type": r["name_type"], "script": r["script"]}

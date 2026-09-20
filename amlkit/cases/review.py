@@ -432,3 +432,33 @@ def assign_alert(
             raise ReviewError(f"alert {alert_id} not found")
         audit(conn, actor, "alert.assign", "alert", alert_id,
               {"assigned_to": operator}, org_id=org_id)
+
+
+def bulk_dismiss_alerts(
+    conn: sqlite3.Connection,
+    org_id: int,
+    *,
+    customer_id: int,
+    reason_code: str,
+    operator: str,
+) -> int:
+    """Dismiss all open alerts for a given customer in one operation."""
+    now = utcnow()
+    rows = conn.execute(
+        """SELECT a.id FROM alerts a
+           JOIN screenings s ON s.id = a.screening_id
+           WHERE a.org_id = ? AND s.customer_id = ? AND a.status = 'open'""",
+        (org_id, customer_id),
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            "UPDATE alerts SET status='false_positive', disposition=?, "
+            "reason_code=?, dispositioned_by=?, dispositioned_at=? "
+            "WHERE id=? AND org_id=?",
+            (reason_code, reason_code, operator, now, row["id"], org_id),
+        )
+        audit(conn, operator, "alert.bulk_dismiss", "alert", row["id"],
+              {"reason_code": reason_code, "customer_id": customer_id},
+              org_id=org_id)
+    conn.commit()
+    return len(rows)
