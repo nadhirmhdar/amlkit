@@ -2589,6 +2589,41 @@ def report_export_xml(request: Request, db: DB, report_id: int):
     )
 
 
+# -------------------------------------------------------------- alerts drawer
+
+@app.get("/api/alerts-summary")
+def alerts_summary(request: Request, db: DB):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    screening = queries.alert_queue(db, session.org_id, status="open")[:10]
+    txn = queries.transaction_alert_queue(db, session.org_id, status="open")[:10]
+    overdue = [
+        c for c in queries.customer_list(db, session.org_id)
+        if c.get("review_overdue")
+    ][:10]
+
+    return JSONResponse({
+        "total": len(screening) + len(txn) + len(overdue),
+        "screening_alerts": [
+            {"category": a["category"], "caption": a["caption"], "score": a["score"]}
+            for a in screening
+        ],
+        "transaction_alerts": [
+            {"customer_id": a["customer_id"], "customer_name": a["customer_name"],
+             "severity": a["severity"], "rule_key": a["rule_key"], "amount_aed": a["amount_aed"]}
+            for a in txn
+        ],
+        "overdue_reviews": [
+            {"id": c["id"], "full_name": c["full_name"], "next_review": c["next_review"]}
+            for c in overdue
+        ],
+    })
+
+
 # ------------------------------------------------------------------ AI assist
 
 @app.post("/api/ai/draft-narrative")

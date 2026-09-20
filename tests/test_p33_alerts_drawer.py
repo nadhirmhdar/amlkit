@@ -34,6 +34,9 @@ class TestAlertsDrawer:
         base_path = Path(__file__).parent.parent / "amlkit" / "web" / "templates" / "base.html"
         content = base_path.read_text(encoding='utf-8')
 
-        # Drawer should have hidden class or display:none style by default
-        assert 'style="display:none"' in content or 'class="hidden"' in content, \
-            "Alerts drawer should default to hidden"
+        # Drawer should have display:none in its style by default
+        import re
+        drawer_match = re.search(r'id="alerts-drawer"[^>]*style="([^"]*)"', content)
+        assert drawer_match, "Alerts drawer missing style attribute"
+        assert 'display:none' in drawer_match.group(1), \
+            "Alerts drawer should default to display:none"
