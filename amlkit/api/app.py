@@ -2609,17 +2609,20 @@ def report_export_xml(request: Request, db: DB, report_id: int):
 # ------------------------------------------------------------------ AI assist
 
 @app.post("/api/ai/draft-narrative")
-async def ai_draft_narrative(
+@limiter.limit("5/minute")
+def ai_draft_narrative(
     request: Request,
     db: DB,
     customer_id: int = Form(...),
     include_notes: bool = Form(False),
+    csrf_token: Annotated[str, Form()] = "",
 ):
     """Return an AI-generated STR narrative draft for a customer.
 
     Form fields:
         customer_id   — required
         include_notes — bool, default false
+        csrf_token    — CSRF synchronizer token
 
     Response (JSON):
         { "narrative": "...", "model": "gemini-...", "advisory": "..." }
@@ -2632,6 +2635,7 @@ async def ai_draft_narrative(
 
     try:
         session = require_session(request, db)
+        require_csrf(request, csrf_token)
     except PermissionError:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
