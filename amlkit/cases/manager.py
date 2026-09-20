@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -1889,4 +1891,133 @@ def get_policy(
         "uploaded_by": row["uploaded_by"],
         "uploaded_at": row["uploaded_at"],
         "file_content": file_content,
+    }
+
+
+# ---------------------------------------------------------------- async adverse media
+# Global job tracker for background adverse media searches
+# In-memory for now - could be persisted to DB for production
+_adverse_media_jobs: dict[str, dict[str, Any]] = {}
+_jobs_lock = threading.Lock()
+
+
+def run_adverse_media_async(
+    conn: sqlite3.Connection,
+    *,
+    org_id: int,
+    name: str,
+    name_arabic: str | None = None,
+    customer_id: int | None = None,
+    ubo_id: int | None = None,
+    trigger: str = "adhoc",
+    client: Any | None = None,
+    window_months: int = DEFAULT_WINDOW_MONTHS,
+    actor: str = "system",
+) -> str:
+    """Start adverse media search in background thread, return immediately.
+
+    Returns job_id (UUID) that can be used to check status with
+    check_adverse_media_status(). The search runs in a background thread and
+    stores results in the database when complete.
+
+    This is the non-blocking version of run_adverse_media() - it returns
+    immediately instead of waiting for HTTP calls to complete. Useful for:
+    - Onboarding flows where blocking on GDELT (5+ seconds) is unacceptable
+    - Bulk screening operations
+    - API endpoints that need low latency
+
+    The background thread uses the same connection - SQLite WAL mode allows
+    concurrent reads and one writer, so this works safely as long as the
+    connection is used from only one thread at a time (which it is - the
+    background thread writes, foreground reads).
+    """
+    job_id = str(uuid.uuid4())
+
+    # Get DB path from connection to open new connection in thread
+    db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+
+    def _background_search():
+        """Run search in background and store results."""
+        from ..db import connect
+
+        try:
+            # Open new connection for this thread
+            thread_conn = connect(db_path)
+
+            # Run synchronous search
+            screening_id, result, new_findings = run_adverse_media(
+                thread_conn,
+                org_id=org_id,
+                name=name,
+                name_arabic=name_arabic,
+                customer_id=customer_id,
+                ubo_id=ubo_id,
+                trigger=trigger,
+                client=client,
+                window_months=window_months,
+                actor=actor,
+            )
+
+            # Update job status
+            with _jobs_lock:
+                _adverse_media_jobs[job_id] = {
+                    "status": "complete",
+                    "screening_id": screening_id,
+                    "result": result,
+                    "new_findings": new_findings,
+                    "error": None,
+                }
+
+            thread_conn.close()
+
+        except Exception as exc:
+            # Store error
+            with _jobs_lock:
+                _adverse_media_jobs[job_id] = {
+                    "status": "failed",
+                    "error": str(exc),
+                    "screening_id": None,
+                    "result": None,
+                    "new_findings": 0,
+                }
+
+    # Register job as pending
+    with _jobs_lock:
+        _adverse_media_jobs[job_id] = {
+            "status": "pending",
+            "screening_id": None,
+            "result": None,
+            "new_findings": 0,
+            "error": None,
+        }
+
+    # Start background thread
+    thread = threading.Thread(target=_background_search, daemon=True)
+    thread.start()
+
+    return job_id
+
+
+def check_adverse_media_status(conn: sqlite3.Connection, job_id: str) -> dict[str, Any]:
+    """Check status of background adverse media job.
+
+    Returns:
+        {
+            "status": "pending" | "complete" | "failed",
+            "screening_id": int or None,
+            "new_findings": int,
+            "error": str or None
+        }
+    """
+    with _jobs_lock:
+        job = _adverse_media_jobs.get(job_id)
+
+    if job is None:
+        raise ValueError(f"Job {job_id} not found")
+
+    return {
+        "status": job["status"],
+        "screening_id": job.get("screening_id"),
+        "new_findings": job.get("new_findings", 0),
+        "error": job.get("error"),
     }
