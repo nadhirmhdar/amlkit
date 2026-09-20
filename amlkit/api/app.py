@@ -2557,6 +2557,7 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
     try:
         session = require_session(request, db)
         require_csrf(request, csrf_token)
+        require_role(session, "mlro")
     except PermissionError as exc:
         return back(f"/reports/{report_id}", err=str(exc))
 

@@ -1472,6 +1472,7 @@ def api_report_save(body: ReportSaveRequest, db: DB, session: Session):
 
 @router.post("/reports/{report_id}/submit")
 def api_report_submit(report_id: int, db: DB, session: Session):
+    _require_mlro(session)
     rep = queries.report(db, report_id, session.org_id)
     if not rep:
         raise HTTPException(status_code=404, detail="Report not found.")
