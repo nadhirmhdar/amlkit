@@ -901,6 +901,16 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         "id_type": freeze["id_type"],
     }
     
+    # p45: Inject org profile for goAML reporting entity section
+    org_profile = db.execute("""
+        SELECT name, org_address, reporting_person_name,
+               reporting_person_title, reporting_person_phone
+        FROM organizations WHERE id = ?
+    """, (org_id,)).fetchone()
+    if org_profile:
+        report_payload.setdefault('reporting_entity_name', org_profile[0] or 'Grovisor Consultants')
+        report_payload.setdefault('reporting_entity_branch', org_profile[1] or 'Dubai HQ')
+    
     from ..reporting import goaml
     xml_content = goaml.serialize_goaml_xml(report_payload)
     
@@ -2673,6 +2683,17 @@ def report_export_xml(request: Request, db: DB, report_id: int):
     from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
 
     payload = json.loads(rep["payload"] or "{}")
+    
+    # p45: Inject org profile for goAML reporting entity section
+    org_profile = db.execute("""
+        SELECT name, org_address, reporting_person_name, 
+               reporting_person_title, reporting_person_phone
+        FROM organizations WHERE id = ?
+    """, (session.org_id,)).fetchone()
+    if org_profile:
+        payload.setdefault('reporting_entity_name', org_profile[0] or 'Grovisor Consultants')
+        payload.setdefault('reporting_entity_branch', org_profile[1] or 'Dubai HQ')
+    
     try:
         xml_content = serialize_goaml_xml(payload)
     except GoAMLValidationError as exc:
