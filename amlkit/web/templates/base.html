@@ -14,7 +14,7 @@
 {% if session %}
 <div class="shell">
   <input type="checkbox" id="nav-toggle" class="d-none">
-  <label for="nav-toggle" class="nav-hamburger no-print">☰</label>
+  <label for="nav-toggle" class="nav-hamburger no-print" aria-label="Toggle navigation menu">☰</label>
   <aside class="sidebar no-print">
     <div class="brand-block">
       <img src="/static/img/grovisor-logo.png" alt="Grovisor">
@@ -62,13 +62,13 @@
           <strong>{{ session.operator_name }}</strong>
           <span class="user-dropdown__role">{{ session.operator_role }}</span>
         </div>
-        <a href="/reports" class="user-dropdown__item">Reports</a>
-        <a href="/audit" class="user-dropdown__item">Audit Trails</a>
-        <a href="/policies" class="user-dropdown__item">Policies</a>
+        <a href="/reports" class="user-dropdown__item" role="menuitem">Reports</a>
+        <a href="/audit" class="user-dropdown__item" role="menuitem">Audit Trails</a>
+        <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
         {% if session.operator_role == 'mlro' %}
-          <a href="/admin" class="user-dropdown__item">Admin</a>
+          <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
         {% endif %}
-        <a href="/about" class="user-dropdown__item">About</a>
+        <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
         <div class="user-dropdown__divider"></div>
         <form method="post" action="/logout">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -95,12 +95,12 @@
           <strong>{{ session.operator_name }}</strong>
           <span class="user-dropdown__role">{{ session.operator_role }}</span>
         </div>
-        <a href="/reports" class="user-dropdown__item">Reports</a>
-        <a href="/audit"   class="user-dropdown__item">Audit trail</a>
+        <a href="/reports" class="user-dropdown__item" role="menuitem">Reports</a>
+        <a href="/audit"   class="user-dropdown__item" role="menuitem">Audit trail</a>
         {% if session.operator_role == 'mlro' %}
-          <a href="/admin" class="user-dropdown__item">Admin</a>
+          <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
         {% endif %}
-        <a href="/about" class="user-dropdown__item">About</a>
+        <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
         <div class="user-dropdown__divider"></div>
         <form method="post" action="/logout">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -196,7 +196,7 @@
             <button type="button" data-action="close-feedback">Cancel</button>
           </div>
         </form>
-        <div id="feedback-result" style="margin-top:12px;"></div>
+        <div id="feedback-result" style="margin-top:12px;" aria-live="polite"></div>
       </div>
     </div>
 
