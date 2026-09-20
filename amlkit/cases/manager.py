@@ -313,12 +313,12 @@ def add_ubo(
             """INSERT INTO ubo_links
                (org_id, customer_id, person_name, name_arabic, canonical_key, nationality,
                 birth_date, ownership_pct, control_type, is_ubo, is_nominee,
-                parent_ubo_id, notes, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                parent_ubo_id, notes, created_at, last_verified_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, customer_id, person_name, name_arabic, canonical_key(person_name),
                 nationality, birth_date, ownership_pct, control_type,
-                int(is_ubo), int(is_nominee), parent_ubo_id, notes, utcnow(),
+                int(is_ubo), int(is_nominee), parent_ubo_id, notes, utcnow(), utcnow(),
             ),
         )
         ubo_id = cur.lastrowid

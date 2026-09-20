@@ -789,6 +789,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("org_settings", "kyt_high_risk_countries", "ALTER TABLE org_settings ADD COLUMN kyt_high_risk_countries TEXT"),  # JSON list
     # p14: Idle session timeout. NULL on existing sessions; grandfathered until absolute expiry.
     ("sessions", "last_active", "ALTER TABLE sessions ADD COLUMN last_active TEXT"),
+    # p38: UBO periodic re-verification tracking
+    ("ubo_links", "last_verified_at",  "ALTER TABLE ubo_links ADD COLUMN last_verified_at  TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
