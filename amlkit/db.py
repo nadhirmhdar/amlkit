@@ -801,6 +801,10 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("organizations", "reporting_person_name",  "ALTER TABLE organizations ADD COLUMN reporting_person_name  TEXT"),
     ("organizations", "reporting_person_title", "ALTER TABLE organizations ADD COLUMN reporting_person_title TEXT"),
     ("organizations", "reporting_person_phone", "ALTER TABLE organizations ADD COLUMN reporting_person_phone TEXT"),
+    # p36: Enhanced due diligence — risk_level, Source of Wealth, Source of Funds
+    ("customers", "risk_level",        "ALTER TABLE customers ADD COLUMN risk_level        TEXT"),
+    ("customers", "source_of_wealth",  "ALTER TABLE customers ADD COLUMN source_of_wealth  TEXT"),
+    ("customers", "source_of_funds",   "ALTER TABLE customers ADD COLUMN source_of_funds   TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
