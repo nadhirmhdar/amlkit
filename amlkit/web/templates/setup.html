@@ -28,16 +28,16 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="token" value="{{ token }}">
           <div class="field">
-            <label>Your name</label>
-            <input type="text" name="name" autofocus required>
+            <label for="setup-name">Your name</label>
+            <input type="text" name="name" id="setup-name" autofocus required>
           </div>
           <div class="field">
-            <label>Email</label>
-            <input type="text" name="email" autocomplete="username" required>
+            <label for="setup-email">Email</label>
+            <input type="text" name="email" id="setup-email" autocomplete="username" required>
           </div>
           <div class="field">
-            <label>Password — at least 10 characters</label>
-            <input type="password" name="password" autocomplete="new-password" required minlength="10">
+            <label for="setup-password">Password — at least 10 characters</label>
+            <input type="password" name="password" id="setup-password" autocomplete="new-password" required minlength="10">
           </div>
           <button type="submit" class="btn-glow mt-4">Create login &amp; sign in</button>
         </form>

@@ -11,6 +11,8 @@
 </head>
 <body>
 
+<a href="#main-content" class="skip-to-content">Skip to content</a>
+
 {% if session %}
 <div class="shell">
   <input type="checkbox" id="nav-toggle" class="d-none">
@@ -20,7 +22,7 @@
       <img src="/static/img/grovisor-logo.png" alt="Grovisor">
       <div class="product">amlkit</div>
     </div>
-    <nav>
+    <nav aria-label="Main navigation">
       <a href="/"          class="{{ 'on' if nav=='home' }}">Home</a>
       <a href="/dashboard" class="{{ 'on' if nav=='dash' }}">Dashboard</a>
       <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
@@ -99,7 +101,7 @@
 
   {# Four-tab bottom bar for phones. "More" removed — its items live in the
      user menu above. #}
-  <nav class="mobile-tabbar">
+  <nav class="mobile-tabbar" aria-label="Mobile navigation">
     <a href="/" class="mobile-tab {{ 'on' if nav=='home' }}">
       <span class="mobile-tab__icon mobile-tab__icon--home"></span>
       <span class="mobile-tab__label">Home</span>
@@ -118,7 +120,7 @@
     </a>
   </nav>
 
-  <main>
+  <main id="main-content">
     {% if security_warning %}
       <div class="banner err"><strong>{{ security_warning }}</strong></div>
     {% endif %}

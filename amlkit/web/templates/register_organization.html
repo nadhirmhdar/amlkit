@@ -37,19 +37,19 @@
         <form method="post" action="/register-organization">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="field">
-            <label>Firm name</label>
-            <input type="text" name="org_name" autofocus required>
+            <label for="reg-org-name">Firm name</label>
+            <input type="text" name="org_name" id="reg-org-name" autofocus required>
           </div>
           <div class="field">
-            <label>Your name</label>
-            <input type="text" name="name" required>
+            <label for="reg-name">Your name</label>
+            <input type="text" name="name" id="reg-name" required>
           </div>
           <div class="field">
-            <label>Email</label>
-            <input type="email" name="email" autocomplete="username" required>
+            <label for="reg-email">Email</label>
+            <input type="email" name="email" id="reg-email" autocomplete="username" required>
           </div>
           <div class="field">
-            <label>Password — at least 10 characters</label>
+            <label for="reg-password">Password — at least 10 characters</label>
             <input type="password" name="password" id="reg-password" autocomplete="new-password" required minlength="10" data-action="check-strength">
             <div class="progress-track mt-4"><div class="progress-track__fill" id="pwd-strength" style="width:0%; background:var(--danger);"></div></div>
             <div class="muted small mt-4" id="pwd-feedback">At least 10 characters, 1 uppercase, 1 number</div>
