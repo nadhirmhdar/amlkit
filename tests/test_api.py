@@ -1503,7 +1503,7 @@ class TestPolicyRepository:
                         "category": "AML_Policy",
                         "csrf_token": _csrf(client),
                     },
-                    files={"file": ("download-test.pdf", io.BytesIO(b"pdf content"), "application/pdf")},
+                    files={"file": ("download-test.pdf", io.BytesIO(b"%PDF-1.4 fake pdf content"), "application/pdf")},
                     follow_redirects=True)
 
         # Get policy ID
@@ -1520,7 +1520,7 @@ class TestPolicyRepository:
         assert r.headers["content-type"] == "application/pdf"
         assert "attachment" in r.headers["content-disposition"]
         assert "download-test.pdf" in r.headers["content-disposition"]
-        assert r.content == b"pdf content"
+        assert r.content == b"%PDF-1.4 fake pdf content"
 
     def test_policies_download_logs_audit(self, client) -> None:
         """Audit entry created."""
@@ -1532,7 +1532,7 @@ class TestPolicyRepository:
                         "category": "AML_Policy",
                         "csrf_token": _csrf(client),
                     },
-                    files={"file": ("audit-test.pdf", io.BytesIO(b"pdf"), "application/pdf")},
+                    files={"file": ("audit-test.pdf", io.BytesIO(b"%PDF-1.4 fake pdf"), "application/pdf")},
                     follow_redirects=True)
 
         conn = _db()
