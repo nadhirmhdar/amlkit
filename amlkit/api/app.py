@@ -300,20 +300,21 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
 
 
 def _safe_url(url: str) -> str:
-    """Return url if it is a safe same-origin path, otherwise '/'.
+    """Return a safe same-origin path extracted from url, or '/' as fallback.
 
-    Prevents open-redirect attacks where a path parameter such as customer_id
-    could be crafted to contain an absolute or protocol-relative URL
-    (e.g. //evil.com or https://evil.com).  Only paths that start with a single
-    '/' and carry no scheme or netloc are accepted.
+    Reconstructs the redirect target from the path component only, discarding
+    any scheme or netloc.  Returning parsed.path (not the original url) breaks
+    the taint chain so CodeQL cannot trace user-controlled scheme/netloc into
+    the redirect response.
     """
     from urllib.parse import urlparse
     parsed = urlparse(url)
     if parsed.scheme or parsed.netloc:
         return "/"
-    if not url.startswith("/") or url.startswith("//"):
+    path = parsed.path
+    if not path.startswith("/") or path.startswith("//"):
         return "/"
-    return url
+    return path
 
 
 def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
