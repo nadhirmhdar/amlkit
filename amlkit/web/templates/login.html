@@ -16,12 +16,12 @@
       <form method="post" action="/login" style="display:flex; flex-direction:column; gap:22px;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="field" style="margin-bottom:0;">
-          <label>Email</label>
-          <input type="email" name="email" class="input-underline" autofocus autocomplete="username"
+          <label for="login-email">Email</label>
+          <input type="email" name="email" id="login-email" class="input-underline" autofocus autocomplete="username"
                  inputmode="email" spellcheck="false" autocapitalize="off" style="font-size:16px;" required>
         </div>
         <div class="field" style="margin-bottom:0; position:relative;">
-          <label>Password</label>
+          <label for="password-input">Password</label>
           <input type="password" name="password" id="password-input" class="input-underline"
                  autocomplete="current-password" style="font-size:16px;" required>
           <button type="button" data-action="toggle-password" aria-label="Show password"
