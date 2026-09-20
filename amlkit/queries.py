@@ -268,10 +268,14 @@ def dashboard_kpis(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
 
 def alert_queue(
     conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
-    alert_id: int | None = None, customer_id: int | None = None
+    alert_id: int | None = None, customer_id: int | None = None, sort_by: str | None = None
 ) -> list[dict[str, Any]]:
     """Alerts with the entity and customer context needed to triage them,
-    scoped to one organization."""
+    scoped to one organization.
+
+    sort_by: "age_asc" for oldest-first, "age_desc" for newest-first,
+             None for default (score-based) sorting.
+    """
     sql = """
         SELECT a.id, a.score, a.score_detail, a.matched_name, a.status,
                a.disposition, a.reason_code, a.independent_review, a.assigned_to,
@@ -300,7 +304,14 @@ def alert_queue(
     if customer_id is not None:
         sql += " AND s.customer_id = ?"
         params.append(customer_id)
-    sql += " ORDER BY a.score DESC LIMIT ?"
+
+    # Apply sort order
+    if sort_by == "age_asc":
+        sql += " ORDER BY a.created_at ASC LIMIT ?"
+    elif sort_by == "age_desc":
+        sql += " ORDER BY a.created_at DESC LIMIT ?"
+    else:
+        sql += " ORDER BY a.score DESC LIMIT ?"
 
     out: list[dict[str, Any]] = []
     for row in conn.execute(sql, (*params, limit)):
@@ -324,7 +335,9 @@ def alert_queue(
                 "via_ubo": bool(row["ubo_name"]),
             }
         )
-    out.sort(key=lambda a: (CATEGORY_RANK.get(a["category"], 9), -a["score"]))
+    # When using age-based sorting, preserve SQL sort order; otherwise apply category/score sort
+    if sort_by not in ("age_asc", "age_desc"):
+        out.sort(key=lambda a: (CATEGORY_RANK.get(a["category"], 9), -a["score"]))
     return out
 
 
