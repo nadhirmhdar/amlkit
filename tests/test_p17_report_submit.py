@@ -21,10 +21,10 @@ def test_report_submit_requires_required_fields(tmp_path, monkeypatch):
                  ("Test Org", "test-org", "active", now))
     conn.execute("INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at, email_verified_at, disclaimer_acknowledged_at) VALUES (?,?,?,?,?,?,?,?,?)",
                  (1, "MLRO", "mlro@test.ae", hash_password("Pass123!"), "mlro", 1, now, now, now))
-    # Create incomplete report (missing required fields)
+    # Create incomplete report (payload missing required business fields)
     conn.execute(
-        "INSERT INTO reports (org_id, report_type, reference, status, created_at) VALUES (?,?,?,?,?)",
-        (1, "STR", "REP-001", "draft", now)
+        "INSERT INTO reports (org_id, report_type, reference, status, payload, created_at) VALUES (?,?,?,?,?,?)",
+        (1, "STR", "REP-001", "draft", '{}', now)
     )
     conn.commit()
     
@@ -59,12 +59,18 @@ def test_report_submit_succeeds_with_complete_data(tmp_path, monkeypatch):
                  ("Test Org", "test-org", "active", now))
     conn.execute("INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at, email_verified_at, disclaimer_acknowledged_at) VALUES (?,?,?,?,?,?,?,?,?)",
                  (1, "MLRO", "mlro@test.ae", hash_password("Pass123!"), "mlro", 1, now, now, now))
-    # Create complete report with all required fields
+    # Create complete report with all required fields in the payload JSON blob
+    import json as _json
+    _payload = _json.dumps({
+        "reporting_entity_name": "Test Entity",
+        "report_type": "STR",
+        "first_name": "John",
+        "reason_description": "Suspicious transaction",
+        "transactions": [{"amount": 1000}],
+    })
     conn.execute(
-        """INSERT INTO reports (org_id, report_type, reference, status, created_at, 
-           reporting_entity_name, reporting_entity_address, fiu_ref_number, reason, location) 
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
-        (1, "STR", "REP-001", "draft", now, "Test Entity", "Dubai, UAE", "FIU-123", "Suspicious transaction", "Dubai")
+        "INSERT INTO reports (org_id, report_type, reference, status, payload, created_at) VALUES (?,?,?,?,?,?)",
+        (1, "STR", "REP-001", "draft", _payload, now)
     )
     conn.commit()
     
