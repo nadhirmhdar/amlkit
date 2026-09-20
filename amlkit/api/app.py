@@ -253,8 +253,21 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     ctx.setdefault("session", session)
     ctx.setdefault("security_warning", startup_warning())
     ctx.setdefault("single_operator", single_operator_mode())
-    ctx.setdefault("msg", request.query_params.get("msg"))
-    ctx.setdefault("err", request.query_params.get("err"))
+    # Read flash message from cookie (Issue #102) with URL param fallback.
+    import json as _json
+    _flash_raw = request.cookies.get(_FLASH_COOKIE)
+    _flash_msg = _flash_err = ""
+    if _flash_raw:
+        try:
+            _flash = _json.loads(_flash_raw)
+            if _flash.get("type") == "msg":
+                _flash_msg = _flash.get("text", "")
+            elif _flash.get("type") == "err":
+                _flash_err = _flash.get("text", "")
+        except (ValueError, KeyError):
+            pass
+    ctx.setdefault("msg", _flash_msg or request.query_params.get("msg"))
+    ctx.setdefault("err", _flash_err or request.query_params.get("err"))
 
     # Check dataset health for authenticated sessions
     if session and db is not None:
@@ -272,6 +285,8 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     ctx.setdefault("csrf_token", token)
 
     resp = templates.TemplateResponse(request, name, ctx)
+    if _flash_raw:
+        resp.delete_cookie(_FLASH_COOKIE)
     if not existing:
         _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
         resp.set_cookie(
@@ -288,14 +303,13 @@ def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
     """Redirect without exposing messages in URL (Issue #102).
 
     Previously appended msg/err as URL query params, exposing sensitive auth
-    errors in browser history and server logs. Now returns clean redirect;
-    callers should use set_flash_cookie() to persist messages across redirect.
-
-    For backwards compatibility during migration, msg/err params are accepted
-    but ignored. Flash display requires template updates (see render()).
+    errors in browser history and server logs. Now stores them in a short-lived
+    flash cookie consumed by render() on the next page load.
     """
-    # Issue #102: Do NOT append msg/err to URL
-    return RedirectResponse(url, status_code=303)
+    resp = RedirectResponse(url, status_code=303)
+    if msg or err:
+        set_flash_cookie(resp, msg=msg, err=err)
+    return resp
 
 
 def set_flash_cookie(response: Response, msg: str = "", err: str = ""):
