@@ -2059,6 +2059,30 @@ def admin_refresh_sanctions(
     return back("/admin", msg=msg)
 
 
+@app.get("/admin/refresh-stream")
+def admin_refresh_stream(request: Request, db: DB):
+    """SSE endpoint that streams per-list sanctions refresh progress."""
+    from fastapi.responses import StreamingResponse
+    import json as _json
+
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError:
+        return StreamingResponse(
+            iter([f"data: {_json.dumps({'type': 'error', 'error': 'unauthorized'})}\n\n"]),
+            media_type="text/event-stream",
+        )
+
+    from ..cases.scheduler import refresh_with_progress
+
+    def event_stream():
+        for event in refresh_with_progress(db, actor=session.operator_name):
+            yield f"data: {_json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 @app.post("/admin/rescreen")
 @limiter.limit("10/minute")
 def admin_rescreen(

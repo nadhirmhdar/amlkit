@@ -99,6 +99,82 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     }
 
 
+def _default_adapters():
+    from ..ingest.eocn import uae_local_terrorists
+    from ..ingest.cia import cia_world_leaders
+    from ..ingest.un import UNSanctionsAdapter
+    from ..ingest.ofac import OFACSDNAdapter
+    from ..ingest.eu import EUSanctionsAdapter
+    from ..ingest.uk import UKSanctionsAdapter
+    return [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
+            EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]
+
+
+def refresh_with_progress(conn, actor, adapters=None):
+    """Generator that yields progress dicts as each sanctions adapter completes.
+
+    Used by the SSE endpoint to stream per-list progress to the browser.
+    """
+    from ..ingest.base import AdapterError
+    from ..ingest.loader import load
+    from ..match.engine import rescreen_all
+    from ..match.cache import invalidate as invalidate_cache
+    from ..db import audit, record_dataset_error
+
+    if adapters is None:
+        adapters = _default_adapters()
+
+    total = len(adapters)
+    loaded = []
+    failures = []
+
+    for i, factory in enumerate(adapters):
+        adapter = factory()
+        try:
+            result = load(conn, adapter, actor=actor)
+            loaded.append(adapter.title)
+            yield {
+                "type": "adapter_done",
+                "index": i + 1,
+                "total": total,
+                "title": adapter.title,
+                "entities": result.entities,
+            }
+        except AdapterError as exc:
+            failures.append(adapter.title)
+            record_dataset_error(conn, adapter.key, str(exc))
+            audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
+                  {"error": str(exc)}, org_id=None)
+            yield {
+                "type": "adapter_error",
+                "index": i + 1,
+                "total": total,
+                "title": adapter.title,
+                "error": str(exc),
+            }
+    conn.commit()
+    invalidate_cache()
+
+    yield {"type": "rescreen_start"}
+
+    total_alerts = 0
+    orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
+    for org in orgs:
+        try:
+            outcome = rescreen_all(conn, org["id"], actor=actor)
+            total_alerts += outcome["alerts"]
+        except Exception as exc:
+            log.exception("rescreen_all failed for org %s", org["id"])
+    conn.commit()
+
+    yield {
+        "type": "complete",
+        "loaded": loaded,
+        "failures": failures,
+        "new_alerts": total_alerts,
+    }
+
+
 def check_and_notify_staleness(conn: sqlite3.Connection) -> dict:
     """Check for stale mandatory datasets and send email alerts if needed.
 
