@@ -40,7 +40,7 @@ def seed_fresh_dataset(conn, key="test_list", title="Synthetic Test List"):
 def _disable_rate_limiter():
     """Prevent slowapi from throttling test clients (e.g. the 10/min login limit)."""
     from amlkit.api.app import app
-    app.state.limiter._enabled = False
+    app.state.limiter.enabled = False  # slowapi uses .enabled, not ._enabled
 
 
 @pytest.fixture()
