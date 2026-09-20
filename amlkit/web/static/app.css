@@ -692,15 +692,15 @@ details.evidence summary * { display: none; }
   .mobile-header .user-dropdown { right: 0; top: calc(100% + 4px); }
   .user-menu-btn {
     background: none; border: 1px solid var(--line); border-radius: 50%;
-    width: 34px; height: 34px; padding: 0; cursor: pointer;
+    width: 44px; height: 44px; padding: 0; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     color: white; font-weight: 700; font-size: 13px;
   }
   .user-menu-btn .avatar--sm {
-    width: 34px; height: 34px; border-radius: 50%;
+    width: 44px; height: 44px; border-radius: 50%;
     background: var(--ink); color: white;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 13px;
+    font-weight: 700; font-size: 14px;
   }
 
   .mobile-tabbar {
