@@ -1804,9 +1804,9 @@ def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "ope
     if org is None:
         return back("/console", err="Organization not found.")
 
+    from ..cases.review import review_history, REASON_CODES
     alert_list = queries.org_alerts(db, org_id, status=status if status != "all" else None)
     for a in alert_list:
-        from ..cases.review import review_history, REASON_CODES
         a["reviews"] = review_history(db, a["id"], org_id)
 
     return render(request, "alerts.html", {
