@@ -73,6 +73,16 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 /* ------------------------------------------------------------- shell/layout */
 .shell { display: flex; min-height: 100vh; }
 
+/* Wraps desktop-topnav + main so they form a vertical column to the right
+   of the sidebar.  Without this, desktop-topnav was a flex-row sibling of
+   sidebar/main and rendered as a narrow strip beside them. */
+.content-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .sidebar {
   width: 224px;
   flex-shrink: 0;
@@ -191,7 +201,7 @@ main {
   flex: 1;
   min-width: 0;
   max-width: 1180px;
-  padding: 48px 60px;
+  padding: 40px 60px 48px;
   margin: 0;
 }
 
@@ -411,7 +421,7 @@ tr:hover td { background: var(--line-soft); }
   padding: 26px;
   margin-bottom: 16px;
 }
-.alert-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 6px; }
+.alert-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
 .alert-head h3 { margin: 0; font-size: 18px; font-weight: 700; }
 
 /* Plain-text obligation line: dot marker + ink-2 text, no filled box */
@@ -599,6 +609,13 @@ details.evidence summary * { display: none; }
 .grid.two { grid-template-columns: 1fr 1fr; }
 .grid.tiles { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 
+/* --------------------------------------------------------- customers table */
+.customers-head, .customers-row {
+  display: grid;
+  grid-template-columns: 110px 1.6fr 1fr 0.8fr 70px 110px 90px;
+  align-items: center;
+}
+
 .mt-0 { margin-top: 0 !important; }
 .mt-1 { margin-top: 4px !important; }
 .mt-2 { margin-top: 8px !important; }
@@ -624,11 +641,26 @@ details.evidence summary * { display: none; }
     width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line);
     background: var(--surface); cursor: pointer; font-size: 16px;
   }
-  main { padding: 84px 20px 40px; max-width: 100%; }
+  /* desktop-topnav is now at the top of content-col, so main needs much
+     less top padding than the original 84px hamburger clearance. */
+  main { padding: 24px 20px 40px; max-width: 100%; }
   .grid.two { grid-template-columns: 1fr; }
   .dashboard-hero { grid-template-columns: 1fr; }
   .panel { padding: 18px; }
   .table-responsive { margin: 0 -16px; padding: 0 16px; }
+}
+
+/* tablet: customers grid — collapse Type/Evidence columns to save width */
+@media (max-width: 860px) {
+  .customers-head, .customers-row {
+    grid-template-columns: 100px 1fr 80px 60px 100px;
+  }
+  .cust-col-type, .cust-col-evidence { display: none; }
+  /* grid-tables with fixed pixel columns: allow horizontal scroll instead
+     of wrapping prematurely (phone breakpoint stacks them entirely) */
+  .grid-table { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .grid-table .list-head,
+  .grid-table .flat-list { min-width: 500px; }
 }
 
 /* ---------------------------------------------------------------- mobile header */
@@ -675,6 +707,17 @@ details.evidence summary * { display: none; }
   .sidebar, .nav-hamburger, .desktop-topnav { display: none !important; }
   :root { --tabbar-h: 62px; --mobile-header-h: 52px; }
   main { padding: calc(var(--mobile-header-h) + 16px) 18px calc(var(--tabbar-h) + 28px); }
+
+  /* Reduce headline sizes so long names/titles don't overflow on small screens */
+  .page-head h1, .page-head .title { font-size: 26px; }
+  .home-head h1 { font-size: 26px; }
+  .hero-stat .n { font-size: 48px; }
+
+  /* Remove tablet min-width so phone grid-table stacking works correctly.
+     The .grid-table .list-row { display: flex !important } rule below already
+     overrides the customers-row display:grid, so no extra rule is needed. */
+  .grid-table { overflow-x: visible; }
+  .grid-table .list-head, .grid-table .flat-list { min-width: 0; }
 
   .mobile-header {
     display: flex; align-items: center; justify-content: space-between;

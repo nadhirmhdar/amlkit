@@ -54,6 +54,11 @@
     </div>
   </div>
 
+  {# Content column: wraps the topnav bar and main so they stack vertically.
+     Without this, desktop-topnav was a flex sibling of sidebar and main in a
+     row, appearing as a narrow strip rather than a full-width header. #}
+  <div class="content-col">
+
   {# Desktop top nav — visible on tablets/desktop (>680px). Has profile
      avatar chip top-right with dropdown for profile, admin, audit, policies. #}
   <div class="desktop-topnav no-print">
@@ -222,6 +227,7 @@
     </div>
     {% endif %}
   </main>
+  </div>{# /content-col #}
 </div>
 {% else %}
 </div>
