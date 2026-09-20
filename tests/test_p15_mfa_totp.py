@@ -76,7 +76,7 @@ def test_mfa_backup_codes_generated(conn, org_id):
     backup_codes = mfa_get_backup_codes(conn, operator_id=1)
     assert len(backup_codes) == 10
     for code in backup_codes:
-        assert len(code) == 8
+        assert len(code["code"]) == 8
         assert not code["used"]
 
 def test_mfa_backup_code_verify_and_consume(conn, org_id):
