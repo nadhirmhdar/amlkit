@@ -299,6 +299,23 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     return resp
 
 
+def _safe_url(url: str) -> str:
+    """Return url if it is a safe same-origin path, otherwise '/'.
+
+    Prevents open-redirect attacks where a path parameter such as customer_id
+    could be crafted to contain an absolute or protocol-relative URL
+    (e.g. //evil.com or https://evil.com).  Only paths that start with a single
+    '/' and carry no scheme or netloc are accepted.
+    """
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme or parsed.netloc:
+        return "/"
+    if not url.startswith("/") or url.startswith("//"):
+        return "/"
+    return url
+
+
 def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
     """Redirect without exposing messages in URL (Issue #102).
 
@@ -306,7 +323,7 @@ def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
     errors in browser history and server logs. Now stores them in a short-lived
     flash cookie consumed by render() on the next page load.
     """
-    resp = RedirectResponse(url, status_code=303)
+    resp = RedirectResponse(_safe_url(url), status_code=303)
     if msg or err:
         set_flash_cookie(resp, msg=msg, err=err)
     return resp
