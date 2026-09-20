@@ -137,7 +137,12 @@ CREATE TABLE IF NOT EXISTS organizations (
     name       TEXT NOT NULL,
     slug       TEXT NOT NULL UNIQUE,
     status     TEXT NOT NULL DEFAULT 'active',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    -- goAML reporting entity profile fields (p46)
+    org_address            TEXT,
+    reporting_person_name  TEXT,
+    reporting_person_title TEXT,
+    reporting_person_phone TEXT
 );
 
 -- Session tokens are stored hashed, exactly like a password would be -- the
@@ -791,6 +796,11 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("sessions", "last_active", "ALTER TABLE sessions ADD COLUMN last_active TEXT"),
     # p38: UBO periodic re-verification tracking
     ("ubo_links", "last_verified_at",  "ALTER TABLE ubo_links ADD COLUMN last_verified_at  TEXT"),
+    # p46: Organization goAML reporting entity profile fields
+    ("organizations", "org_address",            "ALTER TABLE organizations ADD COLUMN org_address            TEXT"),
+    ("organizations", "reporting_person_name",  "ALTER TABLE organizations ADD COLUMN reporting_person_name  TEXT"),
+    ("organizations", "reporting_person_title", "ALTER TABLE organizations ADD COLUMN reporting_person_title TEXT"),
+    ("organizations", "reporting_person_phone", "ALTER TABLE organizations ADD COLUMN reporting_person_phone TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)

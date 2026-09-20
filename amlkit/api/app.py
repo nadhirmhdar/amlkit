@@ -1812,7 +1812,11 @@ def admin_view(request: Request, db: DB):
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
-    org = db.execute("SELECT name, slug FROM organizations WHERE id=?", (session.org_id,)).fetchone()
+    org = db.execute("""
+        SELECT name, slug, org_address, reporting_person_name,
+               reporting_person_title, reporting_person_phone
+        FROM organizations WHERE id=?
+    """, (session.org_id,)).fetchone()
     if org is None:
         return back("/", err="Organization not found.")
     from ..ingest.loader import staleness_report
@@ -1856,6 +1860,53 @@ def admin_view(request: Request, db: DB):
         "sanctions": staleness_report(db),
         "eu_warning": eu_warning,
     })
+
+
+@app.post("/admin/org-profile")
+def admin_save_org_profile(
+    request: Request, db: DB,
+    org_address: Annotated[str, Form()] = "",
+    reporting_person_name: Annotated[str, Form()] = "",
+    reporting_person_title: Annotated[str, Form()] = "",
+    reporting_person_phone: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = ""
+):
+    """Save organization reporting entity profile for goAML exports (p46)."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin", err=str(exc))
+
+    # Update org profile
+    db.execute("""
+        UPDATE organizations
+        SET org_address = ?,
+            reporting_person_name = ?,
+            reporting_person_title = ?,
+            reporting_person_phone = ?
+        WHERE id = ?
+    """, (
+        org_address.strip() or None,
+        reporting_person_name.strip() or None,
+        reporting_person_title.strip() or None,
+        reporting_person_phone.strip() or None,
+        session.org_id
+    ))
+
+    # Audit the change
+    from ..db import audit
+    audit(db, session.operator_name, "org.profile_update", "organization", session.org_id, {
+        "org_address": org_address.strip() or None,
+        "reporting_person_name": reporting_person_name.strip() or None,
+        "reporting_person_title": reporting_person_title.strip() or None,
+        "reporting_person_phone": reporting_person_phone.strip() or None,
+    }, org_id=session.org_id)
+
+    db.commit()
+    return back("/admin", msg="Reporting entity profile updated.")
 
 
 @app.get("/admin/compliance", response_class=HTMLResponse)
