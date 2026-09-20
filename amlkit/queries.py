@@ -338,31 +338,85 @@ def entity_names(conn: sqlite3.Connection, entity_id: int) -> list[dict[str, str
     ]
 
 
-def customer_list(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
-    """Customers of one organization, with their latest risk rating and
-    screening activity."""
-    rows = conn.execute(
-        """SELECT c.id, c.reference, c.full_name, c.name_arabic, c.customer_type,
-                  c.nationality, c.sector, c.status, c.onboarded_at,
-                  r.rating, r.score AS risk_score, r.requires_edd, r.next_review,
-                  (SELECT MAX(run_at) FROM screenings WHERE customer_id=c.id) AS last_screened,
-                  (SELECT COUNT(*) FROM alerts al
-                     JOIN screenings s2 ON s2.id = al.screening_id
-                    WHERE s2.customer_id = c.id AND al.status IN ('open','pending_review'))
-                    AS open_alerts
-           FROM customers c
-           LEFT JOIN risk_assessments r ON r.id = (
-                SELECT id FROM risk_assessments WHERE customer_id=c.id
-                ORDER BY assessed_at DESC LIMIT 1)
-           WHERE c.org_id = ?
-           ORDER BY c.created_at DESC""",
-        (org_id,),
-    ).fetchall()
+_CUSTOMER_SELECT = """\
+SELECT c.id, c.reference, c.full_name, c.name_arabic, c.customer_type,
+       c.nationality, c.sector, c.status, c.onboarded_at,
+       r.rating, r.score AS risk_score, r.requires_edd, r.next_review,
+       (SELECT MAX(run_at) FROM screenings WHERE customer_id=c.id) AS last_screened,
+       (SELECT COUNT(*) FROM alerts al
+          JOIN screenings s2 ON s2.id = al.screening_id
+         WHERE s2.customer_id = c.id AND al.status IN ('open','pending_review'))
+         AS open_alerts
+FROM customers c
+LEFT JOIN risk_assessments r ON r.id = (
+     SELECT id FROM risk_assessments WHERE customer_id=c.id
+     ORDER BY assessed_at DESC LIMIT 1)
+"""
+
+
+def _customer_rows_to_list(rows) -> list[dict[str, Any]]:
     today = datetime.now(timezone.utc).date().isoformat()
     return [
         dict(r) | {"review_overdue": bool(r["next_review"] and r["next_review"] <= today)}
         for r in rows
     ]
+
+
+def customer_list(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
+    """Customers of one organization, with their latest risk rating and
+    screening activity."""
+    rows = conn.execute(
+        _CUSTOMER_SELECT + "WHERE c.org_id = ? ORDER BY c.created_at DESC",
+        (org_id,),
+    ).fetchall()
+    return _customer_rows_to_list(rows)
+
+
+def search_customers(
+    conn: sqlite3.Connection, org_id: int, query: str
+) -> list[dict[str, Any]]:
+    """Search customers by name, reference, or Arabic name with canonicalization.
+
+    Matches against: full_name (LIKE), name_arabic (LIKE), reference (LIKE),
+    and canonical_key (prefix match on each canonical token from the query).
+    """
+    query = query.strip()
+    if not query:
+        return customer_list(conn, org_id)
+
+    from .names.arabic import canonical_tokens, has_arabic_script, normalize_arabic
+
+    like = f"%{query}%"
+    params: list = [org_id, like, like, like]
+
+    canon_clause = ""
+    tokens = canonical_tokens(query)
+    if tokens:
+        canon_conditions = []
+        for tok in tokens:
+            canon_conditions.append("c.canonical_key LIKE ?")
+            params.append(f"%{tok}%")
+        canon_clause = " OR (" + " AND ".join(canon_conditions) + ")"
+
+    arabic_canon_clause = ""
+    if has_arabic_script(query):
+        normalized = normalize_arabic(query)
+        if normalized:
+            arabic_canon_clause = " OR c.name_arabic LIKE ?"
+            params.append(f"%{normalized}%")
+
+    sql = (
+        _CUSTOMER_SELECT
+        + "WHERE c.org_id = ? AND ("
+        + "c.full_name LIKE ? COLLATE NOCASE"
+        + " OR c.reference LIKE ? COLLATE NOCASE"
+        + " OR c.name_arabic LIKE ?"
+        + canon_clause
+        + arabic_canon_clause
+        + ") ORDER BY c.created_at DESC"
+    )
+    rows = conn.execute(sql, params).fetchall()
+    return _customer_rows_to_list(rows)
 
 
 def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[str, Any] | None:

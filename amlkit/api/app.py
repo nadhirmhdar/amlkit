@@ -1015,13 +1015,17 @@ def screen_run(
 
 # ------------------------------------------------------------------ customers
 @app.get("/customers", response_class=HTMLResponse)
-def customers(request: Request, db: DB):
+def customers(request: Request, db: DB, q: str = ""):
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+    if q.strip():
+        results = queries.search_customers(db, session.org_id, q)
+    else:
+        results = queries.customer_list(db, session.org_id)
     return render(request, "customers.html",
-                 {"session": session, "customers": queries.customer_list(db, session.org_id)})
+                 {"session": session, "customers": results, "search_query": q})
 
 
 @app.get("/customers/new", response_class=HTMLResponse)
