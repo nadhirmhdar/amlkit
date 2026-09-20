@@ -37,6 +37,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     from ..ingest.ofac import OFACSDNAdapter
     from ..ingest.eu import EUSanctionsAdapter
     from ..ingest.uk import UKSanctionsAdapter
+    from ..ingest.fatf import FATFAdapter, load_fatf_data
     from ..match.engine import rescreen_all
     from ..match.cache import invalidate as invalidate_cache
     from ..db import audit, record_dataset_error
@@ -45,7 +46,8 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     failures: list[str] = []
     mandatory_failures: list[str] = []
     for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
-                     EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
+                     EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders,
+                     FATFAdapter]:
         adapter = factory()
         try:
             result = load(conn, adapter, actor=actor)
@@ -61,6 +63,13 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
                   {"error": str(exc)}, org_id=None)
     conn.commit()
+
+    # Populate denormalized fatf_countries table from loaded entities
+    try:
+        load_fatf_data(conn)
+        log.info("FATF country risk table populated from live data")
+    except Exception as exc:
+        log.exception("Failed to populate fatf_countries table: %s", exc)
 
     # Invalidate the name_tokens cache after loading new data
     invalidate_cache()
