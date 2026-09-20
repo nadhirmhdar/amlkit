@@ -35,11 +35,11 @@
 
 {# ---- Tab bar ---- #}
 <div class="tab-filter" id="customer-tabs" data-has-alerts="{{ 'true' if alerts else 'false' }}">
-  <a href="#overview" data-tab="overview" onclick="switchTab('overview');return false;">Overview</a>
-  <a href="#alerts" data-tab="alerts" onclick="switchTab('alerts');return false;">Alerts{% if alerts %} <span style="font-weight:800; color:var(--danger); margin-left:4px;">{{ alerts|length }}</span>{% endif %}</a>
-  <a href="#monitoring" data-tab="monitoring" onclick="switchTab('monitoring');return false;">Monitoring</a>
-  <a href="#casefile" data-tab="casefile" onclick="switchTab('casefile');return false;">Case file</a>
-  <a href="#history" data-tab="history" onclick="switchTab('history');return false;">History</a>
+  <a href="#overview" data-tab="overview">Overview</a>
+  <a href="#alerts" data-tab="alerts">Alerts{% if alerts %} <span style="font-weight:800; color:var(--danger); margin-left:4px;">{{ alerts|length }}</span>{% endif %}</a>
+  <a href="#monitoring" data-tab="monitoring">Monitoring</a>
+  <a href="#casefile" data-tab="casefile">Case file</a>
+  <a href="#history" data-tab="history">History</a>
 </div>
 
 {# ---- Tab: Overview ---- #}

@@ -481,4 +481,10 @@ document.addEventListener('DOMContentLoaded', function() {
   if (desktopUserMenuBtn) {
     desktopUserMenuBtn.addEventListener('click', window.toggleDesktopUserMenu);
   }
+
+  // Alerts drawer buttons
+  var alertsToggle = document.getElementById('alerts-drawer-toggle');
+  if (alertsToggle) alertsToggle.addEventListener('click', toggleAlertsDrawer);
+  var alertsClose = document.getElementById('alerts-drawer-close');
+  if (alertsClose) alertsClose.addEventListener('click', toggleAlertsDrawer);
 });
