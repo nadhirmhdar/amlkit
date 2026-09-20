@@ -48,6 +48,7 @@ from ..cases.review import (
     REASON_CODES,
     ReviewError,
     assign_alert,
+    bulk_dismiss_alerts,
     confirm_disposition,
     propose_disposition,
     review_history,
@@ -1488,19 +1489,53 @@ def customer_add_signature(
 
 # --------------------------------------------------------------------- alerts
 @app.get("/alerts", response_class=HTMLResponse)
-def alerts(request: Request, db: DB, status: str = "open", sort: str = "age_asc"):
+def alerts(request: Request, db: DB, status: str = "open", sort: str = "age_asc", group_by: str = ""):
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+    effective_status = None if status == "all" else status
     # Validate sort parameter
     sort_by = sort if sort in ("age_asc", "age_desc") else "age_asc"
-    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status, sort_by=sort_by)
+    if group_by == "customer":
+        grouped = queries.alert_queue_grouped(db, session.org_id, status=effective_status)
+        for g in grouped:
+            for a in g["alerts"]:
+                a["reviews"] = review_history(db, a["id"], session.org_id)
+        return render(request, "alerts.html", {
+            "session": session, "alerts": [], "grouped": grouped,
+            "status": status, "group_by": group_by, "sort": sort_by, "reason_codes": REASON_CODES,
+        })
+    queue = queries.alert_queue(db, session.org_id, status=effective_status, sort_by=sort_by)
     for a in queue:
         a["reviews"] = review_history(db, a["id"], session.org_id)
     return render(request, "alerts.html", {
-        "session": session, "alerts": queue, "status": status, "sort": sort_by, "reason_codes": REASON_CODES,
+        "session": session, "alerts": queue, "grouped": [],
+        "status": status, "group_by": group_by, "sort": sort_by, "reason_codes": REASON_CODES,
     })
+
+
+@app.post("/alerts/bulk-dismiss")
+def alerts_bulk_dismiss(
+    request: Request, db: DB,
+    customer_id: Annotated[int, Form()],
+    reason_code: Annotated[str, Form()] = "name_coincidence",
+    back_to: Annotated[str, Form()] = "/alerts?group_by=customer",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+        count = bulk_dismiss_alerts(
+            db, session.org_id, customer_id=customer_id,
+            reason_code=reason_code, operator=session.operator_name,
+        )
+    except (PermissionError, ReviewError) as exc:
+        return back(back_to, err=str(exc))
+    return back(back_to, msg=f"Dismissed {count} alert(s).")
 
 
 @app.post("/alerts/{alert_id}/disposition")
