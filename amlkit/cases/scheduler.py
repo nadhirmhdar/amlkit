@@ -101,7 +101,7 @@ def check_and_notify_staleness(conn: sqlite3.Connection) -> dict:
     from ..db import utcnow
 
     staleness = staleness_report(conn)
-    breaches = [d for d in staleness if d["breach"] and d["is_mandatory"]]
+    breaches = [d for d in staleness if d["breach"] and d["mandatory"]]
 
     if not breaches:
         # Clear staleness_notified_at for any datasets that are now fresh
@@ -123,24 +123,32 @@ def check_and_notify_staleness(conn: sqlite3.Connection) -> dict:
     if not needs_notification:
         return {"breaches": len(breaches), "notified": 0}
 
-    # Get all MLRO emails across all active orgs
-    mlro_emails = [
-        r["email"] for r in conn.execute(
-            """SELECT DISTINCT o.email FROM operators o
-               JOIN organizations org ON org.id = o.org_id
-               WHERE org.status='active' AND o.role='mlro' AND o.is_active=1
-                 AND o.email IS NOT NULL"""
-        ).fetchall()
-    ]
+    # Send per-org alerts to avoid cross-tenant MLRO email disclosure (#138)
+    orgs = conn.execute(
+        "SELECT id, name FROM organizations WHERE status='active'"
+    ).fetchall()
 
-    if not mlro_emails:
+    total_recipients = 0
+    outcomes = []
+    for org in orgs:
+        org_mlro_emails = [
+            r["email"] for r in conn.execute(
+                """SELECT DISTINCT email FROM operators
+                   WHERE org_id=? AND role='mlro' AND is_active=1
+                     AND email IS NOT NULL""",
+                (org["id"],),
+            ).fetchall()
+        ]
+        if not org_mlro_emails:
+            continue
+        outcome = mail.send_staleness_alert(org_mlro_emails, needs_notification)
+        outcomes.append(outcome)
+        total_recipients += len(org_mlro_emails)
+
+    if not total_recipients:
         log.warning("Staleness breach detected but no MLRO emails to notify")
         return {"breaches": len(breaches), "notified": 0}
 
-    # Send notification
-    outcome = mail.send_staleness_alert(mlro_emails, needs_notification)
-
-    # Mark as notified
     now = utcnow()
     for d in needs_notification:
         conn.execute(
@@ -148,12 +156,12 @@ def check_and_notify_staleness(conn: sqlite3.Connection) -> dict:
         )
     conn.commit()
 
-    log.info("Staleness notification: %d datasets, %d MLROs, outcome=%s",
-             len(needs_notification), len(mlro_emails), outcome)
+    log.info("Staleness notification: %d datasets, %d MLROs across %d orgs",
+             len(needs_notification), total_recipients, len(orgs))
 
     return {
         "breaches": len(breaches),
         "notified": len(needs_notification),
-        "outcome": outcome,
-        "recipients": len(mlro_emails),
+        "outcome": outcomes[0] if len(outcomes) == 1 else "SENT",
+        "recipients": total_recipients,
     }
