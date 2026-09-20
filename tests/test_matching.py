@@ -300,3 +300,27 @@ class TestAuditImmutability:
         )
         with pytest.raises(Exception, match="append-only"):
             conn.execute("DELETE FROM audit_log")
+
+
+class TestArabicNameMatching:
+    """Issue #139: Arabic names starting with Alef-Lam must match their Latin equivalents."""
+
+    def test_ilyas_arabic_matches_latin(self) -> None:
+        """الياس (Ilyas in Arabic) should match 'Ilyas' in Latin."""
+        score, _ = name_score("الياس", "Ilyas")
+        assert score >= 0.85, f"Expected high match score for الياس vs Ilyas, got {score}"
+
+    def test_ilyas_hamza_matches_elias(self) -> None:
+        """إلياس (Ilyas with hamza-below) should match 'Elias'."""
+        score, _ = name_score("إلياس", "Elias")
+        assert score >= 0.85, f"Expected high match score for إلياس vs Elias, got {score}"
+
+    def test_ilham_arabic_matches_latin(self) -> None:
+        """إلهام (Ilham) should match 'Ilham'."""
+        score, _ = name_score("إلهام", "Ilham")
+        assert score >= 0.85, f"Expected high match score for إلهام vs Ilham, got {score}"
+
+    def test_almas_arabic_matches_latin(self) -> None:
+        """الماس (Almas) should match 'Almas'."""
+        score, _ = name_score("الماس", "Almas")
+        assert score >= 0.85, f"Expected high match score for الماس vs Almas, got {score}"
