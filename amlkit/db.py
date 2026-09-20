@@ -353,6 +353,22 @@ CREATE TABLE IF NOT EXISTS operators (
 -- ix_operators_org: see the note by ix_cust_org above -- created in Python
 -- after migration, not here.
 
+-- ---------------------------------------------------------------- MFA/TOTP (p15)
+CREATE TABLE IF NOT EXISTS mfa_secrets (
+    operator_id INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
+    secret      TEXT NOT NULL,
+    enrolled_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mfa_backup_codes (
+    id          INTEGER PRIMARY KEY,
+    operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    code_hash   TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    used_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_mfa_backup_operator ON mfa_backup_codes(operator_id);
+
 -- Each review step is a row rather than an overwritten field. Four-eyes is
 -- meaningless if the first reviewer's proposal disappears when the second
 -- confirms it -- the whole point is that both decisions survive.
@@ -801,6 +817,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("organizations", "reporting_person_name",  "ALTER TABLE organizations ADD COLUMN reporting_person_name  TEXT"),
     ("organizations", "reporting_person_title", "ALTER TABLE organizations ADD COLUMN reporting_person_title TEXT"),
     ("organizations", "reporting_person_phone", "ALTER TABLE organizations ADD COLUMN reporting_person_phone TEXT"),
+    # p15: MFA login enforcement — track whether MLRO session has passed MFA challenge
+    ("sessions", "mfa_verified", "ALTER TABLE sessions ADD COLUMN mfa_verified INTEGER NOT NULL DEFAULT 1"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
