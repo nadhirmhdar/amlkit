@@ -615,6 +615,7 @@ def register_org_form(request: Request, db: DB):
 
 
 @app.post("/register-organization")
+@limiter.limit("10/minute")
 def register_org_submit(
     request: Request, db: DB,
     org_name: Annotated[str, Form()],
@@ -688,6 +689,7 @@ def verify_email(request: Request, db: DB, token: str = ""):
 
 
 @app.post("/resend-verification")
+@limiter.limit("10/minute")
 def resend_verification(
     request: Request, db: DB,
     email: Annotated[str, Form()],
