@@ -49,20 +49,22 @@ class EUSanctionsAdapter:
         self.key = "eu_sanctions"
         self.title = "EU Consolidated Sanctions List"
         self.publisher = "European Union"
-        # Resolved per instance, not at import, so a token set after startup
-        # (or in a test) is actually used.
-        self.source_url = list_url()
         self.licence = "Public Domain"
         self.is_mandatory = False
 
     def fetch(self) -> bytes:
+        # Resolved on fetch, not at init, so the adapter can be instantiated
+        # to check is_mandatory even when the token isn't set (e.g., in CI
+        # workflows that test optional-source graceful degradation).
+        source_url = list_url()
+
         import time
 
         last_exc: Exception | None = None
         for attempt in range(3):
             try:
                 r = httpx.get(
-                    self.source_url,
+                    source_url,
                     timeout=30,
                     follow_redirects=True,
                     headers={"User-Agent": USER_AGENT},
