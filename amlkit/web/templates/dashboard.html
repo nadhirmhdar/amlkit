@@ -60,6 +60,32 @@
   </div>
 </div>
 
+{% if session.operator_role == 'mlro' %}
+<details class="freeze-obligations-panel mb-6">
+  <summary class="freeze-obligations-summary">
+    <span class="freeze-obligations-title">TFS Freeze Obligations</span>
+    <span class="freeze-obligations-chevron">▼</span>
+  </summary>
+  <div class="freeze-obligations-content panel">
+    <div class="alert-box mb-4" style="background:var(--warn-soft); border-left:3px solid var(--warn); padding:14px 18px;">
+      <strong>Cabinet Resolution 134/2025:</strong> Freeze obligations must be executed immediately.
+      Personal liability applies to senior management for TFS compliance failures.
+    </div>
+
+    {% if d.freeze_stats %}
+    <div style="display:flex; gap:16px; margin-bottom:20px; flex-wrap:wrap;">
+      <div class="stat-chip">Pending: <strong>{{ d.freeze_stats.pending_execution }}</strong></div>
+      <div class="stat-chip">Executed: <strong>{{ d.freeze_stats.executed_pending_report }}</strong></div>
+      <div class="stat-chip">Reported: <strong>{{ d.freeze_stats.reported }}</strong></div>
+      <div class="stat-chip">Resolved: <strong>{{ d.freeze_stats.resolved }}</strong></div>
+    </div>
+    {% endif %}
+
+    <a href="/freeze-obligations" class="btn small">View all freeze obligations →</a>
+  </div>
+</details>
+{% endif %}
+
 {% if d.open_by_category %}
 <div class="mb-6">
   <div class="section-label">Open alerts by category</div>
