@@ -157,38 +157,13 @@ async def _lifespan(app):
     """
     from ..logging_config import configure_logging
     configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"))
-    if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
-        yield
-        return
-    try:
-        from datetime import datetime
-
-        from apscheduler.schedulers.background import BackgroundScheduler
-        scheduler = BackgroundScheduler()
-        scheduler.add_job(
-            _run_scheduled_refresh,
-            trigger="interval",
-            hours=23,
-            id="sanctions_refresh",
-            replace_existing=True,
-            # An IntervalTrigger with no explicit next_run_time waits a full
-            # interval (23h) before its first fire -- so every fresh
-            # container start (a redeploy, or a cold start after Cloud Run
-            # scaled to zero) began a new 23-hour wait instead of refreshing
-            # right away, which is how the 24-hour rule was breaching even
-            # with this scheduler "running". Firing once on startup closes
-            # that gap; /system/refresh (Cloud Scheduler) remains the
-            # reliable path across scale-to-zero gaps this can't cover.
-            next_run_time=datetime.now(),
-        )
-        scheduler.start()
-        log.info("APScheduler started — sanctions refresh now, then every 23 hours.")
-        yield
-        scheduler.shutdown(wait=False)
-    except ImportError:
-        log.warning("apscheduler not installed — in-process scheduling disabled. "
-                    "Use Cloud Scheduler + /system/refresh endpoint instead.")
-        yield
+    # p53: APScheduler removed. Use Cloud Scheduler to call /system/refresh.
+    # In-process background scheduling doesn't survive Cloud Run scale-to-zero,
+    # and adds unnecessary complexity. External cron (Cloud Scheduler, systemd
+    # timer, or similar) calling /system/refresh is more reliable.
+    if os.environ.get("AMLKIT_DISABLE_AUTO_REFRESH") != "1":
+        log.info("Auto-refresh via /system/refresh endpoint (call from Cloud Scheduler).")
+    yield
 
 
 # N001: Disable OpenAPI by default unless explicitly enabled
