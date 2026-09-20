@@ -679,6 +679,7 @@ def register_org_submit(
 
 
 @app.get("/verify-email", response_class=HTMLResponse)
+@limiter.limit("10/minute")
 def verify_email(request: Request, db: DB, token: str = ""):
     operator = auth.consume_email_verify_token(db, token)
     if operator is None:
