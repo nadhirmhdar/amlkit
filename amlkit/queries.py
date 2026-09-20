@@ -156,6 +156,15 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
     txn_alerts = transaction_alert_queue(conn, org_id, status="open")
     oldest_open_txn = sorted(txn_alerts, key=lambda a: a["created_at"])[:5]
 
+    # Freeze obligations stats (only for MLRO role, but included for all to simplify template logic)
+    freeze_stats_raw = freeze_obligations_stats(conn, org_id)
+    freeze_stats = {
+        "pending_execution": freeze_stats_raw.get("pending_execution", 0),
+        "executed_pending_report": freeze_stats_raw.get("executed_pending_report", 0),
+        "reported": freeze_stats_raw.get("reported", 0),
+        "resolved": freeze_stats_raw.get("resolved", 0),
+    }
+
     return {
         "staleness": staleness,
         "breaches": breaches,
@@ -169,6 +178,7 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
         "adverse_media_due": am_due,
         "open_transaction_alerts": txn_alerts,
         "oldest_open_transaction_alerts": oldest_open_txn,
+        "freeze_stats": freeze_stats,
         "counts": dict(counts),
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
