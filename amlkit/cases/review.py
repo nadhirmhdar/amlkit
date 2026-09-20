@@ -251,6 +251,18 @@ def propose_disposition(
         raise ReviewError("an operator identity is required to disposition an alert")
     _validate(status, reason_code, narrative)
 
+    # Issue #167: Prevent double-disposition - check if alert already has final status
+    current = conn.execute(
+        "SELECT status FROM alerts WHERE id=? AND org_id=?", (alert_id, org_id)
+    ).fetchone()
+    if current is None:
+        raise ReviewError(f"alert {alert_id} not found")
+    if current["status"] not in ("open", PENDING):
+        raise ReviewError(
+            f"alert {alert_id} already has a final disposition (status={current['status']}). "
+            "Cannot re-disposition an already-resolved alert."
+        )
+
     # needs_independent_review() only checks alert ownership when status is
     # false_positive (it short-circuits for the others) -- so the UPDATE
     # below carries its own "AND org_id=?" and checks rowcount, which is the
