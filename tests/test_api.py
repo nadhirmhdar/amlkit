@@ -844,10 +844,12 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should get a redirect back to the form with error
+        # Should get a redirect back to the form with flash error cookie (Issue #102)
         assert r.status_code == 303
-        assert "err=" in r.headers["location"]
-        assert "100" in r.headers["location"]
+        _flash = r.cookies.get("amlkit_flash")
+        assert _flash is not None, "Expected flash error cookie"
+        assert json.loads(_flash)["type"] == "err"
+        assert "100" in json.loads(_flash)["text"]
 
         # Verify no customer was created
         conn = _db()
@@ -886,10 +888,12 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should get redirect back with error
+        # Should get redirect back with flash error cookie (Issue #102)
         assert r2.status_code == 303
-        assert "err=" in r2.headers["location"]
-        assert "110" in r2.headers["location"]
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is not None, "Expected flash error cookie"
+        assert json.loads(_flash)["type"] == "err"
+        assert "110" in json.loads(_flash)["text"]
 
         # Verify only 1 UBO exists (the first one)
         ubo_count = conn.execute(
@@ -946,9 +950,10 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should redirect with error
+        # Should redirect with flash error cookie (Issue #102)
         assert r2.status_code == 303
-        assert "err=" in r2.headers["location"]
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is not None and json.loads(_flash).get("type") == "err"
 
         # Verify UBO was NOT added
         ubo_count = conn.execute(
@@ -983,9 +988,10 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should redirect with error
+        # Should redirect with flash error cookie (Issue #102)
         assert r2.status_code == 303
-        assert "err=" in r2.headers["location"]
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is not None and json.loads(_flash).get("type") == "err"
 
         # Verify UBO was NOT added
         ubo_count = conn.execute(
@@ -1020,7 +1026,8 @@ class TestUboValidation:
         }, follow_redirects=False)
 
         assert r2.status_code == 303
-        assert "err=" not in r2.headers.get("location", "")
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is None or json.loads(_flash).get("type") != "err"
 
         # Verify UBO was added
         ubo_count = conn.execute(
@@ -1055,7 +1062,8 @@ class TestUboValidation:
         }, follow_redirects=False)
 
         assert r2.status_code == 303
-        assert "err=" not in r2.headers.get("location", "")
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is None or json.loads(_flash).get("type") != "err"
 
         # Verify UBO was added
         ubo_count = conn.execute(
