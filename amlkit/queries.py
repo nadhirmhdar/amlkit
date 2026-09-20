@@ -848,3 +848,27 @@ def compliance_deadline(conn: sqlite3.Connection, org_id: int, deadline_id: int)
         WHERE id = ? AND org_id = ?
     """, (deadline_id, org_id)).fetchone()
     return dict(row) if row else None
+
+
+def customer_completeness(customer: dict[str, Any]) -> float:
+    """Calculate customer profile completeness percentage (p42).
+
+    Returns percentage of required fields that are filled. Required fields:
+    - full_name (always present)
+    - birth_date
+    - nationality
+    - address_line1
+    - risk_rating (from risk_assessments table)
+
+    UBO disclosure is checked separately (legal entities should have UBOs).
+    """
+    required_fields = [
+        "full_name",
+        "birth_date",
+        "nationality",
+        "address_line1",
+        "risk_rating",
+    ]
+
+    filled = sum(1 for field in required_fields if customer.get(field))
+    return round((filled / len(required_fields)) * 100, 1)
