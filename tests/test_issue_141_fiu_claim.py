@@ -57,45 +57,20 @@ def _create_report(client):
     return row["id"]
 
 
-class TestIssue141FIUClaim:
-    def test_web_submit_does_not_claim_fiu_transmission(self, client) -> None:
-        """Web submission must NOT claim report was submitted to UAE FIU."""
-        report_id = _create_report(client)
-        r = client.post(f"/reports/{report_id}/submit",
-                       data={"csrf_token": _csrf(client)},
-                       follow_redirects=True)
-        
-        assert r.status_code == 200
-        assert "UAE FIU successfully" not in r.text, \
-            "Must not claim successful UAE FIU submission"
-        assert "goAML portal" in r.text, \
-            "Must instruct user to upload to goAML portal manually"
-        assert "finalized" in r.text.lower() or "manual" in r.text.lower(), \
-            "Must clarify manual upload required"
+def test_web_submit_does_not_claim_fiu_transmission(client) -> None:
+    """Web submission must NOT claim report was submitted to UAE FIU."""
+    report_id = _create_report(client)
+    r = client.post(f"/reports/{report_id}/submit",
+                   data={"csrf_token": _csrf(client)},
+                   follow_redirects=True)
+    
+    assert r.status_code == 200
+    assert "UAE FIU successfully" not in r.text, \
+        "Must not claim successful UAE FIU submission"
+    assert "goAML portal" in r.text, \
+        "Must instruct user to upload to goAML portal manually"
+    assert "finalized" in r.text.lower() or "manual" in r.text.lower(), \
+        "Must clarify manual upload required"
 
-    def test_mobile_submit_returns_manual_transmission_flag(self, client) -> None:
-        """Mobile submission must return fiu_transmission='manual'."""
-        # Create report via web, then submit via mobile API
-        report_id = _create_report(client)
-        
-        # Get bearer token
-        from amlkit.db import connect
-        conn = connect(os.environ["AMLKIT_DB"])
-        row = conn.execute(
-            "SELECT token FROM sessions ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        token = row["token"]
-        conn.close()
-        
-        r = client.post(f"/api/v1/reports/{report_id}/submit",
-                       headers={"Authorization": f"Bearer {token}"})
-        
-        assert r.status_code == 200
-        data = r.json()
-        assert data.get("ok") is True
-        assert data.get("fiu_transmission") == "manual", \
-            "Must indicate manual transmission required"
-        assert "goAML portal" in data.get("message", ""), \
-            "Message must mention goAML portal"
-        assert "UAE FIU successfully" not in data.get("message", ""), \
-            "Must not claim successful UAE FIU transmission"
+
+# Mobile API test coverage is in tests/test_mlro_report_submit.py::test_mlro_can_submit_report

@@ -78,7 +78,14 @@ class TestMlroReportSubmitAPI:
         assert r.status_code == 403
 
     def test_mlro_can_submit_report(self, api) -> None:
+        """MLRO can submit and response clarifies manual FIU transmission (issue #141)."""
         client, mlro_headers, _ = api
         rid = _create_report(client, mlro_headers)
         r = client.post(f"/api/v1/reports/{rid}/submit", headers=mlro_headers)
         assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert data["finalized"] is True
+        assert data["fiu_transmission"] == "manual"
+        assert "goAML portal" in data["message"]
+        assert "UAE FIU successfully" not in data["message"]
