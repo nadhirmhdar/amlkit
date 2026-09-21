@@ -54,6 +54,44 @@ def _category(topics: list[str], programs: list[str]) -> str:
     return "other"
 
 
+def mfa_lockout_banner(conn: sqlite3.Connection, org_id: int) -> dict[str, Any] | None:
+    """Check for recent MFA lockout events and return banner if needed.
+
+    Returns None when no recent lockouts.
+    Returns dict with 'severity', 'message', and 'link' when lockouts detected.
+    """
+    # Check for mfa.locked events in last 24 hours
+    from datetime import timedelta
+    # audit_log's timestamp column is `ts`, written by db.utcnow() as
+    # isoformat(timespec="seconds"); match that format so the string
+    # comparison is lexicographically consistent.
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    lockout_rows = conn.execute(
+        """SELECT actor, ts FROM audit_log
+           WHERE org_id = ? AND action = 'mfa.locked' AND ts > ?
+           ORDER BY ts DESC LIMIT 5""",
+        (org_id, cutoff)
+    ).fetchall()
+
+    if lockout_rows:
+        count = len(lockout_rows)
+        if count == 1:
+            actor = lockout_rows[0]["actor"]
+            return {
+                "severity": "warning",
+                "message": f"MFA authentication locked for {actor} due to failed attempts",
+                "link": "/audit"
+            }
+        else:
+            return {
+                "severity": "warning",
+                "message": f"{count} operators experienced MFA lockouts in the last 24 hours",
+                "link": "/audit"
+            }
+
+    return None
+
+
 def dataset_health_banner(conn: sqlite3.Connection) -> dict[str, Any] | None:
     """Check dataset health and return banner info if action needed.
 

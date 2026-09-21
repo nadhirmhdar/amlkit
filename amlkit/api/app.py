@@ -278,6 +278,10 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     if session and db is not None:
         banner = queries.dataset_health_banner(db)
         ctx.setdefault("dataset_banner", banner)
+        # Check for MFA lockouts (show to admin/MLRO roles)
+        if session.operator_role in ("mlro", "admin"):
+            mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
+            ctx.setdefault("mfa_banner", mfa_banner)
 
     # Inject organization name for authenticated sessions
     if session:
@@ -723,7 +727,15 @@ def mfa_disable_submit(
         return back("/account", err=str(exc))
 
     # Require TOTP code only (password alone is insufficient - prevents MFA removal via password compromise)
-    if not totp_code or not auth.mfa_verify(db, session.operator_id, totp_code):
+    # Use mfa_check_code with stage="verify" to apply lockout and failed-attempt audit logging
+    if not totp_code:
+        return back("/account", err="Enter a valid TOTP code to disable MFA.")
+
+    outcome = auth.mfa_check_code(db, session.operator_id, totp_code, stage="verify",
+                                  actor=session.operator_name, org_id=session.org_id)
+    if outcome == "locked":
+        return back("/account", err="Too many failed attempts. Try again in 15 minutes.")
+    if outcome != "ok":
         return back("/account", err="Enter a valid TOTP code to disable MFA.")
 
     # Disable MFA
@@ -1074,7 +1086,17 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         )
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+    except Exception as exc:
+        # Catch GoAMLValidationError for missing entity_reference
+        if "goAML entity reference" in str(exc):
+            return back(
+                f"/freeze-obligations/{freeze_id}",
+                err='Set your goAML entity reference under Admin → Organisation profile before filing. '
+                    '<a href="/admin">Go to Admin</a>'
+            )
+        raise
 
+    db.commit()
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
@@ -2208,6 +2230,7 @@ def admin_save_org_profile(
     reporting_person_name: Annotated[str, Form()] = "",
     reporting_person_title: Annotated[str, Form()] = "",
     reporting_person_phone: Annotated[str, Form()] = "",
+    goaml_entity_reference: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = ""
 ):
     """Save organization reporting entity profile for goAML exports (p46)."""
@@ -2225,13 +2248,15 @@ def admin_save_org_profile(
         SET org_address = ?,
             reporting_person_name = ?,
             reporting_person_title = ?,
-            reporting_person_phone = ?
+            reporting_person_phone = ?,
+            goaml_entity_reference = ?
         WHERE id = ?
     """, (
         org_address.strip() or None,
         reporting_person_name.strip() or None,
         reporting_person_title.strip() or None,
         reporting_person_phone.strip() or None,
+        goaml_entity_reference.strip() or None,
         session.org_id
     ))
 
@@ -2242,6 +2267,7 @@ def admin_save_org_profile(
         "reporting_person_name": reporting_person_name.strip() or None,
         "reporting_person_title": reporting_person_title.strip() or None,
         "reporting_person_phone": reporting_person_phone.strip() or None,
+        "goaml_entity_reference": goaml_entity_reference.strip() or None,
     }, org_id=session.org_id)
 
     db.commit()
@@ -2977,19 +3003,22 @@ def report_export_xml(request: Request, db: DB, report_id: int):
         raise HTTPException(status_code=404, detail="Report not found")
 
     import json
-    from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
+    from ..reporting.goaml import GoAMLValidationError, inject_reporting_entity, serialize_goaml_xml
 
     payload = json.loads(rep["payload"] or "{}")
 
-    if not payload.get("reporting_entity_name"):
-        org = db.execute(
-            "SELECT name, org_address FROM organizations WHERE id = ?",
-            (session.org_id,),
-        ).fetchone()
-        if org:
-            payload["reporting_entity_name"] = org["name"]
-            if org["org_address"] and not payload.get("reporting_entity_branch"):
-                payload["reporting_entity_branch"] = org["org_address"]
+    # Inject org details into payload (follow-up to #231/#142)
+    try:
+        inject_reporting_entity(payload, db, session.org_id)
+    except GoAMLValidationError as exc:
+        if "goAML entity reference" in str(exc):
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail='Set your goAML entity reference under Admin → Organisation profile before exporting. '
+                       '<a href="/admin">Go to Admin</a>'
+            )
+        raise
 
     try:
         xml_content = serialize_goaml_xml(payload)

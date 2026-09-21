@@ -188,6 +188,7 @@ class MfaVerifyRequest(BaseModel):
 
 
 @router.post("/auth/mfa/verify")
+@limiter.limit("5/minute")
 def api_mfa_verify(request: Request, body: MfaVerifyRequest, db: DB):
     """Unlock a locked MLRO token with a TOTP or one unused backup code (p15).
 
@@ -1585,9 +1586,21 @@ def api_report_export(report_id: int, db: DB, session: Session):
     rep = queries.report(db, report_id, session.org_id)
     if not rep:
         raise HTTPException(status_code=404, detail="Report not found.")
-    from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
+    from ..reporting.goaml import GoAMLValidationError, inject_reporting_entity, serialize_goaml_xml
 
     payload = json.loads(rep["payload"] or "{}")
+
+    # Inject org details into payload (follow-up to #231/#142)
+    try:
+        inject_reporting_entity(payload, db, session.org_id)
+    except GoAMLValidationError as exc:
+        if "goAML entity reference" in str(exc):
+            raise HTTPException(
+                status_code=400,
+                detail="Set your goAML entity reference under Admin → Organisation profile before exporting."
+            ) from exc
+        raise
+
     try:
         xml_content = serialize_goaml_xml(payload)
     except GoAMLValidationError as exc:
