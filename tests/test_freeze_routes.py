@@ -108,6 +108,9 @@ def test_mlro_can_file_ffr_and_resolve(client):
     # Create customer and executed freeze obligation
     conn = _db()
     org_id = conn.execute("SELECT id FROM organizations LIMIT 1").fetchone()["id"]
+    # Set goaml_entity_reference (required for FFR filing)
+    conn.execute("UPDATE organizations SET goaml_entity_reference = ? WHERE id = ?", ("TEST-ORG-FFR", org_id))
+    conn.commit()
     now = utcnow()
     cur = conn.execute("""
         INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
