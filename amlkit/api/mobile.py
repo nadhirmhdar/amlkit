@@ -188,6 +188,7 @@ class MfaVerifyRequest(BaseModel):
 
 
 @router.post("/auth/mfa/verify")
+@limiter.limit("5/minute")
 def api_mfa_verify(request: Request, body: MfaVerifyRequest, db: DB):
     """Unlock a locked MLRO token with a TOTP or one unused backup code (p15).
 

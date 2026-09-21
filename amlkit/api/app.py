@@ -278,6 +278,10 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     if session and db is not None:
         banner = queries.dataset_health_banner(db)
         ctx.setdefault("dataset_banner", banner)
+        # Check for MFA lockouts (show to admin/MLRO roles)
+        if session.operator_role in ("mlro", "admin"):
+            mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
+            ctx.setdefault("mfa_banner", mfa_banner)
 
     # Inject organization name for authenticated sessions
     if session:
@@ -723,7 +727,15 @@ def mfa_disable_submit(
         return back("/account", err=str(exc))
 
     # Require TOTP code only (password alone is insufficient - prevents MFA removal via password compromise)
-    if not totp_code or not auth.mfa_verify(db, session.operator_id, totp_code):
+    # Use mfa_check_code with stage="verify" to apply lockout and failed-attempt audit logging
+    if not totp_code:
+        return back("/account", err="Enter a valid TOTP code to disable MFA.")
+
+    outcome = auth.mfa_check_code(db, session.operator_id, totp_code, stage="verify",
+                                  actor=session.operator_name, org_id=session.org_id)
+    if outcome == "locked":
+        return back("/account", err="Too many failed attempts. Try again in 15 minutes.")
+    if outcome != "ok":
         return back("/account", err="Enter a valid TOTP code to disable MFA.")
 
     # Disable MFA
