@@ -60,6 +60,7 @@ from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
+from .csv_utils import _escape_csv_formula
 from .deps import (
     CSRF_COOKIE,
     SESSION_COOKIE,
@@ -1662,22 +1663,6 @@ def customers_csv(request: Request, db: DB):
             for c in rows
         ],
     )
-
-
-def _escape_csv_formula(value):
-    """Escape cells starting with formula injection characters.
-
-    Prefixes cells starting with =, +, -, @, tab, or carriage return with a
-    single quote to prevent Excel/LibreOffice from interpreting them as formulas.
-    This is the standard mitigation for CSV formula injection (also known as
-    CSV injection or formula injection attacks).
-    """
-    if value is None:
-        return value
-    s = str(value)
-    if s and s[0] in ('=', '+', '-', '@', '\t', '\r'):
-        return "'" + s
-    return s
 
 
 def _csv_response(filename: str, header: list[str], rows: list[list]):

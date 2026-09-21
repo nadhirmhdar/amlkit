@@ -67,6 +67,7 @@ from ..cases.review import (
 from ..db import set_org_alert_threshold, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
+from .csv_utils import _escape_csv_formula
 from .deps import client_ip, get_db, require_role
 
 router = APIRouter(prefix="/api/v1")
@@ -1240,8 +1241,8 @@ def _csv(filename: str, header: list[str], rows: list[list]) -> Response:
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(header)
-    writer.writerows(rows)
+    writer.writerow([_escape_csv_formula(h) for h in header])
+    writer.writerows([[_escape_csv_formula(cell) for cell in row] for row in rows])
     return Response(
         content=buf.getvalue(), media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
