@@ -88,19 +88,25 @@ Research and inspection only; no product changes except the two bug fixes alread
 | 1.9 | [NEW] Greeting tests | Device timezone change, browser timezone change, travel between countries, DST transitions, JS disabled. Assert no precise location is collected or stored |
 | 1.10 | [NEW] Overall UI/UX consistency pass | Spacing, button styles, headings, empty states, tag colours across all templates; produce a short findings list before changing anything |
 | 1.11 | [NEW] Bug-report / feedback experience | `feedback-btn` modal: match AMLKit tokens, add page context (already sent), confirm delivery path and success/error states |
-| 1.12 | [#77] (low) Show organisation name in the UI | Partially done (sidebar + dropdown show it); verify every page, then close |
+| 1.12 | [DONE #77] Show organisation name in the UI | Sidebar, avatar dropdown and empty states; `test_org_name_display.py`. Closed 2026-09-21 |
 | 1.13 | [DONE PR-ui] Self-host the Manrope font | CSP `font-src 'self'` blocked Google Fonts → production rendered in the fallback font. Variable woff2 (latin + latin-ext) now under `/static/fonts` with `@font-face`; smoke test in `test_static_assets.py` |
+| 1.15 | [DONE] MFA setup QR rendered as a broken image | segno `svg_inline()` omits the SVG namespace, which `<img>` decoders require; switched to `svg_data_uri()` |
+| 1.16 | [DONE] Freeze Obligations moved from the sidebar to the MLRO section of the user menu | Statutory emergency action on confirmed hits, not an everyday nav item; sidebar is Home / Dashboard / Screen a name / Customers (+ Console) |
+| 1.17 | [DONE] Quick-screen bar on Home under the greeting | Same `POST /screen` as the full page; fills the empty band below the cards without inventing content |
+| 1.18 | [DONE] Single-operator mode chip in the desktop header | Shown only when the mode is on; the footer sentence stays for phones. No "dual-control" badge when off: four-eyes covers sanctions/PF dismissals only, so a green badge would overstate it |
+| 1.19 | [NEW] Home "operational pulse" (recent screenings, dataset freshness) | Deferred to 4.3/4.4: every tile needs a query behind it; the stale-source banner already covers dataset freshness |
+| 1.20 | [NEW] One-click clearance slip PDF on `/screen` when there is no match | Depends on the WeasyPrint evidence-pack PDF in PR #240; reuse that pipeline (query, lists searched, timestamp, operator, verification hash) rather than a second PDF path |
 | 1.14 | [NEW] Tablet layout decision [HUMAN] | 681–960 px keeps the hamburger sidebar; phone chrome (tab bar) applies ≤ 680 px. Extend phone chrome to tablets, or keep? |
 
 ## Phase 2 — Security, Audit and Data Protection
 
 | # | Item | Notes |
 |---|---|---|
-| 2.1 | [#99] (medium) `POST /admin/*` returns 200 for officer role instead of 403 | RBAC response ambiguity |
+| 2.1 | [DONE #99] `POST /admin/*` returns 403 for officer role | `test_admin_rbac.py`. Closed 2026-09-21 |
 | 2.2 | [#143] (medium) Rate limiter resolves link-local proxy IP on Cloud Run, collapsing limits across tenants | Note `tests/conftest.py:41` disables the limiter suite-wide; add runtime probe |
 | 2.3 | [#78] (high) Verify legally required retention period (8 vs 10 years) | [HUMAN]/compliance source needed; then fix `db.py:240` comment |
 | 2.4 | [#79] (high) Extend `retention_until` dates stored under the old 5-year rule | Depends on 2.3 |
-| 2.5 | [#71] (high) Static check for tenant-isolation conventions (`org_id` scoping) | Lint rule + CI job |
+| 2.5 | [DONE #71] Static check for tenant-isolation conventions (`org_id` scoping) | `test_tenant_isolation.py` static + runtime layers in CI; `scripts/security_scan.py`. Closed 2026-09-21 |
 | 2.6 | [NEW] Complete audit-log review | Enumerate all `db.audit()` call sites; map to compliance-critical events (CDD decisions, dispositions, freeze actions, STR export, role changes, login/logout/failed login, exports/downloads, retention purge); list missing ones |
 | 2.7 | [NEW] Audit-log access controls and tenant isolation | Verify `/audit` and CSV export scope by `org_id`; super-admin cross-org access is logged |
 | 2.8 | [NEW] Sensitive data in audit rows | Check no secrets, full ID numbers, or document contents are written to `audit`; define masking |
@@ -108,9 +114,9 @@ Research and inspection only; no product changes except the two bug fixes alread
 | 2.10 | [NEW] Client-data inventory | What AMLKit collects, processes, stores, transmits — per table/column and per outbound API (from 0.9); classify AML/KYC/CDD/UBO/screening/risk data |
 | 2.11 | [NEW] Protection gap analysis | Encryption at rest (SQLite file, GCS objects, ID documents), access control, tenant isolation, retention, deletion, masking, backups (`backup-verify.yml`), logging. Decide what needs adding |
 | 2.12 | [NEW] Local browser data | Test logout, session expiry, browser restart, user switch on one device; confirm exports are the only client-side persistence; add `Cache-Control: no-store` to authenticated responses if missing |
-| 2.13 | [#82] (low) CSP: remove `'unsafe-inline'` from `script-src` | Pre-existing `customer.html` inline script/`onclick` must go first (`test_csp_no_inline_scripts` is red on `master`) |
-| 2.14 | PR #197 MFA TOTP gate | Rebase onto the `mfa_*` DDL now on `master` (#219); blockers: no login-time enforcement, plaintext TOTP secret, no re-auth on `mfa_disable` |
-| 2.15 | PR #112 CSV formula injection (mobile API) | Ready for review; merge when reviewed |
+| 2.13 | [DONE #82] CSP `script-src 'self'` | `test_csp_no_inline_scripts.py` green on master. Closed 2026-09-21. `style-src 'unsafe-inline'` still open (needs a `style=""` refactor) |
+| 2.14 | [DONE #244] MFA TOTP enforced at login for MLROs (web + mobile) | #197 closed as superseded. Remaining: TOTP secret plaintext at rest; mobile enrolment endpoint; per-IP limit on `/api/v1/auth/mfa/verify`; `/mfa/disable` through `mfa_check_code()`; **amlkit-mobile must handle `mfa_required`** |
+| 2.15 | [DONE #112] CSV formula injection (mobile API) | Merged |
 
 ## Phase 3 — Accessibility
 
@@ -133,7 +139,7 @@ Depends on 0.8 for the legal baseline; WCAG 2.2 AA is the working benchmark.
 
 | # | Item | Notes |
 |---|---|---|
-| 4.1 | [#72] (medium) Warn operators when a sanctions source is stale or failing | Banner exists for MLRO; extend to officers and to the dashboard |
+| 4.1 | [DONE #72] Warn operators when a sanctions source is stale or failing | Banner for every authenticated role, red/amber by severity, links to the compliance dashboard; `test_sanctions_banner.py`. Closed 2026-09-21 |
 | 4.2 | [NEW] Alerts/Dashboard experience review | With the sidebar Alerts entry removed, the dashboard is the only alerts surface — verify queue, filters, disposition flow, four-eyes state are discoverable |
 | 4.3 | [NEW] Metrics that can be derived from existing data | Candidates with a real source: open alerts by category/severity, alert age, disposition turnaround, screening volume, customers by risk tier, overdue reviews, freeze obligations vs 24 h, dataset freshness. **No metric without a query behind it** |
 | 4.4 | [NEW] Visualisations | Only for 4.3 metrics; small multiples over dashboards-for-show; follow the `dataviz` skill palette rules |

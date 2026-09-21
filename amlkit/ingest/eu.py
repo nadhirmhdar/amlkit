@@ -49,13 +49,19 @@ class EUSanctionsAdapter:
         self.key = "eu_sanctions"
         self.title = "EU Consolidated Sanctions List"
         self.publisher = "European Union"
+        # The token-bearing URL is resolved on fetch, not at init, so the
+        # adapter can be instantiated to check is_mandatory even when the
+        # token isn't set (e.g., in CI workflows that test optional-source
+        # graceful degradation). self.source_url still needs a value at init
+        # time -- every SourceAdapter.source_url is persisted verbatim onto
+        # the datasets row (see loader.load() and cases/scheduler.py) -- so
+        # this is the untokenised base URL, which also avoids ever writing
+        # the live token into the database.
+        self.source_url = BASE_URL
         self.licence = "Public Domain"
         self.is_mandatory = False
 
     def fetch(self) -> bytes:
-        # Resolved on fetch, not at init, so the adapter can be instantiated
-        # to check is_mandatory even when the token isn't set (e.g., in CI
-        # workflows that test optional-source graceful degradation).
         source_url = list_url()
 
         import time

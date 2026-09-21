@@ -521,6 +521,53 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
     }
 
 
+def effective_risk(conn: sqlite3.Connection, customer_id: int, org_id: int) -> str:
+    """Compute effective risk level combining operator-declared and computed ratings.
+
+    Returns "high" if:
+    - Latest risk_assessments.rating == "high", OR
+    - customers.risk_level (operator-declared) == "high"
+
+    Otherwise returns the computed rating from latest assessment.
+    Falls back to declared risk_level when no assessment exists yet.
+
+    Returns: "high" | "medium" | "low"
+    """
+    # Get customer's declared risk level
+    customer_row = conn.execute(
+        "SELECT risk_level FROM customers WHERE id=? AND org_id=?",
+        (customer_id, org_id)
+    ).fetchone()
+
+    if not customer_row:
+        return "low"  # Customer doesn't exist, default to low
+
+    declared_risk = customer_row["risk_level"]
+
+    # If operator declared high, that takes precedence
+    if declared_risk == "high":
+        return "high"
+
+    # Get latest computed risk assessment
+    assessment_row = conn.execute(
+        """SELECT rating FROM risk_assessments
+           WHERE customer_id=? AND org_id=?
+           ORDER BY assessed_at DESC LIMIT 1""",
+        (customer_id, org_id)
+    ).fetchone()
+
+    if assessment_row:
+        computed_rating = assessment_row["rating"]
+        # If computed is high, return high
+        if computed_rating == "high":
+            return "high"
+        # Otherwise return the computed rating
+        return computed_rating
+
+    # No assessment exists yet, fall back to declared (or default to "low")
+    return declared_risk if declared_risk else "low"
+
+
 def transactions_for_customer(
     conn: sqlite3.Connection, customer_id: int, org_id: int, limit: int = 200
 ) -> list[dict[str, Any]]:
@@ -920,3 +967,78 @@ def has_screening_history(conn: sqlite3.Connection, org_id: int) -> bool:
         (org_id,)
     ).fetchone()["count"]
     return count > 0
+
+
+def contextual_home_card(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
+    """Determine which contextual card to show on the home page.
+
+    Priority order:
+    1. Open alerts > 0 → "Review N open alerts"
+    2. Customers due for adverse media check → "Check adverse media"
+    3. Datasets stale (> 20h) → "Refresh sanctions lists"
+    4. Fallback → "All clear"
+
+    Returns:
+        {
+            "type": "alerts" | "adverse_media" | "datasets" | "all_clear",
+            "title": str,
+            "description": str,
+            "link": str,
+            "count": int | None  # For alerts type
+        }
+    """
+    # Check for open alerts
+    open_alerts_count = conn.execute(
+        """SELECT COUNT(*) as count FROM alerts
+           WHERE org_id = ? AND status IN ('open', 'pending_review')""",
+        (org_id,)
+    ).fetchone()["count"]
+
+    if open_alerts_count > 0:
+        plural = "s" if open_alerts_count != 1 else ""
+        return {
+            "type": "alerts",
+            "title": f"Review {open_alerts_count} alert{plural}",
+            "description": f"{open_alerts_count} alert{plural} awaiting decision",
+            "link": "/dashboard",
+            "count": open_alerts_count,
+        }
+
+    # Check for customers due for adverse media check
+    am_due = adverse_media_due(conn, org_id)
+    if am_due:
+        count = len(am_due)
+        return {
+            "type": "adverse_media",
+            "title": "Check adverse media",
+            "description": f"{count} customer{'s' if count != 1 else ''} due for adverse media screening",
+            "link": "/dashboard",
+            "count": count,
+        }
+
+    # Check for stale datasets (> 20 hours)
+    from datetime import timedelta
+    twenty_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat()
+    stale_datasets = conn.execute(
+        """SELECT COUNT(*) as count FROM datasets
+           WHERE last_refresh IS NULL OR last_refresh < ?""",
+        (twenty_hours_ago,)
+    ).fetchone()["count"]
+
+    if stale_datasets > 0:
+        return {
+            "type": "datasets",
+            "title": "Refresh sanctions lists",
+            "description": "Sanctions datasets need refreshing",
+            "link": "/admin/compliance",
+            "count": stale_datasets,
+        }
+
+    # Fallback - all clear
+    return {
+        "type": "all_clear",
+        "title": "All clear",
+        "description": "Everything is up to date",
+        "link": "/dashboard",
+        "count": None,
+    }

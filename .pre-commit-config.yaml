@@ -1,0 +1,24 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: python-syntax-check
+        name: Check Python syntax (compileall)
+        entry: python -m compileall -q
+        language: system
+        files: \.py$
+        pass_filenames: false
+        args: [amlkit, tests]
+
+      - id: ruff-critical
+        name: Ruff (syntax errors and undefined names only)
+        entry: ruff check --select E9,F63,F7,F82 --no-fix
+        language: system
+        files: \.py$
+        types: [python]
+        args: [amlkit, tests]

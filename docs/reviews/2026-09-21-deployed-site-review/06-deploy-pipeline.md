@@ -1,0 +1,20 @@
+# Deployment / pipeline findings (lead reviewer, read directly from repo)
+
+Reviewed commit: 65be993 (branch) — origin/master is 1 commit ahead (aad9a39, TOTP-at-login for MLRO, #244) and is what Cloud Run currently runs. That commit touches app.py/auth.py/mobile.py/deps.py/db.py; it was reviewed by reading only.
+
+| Sev | Item | Evidence | Fix |
+|---|---|---|---|
+| CRITICAL | Multiple Cloud Run instances each own a private SQLite file, all replicating to ONE Litestream replica path | `.github/workflows/source-canary.yml:388-389` `--min-instances 0 --max-instances 10`, no `--concurrency`; `scripts/entrypoint.sh` restores per-instance then `litestream replicate -exec`; `litestream.yml` single replica URL. Two instances = two divergent DBs writing to the same GCS replica → lost writes / corrupted restore. docs/CONTINUOUS_IMPROVEMENT.md:44 already noticed the refresh-storm symptom of the same root cause. | `--max-instances 1` immediately (and `--concurrency 80` explicitly). Medium term: Cloud SQL Postgres (toolbox already has a Postgres path) or Turso/LiteFS-style single-writer. |
+| HIGH | Secrets shipped as plaintext env vars, not Secret Manager | `source-canary.yml:378` `--set-env-vars ... SCHEDULER_SECRET=…;;ADMIN_API_SECRET=…;;AMLKIT_SMTP_PASSWORD=…;;AMLKIT_EU_FSF_TOKEN=…;;GEMINI_API_KEY=…` — readable by anyone with `run.services.get`, visible in revision history and console. | `gcloud run deploy --set-secrets SCHEDULER_SECRET=scheduler-secret:latest,...`; grant the runtime SA `secretmanager.secretAccessor`. Matches skill Step 14/17. |
+| HIGH | Idle-to-zero + per-request SQLite restore = cold start does a GCS restore + integrity check before first byte | `--min-instances 0`; entrypoint restore path. Every scale-from-zero re-downloads the DB. For a compliance officer the first request of the day can take many seconds; with a growing DB it gets worse. | `--min-instances 1` (~$10–15/mo at 1 vCPU/1 GiB) or `--cpu-boost`. |
+| MEDIUM | Deploy gate runs the test suite but no lint, type-check, dependency audit, or image scan | `tests.yml`, `source-canary.yml` jobs `tests`, `sources`, `deploy`; `codeql.yml` exists (good). No `pip-audit`/`bandit`/`ruff`. | Add `ruff check`, `pip-audit -r requirements.lock`, `bandit -r amlkit -ll` as jobs; enable Artifact Registry vulnerability scanning. |
+| MEDIUM | `requirements.txt` uses `>=` floors; `requirements.lock` exists but the Dockerfile installs from `requirements.txt` | `Dockerfile:36-37` `COPY requirements.txt` → `pip install -r requirements.txt` | Install from `requirements.lock` (hash-pinned) in the image; keep `.txt` for dev. |
+| MEDIUM | Health check hits `/health` only; no external uptime monitor or error tracker | Dockerfile HEALTHCHECK; no Sentry/uptime config anywhere in repo; docs/CONTINUOUS_IMPROVEMENT.md shows the in-repo health routine has produced no real data for weeks (egress). | See survey lane for free-tier options (Better Stack / UptimeRobot + Sentry free). |
+| LOW | Cloud Scheduler wiring is `continue-on-error: true` so a failed refresh-job update is silent | `source-canary.yml` "Wire up Cloud Scheduler" step | Fail the job, or post a step-summary warning that is checked. |
+| INFO | `--allow-unauthenticated` is expected (public login page) but no Cloud Armor / edge rate-limit; app-level limiter is per-instance memory | slowapi in app.py; with max-instances >1 the login limiter is trivially split across instances | Single instance fixes it for now; Cloud Armor rate-based rule for `/login` later. |
+
+## Test suite (this sandbox)
+`pytest tests/ --ignore=tests/test_ocr.py` → 996 passed, 1 skipped, 6 failed in 137s. All 6 failures + the ignored file are `ModuleNotFoundError: passporteye` (wheel for pdfminer cannot build here). Not a code regression. CI on ubuntu with Python 3.12 builds it fine.
+
+## Live-site reachability
+`https://amlkit-720622408077.me-central1.run.app` is denied by this sandbox's egress proxy on CONNECT (curl exit 56, WebFetch EGRESS_BLOCKED). Every live check in this report ran against the same code on 127.0.0.1:8000 with AMLKIT_BEHIND_PROXY=1.

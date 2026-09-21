@@ -653,10 +653,10 @@ def mfa_setup_form(request: Request, db: DB):
 
     # Rendered locally: the provisioning URI carries the TOTP secret, so it must
     # never be sent to a third-party QR service (and the CSP would block one).
-    import base64
+    # svg_data_uri() keeps the xmlns declaration; svg_inline() strips it, and an
+    # <img> decoder refuses a namespace-less SVG (broken-image icon).
     import segno
-    svg = segno.make(qr_uri, error="m").svg_inline(scale=5, border=2)
-    qr_data_uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+    qr_data_uri = segno.make(qr_uri, error="m").svg_data_uri(scale=5, border=2)
 
     return render(request, "mfa_setup.html", {
         "session": None,
@@ -1159,6 +1159,7 @@ def home(request: Request, db: DB):
     return render(request, "home.html", {
         "session": session,
         "d": d,
+        "contextual_card": queries.contextual_home_card(db, session.org_id),
         "greeting": greeting,
         "first_name": first_name,
         "today": gst_now.strftime("%A, %d %B %Y"),
@@ -1301,6 +1302,9 @@ def customer_create(
     ubo_controls: Annotated[list[str], Form()] = [],
     purpose_of_relationship: Annotated[str, Form()] = "",
     expected_activity: Annotated[str, Form()] = "",
+    risk_level: Annotated[str, Form()] = "",
+    source_of_wealth: Annotated[str, Form()] = "",
+    source_of_funds: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
 ):
     try:
@@ -1311,6 +1315,13 @@ def customer_create(
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back("/customers/new", err=str(exc))
+
+    # Validate EDD fields for high-risk customers (at onboarding, use declared risk_level)
+    if risk_level and risk_level.strip() == "high":
+        if not source_of_wealth or not source_of_wealth.strip():
+            return back("/customers/new", err="Source of Wealth is required for high-risk customers")
+        if not source_of_funds or not source_of_funds.strip():
+            return back("/customers/new", err="Source of Funds is required for high-risk customers")
 
     ubos = []
     for i, nm in enumerate(ubo_names):
@@ -1343,6 +1354,9 @@ def customer_create(
             jurisdiction_tier=jurisdiction_tier, structure=structure,
             purpose_of_relationship=purpose_of_relationship.strip() or None,
             expected_activity=expected_activity.strip() or None,
+            risk_level=risk_level.strip() or None,
+            source_of_wealth=source_of_wealth.strip() or None,
+            source_of_funds=source_of_funds.strip() or None,
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         )
@@ -1404,8 +1418,10 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     diagram_svg = generate_ubo_diagram(db, customer_id, session.org_id)
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
+    eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
-                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg})
+                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
+                         "effective_risk": eff_risk})
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
@@ -1419,7 +1435,9 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
         return back("/customers", err=f"Customer {customer_id} not found.")
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
-    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()}, db)
+    eff_risk = queries.effective_risk(db, customer_id, session.org_id)
+    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow(),
+                                                     "effective_risk": eff_risk}, db)
 
 
 @app.get("/customers/{customer_id}/gdelt-bq")
@@ -1436,7 +1454,7 @@ def customer_gdelt_bq(request: Request, db: DB, customer_id: int):
 
     from ..screening.gdelt_bq import GdeltBqScreener
     screener = GdeltBqScreener()
-    result = screener.screen(cust["full_name"])
+    result = screener.screen(cust["customer"]["full_name"])
 
     from dataclasses import asdict
     return JSONResponse(asdict(result))
@@ -2704,11 +2722,12 @@ def policies_download(request: Request, db: DB, policy_id: int):
             }
         )
     except ValueError as e:
-        return templates.TemplateResponse(
-            "error.html",
-            {"request": request, "error": str(e)},
-            status_code=404
-        )
+        # get_policy() raises ValueError for a missing policy (or an
+        # unreadable file). There is no error.html template and no HTML
+        # exception handler, so render a proper 404 the same way the report
+        # and customer download routes do, rather than a 500.
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)
