@@ -31,7 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, queries
-from .limits import limiter
+from .limits import limiter, login_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     StaleDatasetsError,
@@ -179,34 +179,10 @@ app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openap
 # Uses the same signing mechanism as CSRF tokens
 _FLASH_COOKIE = "amlkit_flash"
 
-# Rate limiting to prevent brute-force attacks and DoS
-
-
-def rate_limit_key_func(request: Request) -> str:
-    """Rate limiter key: real client IP, respecting X-Forwarded-For behind proxy.
-
-    Without this, Cloud Run / nginx proxies cause all requests to share one
-    link-local IP, so every tenant lands in the same rate-limit bucket.
-    Only trusts X-Forwarded-For when AMLKIT_BEHIND_PROXY=1.
-    """
-    from .deps import client_ip
-    return client_ip(request) or "unknown"
-
-
-def login_rate_limit_key(request: Request) -> str:
-    """Composite rate limit key for login: IP + email.
-
-    Allows multiple operators from the same office IP/NAT to log in concurrently
-    (each account gets its own 3/minute budget) while still protecting each
-    account from credential-stuffing attempts.
-
-    Reads the email from request.state.login_email, which is set by middleware.
-    """
-    ip = rate_limit_key_func(request)
-    email = getattr(request.state, 'login_email', None)
-    if email:
-        return f"{ip}:{email.lower().strip()}"
-    return ip
+# Rate limiting to prevent brute-force attacks and DoS.
+# rate_limit_key_func / login_rate_limit_key live in .limits (imported above)
+# so mobile.py's /api/v1/auth/login can share the same per-account key
+# function without importing this module and creating a circular import.
 
 
 app.state.limiter = limiter
@@ -397,17 +373,25 @@ async def extract_login_email(request: Request, call_next):
     access the email synchronously via request.state.login_email.
 
     We read the raw body and manually parse the email without consuming the
-    stream, ensuring the route handler can still access the form data.
+    stream, ensuring the route handler can still access the form data. Covers
+    both the web form POST (/login) and the mobile JSON POST
+    (/api/v1/auth/login) -- without this, mobile login shares web login's
+    decorators but never actually gets a per-account key, silently falling
+    back to IP-only limiting.
     """
-    if request.method == "POST" and request.url.path == "/login":
+    if request.method == "POST" and request.url.path in ("/login", "/api/v1/auth/login"):
         try:
             # Read the raw body first (this caches it in request._body)
             body = await request.body()
-            # Parse email manually without consuming the form stream
-            from urllib.parse import parse_qs
             body_str = body.decode('utf-8') if isinstance(body, bytes) else str(body)
-            parsed = parse_qs(body_str)
-            email = parsed.get('email', [''])[0]
+            if request.url.path == "/login":
+                # Parse email manually without consuming the form stream
+                from urllib.parse import parse_qs
+                parsed = parse_qs(body_str)
+                email = parsed.get('email', [''])[0]
+            else:
+                import json
+                email = json.loads(body_str).get('email', '')
             if email:
                 request.state.login_email = email.strip()
         except Exception:
