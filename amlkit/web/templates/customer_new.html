@@ -129,16 +129,6 @@
 </form>
 
 <script src="/static/js/app.js"></script>
-<script>
-// p36: Show/hide EDD fields based on risk_level
-document.getElementById('risk_level').addEventListener('change', function() {
-  const eddFields = document.getElementById('edd_fields');
-  if (this.value === 'high') {
-    eddFields.style.display = '';
-  } else {
-    eddFields.style.display = 'none';
-  }
-});
-</script>
+<script src="/static/js/customer_form.js"></script>
 
 {% endblock %}
