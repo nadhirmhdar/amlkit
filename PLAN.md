@@ -89,7 +89,7 @@ Research and inspection only; no product changes except the two bug fixes alread
 | 1.10 | [NEW] Overall UI/UX consistency pass | Spacing, button styles, headings, empty states, tag colours across all templates; produce a short findings list before changing anything |
 | 1.11 | [NEW] Bug-report / feedback experience | `feedback-btn` modal: match AMLKit tokens, add page context (already sent), confirm delivery path and success/error states |
 | 1.12 | [#77] (low) Show organisation name in the UI | Partially done (sidebar + dropdown show it); verify every page, then close |
-| 1.13 | [NEW] Self-host the Manrope font or extend CSP `style-src`/`font-src` | Fonts are currently blocked → fallback font in production |
+| 1.13 | [DONE PR-ui] Self-host the Manrope font | CSP `font-src 'self'` blocked Google Fonts → production rendered in the fallback font. Variable woff2 (latin + latin-ext) now under `/static/fonts` with `@font-face`; smoke test in `test_static_assets.py` |
 | 1.14 | [NEW] Tablet layout decision [HUMAN] | 681–960 px keeps the hamburger sidebar; phone chrome (tab bar) applies ≤ 680 px. Extend phone chrome to tablets, or keep? |
 
 ## Phase 2 — Security, Audit and Data Protection
