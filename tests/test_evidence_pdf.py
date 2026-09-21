@@ -118,5 +118,16 @@ class TestEvidencePdf:
         assert "attachment" in r.headers.get("content-disposition", "")
 
     def test_404_for_cross_org_customer(self, client):
-        r = client.get("/customers/999999/evidence.pdf")
-        assert r.status_code == 404 or r.status_code == 303
+        """Org A cannot access Org B's customer evidence PDF (tenant isolation)."""
+        # client is logged in as org 1 ("PDF Firm")
+        # Register a second org and onboard a customer there
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        client2 = TestClient(app)
+        _register(client2, "Other Firm", "other_user", "other@test.ae")
+        other_cid = _onboard_customer(client2, name="Other Org Customer")
+
+        # Org 1's client tries to access Org 2's customer PDF
+        r = client.get(f"/customers/{other_cid}/evidence.pdf")
+        assert r.status_code == 404, f"Expected 404 for cross-org access, got {r.status_code}"

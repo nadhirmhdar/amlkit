@@ -1484,9 +1484,21 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
 
     try:
         import weasyprint
+
+        def url_fetcher(url):
+            """Resolve /static/ URLs to local filesystem for WeasyPrint."""
+            if url.startswith("/static/"):
+                # Map /static/app.css -> WEB/static/app.css
+                local_path = WEB / url.lstrip("/")
+                if local_path.exists():
+                    return {"string": local_path.read_text(), "mime_type": "text/css"}
+            # Fallback to default fetcher
+            return weasyprint.default_url_fetcher(url)
+
         pdf_bytes = weasyprint.HTML(
             string=html_str,
             base_url=str(WEB),
+            url_fetcher=url_fetcher,
         ).write_pdf()
     except (ImportError, OSError):
         return back(f"/customers/{customer_id}/evidence",
