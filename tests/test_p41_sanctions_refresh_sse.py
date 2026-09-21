@@ -125,6 +125,52 @@ def test_adapter_without_source_url_attribute_does_not_crash_refresh(monkeypatch
     conn.close()
 
 
+def test_eu_adapter_sets_source_url_at_init():
+    """EUSanctionsAdapter must satisfy SourceAdapter's source_url contract.
+
+    Every other adapter sets self.source_url in __init__; EU alone deferred
+    it to fetch() time (it embeds a rotatable token there), which meant
+    every caller that reads adapter.source_url before fetch() -- including
+    loader.load()'s own success path, which is the untokenised call the
+    fetch-time comment did not anticipate -- got an AttributeError instead
+    of a URL. The stored value must also never carry the live token.
+    """
+    from amlkit.ingest.eu import EUSanctionsAdapter, BASE_URL
+
+    adapter = EUSanctionsAdapter()
+    assert adapter.source_url == BASE_URL
+    assert "token=" not in adapter.source_url
+
+
+def test_load_success_path_does_not_crash_on_eu_adapter(monkeypatch):
+    """loader.load()'s success path reads adapter.source_url directly (no
+    getattr fallback there, unlike the failure paths in scheduler.py) -- a
+    successful EU refresh must not crash it."""
+    from amlkit.ingest.eu import EUSanctionsAdapter
+    from amlkit.ingest.loader import load
+    from amlkit.ingest.base import SourceEntity
+    from amlkit.db import connect
+
+    adapter = EUSanctionsAdapter()
+    monkeypatch.setattr(adapter, "fetch", lambda: b"<fake/>")
+    monkeypatch.setattr(
+        adapter, "parse",
+        lambda payload: iter([SourceEntity(source_id="1", schema_type="Person",
+                                            caption="Test Entity")]),
+    )
+
+    conn = connect(":memory:")
+    conn.execute("DELETE FROM datasets")
+    conn.commit()
+
+    result = load(conn, adapter, actor="test-actor")  # must not raise
+    assert result.entities == 1
+
+    row = conn.execute("SELECT source_url FROM datasets WHERE key='eu_sanctions'").fetchone()
+    assert row["source_url"] == adapter.source_url
+    conn.close()
+
+
 def test_first_ever_failure_still_creates_a_visible_dataset_row(monkeypatch):
     """A mandatory source that has NEVER loaded successfully must still show
     up as a failed/breach row, not disappear from the compliance dashboard.
