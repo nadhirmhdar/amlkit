@@ -34,6 +34,7 @@ from .. import auth, queries
 from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
+    EXIT_REASONS,
     StaleDatasetsError,
     add_case_note,
     add_ubo,
@@ -1251,6 +1252,17 @@ def screen_run(
     }, db)
 
 
+# --------------------------------------------------------------------- search
+@app.get("/search")
+def global_search(request: Request, db: DB, q: str = ""):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return JSONResponse(queries.global_search(db, session.org_id, q))
+
+
 # ------------------------------------------------------------------ customers
 @app.get("/customers", response_class=HTMLResponse)
 def customers(request: Request, db: DB, q: str = ""):
@@ -1422,7 +1434,7 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
                  data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
-                         "effective_risk": eff_risk})
+                         "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
@@ -1480,6 +1492,8 @@ def customer_kg_screen(request: Request, db: DB, customer_id: int):
 
 @app.post("/customers/{customer_id}/close")
 def customer_close(request: Request, db: DB, customer_id: int,
+                   exit_reason: Annotated[str, Form()] = "",
+                   exit_note: Annotated[str, Form()] = "",
                    csrf_token: Annotated[str, Form()] = ""):
     try:
         session = require_session(request, db)
@@ -1489,7 +1503,12 @@ def customer_close(request: Request, db: DB, customer_id: int,
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/customers/{customer_id}", err=str(exc))
-    until = close_relationship(db, customer_id, org_id=session.org_id, actor=session.operator_name)
+    try:
+        until = close_relationship(db, customer_id, org_id=session.org_id,
+                                   reason=exit_reason, note=exit_note[:1000],
+                                   actor=session.operator_name)
+    except ValueError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
     return back(f"/customers/{customer_id}", msg=f"Relationship closed. Records retained until {until}.")
 
 
@@ -1853,6 +1872,28 @@ def alerts_bulk_dismiss(
     except (PermissionError, ReviewError) as exc:
         return back(back_to, err=str(exc))
     return back(back_to, msg=f"Dismissed {count} alert(s).")
+
+
+@app.get("/alerts/{alert_id}/panel", response_class=HTMLResponse)
+def alert_panel(request: Request, db: DB, alert_id: int):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return HTMLResponse(
+            '<div class="muted small">Session expired. Please sign in again.</div>',
+            status_code=401,
+        )
+    rows = queries.alert_queue(db, session.org_id, status=None, alert_id=alert_id)
+    if not rows:
+        return HTMLResponse(
+            '<div class="muted small">Alert not found.</div>', status_code=404,
+        )
+    html = templates.get_template("_alert_panel.html").render(
+        a=rows[0], session=session,
+        csrf_token=request.cookies.get(CSRF_COOKIE, ""),
+        request=request,
+    )
+    return HTMLResponse(html)
 
 
 @app.post("/alerts/{alert_id}/disposition")
