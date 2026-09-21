@@ -26,6 +26,13 @@ def _csrf(client):
 
 def _create_customer_and_report(client):
     """Create a customer + STR report, return the report id."""
+    # Set goaml_entity_reference (required for XML export)
+    from amlkit.db import connect
+    conn = connect(os.environ["AMLKIT_DB"])
+    conn.execute("UPDATE organizations SET goaml_entity_reference = ? WHERE id = (SELECT org_id FROM sessions LIMIT 1)", ("TEST-ORG-142",))
+    conn.commit()
+    conn.close()
+
     client.post("/customers", data={
         "reference": "C-142",
         "full_name": "Test Subject",
