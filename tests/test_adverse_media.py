@@ -725,7 +725,7 @@ class TestPeriodicRecheck:
         assert [d["id"] for d in due] == [fresh, customer_id]
 
     def test_closed_customer_is_not_due(self, conn, org_id, customer_id) -> None:
-        close_relationship(conn, customer_id, org_id=org_id, actor="tester")
+        close_relationship(conn, customer_id, org_id=org_id, reason="customer_request", actor="tester")
         assert adverse_media_due(conn, org_id) == []
 
     def test_due_list_is_org_scoped(self, conn, org_id, customer_id) -> None:

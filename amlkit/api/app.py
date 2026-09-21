@@ -34,6 +34,7 @@ from .. import auth, queries
 from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
+    EXIT_REASONS,
     StaleDatasetsError,
     add_case_note,
     add_ubo,
@@ -1417,7 +1418,7 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
                  data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
-                         "effective_risk": eff_risk})
+                         "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
@@ -1475,6 +1476,8 @@ def customer_kg_screen(request: Request, db: DB, customer_id: int):
 
 @app.post("/customers/{customer_id}/close")
 def customer_close(request: Request, db: DB, customer_id: int,
+                   exit_reason: Annotated[str, Form()] = "",
+                   exit_note: Annotated[str, Form()] = "",
                    csrf_token: Annotated[str, Form()] = ""):
     try:
         session = require_session(request, db)
@@ -1484,7 +1487,12 @@ def customer_close(request: Request, db: DB, customer_id: int,
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/customers/{customer_id}", err=str(exc))
-    until = close_relationship(db, customer_id, org_id=session.org_id, actor=session.operator_name)
+    try:
+        until = close_relationship(db, customer_id, org_id=session.org_id,
+                                   reason=exit_reason, note=exit_note[:1000],
+                                   actor=session.operator_name)
+    except ValueError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
     return back(f"/customers/{customer_id}", msg=f"Relationship closed. Records retained until {until}.")
 
 
