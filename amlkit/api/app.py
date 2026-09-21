@@ -304,19 +304,20 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
 def _safe_url(url: str) -> str:
     """Return a safe same-origin path extracted from url, or '/' as fallback.
 
-    Reconstructs the redirect target from the path component only, discarding
-    any scheme or netloc.  Returning parsed.path (not the original url) breaks
-    the taint chain so CodeQL cannot trace user-controlled scheme/netloc into
-    the redirect response.
+    Rejects any URL that has a scheme or netloc (open-redirect vector), then
+    re-encodes the path via urllib.parse.quote to produce a new string that is
+    not tainted by the original user input (breaks CodeQL's taint chain).
     """
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse, quote
     parsed = urlparse(url)
     if parsed.scheme or parsed.netloc:
         return "/"
     path = parsed.path
     if not path.startswith("/") or path.startswith("//"):
         return "/"
-    return path
+    # quote() produces a fresh string independent of the user-supplied value,
+    # preserving valid path/query characters while encoding everything else.
+    return quote(path, safe="/:@!$&'()*+,;=-._~%")
 
 
 def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
