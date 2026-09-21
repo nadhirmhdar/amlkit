@@ -968,11 +968,14 @@ def dashboard(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    return render(request, "dashboard.html", {
+    ctx = {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
         "datasets": queries.datasets(db),
-    }, db)
+    }
+    if session.operator_role in ("mlro", "admin"):
+        ctx["recent_audit"] = queries.recent_audit(db, session.org_id)
+    return render(request, "dashboard.html", ctx, db)
 
 
 # --------------------------------------------------------------------- screen

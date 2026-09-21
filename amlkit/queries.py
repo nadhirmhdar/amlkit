@@ -602,6 +602,18 @@ def audit_trail(
     ]
 
 
+def recent_audit(conn: sqlite3.Connection, org_id: int, limit: int = 6) -> list[dict[str, Any]]:
+    """Last N audit entries for one org (no shared/system rows)."""
+    return [
+        dict(r)
+        for r in conn.execute(
+            "SELECT ts, actor, action, object_type, object_id FROM audit_log"
+            " WHERE org_id=? ORDER BY id DESC LIMIT ?",
+            (org_id, limit),
+        )
+    ]
+
+
 def operators(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in conn.execute(
         "SELECT id, name, email, role, is_active FROM operators WHERE org_id=? ORDER BY name",

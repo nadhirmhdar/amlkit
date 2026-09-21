@@ -200,4 +200,22 @@
   {% endif %}
 </div>
 
+{% if recent_audit %}
+<div class="mt-6">
+  <div class="section-label">Recent activity</div>
+  <div class="flat-list">
+    {% for entry in recent_audit %}
+      <div class="list-row">
+        <div class="grow">
+          <div class="primary">{{ entry.action.replace('.', ' ').replace('_', ' ') }}</div>
+          <div class="secondary">{{ entry.actor }}{% if entry.object_type %} &middot; {{ entry.object_type }}{% endif %}</div>
+        </div>
+        <div class="side nowrap muted small">{{ entry.ts[:16].replace('T', ' ') }}</div>
+      </div>
+    {% endfor %}
+  </div>
+  <a href="/audit" class="btn small ghost mt-4">View all</a>
+</div>
+{% endif %}
+
 {% endblock %}
