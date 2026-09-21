@@ -76,10 +76,25 @@ def require_session(request: Request, conn: sqlite3.Connection) -> SessionInfo:
     Raises PermissionError (routes turn this into a redirect to /login)
     rather than returning None, so a route cannot accidentally proceed with a
     missing session -- there is no falsy-but-usable value to check.
+
+    For MLRO users, also enforces MFA verification (p15).
     """
     session = current_session(request, conn)
     if session is None:
         raise PermissionError("Sign in to continue.")
+
+    # p15: Block MLRO access until MFA verified
+    if session.operator_role == "mlro":
+        token = request.cookies.get(SESSION_COOKIE)
+        if token:
+            from .. import auth
+            row = conn.execute(
+                "SELECT mfa_verified FROM sessions WHERE token_hash=?",
+                (auth._token_hash(token),)
+            ).fetchone()
+            if row and not row["mfa_verified"]:
+                raise PermissionError("Complete two-factor authentication to continue.")
+
     return session
 
 

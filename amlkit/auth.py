@@ -142,21 +142,23 @@ class SessionInfo:
     disclaimer_acknowledged: bool = False
 
 
-def create_session(conn: sqlite3.Connection, operator_id: int, org_id: int) -> str:
+def create_session(conn: sqlite3.Connection, operator_id: int, org_id: int, mfa_verified: bool = True) -> str:
     """Create a session row and return the raw token to set as a cookie.
 
     Only the hash is ever stored -- identical treatment to a password, since
     the token IS a credential for the lifetime of the session.
+
+    mfa_verified: Set to False for MLRO users awaiting MFA challenge (p15).
     """
     raw = _new_token()
     _enforce_session_limit(conn, operator_id)
     now = datetime.now(timezone.utc)
     now_str = utcnow()
     conn.execute(
-        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at, last_active)
-           VALUES (?,?,?,?,?,?)""",
+        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at, last_active, mfa_verified)
+           VALUES (?,?,?,?,?,?,?)""",
         (_token_hash(raw), operator_id, org_id, now_str,
-         (now + SESSION_LIFETIME).isoformat(timespec="seconds"), now_str),
+         (now + SESSION_LIFETIME).isoformat(timespec="seconds"), now_str, 1 if mfa_verified else 0),
     )
     conn.commit()
     return raw
