@@ -58,14 +58,18 @@ def _csrf(client) -> str:
 
 
 def _register(client, org_name, name, email, password="a-strong-password-1"):
+    """Register, verify email, and sign in (matches test_api._register)."""
+    import re
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
         "csrf_token": _csrf(client),
     }, follow_redirects=True)
+    assert "Check your email" in r.text, f"registration failed: {r.text[:300]}"
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
-    assert m, "no dev verification link"
-    client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+    assert m, f"no dev verification link in registration response: {r.text[:500]}"
+    r2 = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+    assert "Dashboard" in r2.text or "24-hour" in r2.text, f"verification failed: {r2.text[:300]}"
     return client
 
 
