@@ -1101,6 +1101,13 @@ def customer_create(
     except PermissionError as exc:
         return back("/customers/new", err=str(exc))
 
+    # Validate EDD fields for high-risk customers (at onboarding, use declared risk_level)
+    if risk_level and risk_level.strip() == "high":
+        if not source_of_wealth or not source_of_wealth.strip():
+            return back("/customers/new", err="Source of Wealth is required for high-risk customers")
+        if not source_of_funds or not source_of_funds.strip():
+            return back("/customers/new", err="Source of Funds is required for high-risk customers")
+
     ubos = []
     for i, nm in enumerate(ubo_names):
         nm = (nm or "").strip()
@@ -1196,8 +1203,10 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     diagram_svg = generate_ubo_diagram(db, customer_id, session.org_id)
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
+    eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
-                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg})
+                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
+                         "effective_risk": eff_risk})
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
@@ -1211,7 +1220,9 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
         return back("/customers", err=f"Customer {customer_id} not found.")
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
-    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()}, db)
+    eff_risk = queries.effective_risk(db, customer_id, session.org_id)
+    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow(),
+                                                     "effective_risk": eff_risk}, db)
 
 
 @app.get("/customers/{customer_id}/gdelt-bq")

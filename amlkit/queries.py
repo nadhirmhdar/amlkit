@@ -521,6 +521,53 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
     }
 
 
+def effective_risk(conn: sqlite3.Connection, customer_id: int, org_id: int) -> str:
+    """Compute effective risk level combining operator-declared and computed ratings.
+
+    Returns "high" if:
+    - Latest risk_assessments.rating == "high", OR
+    - customers.risk_level (operator-declared) == "high"
+
+    Otherwise returns the computed rating from latest assessment.
+    Falls back to declared risk_level when no assessment exists yet.
+
+    Returns: "high" | "medium" | "low"
+    """
+    # Get customer's declared risk level
+    customer_row = conn.execute(
+        "SELECT risk_level FROM customers WHERE id=? AND org_id=?",
+        (customer_id, org_id)
+    ).fetchone()
+
+    if not customer_row:
+        return "low"  # Customer doesn't exist, default to low
+
+    declared_risk = customer_row["risk_level"]
+
+    # If operator declared high, that takes precedence
+    if declared_risk == "high":
+        return "high"
+
+    # Get latest computed risk assessment
+    assessment_row = conn.execute(
+        """SELECT rating FROM risk_assessments
+           WHERE customer_id=? AND org_id=?
+           ORDER BY assessed_at DESC LIMIT 1""",
+        (customer_id, org_id)
+    ).fetchone()
+
+    if assessment_row:
+        computed_rating = assessment_row["rating"]
+        # If computed is high, return high
+        if computed_rating == "high":
+            return "high"
+        # Otherwise return the computed rating
+        return computed_rating
+
+    # No assessment exists yet, fall back to declared (or default to "low")
+    return declared_risk if declared_risk else "low"
+
+
 def transactions_for_customer(
     conn: sqlite3.Connection, customer_id: int, org_id: int, limit: int = 200
 ) -> list[dict[str, Any]]:
