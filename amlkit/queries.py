@@ -1042,3 +1042,18 @@ def contextual_home_card(conn: sqlite3.Connection, org_id: int) -> dict[str, Any
         "link": "/dashboard",
         "count": None,
     }
+
+
+def total_customer_count(conn: sqlite3.Connection, org_id: int) -> int:
+    """Customers of any status (active, archived, ...) for one org."""
+    return conn.execute(
+        "SELECT COUNT(*) AS c FROM customers WHERE org_id = ?", (org_id,)
+    ).fetchone()["c"]
+
+
+def dashboard_visited(conn: sqlite3.Connection, org_id: int) -> bool:
+    """Whether the org has completed onboarding step 3 (reviewed dashboard)."""
+    row = conn.execute(
+        "SELECT dashboard_visited_at FROM organizations WHERE id = ?", (org_id,)
+    ).fetchone()
+    return row is not None and row["dashboard_visited_at"] is not None

@@ -1,166 +1,148 @@
 """First-run guided onboarding for empty orgs (p51)."""
-import pytest
+import os
+import re
+import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from test_api import _register, _seed_sanctions_data, _csrf  # noqa: E402
+
+GUIDE = "Get started with amlkit"
 
 
-def test_empty_org_shows_onboarding_guide_all_incomplete(tmp_path, monkeypatch):
-    """Empty org (0 customers, no screening, no dashboard visit) shows guide with 3 incomplete steps."""
+def _conn():
+    conn = sqlite3.connect(os.environ["AMLKIT_DB"])
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "test.db"))
+    monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
+    _seed_sanctions_data(tmp_path / "test.db")
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
-    from amlkit.db import connect, utcnow
-    from amlkit.auth import hash_password, create_session
-
-    db_file = tmp_path / "test.db"
-    monkeypatch.setenv("AMLKIT_DB", str(db_file))
-
-    conn = connect(db_file)
-    now = utcnow()
-    conn.execute("INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-                 ("Test Org", "test-org", "active", now))
-    conn.execute("INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at, email_verified_at, disclaimer_acknowledged_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                 (1, "Test User", "test@example.ae", hash_password("TestPass123!"), "mlro", 1, now, now, now))
-    conn.commit()
-
-    token = create_session(conn, operator_id=1, org_id=1)
-    conn.close()
-
-    client = TestClient(app)
-    client.cookies.set("amlkit_session", token)
-
-    r = client.get("/")
-    assert r.status_code == 200
-    html = r.text
-
-    # Onboarding guide should be visible
-    assert "Get started with amlkit" in html
-    assert "Step 1: Screen a name" in html
-    assert "Step 2: Onboard your first customer" in html
-    assert "Step 3: Review your dashboard" in html
-
-    # No steps should be marked complete (no checkmark or "complete" indicator)
-    # We'll add visual indicators in implementation
-    assert html.count("step-complete") == 0 or "✓" not in html
+    c = TestClient(app)
+    _register(c, "Test Firm", "alice", "alice@testfirm.ae")
+    return c
 
 
-def test_empty_org_with_screening_marks_step1_complete(tmp_path, monkeypatch):
-    """Empty org with screening done marks step 1 as complete."""
-    from fastapi.testclient import TestClient
-    from amlkit.api.app import app
-    from amlkit.db import connect, utcnow
-    from amlkit.auth import hash_password, create_session
-
-    db_file = tmp_path / "test.db"
-    monkeypatch.setenv("AMLKIT_DB", str(db_file))
-
-    conn = connect(db_file)
-    now = utcnow()
-    conn.execute("INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-                 ("Test Org", "test-org", "active", now))
-    conn.execute("INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at, email_verified_at, disclaimer_acknowledged_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                 (1, "Test User", "test@example.ae", hash_password("TestPass123!"), "mlro", 1, now, now, now))
-
-    # Add a screening record to show step 1 is done
-    conn.execute("INSERT INTO screenings (org_id, query_name, trigger, algorithm, threshold, run_at) VALUES (?,?,?,?,?,?)",
-                 (1, "Test Name", "adhoc", "weighted", 0.75, now))
-    conn.commit()
-
-    token = create_session(conn, operator_id=1, org_id=1)
-    conn.close()
-
-    client = TestClient(app)
-    client.cookies.set("amlkit_session", token)
-
-    r = client.get("/")
-    assert r.status_code == 200
-    html = r.text
-
-    # Guide still visible (0 customers)
-    assert "Get started with amlkit" in html
-
-    # Step 1 should be marked complete
-    # Check for completion indicator - we'll use data attribute or class
-    assert 'data-step="1" data-complete="true"' in html or 'step-1-complete' in html
+def _org_id():
+    with closing(_conn()) as c:
+        return c.execute("SELECT id FROM organizations ORDER BY id LIMIT 1").fetchone()["id"]
 
 
-def test_empty_org_with_dashboard_visit_marks_step3_complete(tmp_path, monkeypatch):
-    """Empty org with dashboard visited marks step 3 as complete."""
-    from fastapi.testclient import TestClient
-    from amlkit.api.app import app
-    from amlkit.db import connect, utcnow
-    from amlkit.auth import hash_password, create_session
-
-    db_file = tmp_path / "test.db"
-    monkeypatch.setenv("AMLKIT_DB", str(db_file))
-
-    conn = connect(db_file)
-    now = utcnow()
-    conn.execute("INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-                 ("Test Org", "test-org", "active", now))
-    conn.execute("INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at, email_verified_at, disclaimer_acknowledged_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                 (1, "Test User", "test@example.ae", hash_password("TestPass123!"), "mlro", 1, now, now, now))
-    conn.commit()
-
-    token = create_session(conn, operator_id=1, org_id=1)
-
-    # Visit dashboard first to set the flag
-    client = TestClient(app)
-    client.cookies.set("amlkit_session", token)
-    client.get("/dashboard")
-
-    # Now check home page
-    r = client.get("/")
-    assert r.status_code == 200
-    html = r.text
-
-    # Guide still visible (0 customers)
-    assert "Get started with amlkit" in html
-
-    # Step 3 should be marked complete
-    assert 'data-step="3" data-complete="true"' in html or 'step-3-complete' in html
-
-    conn.close()
+def _flags(html):
+    return re.findall(r'data-step="(\d)" data-complete="(true|false)"', html)
 
 
-def test_org_with_customers_hides_onboarding_guide(tmp_path, monkeypatch):
-    """Org with 1+ customers does not show the onboarding guide."""
-    from fastapi.testclient import TestClient
-    from amlkit.api.app import app
-    from amlkit.db import connect, utcnow, upsert_dataset
-    from amlkit.auth import hash_password, create_session
+def _add_customer(org_id, status="active"):
+    from amlkit.db import connect
     from amlkit.cases.manager import onboard
+    with closing(connect(os.environ["AMLKIT_DB"])) as c:
+        onboard(c, org_id=org_id, reference="C-001", full_name="Test Customer")
+        if status != "active":
+            c.execute("UPDATE customers SET status=? WHERE org_id=?", (status, org_id))
+        c.commit()
 
-    db_file = tmp_path / "test.db"
-    monkeypatch.setenv("AMLKIT_DB", str(db_file))
 
-    conn = connect(db_file)
-    now = utcnow()
+def _screen(org_id):
+    from amlkit.db import connect, utcnow
+    with closing(connect(os.environ["AMLKIT_DB"])) as c:
+        c.execute("INSERT INTO screenings (org_id, query_name, trigger, algorithm, threshold, run_at)"
+                  " VALUES (?,?,?,?,?,?)", (org_id, "X", "adhoc", "weighted", 0.75, utcnow()))
+        c.commit()
 
-    # Create org and operator
-    conn.execute("INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-                 ("Test Org", "test-org", "active", now))
-    conn.execute("INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at, email_verified_at, disclaimer_acknowledged_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                 (1, "Test User", "test@example.ae", hash_password("TestPass123!"), "mlro", 1, now, now, now))
 
-    # Seed fresh dataset so onboard() doesn't fail
-    ds = upsert_dataset(conn, "test_list", "Test List", is_mandatory=True)
-    conn.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
-    conn.commit()
+def test_empty_org_shows_guide_all_incomplete(client):
+    html = client.get("/").text
+    assert GUIDE in html
+    assert _flags(html) == [("1", "false"), ("2", "false"), ("3", "false")]
+    assert "(completed)" not in html
 
-    # Onboard a customer
-    onboard(conn, org_id=1, reference="C-001", full_name="Test Customer")
-    conn.commit()
 
-    token = create_session(conn, operator_id=1, org_id=1)
-    conn.close()
+def test_screening_marks_step1_complete(client):
+    _screen(_org_id())
+    html = client.get("/").text
+    assert GUIDE in html
+    assert ("1", "true") in _flags(html)
+    assert html.count("(completed)") == 1
 
-    client = TestClient(app)
-    client.cookies.set("amlkit_session", token)
 
-    r = client.get("/")
-    assert r.status_code == 200
-    html = r.text
+def test_customer_marks_step2_and_guide_persists_until_all_done(client):
+    _add_customer(_org_id())
+    html = client.get("/").text
+    assert GUIDE in html
+    assert ("2", "true") in _flags(html)
+    assert ("3", "false") in _flags(html)
 
-    # Onboarding guide should NOT be visible
-    assert "Get started with amlkit" not in html
+
+def test_guide_hides_when_all_steps_done(client):
+    oid = _org_id()
+    _screen(oid)
+    _add_customer(oid)
+    r = client.post("/onboarding/review-dashboard",
+                    data={"csrf_token": _csrf(client)}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/dashboard"
+    assert GUIDE not in client.get("/").text
+
+
+def test_archived_only_org_counts_as_having_customers(client):
+    _add_customer(_org_id(), status="archived")
+    html = client.get("/").text
+    assert ("2", "true") in _flags(html)
+
+
+def test_get_pages_do_not_set_dashboard_visited(client):
+    client.get("/")
+    client.get("/dashboard")
+    from amlkit import queries
+    with closing(_conn()) as c:
+        assert queries.dashboard_visited(c, _org_id()) is False
+    assert ("3", "false") in _flags(client.get("/").text)
+
+
+def test_review_dashboard_post_marks_step3(client):
+    client.post("/onboarding/review-dashboard", data={"csrf_token": _csrf(client)})
+    from amlkit import queries
+    with closing(_conn()) as c:
+        assert queries.dashboard_visited(c, _org_id()) is True
+    assert ("3", "true") in _flags(client.get("/").text)
+
+
+def test_review_dashboard_post_requires_csrf(client):
+    r = client.post("/onboarding/review-dashboard", data={"csrf_token": "bogus"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/"
+    from amlkit import queries
+    with closing(_conn()) as c:
+        assert queries.dashboard_visited(c, _org_id()) is False
+
+
+def test_tenant_isolation_of_onboarding_queries(client):
+    from fastapi.testclient import TestClient
+    from amlkit.api.app import app
+    from amlkit import queries
+    from amlkit.cases.manager import mark_dashboard_reviewed
+
+    _register(TestClient(app), "Other Firm", "bob", "bob@other.ae")
+    with closing(_conn()) as c:
+        ids = [r["id"] for r in c.execute("SELECT id FROM organizations ORDER BY id")]
+    a, b = ids[0], ids[1]
+
+    _screen(a)
+    _add_customer(a)
+    with closing(_conn()) as c:
+        mark_dashboard_reviewed(c, a)
+    with closing(_conn()) as c:
+        assert queries.has_screening_history(c, a) is True
+        assert queries.has_screening_history(c, b) is False
+        assert queries.dashboard_visited(c, a) is True
+        assert queries.dashboard_visited(c, b) is False
+        assert queries.total_customer_count(c, a) == 1
+        assert queries.total_customer_count(c, b) == 0
