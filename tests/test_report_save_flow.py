@@ -35,13 +35,15 @@ def _register(client, org_name: str, name: str, email: str, password: str = "a-s
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": "test-invite",
     }, follow_redirects=True)
     assert "Check your email" in r.text, f"registration failed: {r.text[:300]}"
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m, f"no dev verification link in registration response: {r.text[:500]}"
     r2 = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
-    assert "Dashboard" in r2.text or "24-hour" in r2.text, f"verification failed: {r2.text[:300]}"
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
+    assert any(s in r2.text for s in ("Dashboard", "24-hour", "Two-Factor")), f"verification failed: {r2.text[:300]}"
     return client
 
 
@@ -97,7 +99,7 @@ class TestReportSave:
         customer_id = _customer_id(client)
         r = client.post("/reports", data={
             "customer_id": customer_id, "report_type": "STR",
-            "csrf_token": _csrf(client), **NATURAL_PERSON_FORM,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **NATURAL_PERSON_FORM,
         })
         assert r.status_code != 422, r.text
 
@@ -105,7 +107,7 @@ class TestReportSave:
         customer_id = _customer_id(client)
         client.post("/reports", data={
             "customer_id": customer_id, "report_type": "STR",
-            "csrf_token": _csrf(client), **NATURAL_PERSON_FORM,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **NATURAL_PERSON_FORM,
         })
 
         from amlkit.db import connect
@@ -130,7 +132,7 @@ class TestReportSave:
 
         client.post("/reports", data={
             "customer_id": customer_id, "report_type": "STR",
-            "csrf_token": _csrf(client), **form,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **form,
         })
 
         from amlkit.db import connect
@@ -152,7 +154,7 @@ class TestReportSave:
 
         client.post("/reports", data={
             "customer_id": customer_id, "report_type": "SAR",
-            "csrf_token": _csrf(client), **form,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **form,
         })
 
         from amlkit.db import connect
@@ -176,7 +178,7 @@ class TestReportSave:
 
         r = client.post("/reports", data={
             "customer_id": customer_id, "report_type": "STR",
-            "csrf_token": _csrf(client), **form,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **form,
         }, follow_redirects=False)
         assert r.status_code != 500
 
@@ -187,6 +189,78 @@ class TestReportSave:
         ).fetchone()
         conn.close()
         assert row is None, "a report was saved despite the malformed amount"
+
+    def test_editing_a_submitted_report_is_rejected(self, client) -> None:
+        """POST /reports with the report_id of an already-submitted report
+        must not overwrite it -- the UI tells the operator it is "locked and
+        archived" once submitted, so the save path must actually enforce
+        that. Regression test for finding #5 (2026-09-21 deployed-site
+        review): the update branch had no status check at all."""
+        customer_id = _customer_id(client)
+        client.post("/reports", data={
+            "customer_id": customer_id, "report_type": "STR",
+            "csrf_token": _csrf(client), **NATURAL_PERSON_FORM,
+        })
+
+        from amlkit.db import connect
+        conn = connect(os.environ["AMLKIT_DB"])
+        row = conn.execute(
+            "SELECT id, payload FROM reports WHERE customer_id=? ORDER BY id DESC LIMIT 1",
+            (customer_id,),
+        ).fetchone()
+        report_id = row["id"]
+        original_payload = row["payload"]
+        conn.close()
+
+        r = client.post(f"/reports/{report_id}/submit",
+                        data={"csrf_token": _csrf(client)}, follow_redirects=True)
+        assert r.status_code == 200
+
+        tampered = dict(NATURAL_PERSON_FORM)
+        tampered["amount"] = "1"
+        tampered["reason_description"] = "Tampered after submission."
+        r2 = client.post("/reports", data={
+            "customer_id": customer_id, "report_type": "STR", "report_id": report_id,
+            "csrf_token": _csrf(client), **tampered,
+        }, follow_redirects=True)
+        assert "submitted" in r2.text.lower() and "no longer" in r2.text.lower(), r2.text
+
+        conn = connect(os.environ["AMLKIT_DB"])
+        row2 = conn.execute(
+            "SELECT status, payload FROM reports WHERE id=?", (report_id,)
+        ).fetchone()
+        conn.close()
+        assert row2["status"] == "submitted"
+        assert row2["payload"] == original_payload, "submitted report payload was overwritten"
+
+    def test_editing_a_draft_report_still_works(self, client) -> None:
+        """Sanity check alongside the immutability guard above: a draft
+        report must still be editable via the same route."""
+        customer_id = _customer_id(client)
+        client.post("/reports", data={
+            "customer_id": customer_id, "report_type": "STR",
+            "csrf_token": _csrf(client), **NATURAL_PERSON_FORM,
+        })
+
+        from amlkit.db import connect
+        conn = connect(os.environ["AMLKIT_DB"])
+        report_id = conn.execute(
+            "SELECT id FROM reports WHERE customer_id=? ORDER BY id DESC LIMIT 1", (customer_id,)
+        ).fetchone()["id"]
+        conn.close()
+
+        edited = dict(NATURAL_PERSON_FORM)
+        edited["reason_description"] = "Updated while still a draft."
+        r = client.post("/reports", data={
+            "customer_id": customer_id, "report_type": "STR", "report_id": report_id,
+            "csrf_token": _csrf(client), **edited,
+        }, follow_redirects=True)
+        assert r.status_code == 200
+
+        conn = connect(os.environ["AMLKIT_DB"])
+        row = conn.execute("SELECT payload FROM reports WHERE id=?", (report_id,)).fetchone()
+        conn.close()
+        assert "Updated while still a draft." in row["payload"]
 
     def test_rejects_customer_id_belonging_to_another_org(self, client) -> None:
         """A customer_id from another org must not silently default to

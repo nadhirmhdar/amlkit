@@ -42,7 +42,7 @@ def api(tmp_path, monkeypatch):
     c = TestClient(app)
     r = c.post("/api/v1/auth/register-organization", json={
         "org_name": "Test Firm", "name": "alice", "email": "alice@testfirm.ae",
-        "password": "a-strong-password-1",
+        "password": "a-strong-password-1", "invite_code": "test-invite",
     })
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "verification_required"
@@ -51,6 +51,10 @@ def api(tmp_path, monkeypatch):
     r2 = c.post("/api/v1/auth/verify-email", json={"token": verify_token})
     assert r2.status_code == 200, r2.text
     token = r2.json()["token"]
+    # p15: the MLRO's token is locked until TOTP enrolment + verification
+    assert r2.json()["mfa_required"] is True
+    from conftest import unlock_mobile_mfa
+    unlock_mobile_mfa(c, token)
     return c, {"Authorization": f"Bearer {token}"}
 
 
@@ -70,6 +74,7 @@ class TestAuth:
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "A Totally Different Firm", "name": "alice again",
             "email": "alice@testfirm.ae", "password": "another-strong-pw-1",
+            "invite_code": "test-invite",
         })
         assert r.status_code == 400, r.text
         assert "already exists" in r.json()["detail"]
@@ -79,6 +84,7 @@ class TestAuth:
         r2 = client.post("/api/v1/auth/register-organization", json={
             "org_name": "A Totally Different Firm", "name": "someone else",
             "email": "someone.else@testfirm.ae", "password": "yet-another-pw-1",
+            "invite_code": "test-invite",
         })
         assert r2.status_code == 200, r2.text
 
@@ -476,10 +482,12 @@ class TestTransactionEndpoints:
         # Register a second org
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "Other Firm", "name": "bob", "email": "bob@otherfirm.ae",
-            "password": "b-strong-password-1",
+            "password": "b-strong-password-1", "invite_code": "test-invite",
         })
         verify_token_b = r.json()["dev_verification_token"]
         r2 = client.post("/api/v1/auth/verify-email", json={"token": verify_token_b})
+        from conftest import unlock_mobile_mfa  # p15: MLRO tokens start locked
+        unlock_mobile_mfa(client, r2.json()["token"])
         headers_b = {"Authorization": f"Bearer {r2.json()['token']}"}
 
         r = client.get(f"/api/v1/customers/{cid}/transactions", headers=headers_b)

@@ -89,11 +89,13 @@ class TestAdminViewOrgMissing:
         r = client.post("/register-organization", data={
             "org_name": "Vanishing Org", "name": "admin",
             "email": "admin@vanish.test", "password": "a-strong-password-1",
-            "csrf_token": _csrf(),
+            "csrf_token": _csrf(), "invite_code": "test-invite",
         }, follow_redirects=True)
         m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
         assert m, "no verification link"
         client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         # Now delete the org with FK off
         conn = _db()

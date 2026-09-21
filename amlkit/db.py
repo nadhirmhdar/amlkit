@@ -704,9 +704,12 @@ END;
 -- ----------------------------------------------------------------- MFA/TOTP (p15)
 -- One row per operator; replaced on re-enrolment.
 CREATE TABLE IF NOT EXISTS mfa_secrets (
-    operator_id INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
-    secret      TEXT NOT NULL,
-    enrolled_at TEXT NOT NULL
+    operator_id  INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
+    secret       TEXT NOT NULL,
+    enrolled_at     TEXT NOT NULL,
+    confirmed_at    TEXT,                       -- NULL until the operator proves a first TOTP
+    failed_attempts INTEGER NOT NULL DEFAULT 0, -- consecutive wrong codes since the last success
+    locked_until    TEXT                        -- set after MFA_MAX_FAILURES; cleared on success
 );
 
 -- 10 single-use recovery codes per operator.  code_hash is argon2 so the raw
@@ -752,6 +755,14 @@ EMAIL_VERIFY_TOKEN_LIFETIME = timedelta(days=3)
 # This is a deliberate, stated tradeoff: a hand-edited database bypassing the
 # application is not caught by the schema alone.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    # p15: a secret is only "enrolled" once its first TOTP has been verified;
+    # merely opening /mfa/setup must not lock an operator behind a code they
+    # never scanned. Pre-existing rows stay unconfirmed and re-enrol at login.
+    ("mfa_secrets", "confirmed_at", "ALTER TABLE mfa_secrets ADD COLUMN confirmed_at TEXT"),
+    # p15: online brute-force guard for the six-digit code (5 strikes, 15 min).
+    ("mfa_secrets", "failed_attempts",
+     "ALTER TABLE mfa_secrets ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0"),
+    ("mfa_secrets", "locked_until", "ALTER TABLE mfa_secrets ADD COLUMN locked_until TEXT"),
     ("entities", "programs", "ALTER TABLE entities ADD COLUMN programs TEXT"),
     ("alerts", "reason_code", "ALTER TABLE alerts ADD COLUMN reason_code TEXT"),
     # How the four-eyes requirement was satisfied, or why it was not:
@@ -820,6 +831,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("organizations", "reporting_person_name",  "ALTER TABLE organizations ADD COLUMN reporting_person_name  TEXT"),
     ("organizations", "reporting_person_title", "ALTER TABLE organizations ADD COLUMN reporting_person_title TEXT"),
     ("organizations", "reporting_person_phone", "ALTER TABLE organizations ADD COLUMN reporting_person_phone TEXT"),
+    # p15: MFA login enforcement — track whether MLRO session has passed MFA challenge
+    ("sessions", "mfa_verified", "ALTER TABLE sessions ADD COLUMN mfa_verified INTEGER NOT NULL DEFAULT 1"),
     # p36: Enhanced due diligence — risk_level, Source of Wealth, Source of Funds
     ("customers", "risk_level",        "ALTER TABLE customers ADD COLUMN risk_level        TEXT"),
     ("customers", "source_of_wealth",  "ALTER TABLE customers ADD COLUMN source_of_wealth  TEXT"),
@@ -1108,7 +1121,14 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     """
     target = Path(path) if path else DB_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target, timeout=30)
+    # check_same_thread=False: FastAPI runs sync dependencies through
+    # contextmanager_in_threadpool, which can open the connection on one
+    # threadpool worker and run the request body (and the teardown close())
+    # on another. That cross-thread use trips sqlite3's default thread guard
+    # and surfaced as intermittent HTTP 500s under parallel load (QA-04,
+    # 2026-09-21 review). Safe here: deps.get_db() hands each request its own
+    # connection and never shares one between concurrent requests.
+    conn = sqlite3.connect(target, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
