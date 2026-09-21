@@ -8,6 +8,8 @@ import sqlite3
 
 import pytest
 
+from conftest import register_org
+
 
 def _seed_sanctions_data(db_file):
     from amlkit.db import connect, upsert_dataset, utcnow
@@ -44,18 +46,6 @@ def _seed_sanctions_data(db_file):
 
 def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
-
-
-def _register(client, org_name, name, email, password="a-strong-password-1"):
-    client.get("/register-organization")
-    r = client.post("/register-organization", data={
-        "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
-    }, follow_redirects=True)
-    m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
-    assert m, "no dev verification link"
-    client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
-    return client
 
 
 def _db():
@@ -118,7 +108,7 @@ def client(tmp_path, monkeypatch):
     from amlkit.api.app import app
 
     c = TestClient(app)
-    _register(c, "Panel Firm", "panel_user", "panel@test.ae")
+    register_org(c, "Panel Firm", "panel_user", "panel@test.ae")
 
     c.get("/customers/new")
     c.post("/customers", data={
@@ -146,7 +136,7 @@ class TestAlertPanel:
         from amlkit.api.app import app
 
         other = TestClient(app)
-        _register(other, "Other Firm", "other_user", "other@test.ae")
+        register_org(other, "Other Firm", "other_user", "other@test.ae")
         org_ids = _org_ids()
         assert len(org_ids) == 2
         foreign_alert = _insert_alert(org_ids[1], None, "Other Org Query")
