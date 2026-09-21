@@ -17,13 +17,13 @@ def test_mfa_enrollment_generates_secret(conn, org_id):
     )
     conn.commit()
 
-    # Enroll in MFA
-    secret, qr_uri = mfa_enroll(conn, operator_id=1)
+    secret, qr_uri, backup_codes = mfa_enroll(conn, operator_id=1)
 
     assert secret is not None
     assert len(secret) > 0
     assert "otpauth://totp/" in qr_uri
     assert "test@example.ae" in unquote(qr_uri)
+    assert len(backup_codes) == 10
 
 def test_mfa_verify_correct_code(conn, org_id):
     """MFA verification succeeds with correct TOTP code."""
@@ -37,7 +37,7 @@ def test_mfa_verify_correct_code(conn, org_id):
     )
     conn.commit()
     
-    secret, _ = mfa_enroll(conn, operator_id=1)
+    secret, _, _ = mfa_enroll(conn, operator_id=1)
     
     # Generate valid TOTP code
     totp = pyotp.TOTP(secret)
@@ -71,13 +71,17 @@ def test_mfa_backup_codes_generated(conn, org_id):
     )
     conn.commit()
     
-    mfa_enroll(conn, operator_id=1)
-    
-    backup_codes = mfa_get_backup_codes(conn, operator_id=1)
-    assert len(backup_codes) == 10
-    for code in backup_codes:
-        assert len(code["code"]) == 8
-        assert not code["used"]
+    _, _, plaintext_codes = mfa_enroll(conn, operator_id=1)
+
+    assert len(plaintext_codes) == 10
+    for code in plaintext_codes:
+        assert len(code) == 8
+
+    metadata = mfa_get_backup_codes(conn, operator_id=1)
+    assert len(metadata) == 10
+    for entry in metadata:
+        assert "id" in entry
+        assert not entry["used"]
 
 def test_mfa_backup_code_verify_and_consume(conn, org_id):
     """Backup codes work once and are consumed."""
@@ -90,14 +94,13 @@ def test_mfa_backup_code_verify_and_consume(conn, org_id):
     )
     conn.commit()
     
-    mfa_enroll(conn, operator_id=1)
-    backup_codes = mfa_get_backup_codes(conn, operator_id=1)
-    code = backup_codes[0]["code"]
-    
+    _, _, plaintext_codes = mfa_enroll(conn, operator_id=1)
+    code = plaintext_codes[0]
+
     # First use succeeds
     assert mfa_verify_backup_code(conn, operator_id=1, code=code) is True
-    
-    # Second use fails
+
+    # Second use fails (consumed)
     assert mfa_verify_backup_code(conn, operator_id=1, code=code) is False
 
 @pytest.fixture()
