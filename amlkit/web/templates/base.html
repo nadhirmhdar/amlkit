@@ -31,6 +31,9 @@
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
       {% endif %}
+      {% if session.operator_role == 'mlro' %}
+        <a href="/freeze-obligations" class="{{ 'on' if nav=='freeze' }}">Freeze Obligations</a>
+      {% endif %}
     </nav>
   </aside>
 
