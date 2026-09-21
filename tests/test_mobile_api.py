@@ -51,6 +51,10 @@ def api(tmp_path, monkeypatch):
     r2 = c.post("/api/v1/auth/verify-email", json={"token": verify_token})
     assert r2.status_code == 200, r2.text
     token = r2.json()["token"]
+    # p15: the MLRO's token is locked until TOTP enrolment + verification
+    assert r2.json()["mfa_required"] is True
+    from conftest import unlock_mobile_mfa
+    unlock_mobile_mfa(c, token)
     return c, {"Authorization": f"Bearer {token}"}
 
 
@@ -482,6 +486,8 @@ class TestTransactionEndpoints:
         })
         verify_token_b = r.json()["dev_verification_token"]
         r2 = client.post("/api/v1/auth/verify-email", json={"token": verify_token_b})
+        from conftest import unlock_mobile_mfa  # p15: MLRO tokens start locked
+        unlock_mobile_mfa(client, r2.json()["token"])
         headers_b = {"Authorization": f"Bearer {r2.json()['token']}"}
 
         r = client.get(f"/api/v1/customers/{cid}/transactions", headers=headers_b)

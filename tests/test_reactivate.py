@@ -55,6 +55,8 @@ def _register(client, org_name, name, email, password="a-strong-password-1"):
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m, "no dev verification link"
     client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
     return client
 
 
@@ -120,6 +122,8 @@ def officer_client(mlro_client):
         "email": "officer@react.ae", "password": "a-strong-password-2",
         "csrf_token": officer.cookies.get("amlkit_csrf"),
     }, follow_redirects=True)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(officer)
     return officer
 
 

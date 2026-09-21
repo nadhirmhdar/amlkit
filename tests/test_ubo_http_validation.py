@@ -40,6 +40,8 @@ def api(tmp_path, monkeypatch):
     r2 = client.post("/api/v1/auth/verify-email", json={"token": verify_token})
     assert r2.status_code == 200, r2.text
     token = r2.json()["token"]
+    from conftest import unlock_mobile_mfa  # p15: MLRO tokens start locked
+    unlock_mobile_mfa(client, token)
     yield client, {"Authorization": f"Bearer {token}"}
 
 

@@ -465,6 +465,11 @@ def health_check(db: DB):
 # ----------------------------------------------------------------- sign-in
 @app.get("/login", response_class=HTMLResponse)
 def login_form(request: Request, db: DB):
+    # A locked MLRO session bounced here by require_session() belongs on the
+    # MFA challenge, not on the password form it has already passed.
+    pending = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
+    if pending and pending["role"] == "mlro" and not pending["mfa_verified"]:
+        return RedirectResponse(auth.mfa_challenge_path(db, pending["operator_id"]), status_code=303)
     return render(request, "login.html", {"session": None})
 
 
@@ -493,8 +498,13 @@ def login_submit(
                 "session": None, "err": str(exc), "unverified_email": email.strip().lower(),
             })
         return _login_page_error(request, str(exc))
-    resp = RedirectResponse("/", status_code=303)
+
+    # p15: an MLRO session is issued locked; enrolled operators must pass the
+    # TOTP challenge, un-enrolled ones are sent straight to enrolment.
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+    target = auth.mfa_lock_session(db, token, info.operator_id, info.operator_role) or "/"
+
+    resp = RedirectResponse(target, status_code=303)
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     # M-01: Rotate CSRF token on login (defence-in-depth)
@@ -569,6 +579,164 @@ def password_change_submit(
     db.commit()
 
     return back("/", msg="Password changed successfully. All other sessions have been signed out.")
+
+
+@app.get("/mfa/verify", response_class=HTMLResponse)
+def mfa_verify_form(request: Request, db: DB):
+    """Render TOTP code entry form for MFA challenge (p15)."""
+    session_row = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
+    if not session_row:
+        return RedirectResponse("/login", status_code=303)
+    if session_row["mfa_verified"]:
+        return RedirectResponse("/", status_code=303)
+    if not auth.mfa_is_enrolled(db, session_row["operator_id"]):
+        return RedirectResponse("/mfa/setup", status_code=303)
+
+    return render(request, "mfa_verify.html", {
+        "session": None,  # No full session yet
+        "operator_name": session_row["name"],
+    })
+
+
+@app.post("/mfa/verify")
+@limiter.limit("5/minute")  # per IP; auth.mfa_check_code() adds the per-operator lockout
+def mfa_verify_submit(
+    request: Request, db: DB,
+    code: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Verify TOTP code and upgrade session to mfa_verified=1 (p15)."""
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/mfa/verify", err=str(exc))
+
+    token = request.cookies.get(SESSION_COOKIE)
+    session_row = auth.mfa_session_state(db, token)
+    if not session_row:
+        return RedirectResponse("/login", status_code=303)
+    if session_row["mfa_verified"]:
+        return RedirectResponse("/", status_code=303)
+
+    operator_id = session_row["operator_id"]
+    if not auth.mfa_is_enrolled(db, operator_id):
+        return RedirectResponse("/mfa/setup", status_code=303)
+    outcome = auth.mfa_check_code(db, operator_id, code, stage="verify",
+                                  actor=session_row["name"], org_id=session_row["org_id"])
+    if outcome == "ok":
+        auth.set_session_mfa_verified(db, token, True)
+        return RedirectResponse("/", status_code=303)
+    if outcome == "locked":
+        return back("/mfa/verify", err=_MFA_LOCKED_MESSAGE)
+    return back("/mfa/verify", err="Invalid verification code. Please try again.")
+
+
+_MFA_LOCKED_MESSAGE = ("Too many failed codes. Two-factor sign-in is locked for 15 minutes; "
+                       "the attempts have been recorded in the audit trail.")
+
+
+@app.get("/mfa/setup", response_class=HTMLResponse)
+def mfa_setup_form(request: Request, db: DB):
+    """Display QR code for MFA enrollment (p15 - forced for MLRO)."""
+    session_row = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
+    if not session_row:
+        return RedirectResponse("/login", status_code=303)
+    if session_row["mfa_verified"]:
+        return RedirectResponse("/", status_code=303)
+
+    # Block re-enrollment if already enrolled (prevents CSRF secret overwrite)
+    if auth.mfa_is_enrolled(db, session_row["operator_id"]):
+        return RedirectResponse("/mfa/verify", status_code=303)
+
+    # Reuses a pending secret, so a reload after scanning keeps the app valid.
+    secret, qr_uri = auth.mfa_enroll(db, session_row["operator_id"])
+
+    # Rendered locally: the provisioning URI carries the TOTP secret, so it must
+    # never be sent to a third-party QR service (and the CSP would block one).
+    import base64
+    import segno
+    svg = segno.make(qr_uri, error="m").svg_inline(scale=5, border=2)
+    qr_data_uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+
+    return render(request, "mfa_setup.html", {
+        "session": None,
+        "operator_name": session_row["name"],
+        "secret": secret,
+        "qr_data_uri": qr_data_uri,
+    })
+
+
+@app.post("/mfa/setup")
+@limiter.limit("5/minute")  # per IP; auth.mfa_check_code() adds the per-operator lockout
+def mfa_setup_confirm(
+    request: Request, db: DB,
+    code: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Confirm MFA enrollment by verifying a test TOTP code (p15)."""
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/mfa/setup", err=str(exc))
+
+    token = request.cookies.get(SESSION_COOKIE)
+    session_row = auth.mfa_session_state(db, token)
+    if not session_row:
+        return RedirectResponse("/login", status_code=303)
+
+    if session_row["mfa_verified"]:
+        return RedirectResponse("/", status_code=303)
+
+    # Enrolment is confirmed by proving possession of the authenticator once;
+    # until then the secret shown on the page is only pending.
+    operator_id = session_row["operator_id"]
+    outcome = auth.mfa_check_code(db, operator_id, code, stage="setup",
+                                  actor=session_row["name"], org_id=session_row["org_id"])
+    if outcome == "ok":
+        backup_codes = auth.mfa_confirm(db, operator_id)
+        auth.set_session_mfa_verified(db, token, True)
+        from ..db import audit
+        audit(db, session_row["name"], "mfa.enrolled", "operator", operator_id, None,
+              org_id=session_row["org_id"])
+        db.commit()
+        # Shown exactly once: the codes are stored hashed, so this response is
+        # the only place they ever appear in plaintext.
+        return render(request, "mfa_backup_codes.html", {
+            "session": None, "backup_codes": backup_codes,
+        })
+    if outcome == "locked":
+        return back("/mfa/setup", err=_MFA_LOCKED_MESSAGE)
+    return back("/mfa/setup", err="Invalid verification code. Please scan the QR code and try again.")
+
+
+@app.post("/mfa/disable")
+def mfa_disable_submit(
+    request: Request, db: DB,
+    totp_code: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Disable MFA for operator. Requires valid TOTP code (p15)."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/account", err=str(exc))
+
+    # Require TOTP code only (password alone is insufficient - prevents MFA removal via password compromise)
+    if not totp_code or not auth.mfa_verify(db, session.operator_id, totp_code):
+        return back("/account", err="Enter a valid TOTP code to disable MFA.")
+
+    # Disable MFA
+    db.execute("DELETE FROM mfa_secrets WHERE operator_id=?", (session.operator_id,))
+    db.execute("DELETE FROM mfa_backup_codes WHERE operator_id=?", (session.operator_id,))
+    db.commit()
+
+    from ..db import audit
+    audit(db, session.operator_name, "operator.mfa_disabled", "operator", session.operator_id,
+          None, org_id=session.org_id)
+
+    return back("/account", msg="Two-factor authentication has been disabled.")
+
 
 @app.post("/acknowledge-disclaimer")
 def acknowledge_disclaimer(
@@ -653,8 +821,10 @@ def setup_submit(
             "session": None, "valid": False, "err": str(exc),
         })
 
-    session_token, _ = auth.login(db, result["email"], password, ip=client_ip(request))
-    resp = RedirectResponse("/", status_code=303)
+    session_token, info = auth.login(db, result["email"], password, ip=client_ip(request))
+    # p15: the first operator is the MLRO, so this session starts locked too.
+    target = auth.mfa_lock_session(db, session_token, info.operator_id, info.operator_role) or "/"
+    resp = RedirectResponse(target, status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
@@ -750,7 +920,10 @@ def verify_email(request: Request, db: DB, token: str = ""):
     audit(db, operator["name"], "operator.login", "operator", operator["id"],
           None, org_id=operator["org_id"])
     db.commit()
-    resp = RedirectResponse("/?msg=" + quote("Email verified. Welcome to amlkit."), status_code=303)
+    # p15: a brand-new MLRO must enrol now, not whenever they next log out.
+    target = auth.mfa_lock_session(db, session_token, operator["id"], operator["role"])
+    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to amlkit."),
+                            status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)

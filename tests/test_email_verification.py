@@ -76,6 +76,8 @@ class TestVerifyEmail:
         r = client.post("/api/v1/auth/verify-email", json={"token": token})
         assert r.status_code == 200, r.text
         bearer = r.json()["token"]
+        from conftest import unlock_mobile_mfa  # p15: MLRO tokens start locked
+        unlock_mobile_mfa(client, bearer)
         assert client.get("/api/v1/dashboard", headers={"Authorization": f"Bearer {bearer}"}).status_code == 200
 
     def test_verified_account_can_then_log_in_normally(self, client) -> None:

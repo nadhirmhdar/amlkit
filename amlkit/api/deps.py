@@ -16,7 +16,9 @@ from typing import Iterator
 
 from fastapi import Request
 
-from ..auth import CSRF_COOKIE, SESSION_COOKIE, SessionInfo, csrf_valid, resolve_session
+from ..auth import (
+    CSRF_COOKIE, SESSION_COOKIE, SessionInfo, csrf_valid, resolve_session, session_mfa_verified,
+)
 from ..db import DB_PATH, connect
 
 BIND_HOST = os.environ.get("AMLKIT_BIND_HOST", "127.0.0.1")
@@ -76,10 +78,19 @@ def require_session(request: Request, conn: sqlite3.Connection) -> SessionInfo:
     Raises PermissionError (routes turn this into a redirect to /login)
     rather than returning None, so a route cannot accidentally proceed with a
     missing session -- there is no falsy-but-usable value to check.
+
+    For MLRO users, also enforces MFA verification (p15).
     """
     session = current_session(request, conn)
     if session is None:
         raise PermissionError("Sign in to continue.")
+
+    # p15: an MLRO session stays locked until the TOTP challenge is passed
+    if session.operator_role == "mlro" and not session_mfa_verified(
+        conn, request.cookies.get(SESSION_COOKIE)
+    ):
+        raise PermissionError("Complete two-factor authentication to continue.")
+
     return session
 
 
