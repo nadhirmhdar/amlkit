@@ -1141,20 +1141,16 @@ def home(request: Request, db: DB):
     first_name = first_name[0] if first_name else session.operator_name
 
     d = queries.dashboard(db, session.org_id)
-    customer_count = d["counts"]["customers"]
-    show_onboarding = customer_count == 0
 
-    # Onboarding guide step completion state (p51)
-    onboarding_state = {}
-    if show_onboarding:
-        onboarding_state = {
-            "step1_complete": queries.has_screening_history(db, session.org_id),
-            "step2_complete": False,  # Step 2 is creating first customer, so always False when show_onboarding=True
-            "step3_complete": db.execute(
-                "SELECT dashboard_visited_at FROM organizations WHERE id = ?",
-                (session.org_id,)
-            ).fetchone()["dashboard_visited_at"] is not None
-        }
+    # First-run guide (p51): each step is derived from real state and the
+    # guide stays until all three are done. Customer count is any-status so
+    # an org whose customers are all archived is not treated as brand new.
+    onboarding_state = {
+        "step1_complete": queries.has_screening_history(db, session.org_id),
+        "step2_complete": queries.total_customer_count(db, session.org_id) > 0,
+        "step3_complete": queries.dashboard_visited(db, session.org_id),
+    }
+    show_onboarding = not all(onboarding_state.values())
 
     return render(request, "home.html", {
         "session": session,
@@ -1175,18 +1171,32 @@ def dashboard(request: Request, db: DB):
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
 
-    # Mark dashboard as visited for onboarding guide (p51)
-    db.execute(
-        "UPDATE organizations SET dashboard_visited_at = ? WHERE id = ? AND dashboard_visited_at IS NULL",
-        (utcnow(), session.org_id)
-    )
-    db.commit()
-
     return render(request, "dashboard.html", {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
         "datasets": queries.datasets(db),
     }, db)
+
+
+@app.post("/onboarding/review-dashboard")
+def onboarding_review_dashboard(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Explicit step-3 action for the first-run guide. A POST (CSRF-checked)
+    rather than a side effect of GET /dashboard, so prefetchers and curl
+    cannot mark the step done."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return RedirectResponse("/", status_code=303)
+    from ..cases.manager import mark_dashboard_reviewed
+    mark_dashboard_reviewed(db, session.org_id)
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 # --------------------------------------------------------------------- screen
