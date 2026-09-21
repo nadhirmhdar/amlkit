@@ -362,7 +362,9 @@ def _register(client, org_name: str, name: str, email: str,
     m = _re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m, f"no dev verification link: {r.text[:500]}"
     r2 = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
-    assert "Dashboard" in r2.text or "24-hour" in r2.text, (
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
+    assert any(s in r2.text for s in ("Dashboard", "24-hour", "Two-Factor")), (
         f"verification failed: {r2.text[:300]}"
     )
     return client

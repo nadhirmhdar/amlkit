@@ -28,6 +28,8 @@ def _register(client, org_name: str, name: str, email: str, password: str = "a-s
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     if m:
         client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
     return client
 
 

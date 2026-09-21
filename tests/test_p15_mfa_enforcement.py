@@ -31,16 +31,18 @@ def _rejected(resp) -> bool:
             and "amlkit_flash" in resp.headers.get("set-cookie", ""))
 
 
-def _register(client, name: str, email: str, password: str = PASSWORD) -> None:
+def _register(client, name: str, email: str, password: str = PASSWORD, org: str = "Test Firm"):
+    """Register an org and redeem the verification link. Returns that response
+    (unfollowed), so callers can see where the auto-login sends the MLRO."""
     client.get("/register-organization")
     r = client.post("/register-organization", data={
-        "org_name": "Test Firm", "name": name, "email": email, "password": password,
+        "org_name": org, "name": name, "email": email, "password": password,
         "csrf_token": _csrf(client),
     }, follow_redirects=True)
     assert "Check your email" in r.text
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m
-    client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+    return client.get(f"/verify-email?token={m.group(1)}", follow_redirects=False)
 
 
 def _logout(client) -> None:
@@ -59,14 +61,16 @@ def _enrol(client) -> tuple[str, list[str]]:
     page = client.get("/mfa/setup", follow_redirects=False)
     assert page.status_code == 200
     secret = re.search(r"\b([A-Z2-7]{32})\b", page.text).group(1)
-    backup_codes = re.findall(r"<span>([0-9a-f]{8})</span>", page.text)
-    assert len(backup_codes) == 10
+    assert not re.findall(r"<span>([0-9a-f]{8})</span>", page.text), "no backup codes before confirmation"
     assert "api.qrserver.com" not in page.text, "QR must be rendered locally"
     assert 'src="data:image/svg+xml;base64,' in page.text
     r = client.post("/mfa/setup", data={
         "code": pyotp.TOTP(secret).now(), "csrf_token": _csrf(client),
     }, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/"
+    # backup codes exist only from confirmation on and are shown exactly once
+    assert r.status_code == 200, r.headers.get("location")
+    backup_codes = re.findall(r"<span>([0-9a-f]{8})</span>", r.text)
+    assert len(backup_codes) == 10
     return secret, backup_codes
 
 
@@ -177,3 +181,130 @@ def test_officer_login_is_not_challenged(client):
     r = _login(client, "bob@testfirm.ae", "a-strong-password-2")
     assert r.status_code == 303 and r.headers["location"] == "/"
     assert client.get("/dashboard", follow_redirects=False).status_code == 200
+
+
+# --------------------------------------------------------- review round 1
+
+
+def test_verify_email_auto_login_is_locked_and_login_page_redirects(tmp_path, monkeypatch):
+    from amlkit.db import connect
+    db_file = tmp_path / "fresh.db"
+    monkeypatch.setenv("AMLKIT_DB", str(db_file))
+    connect(str(db_file)).close()
+    from fastapi.testclient import TestClient
+    from amlkit.api.app import app
+    c = TestClient(app)
+
+    r = _register(c, "carol", "carol@fresh.ae", org="Fresh Firm")
+    assert r.status_code == 303 and r.headers["location"] == "/mfa/setup"
+    assert c.cookies.get("amlkit_session"), "a session is issued, but locked"
+    assert c.get("/dashboard", follow_redirects=False).status_code in (302, 303)
+    # the password form is pointless for a session that already passed it
+    r = c.get("/login", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/mfa/setup"
+    _enrol(c)
+    assert c.get("/dashboard", follow_redirects=False).status_code == 200
+
+
+def test_reloading_setup_keeps_the_pending_secret(client):
+    _login(client)
+    first = re.search(r"\b([A-Z2-7]{32})\b", client.get("/mfa/setup").text).group(1)
+    second = re.search(r"\b([A-Z2-7]{32})\b", client.get("/mfa/setup").text).group(1)
+    assert first == second, "a reload after scanning must not rotate the secret"
+    r = client.post("/mfa/setup", data={"code": pyotp.TOTP(first).now(), "csrf_token": _csrf(client)},
+                    follow_redirects=False)
+    assert r.status_code == 200
+    assert client.get("/mfa/setup", follow_redirects=False).headers["location"] == "/"
+
+
+def test_five_wrong_codes_lock_the_challenge_and_are_audited(client):
+    import os
+    import sqlite3
+    _login(client)
+    secret, codes = _enrol(client)
+    _logout(client)
+    _login(client)
+    for _ in range(5):
+        r = client.post("/mfa/verify", data={"code": "000000", "csrf_token": _csrf(client)},
+                        follow_redirects=False)
+        assert _rejected(r)
+    # locked: even the right code and a valid backup code are refused now
+    for code in (pyotp.TOTP(secret).now(), codes[0]):
+        r = client.post("/mfa/verify", data={"code": code, "csrf_token": _csrf(client)},
+                        follow_redirects=False)
+        assert _rejected(r)
+    assert client.get("/dashboard", follow_redirects=False).status_code in (302, 303)
+
+    conn = sqlite3.connect(os.environ["AMLKIT_DB"])
+    actions = [row[0] for row in conn.execute(
+        "SELECT action FROM audit_log WHERE action LIKE 'mfa.%' ORDER BY id")]
+    assert actions.count("mfa.failed") == 5
+    assert actions.count("mfa.locked") == 1
+    assert "mfa.enrolled" in actions
+    # the lock expires: rewind it and the right code works again
+    conn.execute("UPDATE mfa_secrets SET locked_until='2000-01-01T00:00:00+00:00'")
+    conn.commit(); conn.close()
+    r = client.post("/mfa/verify", data={"code": pyotp.TOTP(secret).now(), "csrf_token": _csrf(client)},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/"
+    assert client.get("/dashboard", follow_redirects=False).status_code == 200
+
+
+def _mobile_login(client, email: str = EMAIL, password: str = PASSWORD):
+    return client.post("/api/v1/auth/login", json={"email": email, "password": password})
+
+
+def test_mobile_mlro_token_is_locked_until_totp(client):
+    _login(client)
+    secret, codes = _enrol(client)
+    _logout(client)
+
+    r = _mobile_login(client)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mfa_required"] is True and body["mfa_enrolled"] is True
+    headers = {"Authorization": f"Bearer {body['token']}"}
+    r = client.get("/api/v1/dashboard", headers=headers)
+    assert r.status_code == 403 and r.json()["detail"] == "mfa_required"
+
+    bad = client.post("/api/v1/auth/mfa/verify", json={"code": "000000"}, headers=headers)
+    assert bad.status_code == 401
+    assert client.get("/api/v1/dashboard", headers=headers).status_code == 403
+
+    good = client.post("/api/v1/auth/mfa/verify", json={"code": pyotp.TOTP(secret).now()}, headers=headers)
+    assert good.status_code == 200 and good.json()["ok"] is True
+    assert client.get("/api/v1/dashboard", headers=headers).status_code == 200
+    # a locked token can still be revoked
+    assert client.post("/api/v1/auth/logout", headers=headers).status_code == 200
+
+    # backup code over the API, once
+    token2 = _mobile_login(client).json()["token"]
+    h2 = {"Authorization": f"Bearer {token2}"}
+    assert client.post("/api/v1/auth/mfa/verify", json={"code": codes[0]}, headers=h2).status_code == 200
+    token3 = _mobile_login(client).json()["token"]
+    h3 = {"Authorization": f"Bearer {token3}"}
+    assert client.post("/api/v1/auth/mfa/verify", json={"code": codes[0]}, headers=h3).status_code == 401
+
+
+def test_mobile_unenrolled_mlro_is_told_to_enrol_on_the_web(client):
+    r = _mobile_login(client)
+    body = r.json()
+    assert body["mfa_required"] is True and body["mfa_enrolled"] is False
+    headers = {"Authorization": f"Bearer {body['token']}"}
+    assert client.get("/api/v1/dashboard", headers=headers).status_code == 403
+    r = client.post("/api/v1/auth/mfa/verify", json={"code": "000000"}, headers=headers)
+    assert r.status_code == 403 and "web app" in r.json()["detail"]
+
+
+def test_mobile_officer_token_is_not_locked(client):
+    _login(client)
+    _enrol(client)
+    client.post("/admin/operators", data={
+        "name": "bob", "email": "bob@testfirm.ae", "password": "a-strong-password-2",
+        "role": "officer", "csrf_token": _csrf(client),
+    })
+    _logout(client)
+    body = _mobile_login(client, "bob@testfirm.ae", "a-strong-password-2").json()
+    assert body["mfa_required"] is False and "mfa_enrolled" not in body
+    headers = {"Authorization": f"Bearer {body['token']}"}
+    assert client.get("/api/v1/dashboard", headers=headers).status_code == 200

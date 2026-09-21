@@ -353,23 +353,6 @@ CREATE TABLE IF NOT EXISTS operators (
 -- ix_operators_org: see the note by ix_cust_org above -- created in Python
 -- after migration, not here.
 
--- ---------------------------------------------------------------- MFA/TOTP (p15)
-CREATE TABLE IF NOT EXISTS mfa_secrets (
-    operator_id  INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
-    secret       TEXT NOT NULL,
-    enrolled_at  TEXT NOT NULL,
-    confirmed_at TEXT            -- NULL until the operator proves a first TOTP
-);
-
-CREATE TABLE IF NOT EXISTS mfa_backup_codes (
-    id          INTEGER PRIMARY KEY,
-    operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
-    code_hash   TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    used_at     TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_mfa_backup_operator ON mfa_backup_codes(operator_id);
-
 -- Each review step is a row rather than an overwritten field. Four-eyes is
 -- meaningless if the first reviewer's proposal disappears when the second
 -- confirms it -- the whole point is that both decisions survive.
@@ -723,8 +706,10 @@ END;
 CREATE TABLE IF NOT EXISTS mfa_secrets (
     operator_id  INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
     secret       TEXT NOT NULL,
-    enrolled_at  TEXT NOT NULL,
-    confirmed_at TEXT            -- NULL until the operator proves a first TOTP
+    enrolled_at     TEXT NOT NULL,
+    confirmed_at    TEXT,                       -- NULL until the operator proves a first TOTP
+    failed_attempts INTEGER NOT NULL DEFAULT 0, -- consecutive wrong codes since the last success
+    locked_until    TEXT                        -- set after MFA_MAX_FAILURES; cleared on success
 );
 
 -- 10 single-use recovery codes per operator.  code_hash is argon2 so the raw
@@ -774,6 +759,10 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # merely opening /mfa/setup must not lock an operator behind a code they
     # never scanned. Pre-existing rows stay unconfirmed and re-enrol at login.
     ("mfa_secrets", "confirmed_at", "ALTER TABLE mfa_secrets ADD COLUMN confirmed_at TEXT"),
+    # p15: online brute-force guard for the six-digit code (5 strikes, 15 min).
+    ("mfa_secrets", "failed_attempts",
+     "ALTER TABLE mfa_secrets ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0"),
+    ("mfa_secrets", "locked_until", "ALTER TABLE mfa_secrets ADD COLUMN locked_until TEXT"),
     ("entities", "programs", "ALTER TABLE entities ADD COLUMN programs TEXT"),
     ("alerts", "reason_code", "ALTER TABLE alerts ADD COLUMN reason_code TEXT"),
     # How the four-eyes requirement was satisfied, or why it was not:
@@ -844,6 +833,10 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("organizations", "reporting_person_phone", "ALTER TABLE organizations ADD COLUMN reporting_person_phone TEXT"),
     # p15: MFA login enforcement — track whether MLRO session has passed MFA challenge
     ("sessions", "mfa_verified", "ALTER TABLE sessions ADD COLUMN mfa_verified INTEGER NOT NULL DEFAULT 1"),
+    # p36: Enhanced due diligence — risk_level, Source of Wealth, Source of Funds
+    ("customers", "risk_level",        "ALTER TABLE customers ADD COLUMN risk_level        TEXT"),
+    ("customers", "source_of_wealth",  "ALTER TABLE customers ADD COLUMN source_of_wealth  TEXT"),
+    ("customers", "source_of_funds",   "ALTER TABLE customers ADD COLUMN source_of_funds   TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)

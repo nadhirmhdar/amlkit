@@ -34,6 +34,8 @@ def _register_and_login(client, org_name: str, name: str, email: str, password: 
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m
     client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
     return client
 
 
@@ -92,6 +94,8 @@ class TestAdminRBAC:
             "email": "bob1@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/threshold", data={
             "threshold": "0.85", "csrf_token": _csrf(client),
@@ -107,6 +111,8 @@ class TestAdminRBAC:
             "email": "bob2@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/operators", data={
             "name": "charlie", "email": "charlie@testfirm.ae",
@@ -130,6 +136,8 @@ class TestAdminRBAC:
             "email": "bob3@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post(f"/admin/operators/{bob_id}/reset-password", data={
             "new_password": "new-password-123", "csrf_token": _csrf(client),
@@ -151,6 +159,8 @@ class TestAdminRBAC:
             "email": "bob4@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post(f"/admin/operators/{charlie_id}/deactivate", data={
             "csrf_token": _csrf(client),
@@ -165,6 +175,8 @@ class TestAdminRBAC:
             "email": "bob5@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/refresh", data={
             "csrf_token": _csrf(client),
@@ -179,6 +191,8 @@ class TestAdminRBAC:
             "email": "bob6@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/rescreen", data={
             "csrf_token": _csrf(client),
@@ -193,6 +207,8 @@ class TestAdminRBAC:
             "email": "bob7@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/rule-config", data={
             "large_cash_threshold_aed": "50000",

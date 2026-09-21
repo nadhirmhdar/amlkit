@@ -87,7 +87,9 @@ def _register(client, org_name: str, name: str, email: str, password: str = "a-s
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m, f"no dev verification link in registration response: {r.text[:500]}"
     r2 = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
-    assert "Dashboard" in r2.text or "24-hour" in r2.text, f"verification failed: {r2.text[:300]}"
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
+    assert any(s in r2.text for s in ("Dashboard", "24-hour", "Two-Factor")), f"verification failed: {r2.text[:300]}"
     return client
 
 
@@ -96,6 +98,8 @@ def _login(client, email: str, password: str = "a-strong-password-1"):
     r = client.post("/login", data={
         "email": email, "password": password, "csrf_token": _csrf(client),
     }, follow_redirects=True)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
     return r
 
 
@@ -211,6 +215,8 @@ class TestAuth:
     def test_login_without_csrf_rejected(self, client) -> None:
         client.cookies.delete("amlkit_session")
         r = client.post("/login", data={"email": "alice@testfirm.ae", "password": "a-strong-password-1"})
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
         assert "Incorrect email or password" not in r.text
         # CSRF failure keeps the user on the login page with a distinct error,
         # never a successful sign-in.
@@ -1205,6 +1211,8 @@ class TestCookieSecurity:
             "password": "a-strong-password-1",
             "csrf_token": csrf_before,
         }, follow_redirects=False)
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         assert r.status_code == 303
 
