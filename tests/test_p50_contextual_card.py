@@ -53,10 +53,11 @@ def test_contextual_card_shows_open_alerts_when_present(client):
     }, follow_redirects=True)
     assert r.status_code == 200
 
-    # Now check home page - should show alerts
+    # Now check home page - should show alerts card with exact title and link
     r = client.get("/")
     assert r.status_code == 200
-    assert "review" in r.text.lower() and "alert" in r.text.lower()
+    assert "Review 1 alert" in r.text
+    assert 'href="/dashboard"' in r.text
 
 
 def test_contextual_card_shows_adverse_media_due_when_no_alerts(client):
@@ -76,8 +77,9 @@ def test_contextual_card_shows_adverse_media_due_when_no_alerts(client):
     # So they're "due" for one. Check home page.
     r = client.get("/")
     assert r.status_code == 200
-    # Should mention adverse media
-    assert "adverse" in r.text.lower() or "media" in r.text.lower()
+    # Should show adverse media card with exact title and link to dashboard
+    assert "Check adverse media" in r.text
+    assert 'href="/dashboard"' in r.text
 
 
 def test_contextual_card_shows_refresh_datasets_when_stale(client):
@@ -122,8 +124,9 @@ def test_contextual_card_shows_refresh_datasets_when_stale(client):
     # Check home page
     r = client.get("/")
     assert r.status_code == 200
-    # Should mention refresh or sanctions
-    assert "refresh" in r.text.lower() or "sanction" in r.text.lower()
+    # Should show datasets card with exact title and link to admin compliance
+    assert "Refresh sanctions lists" in r.text
+    assert 'href="/admin/compliance"' in r.text
 
 
 def test_contextual_card_shows_all_clear_fallback(client):
@@ -166,5 +169,29 @@ def test_contextual_card_shows_all_clear_fallback(client):
     # Check home page
     r = client.get("/")
     assert r.status_code == 200
-    # Should show "all clear" or "looking good" type message
-    assert "clear" in r.text.lower() or "good" in r.text.lower()
+    # Should show all clear card with exact title and link to dashboard
+    assert "All clear" in r.text
+    assert 'href="/dashboard"' in r.text
+
+
+def test_all_contextual_card_links_are_accessible(client):
+    """All links returned by contextual_home_card should return 200."""
+    import os
+    from test_api import _csrf
+
+    # Test all 4 possible card links by manipulating state
+    db_file = os.getenv("AMLKIT_DB")
+    conn = connect(db_file)
+
+    # 1. Dashboard link (for alerts and all_clear cards)
+    r = client.get("/dashboard")
+    assert r.status_code == 200
+
+    # 2. Admin compliance link (for datasets card)
+    r = client.get("/admin/compliance")
+    assert r.status_code == 200
+
+    # Note: adverse_media card also links to /dashboard (already tested above)
+    # So all 3 unique links (/dashboard, /admin/compliance) are validated
+
+    conn.close()

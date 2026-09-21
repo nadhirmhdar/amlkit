@@ -913,15 +913,6 @@ def customer_completeness(customer: dict[str, Any]) -> float:
     return round((filled / len(required_fields)) * 100, 1)
 
 
-def has_screening_history(conn: sqlite3.Connection, org_id: int) -> bool:
-    """Check if org has performed any screenings."""
-    count = conn.execute(
-        "SELECT COUNT(*) as count FROM screenings WHERE org_id = ?",
-        (org_id,)
-    ).fetchone()["count"]
-    return count > 0
-
-
 def contextual_home_card(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
     """Determine which contextual card to show on the home page.
 
@@ -965,7 +956,7 @@ def contextual_home_card(conn: sqlite3.Connection, org_id: int) -> dict[str, Any
             "type": "adverse_media",
             "title": "Check adverse media",
             "description": f"{count} customer{'s' if count != 1 else ''} due for adverse media screening",
-            "link": "/adverse-media",
+            "link": "/dashboard",
             "count": count,
         }
 
@@ -974,7 +965,7 @@ def contextual_home_card(conn: sqlite3.Connection, org_id: int) -> dict[str, Any
     twenty_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat()
     stale_datasets = conn.execute(
         """SELECT COUNT(*) as count FROM datasets
-           WHERE last_refresh < ?""",
+           WHERE last_refresh IS NULL OR last_refresh < ?""",
         (twenty_hours_ago,)
     ).fetchone()["count"]
 
@@ -983,7 +974,7 @@ def contextual_home_card(conn: sqlite3.Connection, org_id: int) -> dict[str, Any
             "type": "datasets",
             "title": "Refresh sanctions lists",
             "description": "Sanctions datasets need refreshing",
-            "link": "/datasets",
+            "link": "/admin/compliance",
             "count": stale_datasets,
         }
 
