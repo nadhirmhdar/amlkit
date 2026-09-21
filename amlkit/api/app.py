@@ -1206,6 +1206,23 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
     return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()}, db)
 
 
+@app.get("/customers/{customer_id}/kg-screen")
+def customer_kg_screen(request: Request, db: DB, customer_id: int):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    cust = queries.customer(db, customer_id, session.org_id)
+    if cust is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    from ..screening.knowledge_graph import KnowledgeGraphScreener
+    from dataclasses import asdict
+    screener = KnowledgeGraphScreener()
+    result = screener.screen(cust["customer"]["full_name"])
+    return JSONResponse(asdict(result))
+
+
 @app.post("/customers/{customer_id}/close")
 def customer_close(request: Request, db: DB, customer_id: int,
                    csrf_token: Annotated[str, Form()] = ""):
