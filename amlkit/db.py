@@ -837,6 +837,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "risk_level",        "ALTER TABLE customers ADD COLUMN risk_level        TEXT"),
     ("customers", "source_of_wealth",  "ALTER TABLE customers ADD COLUMN source_of_wealth  TEXT"),
     ("customers", "source_of_funds",   "ALTER TABLE customers ADD COLUMN source_of_funds   TEXT"),
+    # p51: Track when org first visited dashboard for onboarding guide completion
+    ("organizations", "dashboard_visited_at", "ALTER TABLE organizations ADD COLUMN dashboard_visited_at TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)

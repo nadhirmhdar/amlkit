@@ -1144,6 +1144,18 @@ def home(request: Request, db: DB):
     customer_count = d["counts"]["customers"]
     show_onboarding = customer_count == 0
 
+    # Onboarding guide step completion state (p51)
+    onboarding_state = {}
+    if show_onboarding:
+        onboarding_state = {
+            "step1_complete": queries.has_screening_history(db, session.org_id),
+            "step2_complete": False,  # Step 2 is creating first customer, so always False when show_onboarding=True
+            "step3_complete": db.execute(
+                "SELECT dashboard_visited_at FROM organizations WHERE id = ?",
+                (session.org_id,)
+            ).fetchone()["dashboard_visited_at"] is not None
+        }
+
     return render(request, "home.html", {
         "session": session,
         "d": d,
@@ -1152,6 +1164,7 @@ def home(request: Request, db: DB):
         "first_name": first_name,
         "today": gst_now.strftime("%A, %d %B %Y"),
         "show_onboarding": show_onboarding,
+        "onboarding_state": onboarding_state,
     }, db)
 
 
@@ -1162,6 +1175,14 @@ def dashboard(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+
+    # Mark dashboard as visited for onboarding guide (p51)
+    db.execute(
+        "UPDATE organizations SET dashboard_visited_at = ? WHERE id = ? AND dashboard_visited_at IS NULL",
+        (utcnow(), session.org_id)
+    )
+    db.commit()
+
     return render(request, "dashboard.html", {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
