@@ -839,6 +839,9 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "source_of_funds",   "ALTER TABLE customers ADD COLUMN source_of_funds   TEXT"),
     # Follow-up to #231/#142: per-org goAML entity reference (replaces hardcoded "AML-REF")
     ("organizations", "goaml_entity_reference", "ALTER TABLE organizations ADD COLUMN goaml_entity_reference TEXT"),
+    # T-008: Google AML AI enum alignment — civil status (ISO 20022) and occupation
+    ("customers", "civil_status_code", "ALTER TABLE customers ADD COLUMN civil_status_code TEXT"),
+    ("customers", "occupation", "ALTER TABLE customers ADD COLUMN occupation TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
