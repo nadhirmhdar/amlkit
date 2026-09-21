@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set nav = 'freeze' %}
+{% set nav = 'dash' %}
 
 {% block title %}Freeze Obligation #{{ obligation.id }}{% endblock %}
 
@@ -111,20 +111,53 @@
   </div>
   {% endif %}
   
-  <!-- Action Buttons -->
-  <div class="actions">
+  <!-- Actions. Each one is a POST route with CSRF and an MLRO check, so
+       they must be forms: plain links issued GETs and returned 405. -->
+  {% if session.operator_role == 'mlro' %}
     {% if can_execute %}
-      <a href="/freeze-obligations/{{ obligation.id }}/execute" class="btn btn-primary">Execute Freeze</a>
+      {% set freeze_id = obligation.id %}
+      {% include "freeze_execute_form.html" %}
     {% endif %}
-    
+
     {% if can_file_ffr %}
-      <a href="/freeze-obligations/{{ obligation.id }}/file-ffr" class="btn btn-primary">File FFR Report</a>
+    <form method="post" action="/freeze-obligations/{{ obligation.id }}/file-ffr" class="freeze-action">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h2>File Funds Freeze Report</h2>
+      <div class="form-group">
+        <label for="ffr-reporter-email">Reporter email (optional)</label>
+        <input type="email" id="ffr-reporter-email" name="reporter_email" autocomplete="email">
+      </div>
+      <button type="submit" class="btn btn-primary">File FFR Report</button>
+    </form>
     {% endif %}
-    
+
     {% if can_resolve %}
-      <a href="/freeze-obligations/{{ obligation.id }}/resolve" class="btn btn-secondary">Resolve Obligation</a>
+    <form method="post" action="/freeze-obligations/{{ obligation.id }}/resolve" class="freeze-action">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h2>Resolve Obligation</h2>
+      <div class="form-group">
+        <label for="resolve-reason">Reason</label>
+        <select id="resolve-reason" name="resolution_reason" required>
+          <option value="" disabled selected>Select a reason</option>
+          <option value="delisted">Delisted by the listing authority</option>
+          <option value="authority_clearance">Cleared by the competent authority</option>
+          <option value="false_positive">False positive</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="resolve-authority-ref">Authority reference</label>
+        <input type="text" id="resolve-authority-ref" name="authority_ref">
+      </div>
+      <div class="form-group">
+        <label for="resolve-notes">Notes</label>
+        <textarea id="resolve-notes" name="notes" rows="3"></textarea>
+      </div>
+      <button type="submit" class="btn btn-secondary">Resolve Obligation</button>
+    </form>
     {% endif %}
-    
+  {% endif %}
+
+  <div class="actions">
     <a href="/freeze-obligations" class="btn">Back to List</a>
   </div>
 </div>

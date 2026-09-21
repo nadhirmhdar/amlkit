@@ -317,3 +317,104 @@ def test_freeze_detail_view_renders(client):
     assert f"Freeze Obligation #{freeze_id}" in r.text
     assert "Detail Test Customer" in r.text
     assert "by alice" in r.text
+
+
+def _seed_freeze(reference: str, authority_ref: str) -> int:
+    from amlkit.db import utcnow
+
+    conn = _db()
+    org_id = conn.execute("SELECT id FROM organizations LIMIT 1").fetchone()["id"]
+    now = utcnow()
+    cur = conn.execute("""
+        INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+                               status, onboarded_at, created_at, updated_at)
+        VALUES (?, ?, 'Blank Page Check', 'natural', ?, 'active', ?, ?, ?)
+    """, (org_id, reference, reference.lower(), now, now, now))
+    cur = conn.execute("""
+        INSERT INTO freeze_obligations (org_id, customer_id, obligation_type, risk_category,
+                                        status, identified_at, identified_by, authority_ref)
+        VALUES (?, ?, 'sanctions', 'critical', 'pending_execution', ?, 'alice', ?)
+    """, (org_id, cur.lastrowid, now, authority_ref))
+    freeze_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return freeze_id
+
+
+def test_freeze_button_on_dashboard_for_mlro_only(client):
+    _seed_freeze("C-FREEZE-BTN", "UN-BTN-1")
+
+    dash = client.get("/dashboard").text
+    head = dash.split('class="page-head page-head--with-actions"', 1)[1].split('<div class="dashboard-hero">', 1)[0]
+    assert 'href="/freeze-obligations" class="btn-outline"' in head
+    assert '<span class="visually-hidden">, 1 pending execution</span>' in head
+
+    # Gone from the sidebar.
+    nav = dash.split('<nav aria-label="Main navigation">', 1)[1].split("</nav>", 1)[0]
+    assert "/freeze-obligations" not in nav
+
+    _add_operator(client, "dora", "dora@testfirm.ae", role="officer")
+    from fastapi.testclient import TestClient
+    from amlkit.api.app import app
+    officer = TestClient(app)
+    officer.get("/login")
+    _login(officer, "dora@testfirm.ae", "a-strong-password-2")
+    officer_dash = officer.get("/dashboard").text
+    assert 'class="btn-outline"' not in officer_dash
+
+
+def _page_form(html: str, action: str) -> dict:
+    """The hidden and default fields of the form posting to `action`."""
+    import re
+    m = re.search(r'<form method="post" action="' + re.escape(action) + r'"[^>]*>(.*?)</form>', html, re.S)
+    assert m, f"no POST form for {action}"
+    return dict(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', m.group(1)))
+
+
+def _status(freeze_id: int) -> str:
+    conn = _db()
+    try:
+        return conn.execute("SELECT status FROM freeze_obligations WHERE id = ?", (freeze_id,)).fetchone()["status"]
+    finally:
+        conn.close()
+
+
+def test_freeze_detail_actions_are_post_forms_that_work(client):
+    """The detail page's actions were <a href> links to POST-only routes (405).
+    Walk the lifecycle using the forms the page actually renders."""
+    freeze_id = _seed_freeze("C-FREEZE-FLOW", "UN-FLOW-1")
+    base = f"/freeze-obligations/{freeze_id}"
+
+    page = client.get(base).text
+    assert f'href="{base}/execute"' not in page
+    fields = _page_form(page, f"{base}/execute")
+    assert fields.get("csrf_token"), "execute form must carry the CSRF token"
+    r = client.post(f"{base}/execute", data={
+        **fields, "asset_type_1": "bank_account", "asset_identifier_1": "AE07 0331 2345 6789",
+        "asset_amount_1": "50000", "notes": "frozen",
+    }, follow_redirects=True)
+    assert r.status_code == 200
+    assert _status(freeze_id) == "executed_pending_report"
+
+    page = client.get(base).text
+    assert f'action="{base}/execute"' not in page
+    assert _page_form(page, f"{base}/file-ffr").get("csrf_token")
+    fields = _page_form(page, f"{base}/resolve")
+    r = client.post(f"{base}/resolve", data={
+        **fields, "resolution_reason": "authority_clearance", "authority_ref": "EOCN-1",
+    }, follow_redirects=True)
+    assert r.status_code == 200
+    assert _status(freeze_id) == "resolved"
+
+
+def test_freeze_detail_hides_action_forms_from_officers(client):
+    freeze_id = _seed_freeze("C-FREEZE-OFF", "UN-OFF-1")
+    _add_operator(client, "erin", "erin@testfirm.ae", role="officer")
+    from fastapi.testclient import TestClient
+    from amlkit.api.app import app
+    officer = TestClient(app)
+    officer.get("/login")
+    _login(officer, "erin@testfirm.ae", "a-strong-password-2")
+    page = officer.get(f"/freeze-obligations/{freeze_id}").text
+    assert f"<h1>Freeze Obligation #{freeze_id}</h1>" in page
+    assert 'class="freeze-action"' not in page
