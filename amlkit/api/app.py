@@ -886,7 +886,17 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         )
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+    except Exception as exc:
+        # Catch GoAMLValidationError for missing entity_reference
+        if "goAML entity reference" in str(exc):
+            return back(
+                f"/freeze-obligations/{freeze_id}",
+                err='Set your goAML entity reference under Admin → Organisation profile before filing. '
+                    '<a href="/admin">Go to Admin</a>'
+            )
+        raise
 
+    db.commit()
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
@@ -2790,7 +2800,17 @@ def report_export_xml(request: Request, db: DB, report_id: int):
     payload = json.loads(rep["payload"] or "{}")
 
     # Inject org details into payload (follow-up to #231/#142)
-    inject_reporting_entity(payload, db, session.org_id)
+    try:
+        inject_reporting_entity(payload, db, session.org_id)
+    except GoAMLValidationError as exc:
+        if "goAML entity reference" in str(exc):
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail='Set your goAML entity reference under Admin → Organisation profile before exporting. '
+                       '<a href="/admin">Go to Admin</a>'
+            )
+        raise
 
     try:
         xml_content = serialize_goaml_xml(payload)

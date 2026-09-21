@@ -1501,7 +1501,15 @@ def api_report_export(report_id: int, db: DB, session: Session):
     payload = json.loads(rep["payload"] or "{}")
 
     # Inject org details into payload (follow-up to #231/#142)
-    inject_reporting_entity(payload, db, session.org_id)
+    try:
+        inject_reporting_entity(payload, db, session.org_id)
+    except GoAMLValidationError as exc:
+        if "goAML entity reference" in str(exc):
+            raise HTTPException(
+                status_code=400,
+                detail="Set your goAML entity reference under Admin → Organisation profile before exporting."
+            ) from exc
+        raise
 
     try:
         xml_content = serialize_goaml_xml(payload)
