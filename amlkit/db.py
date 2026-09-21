@@ -355,9 +355,10 @@ CREATE TABLE IF NOT EXISTS operators (
 
 -- ---------------------------------------------------------------- MFA/TOTP (p15)
 CREATE TABLE IF NOT EXISTS mfa_secrets (
-    operator_id INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
-    secret      TEXT NOT NULL,
-    enrolled_at TEXT NOT NULL
+    operator_id  INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
+    secret       TEXT NOT NULL,
+    enrolled_at  TEXT NOT NULL,
+    confirmed_at TEXT            -- NULL until the operator proves a first TOTP
 );
 
 CREATE TABLE IF NOT EXISTS mfa_backup_codes (
@@ -720,9 +721,10 @@ END;
 -- ----------------------------------------------------------------- MFA/TOTP (p15)
 -- One row per operator; replaced on re-enrolment.
 CREATE TABLE IF NOT EXISTS mfa_secrets (
-    operator_id INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
-    secret      TEXT NOT NULL,
-    enrolled_at TEXT NOT NULL
+    operator_id  INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
+    secret       TEXT NOT NULL,
+    enrolled_at  TEXT NOT NULL,
+    confirmed_at TEXT            -- NULL until the operator proves a first TOTP
 );
 
 -- 10 single-use recovery codes per operator.  code_hash is argon2 so the raw
@@ -768,6 +770,10 @@ EMAIL_VERIFY_TOKEN_LIFETIME = timedelta(days=3)
 # This is a deliberate, stated tradeoff: a hand-edited database bypassing the
 # application is not caught by the schema alone.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    # p15: a secret is only "enrolled" once its first TOTP has been verified;
+    # merely opening /mfa/setup must not lock an operator behind a code they
+    # never scanned. Pre-existing rows stay unconfirmed and re-enrol at login.
+    ("mfa_secrets", "confirmed_at", "ALTER TABLE mfa_secrets ADD COLUMN confirmed_at TEXT"),
     ("entities", "programs", "ALTER TABLE entities ADD COLUMN programs TEXT"),
     ("alerts", "reason_code", "ALTER TABLE alerts ADD COLUMN reason_code TEXT"),
     # How the four-eyes requirement was satisfied, or why it was not:

@@ -36,6 +36,31 @@ def seed_fresh_dataset(conn, key="test_list", title="Synthetic Test List"):
     return ds
 
 
+@pytest.fixture()
+def complete_mfa():
+    """Enrol the MLRO whose freshly issued session is parked at /mfa/setup (p15).
+
+    An MLRO session created by POST /login is locked until TOTP enrolment (or
+    verification) completes; fixtures that log an MLRO in through the form and
+    then expect tenant access call this right after the login POST.
+    """
+    import re
+    import pyotp
+
+    def _run(client) -> str:
+        page = client.get("/mfa/setup", follow_redirects=False)
+        assert page.status_code == 200, f"expected the MFA setup page, got {page.status_code}"
+        secret = re.search(r"\b([A-Z2-7]{32})\b", page.text).group(1)
+        r = client.post("/mfa/setup", data={
+            "code": pyotp.TOTP(secret).now(),
+            "csrf_token": client.cookies.get("amlkit_csrf"),
+        }, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/", r.headers.get("location")
+        return secret
+
+    return _run
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _disable_rate_limiter():
     """Prevent slowapi from throttling test clients (e.g. the 10/min login limit)."""

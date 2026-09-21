@@ -520,8 +520,12 @@ def mfa_enroll(conn, operator_id: int):
 
     from .db import utcnow
     now = utcnow()
+    # Pending until mfa_confirm(): confirmed_at stays NULL so an abandoned
+    # setup page never counts as an enrolment (login would otherwise demand a
+    # code from an authenticator that was never set up).
     conn.execute(
-        "INSERT OR REPLACE INTO mfa_secrets (operator_id, secret, enrolled_at) VALUES (?,?,?)",
+        "INSERT OR REPLACE INTO mfa_secrets (operator_id, secret, enrolled_at, confirmed_at)"
+        " VALUES (?,?,?,NULL)",
         (operator_id, secret, now)
     )
 
@@ -535,20 +539,78 @@ def mfa_enroll(conn, operator_id: int):
     return secret, qr_uri, backup_codes
 
 
-def mfa_verify(conn, operator_id: int, code: str) -> bool:
-    """Verify TOTP code for operator."""
+def mfa_verify(conn, operator_id: int, code: str, *, confirmed_only: bool = False) -> bool:
+    """Verify a TOTP code for operator.
+
+    confirmed_only=True is the login challenge: only a confirmed enrolment
+    counts. The default also accepts the pending secret shown on /mfa/setup,
+    which is how that enrolment gets confirmed in the first place.
+    """
     import pyotp
-    
+
     row = conn.execute(
-        "SELECT secret FROM mfa_secrets WHERE operator_id=?",
+        "SELECT secret, confirmed_at FROM mfa_secrets WHERE operator_id=?",
         (operator_id,)
     ).fetchone()
-    
-    if not row:
+
+    if not row or (confirmed_only and row["confirmed_at"] is None):
         return False
-    
+
     totp = pyotp.TOTP(row["secret"])
     return totp.verify(code, valid_window=1)
+
+
+def mfa_confirm(conn, operator_id: int) -> None:
+    """Mark the pending secret as a live enrolment (first TOTP proven)."""
+    from .db import utcnow
+    conn.execute(
+        "UPDATE mfa_secrets SET confirmed_at=? WHERE operator_id=? AND confirmed_at IS NULL",
+        (utcnow(), operator_id),
+    )
+    conn.commit()
+
+
+def mfa_is_enrolled(conn, operator_id: int) -> bool:
+    """True only for a confirmed enrolment; a pending /mfa/setup secret is not one."""
+    row = conn.execute(
+        "SELECT 1 FROM mfa_secrets WHERE operator_id=? AND confirmed_at IS NOT NULL",
+        (operator_id,),
+    ).fetchone()
+    return row is not None
+
+
+def mfa_session_state(conn, raw_token: str | None):
+    """Live session row for the MFA challenge pages, or None.
+
+    Unlike resolve_session() this also returns sessions still awaiting MFA,
+    so /mfa/* can identify the operator without granting tenant access.
+    """
+    if not raw_token:
+        return None
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return conn.execute(
+        """SELECT s.operator_id, s.org_id, s.mfa_verified, o.name, o.email, o.role
+           FROM sessions s JOIN operators o ON o.id = s.operator_id
+           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at > ?""",
+        (_token_hash(raw_token), now),
+    ).fetchone()
+
+
+def session_mfa_verified(conn, raw_token: str | None) -> bool:
+    if not raw_token:
+        return False
+    row = conn.execute(
+        "SELECT mfa_verified FROM sessions WHERE token_hash=?", (_token_hash(raw_token),)
+    ).fetchone()
+    return bool(row and row["mfa_verified"])
+
+
+def set_session_mfa_verified(conn, raw_token: str, verified: bool) -> None:
+    conn.execute(
+        "UPDATE sessions SET mfa_verified=? WHERE token_hash=?",
+        (1 if verified else 0, _token_hash(raw_token)),
+    )
+    conn.commit()
 
 
 def mfa_get_backup_codes(conn, operator_id: int) -> list:

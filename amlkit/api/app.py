@@ -494,40 +494,15 @@ def login_submit(
             })
         return _login_page_error(request, str(exc))
 
-    # p15: MFA login enforcement for MLRO users
+    # p15: an MLRO session is issued locked; enrolled operators must pass the
+    # TOTP challenge, un-enrolled ones are sent straight to enrolment.
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+    target = "/"
     if info.operator_role == "mlro":
-        if auth.mfa_is_enrolled(db, info.operator_id):
-            # MLRO is enrolled in MFA - require TOTP verification
-            # Mark session as pending MFA verification
-            db.execute(
-                "UPDATE sessions SET mfa_verified=0 WHERE token_hash=?",
-                (auth._token_hash(token),)
-            )
-            db.commit()
-            resp = RedirectResponse("/mfa/verify", status_code=303)
-            resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
-                            secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
-            resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
-                            samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
-            return resp
-        else:
-            # MLRO not enrolled - force enrollment
-            # Downgrade session to mfa_verified=0 to block access until setup completes
-            db.execute(
-                "UPDATE sessions SET mfa_verified=0 WHERE token_hash=?",
-                (auth._token_hash(token),)
-            )
-            db.commit()
-            resp = RedirectResponse("/mfa/setup", status_code=303)
-            resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
-                            secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
-            resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
-                            samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
-            return resp
+        auth.set_session_mfa_verified(db, token, False)
+        target = "/mfa/verify" if auth.mfa_is_enrolled(db, info.operator_id) else "/mfa/setup"
 
-    # Non-MLRO or MFA not required - proceed with normal login
-    resp = RedirectResponse("/", status_code=303)
+    resp = RedirectResponse(target, status_code=303)
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     # M-01: Rotate CSRF token on login (defence-in-depth)
@@ -607,25 +582,13 @@ def password_change_submit(
 @app.get("/mfa/verify", response_class=HTMLResponse)
 def mfa_verify_form(request: Request, db: DB):
     """Render TOTP code entry form for MFA challenge (p15)."""
-    # Allow access with mfa_verified=0 session
-    token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        return RedirectResponse("/login", status_code=303)
-
-    session_row = db.execute(
-        """SELECT s.operator_id, s.org_id, s.mfa_verified, o.name, o.email, o.role
-           FROM sessions s
-           JOIN operators o ON o.id = s.operator_id
-           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at > ?""",
-        (auth._token_hash(token), datetime.now(timezone.utc).isoformat(timespec="seconds"))
-    ).fetchone()
-
+    session_row = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
     if not session_row:
         return RedirectResponse("/login", status_code=303)
-
-    # If already verified, redirect to home
     if session_row["mfa_verified"]:
         return RedirectResponse("/", status_code=303)
+    if not auth.mfa_is_enrolled(db, session_row["operator_id"]):
+        return RedirectResponse("/mfa/setup", status_code=303)
 
     return render(request, "mfa_verify.html", {
         "session": None,  # No full session yet
@@ -646,49 +609,27 @@ def mfa_verify_submit(
         return back("/mfa/verify", err=str(exc))
 
     token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        return RedirectResponse("/login", status_code=303)
-
-    token_hash = auth._token_hash(token)
-    session_row = db.execute(
-        """SELECT s.operator_id, s.org_id, s.mfa_verified
-           FROM sessions s
-           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at > ?""",
-        (token_hash, datetime.now(timezone.utc).isoformat(timespec="seconds"))
-    ).fetchone()
-
+    session_row = auth.mfa_session_state(db, token)
     if not session_row:
         return RedirectResponse("/login", status_code=303)
-
-    # If already verified, redirect
     if session_row["mfa_verified"]:
         return RedirectResponse("/", status_code=303)
 
-    # Verify TOTP code
-    if auth.mfa_verify(db, session_row["operator_id"], code):
-        # Upgrade session to fully verified
-        db.execute("UPDATE sessions SET mfa_verified=1 WHERE token_hash=?", (token_hash,))
-        db.commit()
+    operator_id = session_row["operator_id"]
+    if not auth.mfa_is_enrolled(db, operator_id):
+        return RedirectResponse("/mfa/setup", status_code=303)
+    code = code.strip()
+    if (auth.mfa_verify(db, operator_id, code, confirmed_only=True)
+            or auth.mfa_verify_backup_code(db, operator_id, code)):
+        auth.set_session_mfa_verified(db, token, True)
         return RedirectResponse("/", status_code=303)
-    else:
-        return back("/mfa/verify", err="Invalid verification code. Please try again.")
+    return back("/mfa/verify", err="Invalid verification code. Please try again.")
 
 
 @app.get("/mfa/setup", response_class=HTMLResponse)
 def mfa_setup_form(request: Request, db: DB):
     """Display QR code for MFA enrollment (p15 - forced for MLRO)."""
-    token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        return RedirectResponse("/login", status_code=303)
-
-    session_row = db.execute(
-        """SELECT s.operator_id, s.org_id, o.name, o.email, o.role
-           FROM sessions s
-           JOIN operators o ON o.id = s.operator_id
-           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at > ?""",
-        (auth._token_hash(token), datetime.now(timezone.utc).isoformat(timespec="seconds"))
-    ).fetchone()
-
+    session_row = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
     if not session_row:
         return RedirectResponse("/login", status_code=303)
 
@@ -696,14 +637,21 @@ def mfa_setup_form(request: Request, db: DB):
     if auth.mfa_is_enrolled(db, session_row["operator_id"]):
         return RedirectResponse("/mfa/verify", status_code=303)
 
-    # Generate MFA secret and QR code
-    secret, qr_uri = auth.mfa_enroll(db, session_row["operator_id"])
+    secret, qr_uri, backup_codes = auth.mfa_enroll(db, session_row["operator_id"])
+
+    # Rendered locally: the provisioning URI carries the TOTP secret, so it must
+    # never be sent to a third-party QR service (and the CSP would block one).
+    import base64
+    import segno
+    svg = segno.make(qr_uri, error="m").svg_inline(scale=5, border=2)
+    qr_data_uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
 
     return render(request, "mfa_setup.html", {
         "session": None,
         "operator_name": session_row["name"],
         "secret": secret,
-        "qr_uri": qr_uri,
+        "qr_data_uri": qr_data_uri,
+        "backup_codes": backup_codes,
     })
 
 
@@ -720,30 +668,20 @@ def mfa_setup_confirm(
         return back("/mfa/setup", err=str(exc))
 
     token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        return RedirectResponse("/login", status_code=303)
-
-    session_row = db.execute(
-        """SELECT s.operator_id FROM sessions s
-           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at > ?""",
-        (auth._token_hash(token), datetime.now(timezone.utc).isoformat(timespec="seconds"))
-    ).fetchone()
-
+    session_row = auth.mfa_session_state(db, token)
     if not session_row:
         return RedirectResponse("/login", status_code=303)
 
-    # Block re-enrollment if already enrolled
-    if auth.mfa_is_enrolled(db, session_row["operator_id"]):
-        return RedirectResponse("/mfa/verify", status_code=303)
-
-    # Verify the code to confirm enrollment
-    if auth.mfa_verify(db, session_row["operator_id"], code):
-        # Enrollment confirmed - mark session as MFA verified
-        db.execute("UPDATE sessions SET mfa_verified=1 WHERE token_hash=?", (auth._token_hash(token),))
-        db.commit()
+    if session_row["mfa_verified"]:
         return RedirectResponse("/", status_code=303)
-    else:
-        return back("/mfa/setup", err="Invalid verification code. Please scan the QR code and try again.")
+
+    # Enrolment is confirmed by proving possession of the authenticator once;
+    # until then the secret shown on the page is only pending.
+    if auth.mfa_verify(db, session_row["operator_id"], code.strip()):
+        auth.mfa_confirm(db, session_row["operator_id"])
+        auth.set_session_mfa_verified(db, token, True)
+        return RedirectResponse("/", status_code=303)
+    return back("/mfa/setup", err="Invalid verification code. Please scan the QR code and try again.")
 
 
 @app.post("/mfa/disable")

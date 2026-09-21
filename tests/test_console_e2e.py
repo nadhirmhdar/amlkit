@@ -89,7 +89,7 @@ def multi_org_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def super_admin_client(multi_org_db, monkeypatch):
+def super_admin_client(multi_org_db, monkeypatch, complete_mfa):
     """Client with 3 organizations and a super-admin user."""
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
@@ -148,6 +148,7 @@ def super_admin_client(multi_org_db, monkeypatch):
         "password": "super-secure-123",
         "csrf_token": _csrf(c),
     }, follow_redirects=True)
+    complete_mfa(c)  # p15: MLRO sessions are locked until TOTP enrolment
 
     return c
 

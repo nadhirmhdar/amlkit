@@ -16,7 +16,9 @@ from typing import Iterator
 
 from fastapi import Request
 
-from ..auth import CSRF_COOKIE, SESSION_COOKIE, SessionInfo, csrf_valid, resolve_session
+from ..auth import (
+    CSRF_COOKIE, SESSION_COOKIE, SessionInfo, csrf_valid, resolve_session, session_mfa_verified,
+)
 from ..db import DB_PATH, connect
 
 BIND_HOST = os.environ.get("AMLKIT_BIND_HOST", "127.0.0.1")
@@ -83,17 +85,11 @@ def require_session(request: Request, conn: sqlite3.Connection) -> SessionInfo:
     if session is None:
         raise PermissionError("Sign in to continue.")
 
-    # p15: Block MLRO access until MFA verified
-    if session.operator_role == "mlro":
-        token = request.cookies.get(SESSION_COOKIE)
-        if token:
-            from .. import auth
-            row = conn.execute(
-                "SELECT mfa_verified FROM sessions WHERE token_hash=?",
-                (auth._token_hash(token),)
-            ).fetchone()
-            if row and not row["mfa_verified"]:
-                raise PermissionError("Complete two-factor authentication to continue.")
+    # p15: an MLRO session stays locked until the TOTP challenge is passed
+    if session.operator_role == "mlro" and not session_mfa_verified(
+        conn, request.cookies.get(SESSION_COOKIE)
+    ):
+        raise PermissionError("Complete two-factor authentication to continue.")
 
     return session
 

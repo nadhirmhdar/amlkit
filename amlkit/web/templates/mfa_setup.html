@@ -10,31 +10,41 @@
     <div style="width:480px; display:flex; flex-direction:column; gap:32px;">
       <div style="text-align:center;">
         <div style="font-size:28px; font-weight:700; letter-spacing:-0.01em; color:var(--ink);">Set Up Two-Factor Authentication</div>
-        <div style="font-size:14px; color:var(--ink-3); margin-top:12px;">MLRO accounts require MFA for enhanced security</div>
+        <div style="font-size:14px; color:var(--ink-2); margin-top:12px;">MLRO accounts require two-factor authentication</div>
       </div>
 
-      <div style="background:white; border:1px solid var(--paper-2); border-radius:8px; padding:28px; display:flex; flex-direction:column; gap:24px;">
+      <div style="background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:28px; display:flex; flex-direction:column; gap:24px;">
         <div>
           <div style="font-weight:600; margin-bottom:12px; color:var(--ink);">Step 1: Scan QR Code</div>
           <div style="font-size:13px; color:var(--ink-2); margin-bottom:16px;">
             Use Google Authenticator, Microsoft Authenticator, or any TOTP app to scan this code:
           </div>
           <div style="text-align:center; padding:20px;">
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={{ qr_uri | urlencode }}"
-                 alt="QR Code"
-                 style="border:1px solid var(--paper-2); padding:10px; background:white;">
+            <img src="{{ qr_data_uri }}" width="200" height="200"
+                 alt="QR code to add amlkit to your authenticator app"
+                 style="border:1px solid var(--line); padding:10px; background:white;">
           </div>
         </div>
 
         <div>
-          <div style="font-weight:600; margin-bottom:8px; color:var(--ink);">Manual Entry (if QR fails):</div>
-          <div style="font-size:12px; font-family:monospace; background:var(--paper-1); padding:12px; border-radius:4px; word-break:break-all; color:var(--ink-2);">
+          <div style="font-weight:600; margin-bottom:8px; color:var(--ink);">Manual entry (if the QR code cannot be scanned):</div>
+          <div style="font-size:12px; font-family:var(--mono); background:var(--bg); padding:12px; border-radius:var(--radius-xs); word-break:break-all; color:var(--ink-2);">
             {{ secret }}
           </div>
         </div>
 
         <div>
-          <div style="font-weight:600; margin-bottom:12px; color:var(--ink);">Step 2: Verify Setup</div>
+          <div style="font-weight:600; margin-bottom:8px; color:var(--ink);">Step 2: Save your backup codes</div>
+          <div style="font-size:13px; color:var(--ink-2); margin-bottom:12px;">
+            Each code signs you in once if you lose your authenticator. They are shown only now.
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:6px 16px; font-family:var(--mono); font-size:13px; background:var(--bg); padding:12px 16px; border-radius:var(--radius-xs); color:var(--ink);">
+            {% for code in backup_codes %}<span>{{ code }}</span>{% endfor %}
+          </div>
+        </div>
+
+        <div>
+          <div style="font-weight:600; margin-bottom:12px; color:var(--ink);">Step 3: Verify setup</div>
           <form method="post" action="/mfa/setup" style="display:flex; flex-direction:column; gap:16px;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="field" style="margin-bottom:0;">
@@ -42,15 +52,15 @@
               <input type="text" name="code" id="code-input" class="input-underline"
                      autofocus autocomplete="one-time-code" inputmode="numeric"
                      pattern="[0-9]{6}" maxlength="6" placeholder="000000"
-                     style="font-size:20px; letter-spacing:0.2em; text-align:center; font-family:monospace;" required>
+                     style="font-size:20px; letter-spacing:0.2em; text-align:center; font-family:var(--mono);" required>
             </div>
             <button type="submit" class="btn-glow" data-loading="Verifying…">COMPLETE SETUP</button>
           </form>
         </div>
       </div>
 
-      <div style="text-align:center; font-size:12px; color:var(--ink-3); line-height:1.6;">
-        Save your backup codes after setup. You'll need them if you lose access to your authenticator app.
+      <div style="text-align:center; font-size:12px; color:var(--ink-2); line-height:1.6;">
+        You will be asked for a code at every sign-in from now on.
       </div>
     </div>
   </div>
