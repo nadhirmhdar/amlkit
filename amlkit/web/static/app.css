@@ -149,41 +149,32 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 .desktop-topnav .user-menu-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px 6px 6px;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
   border: 1px solid var(--line);
-  border-radius: 24px;
-  background: white;
+  border-radius: 50%;
+  background: var(--surface);
   cursor: pointer;
-  font-family: inherit;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--ink);
-  transition: background 120ms;
+  transition: box-shadow 120ms;
 }
 
 .desktop-topnav .user-menu-btn:hover {
-  background: var(--line-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .desktop-topnav .user-menu-btn .avatar--sm {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: var(--ink);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
-}
-
-.desktop-topnav .desktop-user-name {
-  max-width: 140px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .desktop-topnav .user-dropdown {
@@ -625,8 +616,6 @@ details.evidence summary * { display: none; }
 .mt-6 { margin-top: 24px !important; }
 
 .fade-in { animation: fadeIn 0.3s ease-in-out; }
-
-.no-print { display: block; }
 
 /* -------------------------------------------------------------- responsive */
 @media (max-width: 960px) {
