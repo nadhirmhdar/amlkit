@@ -2969,24 +2969,11 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
     if not rep:
         return back("/reports", err="Report not found")
 
-    # Check if already submitted (t2)
-    if rep["status"] == "submitted":
-        return back(f"/reports/{report_id}", err="Report has already been submitted to UAE FIU.")
-
-    # Validate required fields before submission (p17)
-    import json
-    try:
-        payload = json.loads(rep["payload"])
-    except (json.JSONDecodeError, TypeError):
-        return back(f"/reports/{report_id}", err="Report data is invalid. Cannot submit.")
-    
-    # Check for required fields
-    required_fields = ["reporting_entity_name"]
-    missing = [f for f in required_fields if not payload.get(f)]
-
-    if missing:
-        return back(f"/reports/{report_id}",
-                   err=f"Cannot submit report. Missing required fields: {', '.join(missing)}")
+    # Already-finalized / invalid payload / missing required fields (t2, p17)
+    from ..cases.manager import report_finalize_error
+    problem = report_finalize_error(rep)
+    if problem:
+        return back(f"/reports/{report_id}", err=problem)
 
     now = utcnow()
     with db:
@@ -2995,10 +2982,11 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
             (now, report_id, session.org_id)
         )
         from ..db import audit
-        audit(db, session.operator_name, "report.submit", "report", report_id,
+        audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
-    return back(f"/reports/{report_id}", msg="Report submitted to UAE FIU successfully.")
+    return back(f"/reports/{report_id}",
+               msg="Report finalized in amlkit. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
 
 
 @app.get("/reports/{report_id}/export")

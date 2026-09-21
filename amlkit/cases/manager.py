@@ -2058,3 +2058,25 @@ def check_adverse_media_status(conn: sqlite3.Connection, job_id: str) -> dict[st
         "new_findings": job.get("new_findings", 0),
         "error": job.get("error"),
     }
+
+
+REPORT_REQUIRED_FIELDS = ("reporting_entity_name",)
+
+
+def report_finalize_error(rep) -> str | None:
+    """Return a user-facing reason a report cannot be finalized, else None.
+
+    Shared by the web route and the mobile API so both apply identical rules.
+    Finalizing only marks the report locked in amlkit; it is NOT transmitted
+    to the UAE FIU (the goAML XML must be uploaded manually).
+    """
+    if rep["status"] == "submitted":
+        return "Report has already been finalized."
+    try:
+        payload = json.loads(rep["payload"])
+    except (json.JSONDecodeError, TypeError):
+        return "Report data is invalid. Cannot finalize."
+    missing = [f for f in REPORT_REQUIRED_FIELDS if not payload.get(f)]
+    if missing:
+        return f"Cannot finalize report. Missing required fields: {', '.join(missing)}"
+    return None
