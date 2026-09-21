@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% set nav = 'admin' %}
+{% block title %}Compliance Calendar — amlkit{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div class="eyebrow">Compliance</div>
+  <h1>Compliance Calendar</h1>
+</div>
+
+{% if deadlines %}
+<div class="panel">
+  <div class="list-head" style="grid-template-columns:2fr 1fr 100px;">
+    <div>Title</div><div>Due Date</div><div>Status</div>
+  </div>
+  {% for d in deadlines %}
+  <div class="list-row" style="display:grid; grid-template-columns:2fr 1fr 100px; align-items:center;">
+    <div>
+      <div class="primary">{{ d.title }}</div>
+      {% if d.description %}<div class="secondary small muted">{{ d.description }}</div>{% endif %}
+    </div>
+    <div class="small {% if d.is_overdue %}high{% endif %}">
+      {{ d.due_date }}
+      {% if d.is_overdue %}<div class="tag high small mt-1">overdue</div>{% endif %}
+    </div>
+    <div>
+      {% if d.completed_at %}<span class="tag low">done</span>
+      {% elif d.is_overdue %}<span class="tag high">past due</span>
+      {% else %}<span class="tag medium">pending</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="panel empty-state">
+  <div class="empty-state__icon">📅</div>
+  <div class="empty-state__title">No deadlines scheduled</div>
+  <p class="empty-state__text mt-0">Compliance deadlines will appear here once created.</p>
+</div>
+{% endif %}
+
+{% endblock %}

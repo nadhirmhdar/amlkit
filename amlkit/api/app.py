@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, Request, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -48,6 +49,7 @@ from ..cases.review import (
     REASON_CODES,
     ReviewError,
     assign_alert,
+    bulk_dismiss_alerts,
     confirm_disposition,
     propose_disposition,
     review_history,
@@ -80,150 +82,9 @@ import os
 import secrets
 import uuid
 
+from ..cases.scheduler import check_and_notify_staleness, run_sanctions_refresh
+
 log = logging.getLogger("amlkit.scheduler")
-
-
-@retry_on_lock(max_retries=3, base_delay=0.5)
-def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
-    """Load every mandatory sanctions source and re-screen every active org.
-
-    Single source of truth for "what a refresh actually does" -- previously
-    the interactive /admin/refresh button and the automated scheduler path
-    silently drifted apart: the manual button loaded six sources (including
-    UK and the CIA World Leaders PEP list), the automated path only loaded
-    four. An automated refresh that covers less than the button a human
-    would click is exactly the kind of gap that isn't visible until an
-    examiner asks why UK-sanctioned entities weren't being screened against.
-    Both routes, and the scheduler, now call this one function.
-    """
-    from ..ingest.base import AdapterError
-    from ..ingest.loader import load
-    from ..ingest.eocn import uae_local_terrorists
-    from ..ingest.cia import cia_world_leaders
-    from ..ingest.un import UNSanctionsAdapter
-    from ..ingest.ofac import OFACSDNAdapter
-    from ..ingest.eu import EUSanctionsAdapter
-    from ..ingest.uk import UKSanctionsAdapter
-    from ..match.engine import rescreen_all
-    from ..match.cache import invalidate as invalidate_cache
-    from ..db import audit, record_dataset_error
-
-    loaded: list[str] = []
-    failures: list[str] = []
-    mandatory_failures: list[str] = []
-    for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
-                     EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
-        adapter = factory()
-        try:
-            result = load(conn, adapter, actor=actor)
-            loaded.append(f"{adapter.title}: {result.entities} entities")
-        except AdapterError as exc:
-            msg = f"{adapter.title}: {exc}"
-            failures.append(msg)
-            if adapter.is_mandatory:
-                mandatory_failures.append(msg)
-            # Persist onto the dataset row so /admin/compliance shows which
-            # source failed and why, not just a transient audit-log line.
-            record_dataset_error(conn, adapter.key, str(exc))
-            audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
-                  {"error": str(exc)}, org_id=None)
-    conn.commit()
-
-    # Invalidate the name_tokens cache after loading new data
-    invalidate_cache()
-    log.info("Sanctions cache invalidated after refresh")
-
-    total_alerts = 0
-    screened_orgs = 0
-    rescreen_failures: list[str] = []
-    orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
-    for org in orgs:
-        try:
-            outcome = rescreen_all(conn, org["id"], actor=actor)
-            total_alerts += outcome["alerts"]
-            screened_orgs += 1
-        except Exception as exc:
-            log.exception("rescreen_all failed for org %s (%s): %s", org["id"], org["name"], exc)
-            rescreen_failures.append(f"{org['name']}: {exc}")
-    conn.commit()
-
-    return {
-        "loaded": loaded,
-        "failures": failures,
-        "mandatory_failures": mandatory_failures,
-        "rescreen_failures": rescreen_failures,
-        "orgs_screened": screened_orgs,
-        "new_alerts": total_alerts,
-    }
-
-
-def check_and_notify_staleness(conn: sqlite3.Connection) -> dict:
-    """Check for stale mandatory datasets and send email alerts if needed.
-
-    Only notifies once per staleness breach (tracked via staleness_notified_at)
-    to avoid spam. Returns a summary of what was notified.
-    """
-    from ..ingest.loader import staleness_report
-    from .. import mail
-    from ..db import utcnow
-
-    staleness = staleness_report(conn)
-    breaches = [d for d in staleness if d["breach"] and d["is_mandatory"]]
-
-    if not breaches:
-        # Clear staleness_notified_at for any datasets that are now fresh
-        conn.execute(
-            "UPDATE datasets SET staleness_notified_at=NULL WHERE staleness_notified_at IS NOT NULL"
-        )
-        conn.commit()
-        return {"breaches": 0, "notified": 0}
-
-    # Find datasets that breached and haven't been notified yet
-    needs_notification = []
-    for d in breaches:
-        row = conn.execute(
-            "SELECT staleness_notified_at FROM datasets WHERE key=?", (d["key"],)
-        ).fetchone()
-        if row and row["staleness_notified_at"] is None:
-            needs_notification.append(d)
-
-    if not needs_notification:
-        return {"breaches": len(breaches), "notified": 0}
-
-    # Get all MLRO emails across all active orgs
-    mlro_emails = [
-        r["email"] for r in conn.execute(
-            """SELECT DISTINCT o.email FROM operators o
-               JOIN organizations org ON org.id = o.org_id
-               WHERE org.status='active' AND o.role='mlro' AND o.is_active=1
-                 AND o.email IS NOT NULL"""
-        ).fetchall()
-    ]
-
-    if not mlro_emails:
-        log.warning("Staleness breach detected but no MLRO emails to notify")
-        return {"breaches": len(breaches), "notified": 0}
-
-    # Send notification
-    outcome = mail.send_staleness_alert(mlro_emails, needs_notification)
-
-    # Mark as notified
-    now = utcnow()
-    for d in needs_notification:
-        conn.execute(
-            "UPDATE datasets SET staleness_notified_at=? WHERE key=?", (now, d["key"])
-        )
-    conn.commit()
-
-    log.info("Staleness notification: %d datasets, %d MLROs, outcome=%s",
-             len(needs_notification), len(mlro_emails), outcome)
-
-    return {
-        "breaches": len(breaches),
-        "notified": len(needs_notification),
-        "outcome": outcome,
-        "recipients": len(mlro_emails),
-    }
 
 
 def _run_scheduled_refresh() -> None:
@@ -250,6 +111,16 @@ def _run_scheduled_refresh() -> None:
         conn = connect(db_path())
         result = run_sanctions_refresh(conn, actor="scheduler")
         log.info("Scheduled refresh complete: %s", result)
+
+        # Audit the scheduled refresh so MLROs can see automated actions
+        from ..db import audit
+        audit(conn, "scheduler", "system.scheduled_refresh", details={
+            "orgs_screened": result["orgs_screened"],
+            "new_alerts": result["new_alerts"],
+            "datasets_loaded": len(result["loaded"]),
+            "failures": result["failures"]
+        }, org_id=None)
+        conn.commit()
 
         # Check for staleness and notify MLROs if needed
         staleness_result = check_and_notify_staleness(conn)
@@ -287,38 +158,13 @@ async def _lifespan(app):
     """
     from ..logging_config import configure_logging
     configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"))
-    if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
-        yield
-        return
-    try:
-        from datetime import datetime
-
-        from apscheduler.schedulers.background import BackgroundScheduler
-        scheduler = BackgroundScheduler()
-        scheduler.add_job(
-            _run_scheduled_refresh,
-            trigger="interval",
-            hours=23,
-            id="sanctions_refresh",
-            replace_existing=True,
-            # An IntervalTrigger with no explicit next_run_time waits a full
-            # interval (23h) before its first fire -- so every fresh
-            # container start (a redeploy, or a cold start after Cloud Run
-            # scaled to zero) began a new 23-hour wait instead of refreshing
-            # right away, which is how the 24-hour rule was breaching even
-            # with this scheduler "running". Firing once on startup closes
-            # that gap; /system/refresh (Cloud Scheduler) remains the
-            # reliable path across scale-to-zero gaps this can't cover.
-            next_run_time=datetime.now(),
-        )
-        scheduler.start()
-        log.info("APScheduler started — sanctions refresh now, then every 23 hours.")
-        yield
-        scheduler.shutdown(wait=False)
-    except ImportError:
-        log.warning("apscheduler not installed — in-process scheduling disabled. "
-                    "Use Cloud Scheduler + /system/refresh endpoint instead.")
-        yield
+    # p53: APScheduler removed. Use Cloud Scheduler to call /system/refresh.
+    # In-process background scheduling doesn't survive Cloud Run scale-to-zero,
+    # and adds unnecessary complexity. External cron (Cloud Scheduler, systemd
+    # timer, or similar) calling /system/refresh is more reliable.
+    if os.environ.get("AMLKIT_DISABLE_AUTO_REFRESH") != "1":
+        log.info("Auto-refresh via /system/refresh endpoint (call from Cloud Scheduler).")
+    yield
 
 
 # N001: Disable OpenAPI by default unless explicitly enabled
@@ -326,8 +172,22 @@ _openapi_url = "/openapi.json" if os.getenv("AMLKIT_ENABLE_OPENAPI") == "1" else
 
 app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
 
+# Issue #102: Flash messages via signed cookies (no itsdangerous dependency)
+# Uses the same signing mechanism as CSRF tokens
+_FLASH_COOKIE = "amlkit_flash"
+
 # Rate limiting to prevent brute-force attacks and DoS
 
+
+def rate_limit_key_func(request: Request) -> str:
+    """Rate limiter key: real client IP, respecting X-Forwarded-For behind proxy.
+
+    Without this, Cloud Run / nginx proxies cause all requests to share one
+    link-local IP, so every tenant lands in the same rate-limit bucket.
+    Only trusts X-Forwarded-For when AMLKIT_BEHIND_PROXY=1.
+    """
+    from .deps import client_ip
+    return client_ip(request) or "unknown"
 
 
 def login_rate_limit_key(request: Request) -> str:
@@ -339,14 +199,14 @@ def login_rate_limit_key(request: Request) -> str:
 
     Reads the email from request.state.login_email, which is set by middleware.
     """
-    ip = get_remote_address(request)
+    ip = rate_limit_key_func(request)
     email = getattr(request.state, 'login_email', None)
     if email:
         return f"{ip}:{email.lower().strip()}"
     return ip
 
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+limiter = Limiter(key_func=rate_limit_key_func, default_limits=["100/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -394,8 +254,32 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     ctx.setdefault("session", session)
     ctx.setdefault("security_warning", startup_warning())
     ctx.setdefault("single_operator", single_operator_mode())
-    ctx.setdefault("msg", request.query_params.get("msg"))
-    ctx.setdefault("err", request.query_params.get("err"))
+    # Read flash message from cookie (Issue #102) with URL param fallback.
+    # Cookie value is base64-encoded JSON to avoid HTTP quoting of {/"/} chars.
+    import json as _json
+    import base64 as _b64
+    _flash_raw = request.cookies.get(_FLASH_COOKIE)
+    _flash_msg = _flash_err = ""
+    if _flash_raw:
+        try:
+            _flash = _json.loads(_b64.b64decode(_flash_raw.encode()).decode())
+            if _flash.get("type") == "msg":
+                _flash_msg = _flash.get("text", "")
+            elif _flash.get("type") == "err":
+                _flash_err = _flash.get("text", "")
+        except Exception:
+            pass
+    ctx.setdefault("msg", _flash_msg or request.query_params.get("msg"))
+    ctx.setdefault("err", _flash_err or request.query_params.get("err"))
+
+    # Check dataset health for authenticated sessions
+    if session and db is not None:
+        banner = queries.dataset_health_banner(db)
+        ctx.setdefault("dataset_banner", banner)
+
+    # Inject organization name for authenticated sessions
+    if session:
+        ctx.setdefault("org_name", session.org_name)
 
     # Use the cookie value if already present; otherwise mint one token that
     # goes into BOTH the form field AND the cookie on this same response.
@@ -404,6 +288,8 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     ctx.setdefault("csrf_token", token)
 
     resp = templates.TemplateResponse(request, name, ctx)
+    if _flash_raw:
+        resp.delete_cookie(_FLASH_COOKIE)
     if not existing:
         _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
         resp.set_cookie(
@@ -416,15 +302,57 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     return resp
 
 
-def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
-    from urllib.parse import quote
+def _safe_url(url: str) -> str:
+    """Return a safe same-origin path extracted from url, or '/' as fallback.
 
-    sep = "&" if "?" in url else "?"
+    Rejects any URL that has a scheme or netloc (open-redirect vector), then
+    re-encodes the path via urllib.parse.quote to produce a new string that is
+    not tainted by the original user input (breaks CodeQL's taint chain).
+    """
+    from urllib.parse import urlparse, quote
+    parsed = urlparse(url)
+    if parsed.scheme or parsed.netloc:
+        return "/"
+    path = parsed.path
+    if not path.startswith("/") or path.startswith("//"):
+        return "/"
+    # quote() produces a fresh string independent of the user-supplied value,
+    # preserving valid path/query characters while encoding everything else.
+    return quote(path, safe="/:@!$&'()*+,;=-._~%")
+
+
+def back(url: str, msg: str = "", err: str = "") -> RedirectResponse:
+    """Redirect without exposing messages in URL (Issue #102).
+
+    Previously appended msg/err as URL query params, exposing sensitive auth
+    errors in browser history and server logs. Now stores them in a short-lived
+    flash cookie consumed by render() on the next page load.
+    """
+    resp = RedirectResponse(_safe_url(url), status_code=303)
+    if msg or err:
+        set_flash_cookie(resp, msg=msg, err=err)
+    return resp
+
+
+def set_flash_cookie(response: Response, msg: str = "", err: str = ""):
+    """Store flash message in signed cookie for one-time display after redirect.
+
+    The flash cookie is consumed (deleted) on first read, ensuring messages
+    appear exactly once.  Value is base64-encoded JSON so the cookie contains
+    only safe characters and avoids HTTP quoting of { / " / } which causes
+    JSONDecodeError when the quoted value is read back with backslash escapes.
+    """
+    import json, base64
     if msg:
-        url = f"{url}{sep}msg={quote(msg)}"
+        raw = json.dumps({"type": "msg", "text": msg})
+        flash_data = base64.b64encode(raw.encode()).decode()
+        response.set_cookie(_FLASH_COOKIE, flash_data, max_age=60, httponly=True,
+                           samesite="lax", secure=os.environ.get("AMLKIT_BEHIND_PROXY") == "1")
     elif err:
-        url = f"{url}{sep}err={quote(err)}"
-    return RedirectResponse(url, status_code=303)
+        raw = json.dumps({"type": "err", "text": err})
+        flash_data = base64.b64encode(raw.encode()).decode()
+        response.set_cookie(_FLASH_COOKIE, flash_data, max_age=60, httponly=True,
+                           samesite="lax", secure=os.environ.get("AMLKIT_BEHIND_PROXY") == "1")
 
 
 def _set_csrf_cookie(resp, request: Request) -> None:
@@ -457,14 +385,6 @@ async def request_id_middleware(request: Request, call_next):
         return response
     finally:
         clear_request_id()
-
-
-@app.middleware("http")
-async def ensure_csrf_cookie(request: Request, call_next):
-    # CSRF cookie is now set directly by render() so that the same token
-    # goes into both the form hidden field and the cookie. This middleware
-    # is kept as a passthrough only — it no longer generates tokens.
-    return await call_next(request)
 
 
 @app.middleware("http")
@@ -509,7 +429,7 @@ async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "  # N005: WIP — unsafe-inline temporarily retained; removal requires inline-script migration
+        "script-src 'self'; "  # All inline scripts migrated to external files (Issue #82)
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "font-src 'self'; "
@@ -551,7 +471,7 @@ def _login_page_error(request: Request, message: str) -> HTMLResponse:
 
 
 @app.post("/login")
-@limiter.limit("100/minute")  # IP ceiling: catches abusive burst volumes, won't hit during normal office traffic
+@limiter.limit("10/minute")  # IP ceiling: prevents brute force attacks from single IP
 @limiter.limit("3/minute", key_func=login_rate_limit_key)  # Per-account: prevents rapid stuffing of one account
 def login_submit(
     request: Request, db: DB,
@@ -564,7 +484,7 @@ def login_submit(
     except PermissionError as exc:
         return _login_page_error(request, str(exc))
     try:
-        token, info = auth.login(db, email, password)
+        token, info = auth.login(db, email, password, ip=client_ip(request))
     except auth.AuthError as exc:
         if "verify your email" in str(exc):
             return render(request, "login.html", {
@@ -586,11 +506,67 @@ def logout_submit(request: Request, db: DB):
     session = current_session(request, db)
     token = request.cookies.get(SESSION_COOKIE)
     if token:
-        auth.logout(db, token, session)
+        auth.logout(db, token, session, ip=client_ip(request))
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie(SESSION_COOKIE)
     return resp
 
+
+
+
+@app.get("/account/password")
+def password_change_form(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "password_change.html", {"session": session, "nav": None})
+
+
+@app.post("/account/password")
+def password_change_submit(
+    request: Request, db: DB,
+    current_password: Annotated[str, Form()],
+    new_password: Annotated[str, Form()],
+    confirm_password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return RedirectResponse("/login", status_code=303)
+
+    # Verify current password
+    op_row = db.execute("SELECT password_hash FROM operators WHERE id=?", (session.operator_id,)).fetchone()
+    if not auth.verify_password(current_password, op_row["password_hash"]):
+        return render(request, "password_change.html", {
+            "session": session, "nav": None, "err": "Current password is incorrect."
+        })
+
+    # Verify new passwords match
+    if new_password != confirm_password:
+        return render(request, "password_change.html", {
+            "session": session, "nav": None, "err": "New passwords do not match."
+        })
+
+    # Validate password complexity
+    try:
+        auth.validate_password_complexity(new_password)
+    except auth.PasswordComplexityError as exc:
+        return render(request, "password_change.html", {
+            "session": session, "nav": None, "err": str(exc)
+        })
+
+    # Update password
+    auth.set_password(db, session.operator_id, new_password)
+    
+    from ..db import audit
+    audit(db, session.operator_name, "operator.password_changed", "operator", session.operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+
+    return back("/", msg="Password changed successfully. All other sessions have been signed out.")
 
 @app.post("/acknowledge-disclaimer")
 def acknowledge_disclaimer(
@@ -612,6 +588,25 @@ def acknowledge_disclaimer(
     )
     db.commit()
     return back("/", msg="Disclaimer acknowledged.")
+
+
+def _valid_setup_token(db: sqlite3.Connection, raw_token: str):
+    if not raw_token:
+        return None
+    from datetime import datetime, timezone
+    from hashlib import sha256
+    row = db.execute(
+        "SELECT id, org_id, used_at, expires_at FROM setup_tokens WHERE token_hash=?",
+        (sha256(raw_token.encode()).hexdigest(),),
+    ).fetchone()
+    if row is None or row["used_at"] is not None:
+        return None
+    # NULL expires_at (a row from before setup_tokens had this column) is
+    # treated as already expired -- fail closed rather than granting an old,
+    # possibly long-forwarded link an unbounded lifetime.
+    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        return None
+    return row
 
 
 @app.get("/setup", response_class=HTMLResponse)
@@ -647,66 +642,25 @@ def setup_submit(
     except PermissionError as exc:
         return render(request, "setup.html", {"session": None, "valid": True, "token": token, "err": str(exc)})
 
-    row = _valid_setup_token(db, token)
-    if row is None:
+    from ..cases.operators import complete_initial_setup
+
+    try:
+        result = complete_initial_setup(db, token, name, email, password)
+    except ValueError as exc:
         return render(request, "setup.html", {
-            "session": None, "valid": False,
-            "err": "This setup link is invalid, expired, or already used.",
-        })
-    if len(password) < 10:
-        return render(request, "setup.html", {
-            "session": None, "valid": True, "token": token,
-            "err": "Password must be at least 10 characters.",
+            "session": None, "valid": False, "err": str(exc),
         })
 
-    now = utcnow()
-    cur = db.execute(
-        # email_verified_at=now, not NULL: claiming this link already proves
-        # control of *a* channel the admin trusted enough to hand the link
-        # through -- unlike public self-registration, there is no separate
-        # email-ownership gap left to close here (see auth.login()'s guard).
-        """INSERT INTO operators
-               (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-           VALUES (?,?,?,?,?,1,?,?)""",
-        (row["org_id"], name.strip(), email.strip().lower(),
-         auth.hash_password(password), "mlro", now, now),
-    )
-    operator_id = cur.lastrowid
-    db.execute("UPDATE setup_tokens SET used_at=? WHERE id=?", (now, row["id"]))
-    db.commit()
-    from ..db import audit
-    audit(db, name.strip(), "operator.setup_claimed", "operator", operator_id,
-          {"email": email.strip().lower()}, org_id=row["org_id"])
-    db.commit()
-
-    session_token, _ = auth.login(db, email.strip().lower(), password)
+    session_token, _ = auth.login(db, result["email"], password, ip=client_ip(request))
     resp = RedirectResponse("/", status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
-    # M-01: Rotate CSRF token on setup completion
     resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
                     samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
 
 
-def _valid_setup_token(db: sqlite3.Connection, raw_token: str):
-    if not raw_token:
-        return None
-    from datetime import datetime, timezone
-    from hashlib import sha256
-    row = db.execute(
-        "SELECT id, org_id, used_at, expires_at FROM setup_tokens WHERE token_hash=?",
-        (sha256(raw_token.encode()).hexdigest(),),
-    ).fetchone()
-    if row is None or row["used_at"] is not None:
-        return None
-    # NULL expires_at (a row from before setup_tokens had this column) is
-    # treated as already expired -- fail closed rather than granting an old,
-    # possibly long-forwarded link an unbounded lifetime.
-    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
-        return None
-    return row
 
 
 @app.get("/register-organization", response_class=HTMLResponse)
@@ -715,6 +669,7 @@ def register_org_form(request: Request, db: DB):
 
 
 @app.post("/register-organization")
+@limiter.limit("10/minute")
 def register_org_submit(
     request: Request, db: DB,
     org_name: Annotated[str, Form()],
@@ -728,79 +683,24 @@ def register_org_submit(
     except PermissionError as exc:
         return render(request, "register_organization.html", {"session": None, "err": str(exc)})
 
-    if len(password) < 10:
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "Password must be at least 10 characters."})
-    if not auth.looks_like_email(email):
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "Enter a valid email address."})
-
-    import re
-    slug = re.sub(r"[^a-z0-9]+", "-", org_name.strip().lower()).strip("-") or "org"
-    now = utcnow()
-    try:
-        cur = db.execute(
-            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-            (org_name.strip(), slug, "active", now),
-        )
-    except sqlite3.IntegrityError:
-        return render(request, "register_organization.html",
-                      {"session": None, "err": f"An organization with a similar name already exists."})
-    org_id = cur.lastrowid
-    try:
-        cur2 = db.execute(
-            """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
-               VALUES (?,?,?,?,?,1,?)""",
-            (org_id, name.strip(), email.strip().lower(), auth.hash_password(password), "mlro", now),
-        )
-    except sqlite3.IntegrityError:
-        # operators.email is UNIQUE across the whole app, not just this org
-        # (see db.py) -- previously uncaught here, which both surfaced as a
-        # bare 500 and left the just-inserted organizations row behind with
-        # no operator in it. Roll that back too, not just report the error.
-        db.rollback()
-        return render(request, "register_organization.html",
-                      {"session": None, "err": "An account with that email already exists. Try signing in instead."})
-    operator_id = cur2.lastrowid
-    db.commit()
+    from ..cases.operators import register_organization
     from .. import mail
-    from ..db import audit
 
-    clean_email = email.strip().lower()
-    audit(db, name.strip(), "organization.register", "organization", org_id,
-          {"org_name": org_name.strip()}, org_id=org_id)
-    db.commit()
-
-    # Not activated yet -- see auth.login()'s email_verified_at guard. Show a
-    # "check your email" panel instead of signing the operator straight in.
-    raw_token = auth.create_email_verify_token(db, operator_id)
-    delivery = mail.send_verification_email(clean_email, name.strip(), raw_token)
-    # The outcome is recorded, not just the attempt. A provider that has
-    # started failing every send is otherwise invisible here -- the symptom is
-    # nobody completing registration, which looks like disinterest rather than
-    # an outage.
-    audit(db, name.strip(), "operator.verification_sent", "operator", operator_id,
-          {"email": clean_email, "delivery": delivery}, org_id=org_id)
-    db.commit()
+    try:
+        result = register_organization(db, org_name, name, email, password)
+    except ValueError as exc:
+        return render(request, "register_organization.html", {"session": None, "err": str(exc)})
 
     ctx = {
-        "session": None, "pending_email": clean_email,
-        "msg": f"Account created. Check {clean_email} for a verification link before signing in.",
+        "session": None,
+        "pending_email": result["email"],
+        "msg": f"Account created. Check {result['email']} for a verification link before signing in.",
     }
-    if delivery == mail.NOT_CONFIGURED:
-        # No SMTP configured at all -- see amlkit/mail.py. Surface the same
-        # link that was printed to the console so registration stays testable
-        # without real mail infrastructure.
-        #
-        # ONLY in this case. When mail is configured and the send merely
-        # failed, showing the link here would hand a live verification token
-        # -- which activates a fully-privileged MLRO account -- to whoever
-        # submitted the form, without them having proved control of the
-        # mailbox. That is the whole point of the check.
-        ctx["dev_verify_url"] = mail.verify_url(raw_token)
-    elif delivery == mail.FAILED:
+    if result["delivery"] == mail.NOT_CONFIGURED:
+        ctx["dev_verify_url"] = mail.verify_url(result["verification_token"])
+    elif result["delivery"] == mail.FAILED:
         ctx["msg"] = (
-            f"Account created, but the verification email to {clean_email} "
+            f"Account created, but the verification email to {result['email']} "
             "could not be sent. The mail service is not responding — ask your "
             "administrator to check it, then use the resend link below."
         )
@@ -809,6 +709,7 @@ def register_org_submit(
 
 
 @app.get("/verify-email", response_class=HTMLResponse)
+@limiter.limit("10/minute")
 def verify_email(request: Request, db: DB, token: str = ""):
     operator = auth.consume_email_verify_token(db, token)
     if operator is None:
@@ -843,6 +744,7 @@ def verify_email(request: Request, db: DB, token: str = ""):
 
 
 @app.post("/resend-verification")
+@limiter.limit("10/minute")
 def resend_verification(
     request: Request, db: DB,
     email: Annotated[str, Form()],
@@ -882,40 +784,17 @@ def resend_verification(
 # ------------------------------------------------------------------ freeze obligations
 
 @app.get("/freeze-obligations", response_class=HTMLResponse)
-def freeze_obligations_list(request: Request, db: DB):
+def freeze_obligations_list_route(request: Request, db: DB):
     """List all freeze obligations for current org."""
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-        
-    org_id = session.org_id
+
     filter_status = request.query_params.get("status", "all")
-    
-    query = """
-        SELECT f.*, c.reference AS customer_reference, c.full_name,
-               CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_since_identified
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        WHERE f.org_id = ?
-    """
-    params = [org_id]
-    
-    if filter_status != "all":
-        query += " AND f.status = ?"
-        params.append(filter_status)
-    
-    query += " ORDER BY f.identified_at DESC"
-    
-    obligations = [dict(row) for row in db.execute(query, params).fetchall()]
-    
-    stats = dict(db.execute("""
-        SELECT status, COUNT(*) as count
-        FROM freeze_obligations
-        WHERE org_id = ?
-        GROUP BY status
-    """, (org_id,)).fetchall())
-    
+    obligations = queries.freeze_obligations_list(db, session.org_id, filter_status)
+    stats = queries.freeze_obligations_stats(db, session.org_id)
+
     return render(request, "freeze_obligations.html", {
         "session": session,
         "obligations": obligations,
@@ -924,34 +803,17 @@ def freeze_obligations_list(request: Request, db: DB):
     })
 
 @app.get("/freeze-obligations/{freeze_id}", response_class=HTMLResponse)
-def freeze_obligation_detail(request: Request, db: DB, freeze_id: int):
+def freeze_obligation_detail_route(request: Request, db: DB, freeze_id: int):
     """Show freeze obligation details with full lifecycle timeline."""
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-        
-    org_id = session.org_id
-    
-    row = db.execute("""
-        SELECT f.*, c.reference AS customer_reference, c.full_name,
-               a.id AS alert_id, a.matched_name,
-               r.id AS report_id, r.reference AS report_reference
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        LEFT JOIN alerts a ON a.id = f.alert_id
-        LEFT JOIN reports r ON r.id = f.report_id
-        WHERE f.id = ? AND f.org_id = ?
-    """, (freeze_id, org_id)).fetchone()
-    
-    if not row:
+
+    obligation = queries.freeze_obligation_detail(db, session.org_id, freeze_id)
+    if not obligation:
         return back("/freeze-obligations", err="Freeze obligation not found")
-    
-    obligation = dict(row)
-    
-    import json
-    obligation["assets_frozen_parsed"] = json.loads(obligation["assets_frozen"] or "[]")
-    
+
     can_execute = obligation["status"] == "pending_execution"
     can_file_ffr = obligation["status"] == "executed_pending_report"
     can_resolve = obligation["status"] in ["executed_pending_report", "reported"]
@@ -977,39 +839,17 @@ def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, form: An
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="Execute freeze requires MLRO role")
 
-    operator = session.operator_name
+    from ..cases import freeze as freeze_ops, manager
+    assets_frozen = freeze_ops.parse_freeze_assets_from_form(form)
 
-    notes = form.get("notes", "")
-    
-    assets_frozen = []
-    i = 1
-    while f"asset_type_{i}" in form:
-        asset_type = form[f"asset_type_{i}"]
-        identifier = form[f"asset_identifier_{i}"]
-        amount_str = form.get(f"asset_amount_{i}", "0")
-        
-        try:
-            amount = float(amount_str) if amount_str else 0.0
-        except ValueError:
-            amount = 0.0
-        
-        if asset_type and identifier:
-            assets_frozen.append({
-                "type": asset_type,
-                "identifier": identifier,
-                "amount_aed": amount
-            })
-        i += 1
-    
-    from ..cases import manager
     try:
         manager.execute_freeze(
             db,
             freeze_id,
             org_id=session.org_id,
-            executed_by=operator,
+            executed_by=session.operator_name,
             assets_frozen=assets_frozen,
-            notes=notes
+            notes=form.get("notes", "")
         )
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
@@ -1029,69 +869,22 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
     if session.operator_role != "mlro":
         return back(f"/freeze-obligations/{freeze_id}", err="File FFR requires MLRO role")
 
-    org_id = session.org_id
-    operator = session.operator_name
-
-    freeze = db.execute("""
-        SELECT f.*, c.reference, c.full_name, c.customer_type,
-               c.birth_date, c.gender, c.nationality, c.id_number, c.id_type
-        FROM freeze_obligations f
-        JOIN customers c ON c.id = f.customer_id
-        WHERE f.id = ? AND f.org_id = ?
-    """, (freeze_id, org_id)).fetchone()
-
-    if not freeze or freeze["status"] != "executed_pending_report":
-        return back(f"/freeze-obligations/{freeze_id}", err="Freeze not ready for FFR filing")
-
-    reporter_name = form.get("reporter_name") or operator
+    from ..cases import freeze as freeze_ops
+    reporter_name = form.get("reporter_name") or session.operator_name
     reporter_email = form.get("reporter_email", "")
-    
-    import json
-    report_payload = {
-        "report_type": "FFR",
-        "freeze_obligation_id": freeze_id,
-        "customer_id": freeze["customer_id"],
-        "obligation_type": freeze["obligation_type"],
-        "identified_at": freeze["identified_at"],
-        "executed_at": freeze["executed_at"],
-        "assets_frozen": json.loads(freeze["assets_frozen"] or "[]"),
-        "authority_ref": freeze["authority_ref"],
-        "reporter_name": reporter_name,
-        "reporter_email": reporter_email,
-        "first_name": freeze["full_name"].split()[0],
-        "last_name": " ".join(freeze["full_name"].split()[1:]),
-        "customer_type": freeze["customer_type"],
-        "reference": freeze["reference"],
-        "birth_date": freeze["birth_date"],
-        "gender": freeze["gender"],
-        "nationality": freeze["nationality"],
-        "id_number": freeze["id_number"],
-        "id_type": freeze["id_type"],
-    }
-    
-    from ..reporting import goaml
-    xml_content = goaml.serialize_goaml_xml(report_payload)
-    
-    from ..db import utcnow
-    now = utcnow()
-    cursor = db.execute("""
-        INSERT INTO reports
-        (org_id, customer_id, report_type, status, payload, created_at)
-        VALUES (?, ?, 'FFR', 'draft', ?, ?)
-    """, (org_id, freeze["customer_id"], json.dumps(report_payload), now))
-    report_id = cursor.lastrowid
-    
-    db.execute("""
-        UPDATE freeze_obligations
-        SET report_id = ?, reported_at = ?, status = 'reported'
-        WHERE id = ?
-    """, (report_id, now, freeze_id))
-    
-    from ..db import audit
-    audit(db, operator, "freeze.reported", "freeze_obligation", freeze_id,
-          {"report_id": report_id}, org_id=org_id)
-    db.commit()
-    
+
+    try:
+        report_id = freeze_ops.file_ffr_report(
+            db,
+            freeze_id,
+            session.org_id,
+            reporter_name,
+            reporter_email,
+            session.operator_name
+        )
+    except ValueError as exc:
+        return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
@@ -1163,7 +956,7 @@ def home(request: Request, db: DB):
         "greeting": greeting,
         "first_name": first_name,
         "today": gst_now.strftime("%A, %d %B %Y"),
-    })
+    }, db)
 
 
 # ------------------------------------------------------------------ dashboard
@@ -1177,7 +970,7 @@ def dashboard(request: Request, db: DB):
         "session": session,
         "d": queries.dashboard(db, session.org_id),
         "datasets": queries.datasets(db),
-    })
+    }, db)
 
 
 # --------------------------------------------------------------------- screen
@@ -1187,7 +980,7 @@ def screen_form(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    return render(request, "screen.html", {"session": session, "result": None, "query": ""})
+    return render(request, "screen.html", {"session": session, "result": None, "query": ""}, db)
 
 
 @app.post("/screen", response_class=HTMLResponse)
@@ -1207,12 +1000,12 @@ def screen_run(
     try:
         require_csrf(request, csrf_token)
     except PermissionError as exc:
-        return render(request, "screen.html", {"session": session, "result": None, "query": name, "err": str(exc)})
+        return render(request, "screen.html", {"session": session, "result": None, "query": name, "err": str(exc)}, db)
 
     name = name.strip()
     if not name:
         return render(request, "screen.html",
-                      {"session": session, "result": None, "query": "", "err": "Enter a name to screen."})
+                      {"session": session, "result": None, "query": "", "err": "Enter a name to screen."}, db)
 
     result = screen(
         db, name, org_id=session.org_id, trigger="adhoc",
@@ -1237,18 +1030,22 @@ def screen_run(
     return render(request, "screen.html", {
         "session": session, "query": name, "result": result, "hits": hits,
         "low_confidence": len(name.split()) < 2,
-    })
+    }, db)
 
 
 # ------------------------------------------------------------------ customers
 @app.get("/customers", response_class=HTMLResponse)
-def customers(request: Request, db: DB):
+def customers(request: Request, db: DB, q: str = ""):
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+    if q.strip():
+        results = queries.search_customers(db, session.org_id, q)
+    else:
+        results = queries.customer_list(db, session.org_id)
     return render(request, "customers.html",
-                 {"session": session, "customers": queries.customer_list(db, session.org_id)})
+                 {"session": session, "customers": results, "search_query": q}, db)
 
 
 @app.get("/customers/new", response_class=HTMLResponse)
@@ -1286,6 +1083,8 @@ def customer_create(
     ubo_names: Annotated[list[str], Form()] = [],
     ubo_pcts: Annotated[list[str], Form()] = [],
     ubo_controls: Annotated[list[str], Form()] = [],
+    purpose_of_relationship: Annotated[str, Form()] = "",
+    expected_activity: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
 ):
     try:
@@ -1326,6 +1125,8 @@ def customer_create(
             gender=gender.strip() or None, trade_licence=trade_licence.strip() or None,
             sector=sector, delivery_channel=delivery_channel, cash_level=cash_level,
             jurisdiction_tier=jurisdiction_tier, structure=structure,
+            purpose_of_relationship=purpose_of_relationship.strip() or None,
+            expected_activity=expected_activity.strip() or None,
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         )
@@ -1402,7 +1203,7 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
         return back("/customers", err=f"Customer {customer_id} not found.")
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
-    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()})
+    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()}, db)
 
 
 @app.post("/customers/{customer_id}/close")
@@ -1707,17 +1508,52 @@ def customer_add_signature(
 
 # --------------------------------------------------------------------- alerts
 @app.get("/alerts", response_class=HTMLResponse)
-def alerts(request: Request, db: DB, status: str = "open"):
+def alerts(request: Request, db: DB, status: str = "open", sort: str = "age_asc", group_by: str = ""):
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status)
+    sort_by = sort if sort in ("age_asc", "age_desc") else "age_asc"
+    effective_status = None if status == "all" else status
+    if group_by == "customer":
+        grouped = queries.alert_queue_grouped(db, session.org_id, status=effective_status)
+        for g in grouped:
+            for a in g["alerts"]:
+                a["reviews"] = review_history(db, a["id"], session.org_id)
+        return render(request, "alerts.html", {
+            "session": session, "alerts": [], "grouped": grouped,
+            "status": status, "sort": sort_by, "group_by": group_by, "reason_codes": REASON_CODES,
+        }, db)
+    queue = queries.alert_queue(db, session.org_id, status=effective_status, sort_by=sort_by)
     for a in queue:
         a["reviews"] = review_history(db, a["id"], session.org_id)
     return render(request, "alerts.html", {
-        "session": session, "alerts": queue, "status": status, "reason_codes": REASON_CODES,
-    })
+        "session": session, "alerts": queue, "grouped": [],
+        "status": status, "sort": sort_by, "group_by": group_by, "reason_codes": REASON_CODES,
+    }, db)
+
+
+@app.post("/alerts/bulk-dismiss")
+def alerts_bulk_dismiss(
+    request: Request, db: DB,
+    customer_id: Annotated[int, Form()],
+    reason_code: Annotated[str, Form()] = "name_coincidence",
+    back_to: Annotated[str, Form()] = "/alerts?group_by=customer",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+        count = bulk_dismiss_alerts(
+            db, session.org_id, customer_id=customer_id,
+            reason_code=reason_code, operator=session.operator_name,
+        )
+    except (PermissionError, ReviewError) as exc:
+        return back(back_to, err=str(exc))
+    return back(back_to, msg=f"Dismissed {count} alert(s).")
 
 
 @app.post("/alerts/{alert_id}/disposition")
@@ -1869,7 +1705,7 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
 @app.get("/about", response_class=HTMLResponse)
 def about_view(request: Request, db: DB):
     session = current_session(request, db)
-    return render(request, "about.html", {"session": session})
+    return render(request, "about.html", {"session": session}, db)
 
 
 # ---------------------------------------------------------------------- feedback
@@ -1914,13 +1750,62 @@ def feedback_submit(
 
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
-def audit_view(request: Request, db: DB):
+def audit_view(request: Request, db: DB, page: int = 1):
     try:
         session = require_session(request, db)
-    except PermissionError:
-        return RedirectResponse("/login", status_code=303)
-    return render(request, "audit.html",
-                 {"session": session, "entries": queries.audit_trail(db, session.org_id, limit=300)})
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
+
+    per_page = 50
+    offset = (page - 1) * per_page
+
+    return render(request, "audit.html", {
+        "session": session,
+        "entries": queries.audit_trail(db, session.org_id, limit=per_page, offset=offset),
+        "page": page,
+        "per_page": per_page,
+    })
+
+
+@app.get("/audit/export")
+def audit_export(request: Request, db: DB):
+    """Export the full audit log for the org as a CSV file. MLRO only."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import Response as _R
+        return _R(status_code=403)
+
+    import csv
+    import io as _io
+    from fastapi.responses import StreamingResponse
+
+    entries = queries.audit_trail(db, session.org_id, limit=100000)
+    buf = _io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["timestamp", "action", "user", "object_type", "object_id", "detail"])
+    for e in entries:
+        writer.writerow([
+            e.get("ts", ""),
+            e.get("action", ""),
+            e.get("actor", ""),
+            e.get("object_type", ""),
+            e.get("object_id", ""),
+            e.get("detail", ""),
+        ])
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=audit_log.csv"},
+    )
 
 
 # ---------------------------------------------------------------------- super-admin console
@@ -1959,9 +1844,9 @@ def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "ope
     if org is None:
         return back("/console", err="Organization not found.")
 
+    from ..cases.review import review_history, REASON_CODES
     alert_list = queries.org_alerts(db, org_id, status=status if status != "all" else None)
     for a in alert_list:
-        from ..cases.review import review_history, REASON_CODES
         a["reviews"] = review_history(db, a["id"], org_id)
 
     return render(request, "alerts.html", {
@@ -2009,17 +1894,101 @@ def admin_view(request: Request, db: DB):
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
-    org = db.execute("SELECT name, slug FROM organizations WHERE id=?", (session.org_id,)).fetchone()
+    org = db.execute("""
+        SELECT name, slug, org_address, reporting_person_name,
+               reporting_person_title, reporting_person_phone
+        FROM organizations WHERE id=?
+    """, (session.org_id,)).fetchone()
     if org is None:
         return back("/", err="Organization not found.")
     from ..ingest.loader import staleness_report
+
+    # Check for EU FSF token configuration issues
+    eu_warning = None
+    import os
+    from datetime import datetime, timezone, timedelta
+
+    # Check if token is unset or using the demo default
+    eu_token = os.environ.get("AMLKIT_EU_FSF_TOKEN", "").strip()
+    demo_token = "dG9rZW4tMjAxNy0xMS0xMw"  # from ingest/eu.py
+
+    if not eu_token or eu_token == demo_token:
+        eu_warning = (
+            "EU Consolidated Sanctions List is using the demo token. "
+            "Register at https://webgate.ec.europa.eu/fsd/fsf and set AMLKIT_EU_FSF_TOKEN "
+            "before production use — the demo token may be rate-limited or rotated without notice."
+        )
+    else:
+        # Check if EU refresh has been failing for >3 days
+        eu_ds = db.execute(
+            "SELECT last_error, error_at FROM datasets WHERE key='eu_sanctions'"
+        ).fetchone()
+        if eu_ds and eu_ds["last_error"] and eu_ds["error_at"]:
+            error_time = datetime.fromisoformat(eu_ds["error_at"])
+            # Make timezone-aware if naive (database stores UTC timestamps)
+            if error_time.tzinfo is None:
+                error_time = error_time.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - error_time > timedelta(days=3):
+                eu_warning = (
+                    f"EU sanctions refresh has been failing for >3 days (since {error_time.strftime('%Y-%m-%d')}). "
+                    f"Error: {eu_ds['last_error'][:200]}"
+                )
+
     return render(request, "admin.html", {
         "session": session, "org": dict(org),
         "operators": queries.operators(db, session.org_id),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
         "sanctions": staleness_report(db),
+        "eu_warning": eu_warning,
     })
+
+
+@app.post("/admin/org-profile")
+def admin_save_org_profile(
+    request: Request, db: DB,
+    org_address: Annotated[str, Form()] = "",
+    reporting_person_name: Annotated[str, Form()] = "",
+    reporting_person_title: Annotated[str, Form()] = "",
+    reporting_person_phone: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = ""
+):
+    """Save organization reporting entity profile for goAML exports (p46)."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin", err=str(exc))
+
+    # Update org profile
+    db.execute("""
+        UPDATE organizations
+        SET org_address = ?,
+            reporting_person_name = ?,
+            reporting_person_title = ?,
+            reporting_person_phone = ?
+        WHERE id = ?
+    """, (
+        org_address.strip() or None,
+        reporting_person_name.strip() or None,
+        reporting_person_title.strip() or None,
+        reporting_person_phone.strip() or None,
+        session.org_id
+    ))
+
+    # Audit the change
+    from ..db import audit
+    audit(db, session.operator_name, "org.profile_update", "organization", session.org_id, {
+        "org_address": org_address.strip() or None,
+        "reporting_person_name": reporting_person_name.strip() or None,
+        "reporting_person_title": reporting_person_title.strip() or None,
+        "reporting_person_phone": reporting_person_phone.strip() or None,
+    }, org_id=session.org_id)
+
+    db.commit()
+    return back("/admin", msg="Reporting entity profile updated.")
 
 
 @app.get("/admin/compliance", response_class=HTMLResponse)
@@ -2078,7 +2047,8 @@ def admin_set_threshold(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     raw = threshold.strip()
     if not raw:
@@ -2111,7 +2081,8 @@ def admin_reset_password(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     row = db.execute(
         "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
@@ -2145,7 +2116,8 @@ def admin_create_operator(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     if len(password) < 10:
         return back("/admin", err="Password must be at least 10 characters.")
@@ -2184,7 +2156,8 @@ def admin_deactivate_operator(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     row = db.execute(
         "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
@@ -2214,7 +2187,8 @@ def admin_refresh_sanctions(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     result = run_sanctions_refresh(db, actor=session.operator_name)
 
@@ -2225,6 +2199,30 @@ def admin_refresh_sanctions(
     if result["new_alerts"]:
         msg += f" {result['new_alerts']} new alert(s) raised — check Alerts."
     return back("/admin", msg=msg)
+
+
+@app.get("/admin/refresh-stream")
+def admin_refresh_stream(request: Request, db: DB):
+    """SSE endpoint that streams per-list sanctions refresh progress."""
+    from fastapi.responses import StreamingResponse
+    import json as _json
+
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError:
+        return StreamingResponse(
+            iter([f"data: {_json.dumps({'type': 'error', 'error': 'unauthorized'})}\n\n"]),
+            media_type="text/event-stream",
+        )
+
+    from ..cases.scheduler import refresh_with_progress
+
+    def event_stream():
+        for event in refresh_with_progress(db, actor=session.operator_name):
+            yield f"data: {_json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.post("/admin/rescreen")
@@ -2245,7 +2243,8 @@ def admin_rescreen(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     from ..match.engine import rescreen_all
     from ..db import audit
@@ -2309,7 +2308,8 @@ def admin_rule_config_post(
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        return back("/admin/rule-config", err=str(exc))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     from ..screening.kyt import save_rule_config, get_rule_config
 
@@ -2388,6 +2388,13 @@ def policies_upload(
 
     try:
         file_content = file.file.read()
+
+        # Validate MIME type by magic bytes
+        from ..validation import validate_file_mime
+        try:
+            detected_mime = validate_file_mime(file_content, file.filename or "upload.pdf")
+        except ValueError as exc:
+            return back("/policies", err=f"File validation failed: {exc}")
 
         policy_id, version = upload_policy(
             db,
@@ -2502,21 +2509,7 @@ def system_refresh(request: Request):
 
 @app.post("/system/create-operator")
 async def system_create_operator(request: Request):
-    """Provision an operator without a browser session.
-
-    For the same reason /system/refresh exists: some trusted, system-level
-    actions need to happen without an interactive login being available --
-    here, provisioning a test/bootstrap operator on a deployment nobody is
-    currently signed into. Protected by its own secret (ADMIN_API_SECRET),
-    deliberately separate from SCHEDULER_SECRET: creating a login is a more
-    sensitive capability than re-running a read-mostly sanctions refresh,
-    and the two shouldn't share a blast radius. Disabled (403) exactly like
-    /system/refresh when its secret isn't configured.
-
-    Reuses the exact insert + hashing amlkit/admin/operators (the real
-    admin-panel route) uses, so a provisioned account is indistinguishable
-    from one an MLRO created by hand.
-    """
+    """Provision an operator without a browser session."""
     secret = os.environ.get("ADMIN_API_SECRET", "").strip()
     if not secret:
         from fastapi.responses import JSONResponse
@@ -2528,6 +2521,8 @@ async def system_create_operator(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     from fastapi.responses import JSONResponse
+    from ..db import connect
+    from ..cases.operators import provision_operator
 
     body = await request.json()
     name = (body.get("name") or "").strip()
@@ -2536,49 +2531,19 @@ async def system_create_operator(request: Request):
     role = body.get("role") or "officer"
     org_slug = (body.get("org_slug") or "").strip()
 
-    if not name or not email:
-        return JSONResponse({"error": "name and email are required"}, status_code=400)
-    if len(password) < 10:
-        return JSONResponse({"error": "password must be at least 10 characters"}, status_code=400)
-    if role not in ("officer", "mlro"):
-        return JSONResponse({"error": "role must be 'officer' or 'mlro'"}, status_code=400)
-
-    from ..db import connect, audit, utcnow
-
     conn = connect(db_path())
     try:
-        if org_slug:
-            org = conn.execute(
-                "SELECT id, name FROM organizations WHERE slug=? AND status='active'", (org_slug,)
-            ).fetchone()
-        else:
-            org = conn.execute(
-                "SELECT id, name FROM organizations WHERE status='active' ORDER BY id LIMIT 1"
-            ).fetchone()
-        if org is None:
-            return JSONResponse({"error": "no matching active organization"}, status_code=404)
-
-        try:
-            now = utcnow()
-            cur = conn.execute(
-                # email_verified_at=now, matching admin_create_operator's
-                # reasoning above -- whoever holds ADMIN_API_SECRET is
-                # already a trusted operator, not a public self-signup.
-                """INSERT INTO operators
-                       (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-                   VALUES (?,?,?,?,?,1,?,?)""",
-                (org["id"], name, email, auth.hash_password(password), role, now, now),
-            )
-        except sqlite3.IntegrityError:
-            return JSONResponse({"error": "an operator with that name or email already exists"}, status_code=409)
-
-        audit(conn, "system", "operator.create", "operator", cur.lastrowid,
-              {"email": email, "role": role, "via": "system_create_operator"}, org_id=org["id"])
-        conn.commit()
+        result = provision_operator(conn, name, email, password, role, org_slug, actor="system")
         return JSONResponse({
-            "status": "created", "operator_id": cur.lastrowid,
-            "organization": org["name"], "email": email, "role": role,
+            "status": "created",
+            "operator_id": result["operator_id"],
+            "organization": result["organization"],
+            "email": result["email"],
+            "role": result["role"],
         })
+    except ValueError as exc:
+        status = 404 if "no matching" in str(exc) else 409 if "already exists" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status)
     finally:
         conn.close()
 
@@ -2592,7 +2557,7 @@ def reports_view(request: Request, db: DB):
         return RedirectResponse("/login", status_code=303)
     
     r_list = queries.report_list(db, session.org_id)
-    return render(request, "reports.html", {"session": session, "reports": r_list})
+    return render(request, "reports.html", {"session": session, "reports": r_list}, db)
 
 
 @app.get("/reports/new", response_class=HTMLResponse)
@@ -2601,9 +2566,9 @@ def report_new_view(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    
+
     customers = queries.customer_list(db, session.org_id)
-    return render(request, "report_new.html", {"session": session, "customers": customers})
+    return render(request, "report_new.html", {"session": session, "customers": customers}, db)
 
 
 @app.get("/reports/build", response_class=HTMLResponse)
@@ -2635,7 +2600,7 @@ def report_build_view(
         "type": report_type,
         "payload": payload,
         "report_id": report_id,
-    })
+    }, db)
 
 
 @app.post("/reports")
@@ -2699,12 +2664,12 @@ def report_detail_view(request: Request, db: DB, report_id: int):
         
     import json
     payload = json.loads(rep["payload"] or "{}")
-    
+
     return render(request, "report_detail.html", {
         "session": session,
         "report": rep,
         "payload": payload,
-    })
+    }, db)
 
 
 @app.post("/reports/{report_id}/submit")
@@ -2712,12 +2677,32 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
     try:
         session = require_session(request, db)
         require_csrf(request, csrf_token)
+        require_role(session, "mlro")
     except PermissionError as exc:
         return back(f"/reports/{report_id}", err=str(exc))
 
     rep = queries.report(db, report_id, session.org_id)
     if not rep:
         return back("/reports", err="Report not found")
+
+    # Check if already submitted (t2)
+    if rep["status"] == "submitted":
+        return back(f"/reports/{report_id}", err="Report has already been submitted to UAE FIU.")
+
+    # Validate required fields before submission (p17)
+    import json
+    try:
+        payload = json.loads(rep["payload"])
+    except (json.JSONDecodeError, TypeError):
+        return back(f"/reports/{report_id}", err="Report data is invalid. Cannot submit.")
+    
+    # Check for required fields
+    required_fields = ["reporting_entity_name"]
+    missing = [f for f in required_fields if not payload.get(f)]
+
+    if missing:
+        return back(f"/reports/{report_id}",
+                   err=f"Cannot submit report. Missing required fields: {', '.join(missing)}")
 
     now = utcnow()
     with db:
@@ -2765,20 +2750,58 @@ def report_export_xml(request: Request, db: DB, report_id: int):
     )
 
 
+# -------------------------------------------------------------- alerts drawer
+
+@app.get("/api/alerts-summary")
+def alerts_summary(request: Request, db: DB):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    screening = queries.alert_queue(db, session.org_id, status="open")[:10]
+    txn = queries.transaction_alert_queue(db, session.org_id, status="open")[:10]
+    overdue = [
+        c for c in queries.customer_list(db, session.org_id)
+        if c.get("review_overdue")
+    ][:10]
+
+    return JSONResponse({
+        "total": len(screening) + len(txn) + len(overdue),
+        "screening_alerts": [
+            {"category": a["category"], "caption": a["caption"], "score": a["score"]}
+            for a in screening
+        ],
+        "transaction_alerts": [
+            {"customer_id": a["customer_id"], "customer_name": a["customer_name"],
+             "severity": a["severity"], "rule_key": a["rule_key"], "amount_aed": a["amount_aed"]}
+            for a in txn
+        ],
+        "overdue_reviews": [
+            {"id": c["id"], "full_name": c["full_name"], "next_review": c["next_review"]}
+            for c in overdue
+        ],
+    })
+
+
 # ------------------------------------------------------------------ AI assist
 
 @app.post("/api/ai/draft-narrative")
-async def ai_draft_narrative(
+@limiter.limit("5/minute")
+def ai_draft_narrative(
     request: Request,
     db: DB,
     customer_id: int = Form(...),
     include_notes: bool = Form(False),
+    csrf_token: Annotated[str, Form()] = "",
 ):
     """Return an AI-generated STR narrative draft for a customer.
 
     Form fields:
         customer_id   — required
         include_notes — bool, default false
+        csrf_token    — CSRF synchronizer token
 
     Response (JSON):
         { "narrative": "...", "model": "gemini-...", "advisory": "..." }
@@ -2791,6 +2814,7 @@ async def ai_draft_narrative(
 
     try:
         session = require_session(request, db)
+        require_csrf(request, csrf_token)
     except PermissionError:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -2821,3 +2845,144 @@ async def ai_draft_narrative(
             "MLRO before use in any regulatory filing."
         ),
     })
+
+
+# ----------------------------------------------------- compliance calendar (p21)
+@app.get("/compliance/calendar", response_class=HTMLResponse)
+def compliance_calendar_view(request: Request, db: DB):
+    """Compliance calendar list view."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    deadlines = queries.compliance_deadlines(db, session.org_id)
+    from ..db import utcnow
+    now = utcnow()
+    for d in deadlines:
+        d["is_overdue"] = d["due_date"] < now and d["completed_at"] is None
+
+    return render(request, "compliance_calendar.html", {"session": session, "deadlines": deadlines})
+
+@app.get("/compliance/deadlines")
+def compliance_deadlines_list(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return queries.compliance_deadlines(db, session.org_id)
+
+class _DeadlineCreate(BaseModel):
+    title: str = ""
+    due_date: str = ""
+    description: str = ""
+    recurrence: str = "none"
+
+
+class _DeadlineUpdate(BaseModel):
+    title: str | None = None
+    due_date: str | None = None
+    description: str | None = None
+    recurrence: str | None = None
+
+
+@app.post("/compliance/deadlines")
+def compliance_deadlines_create(request: Request, db: DB, body: _DeadlineCreate):
+    try:
+        session = require_session(request, db)
+        csrf_token = request.headers.get("X-CSRF-Token") or ""
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return Response(status_code=403)
+    from ..db import audit, utcnow
+    cur = db.execute(
+        "INSERT INTO compliance_deadlines (org_id, title, description, due_date, recurrence, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (session.org_id, body.title, body.description, body.due_date, body.recurrence, utcnow())
+    )
+    deadline_id = cur.lastrowid
+    audit(db, session.operator_name, "compliance.deadline_created", "compliance_deadline", deadline_id,
+          {"title": body.title}, org_id=session.org_id)
+    db.commit()
+    return queries.compliance_deadline(db, session.org_id, deadline_id)
+
+
+@app.patch("/compliance/deadlines/{deadline_id}")
+def compliance_deadlines_update(request: Request, db: DB, deadline_id: int, body: _DeadlineUpdate):
+    try:
+        session = require_session(request, db)
+        csrf_token = request.headers.get("X-CSRF-Token") or ""
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return Response(status_code=403)
+    existing = queries.compliance_deadline(db, session.org_id, deadline_id)
+    if existing is None:
+        return Response(status_code=404)
+    if body.title:
+        db.execute("UPDATE compliance_deadlines SET title=? WHERE id=? AND org_id=?", (body.title, deadline_id, session.org_id))
+        db.commit()
+    return queries.compliance_deadline(db, session.org_id, deadline_id)
+
+@app.delete("/compliance/deadlines/{deadline_id}")
+def compliance_deadlines_delete(request: Request, db: DB, deadline_id: int):
+    try:
+        session = require_session(request, db)
+        csrf_token = request.headers.get("X-CSRF-Token") or ""
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return Response(status_code=403)
+    existing = queries.compliance_deadline(db, session.org_id, deadline_id)
+    if existing is None:
+        return Response(status_code=404)
+    db.execute("DELETE FROM compliance_deadlines WHERE id=? AND org_id=?", (deadline_id, session.org_id))
+    db.commit()
+    return Response(status_code=204)
+
+
+# ------------------------------------------------------------------ profile/password change (p16)
+@app.get("/profile", response_class=HTMLResponse)
+def profile_view(request: Request, db: DB):
+    """User profile page with password change form."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "profile.html", {"session": session})
+
+
+@app.post("/profile/change-password")
+def change_password(
+    request: Request, db: DB,
+    old_password: Annotated[str, Form()],
+    new_password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Self-service password change."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/profile", err=str(exc))
+
+    operator = db.execute(
+        "SELECT id, password_hash FROM operators WHERE id=?",
+        (session.operator_id,)
+    ).fetchone()
+
+    if not operator or not auth.verify_password(old_password, operator["password_hash"]):
+        return back("/profile", err="Current password is incorrect.")
+
+    try:
+        auth.validate_password_complexity(new_password)
+    except auth.PasswordComplexityError as exc:
+        return back("/profile", err=str(exc))
+
+    auth.set_password(db, session.operator_id, new_password)
+
+    from ..db import audit
+    audit(db, session.operator_name, "operator.password_changed", "operator", session.operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+
+    return back("/profile", msg="Password changed successfully. All other sessions have been signed out.")

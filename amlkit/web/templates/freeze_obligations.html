@@ -22,7 +22,7 @@
   <!-- Filter -->
   <form method="get" class="filter-form">
     <label>Status:</label>
-    <select name="status" onchange="this.form.submit()">
+    <select name="status" data-action="auto-submit">
       <option value="all" {% if filter_status == 'all' %}selected{% endif %}>All</option>
       <option value="pending_execution" {% if filter_status == 'pending_execution' %}selected{% endif %}>Pending Execution</option>
       <option value="executed_pending_report" {% if filter_status == 'executed_pending_report' %}selected{% endif %}>Executed (Pending Report)</option>

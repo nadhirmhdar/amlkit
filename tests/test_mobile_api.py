@@ -252,6 +252,9 @@ class TestDocumentScan:
     tesseract binary, so the extraction/quality calls are monkeypatched
     at their import site inside amlkit/api/mobile.py."""
 
+    # Minimal bytes that pass the JPEG magic-byte MIME check (\xff\xd8\xff\xe0).
+    _JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
+
     def test_scan_passport_merges_image_quality_into_response(self, api, monkeypatch):
         import amlkit.cases.ocr as ocr
 
@@ -266,7 +269,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-passport", headers=headers,
-            files={"passport_file": ("passport.jpg", b"fake-image-bytes", "image/jpeg")},
+            files={"passport_file": ("passport.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 200, r.text
         assert r.json()["full_name"] == "Jane Doe"
@@ -282,7 +285,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-passport", headers=headers,
-            files={"passport_file": ("passport.jpg", b"not-an-image", "image/jpeg")},
+            files={"passport_file": ("passport.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 400
         assert "not a readable image" in r.json()["detail"]
@@ -304,7 +307,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-passport", headers=headers,
-            files={"passport_file": ("passport.jpg", b"not-an-image", "image/jpeg")},
+            files={"passport_file": ("passport.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 400
         assert "MRZ not found" in r.json()["detail"]
@@ -314,7 +317,7 @@ class TestDocumentScan:
         client, _ = api
         r = client.post(
             "/api/v1/customers/scan-passport",
-            files={"passport_file": ("passport.jpg", b"fake-image-bytes", "image/jpeg")},
+            files={"passport_file": ("passport.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 401
 
@@ -336,7 +339,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-emirates-id", headers=headers,
-            files={"emirates_id_file": ("id.jpg", b"fake-image-bytes", "image/jpeg")},
+            files={"emirates_id_file": ("id.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 200, r.text
         assert r.json()["id_number"] == "784-1990-1234567-1"
@@ -352,7 +355,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-emirates-id", headers=headers,
-            files={"emirates_id_file": ("id.jpg", b"not-an-image", "image/jpeg")},
+            files={"emirates_id_file": ("id.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 400
         assert "no tesseract binary available" in r.json()["detail"]
@@ -361,7 +364,7 @@ class TestDocumentScan:
         client, _ = api
         r = client.post(
             "/api/v1/customers/scan-emirates-id",
-            files={"emirates_id_file": ("id.jpg", b"fake-image-bytes", "image/jpeg")},
+            files={"emirates_id_file": ("id.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 401
 

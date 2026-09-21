@@ -32,6 +32,15 @@ from .screening.pf import classify_programs, obligation_note
 CATEGORY_RANK = {"proliferation": 0, "terrorism": 1, "sanction": 2, "pep": 3, "other": 4}
 
 
+def organization_name(conn: sqlite3.Connection, org_id: int) -> str | None:
+    """Fetch the organization name for the given org_id.
+
+    Returns None if the organization does not exist.
+    """
+    row = conn.execute("SELECT name FROM organizations WHERE id = ?", (org_id,)).fetchone()
+    return row["name"] if row else None
+
+
 def _category(topics: list[str], programs: list[str]) -> str:
     cats = classify_programs(programs)
     if "proliferation" in cats:
@@ -43,6 +52,70 @@ def _category(topics: list[str], programs: list[str]) -> str:
     if any(t.startswith("role.pep") for t in topics):
         return "pep"
     return "other"
+
+
+def dataset_health_banner(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Check dataset health and return banner info if action needed.
+
+    Returns None when all datasets are healthy (no banner needed).
+    Returns dict with 'severity' ('critical' or 'warning'), 'message', and 'link' when issues exist.
+
+    Critical (red): mandatory dataset stale or has error
+    Warning (amber): optional dataset stale or has error
+    """
+    # Check for errors first (higher priority)
+    error_rows = conn.execute(
+        "SELECT title, is_mandatory, last_error FROM datasets WHERE last_error IS NOT NULL"
+    ).fetchall()
+
+    if error_rows:
+        mandatory_errors = [r for r in error_rows if r["is_mandatory"]]
+        if mandatory_errors:
+            count = len(mandatory_errors)
+            return {
+                "severity": "critical",
+                "message": f"{count} mandatory sanctions source{'s' if count != 1 else ''} failed to update",
+                "link": "/admin/compliance"
+            }
+        else:
+            count = len(error_rows)
+            return {
+                "severity": "warning",
+                "message": f"{count} optional source{'s' if count != 1 else ''} failed to update",
+                "link": "/admin/compliance"
+            }
+
+    # Check for staleness
+    staleness = staleness_report(conn)
+    stale_mandatory = [d for d in staleness if d["breach"] and d["mandatory"]]
+    # Exclude code-embedded, version-tracked datasets (e.g., FATF at its expected version)
+    # from optional staleness checks, since they're not "failing to update"
+    from amlkit.ingest.fatf import _FATF_DATA_AS_OF, _FATF_MAX_AGE_HOURS
+    fatf_at_version = conn.execute(
+        "SELECT 1 FROM datasets WHERE key='fatf_country_risk' AND last_refresh=? AND max_age_hours=?",
+        (_FATF_DATA_AS_OF, _FATF_MAX_AGE_HOURS)
+    ).fetchone()
+
+    stale_optional = [d for d in staleness if d.get("hours_since_refresh") and
+                      d["hours_since_refresh"] > d.get("max_age_hours", 24) and not d["mandatory"]
+                      and not (d["key"] == "fatf_country_risk" and fatf_at_version)]
+
+    if stale_mandatory:
+        count = len(stale_mandatory)
+        return {
+            "severity": "critical",
+            "message": f"{count} mandatory sanctions source{'s' if count != 1 else ''} out of date",
+            "link": "/admin/compliance"
+        }
+    elif stale_optional:
+        count = len(stale_optional)
+        return {
+            "severity": "warning",
+            "message": f"{count} optional source{'s' if count != 1 else ''} out of date",
+            "link": "/admin/compliance"
+        }
+
+    return None
 
 
 def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
@@ -92,6 +165,15 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
     txn_alerts = transaction_alert_queue(conn, org_id, status="open")
     oldest_open_txn = sorted(txn_alerts, key=lambda a: a["created_at"])[:5]
 
+    # Freeze obligations stats (only for MLRO role, but included for all to simplify template logic)
+    freeze_stats_raw = freeze_obligations_stats(conn, org_id)
+    freeze_stats = {
+        "pending_execution": freeze_stats_raw.get("pending_execution", 0),
+        "executed_pending_report": freeze_stats_raw.get("executed_pending_report", 0),
+        "reported": freeze_stats_raw.get("reported", 0),
+        "resolved": freeze_stats_raw.get("resolved", 0),
+    }
+
     return {
         "staleness": staleness,
         "breaches": breaches,
@@ -105,6 +187,7 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
         "adverse_media_due": am_due,
         "open_transaction_alerts": txn_alerts,
         "oldest_open_transaction_alerts": oldest_open_txn,
+        "freeze_stats": freeze_stats,
         "counts": dict(counts),
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -204,10 +287,14 @@ def dashboard_kpis(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
 
 def alert_queue(
     conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
-    alert_id: int | None = None, customer_id: int | None = None
+    alert_id: int | None = None, customer_id: int | None = None, sort_by: str | None = None
 ) -> list[dict[str, Any]]:
     """Alerts with the entity and customer context needed to triage them,
-    scoped to one organization."""
+    scoped to one organization.
+
+    sort_by: "age_asc" for oldest-first, "age_desc" for newest-first,
+             None for default (score-based) sorting.
+    """
     sql = """
         SELECT a.id, a.score, a.score_detail, a.matched_name, a.status,
                a.disposition, a.reason_code, a.independent_review, a.assigned_to,
@@ -236,7 +323,14 @@ def alert_queue(
     if customer_id is not None:
         sql += " AND s.customer_id = ?"
         params.append(customer_id)
-    sql += " ORDER BY a.score DESC LIMIT ?"
+
+    # Apply sort order
+    if sort_by == "age_asc":
+        sql += " ORDER BY a.created_at ASC LIMIT ?"
+    elif sort_by == "age_desc":
+        sql += " ORDER BY a.created_at DESC LIMIT ?"
+    else:
+        sql += " ORDER BY a.score DESC LIMIT ?"
 
     out: list[dict[str, Any]] = []
     for row in conn.execute(sql, (*params, limit)):
@@ -260,8 +354,29 @@ def alert_queue(
                 "via_ubo": bool(row["ubo_name"]),
             }
         )
-    out.sort(key=lambda a: (CATEGORY_RANK.get(a["category"], 9), -a["score"]))
+    # When using age-based sorting, preserve SQL sort order; otherwise apply category/score sort
+    if sort_by not in ("age_asc", "age_desc"):
+        out.sort(key=lambda a: (CATEGORY_RANK.get(a["category"], 9), -a["score"]))
     return out
+
+
+def alert_queue_grouped(
+    conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Alerts bucketed by customer, for the group-by-customer view."""
+    flat = alert_queue(conn, org_id, status=status, limit=limit)
+    buckets: dict[int | None, dict[str, Any]] = {}
+    for a in flat:
+        cid = a.get("customer_id")
+        if cid not in buckets:
+            buckets[cid] = {
+                "customer_id": cid,
+                "customer_name": a.get("customer_name") or a.get("query_name") or "Ad-hoc",
+                "reference": a.get("reference", ""),
+                "alerts": [],
+            }
+        buckets[cid]["alerts"].append(a)
+    return sorted(buckets.values(), key=lambda g: g["customer_name"] or "")
 
 
 def entity_names(conn: sqlite3.Connection, entity_id: int) -> list[dict[str, str]]:
@@ -274,31 +389,86 @@ def entity_names(conn: sqlite3.Connection, entity_id: int) -> list[dict[str, str
     ]
 
 
-def customer_list(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
-    """Customers of one organization, with their latest risk rating and
-    screening activity."""
-    rows = conn.execute(
-        """SELECT c.id, c.reference, c.full_name, c.name_arabic, c.customer_type,
-                  c.nationality, c.sector, c.status, c.onboarded_at,
-                  r.rating, r.score AS risk_score, r.requires_edd, r.next_review,
-                  (SELECT MAX(run_at) FROM screenings WHERE customer_id=c.id) AS last_screened,
-                  (SELECT COUNT(*) FROM alerts al
-                     JOIN screenings s2 ON s2.id = al.screening_id
-                    WHERE s2.customer_id = c.id AND al.status IN ('open','pending_review'))
-                    AS open_alerts
-           FROM customers c
-           LEFT JOIN risk_assessments r ON r.id = (
-                SELECT id FROM risk_assessments WHERE customer_id=c.id
-                ORDER BY assessed_at DESC LIMIT 1)
-           WHERE c.org_id = ?
-           ORDER BY c.created_at DESC""",
-        (org_id,),
-    ).fetchall()
+_CUSTOMER_SELECT = """\
+-- org_id filter is applied by every caller (WHERE c.org_id = ?)
+SELECT c.id, c.reference, c.full_name, c.name_arabic, c.customer_type,
+       c.nationality, c.sector, c.status, c.onboarded_at,
+       r.rating, r.score AS risk_score, r.requires_edd, r.next_review,
+       (SELECT MAX(run_at) FROM screenings WHERE customer_id=c.id) AS last_screened,
+       (SELECT COUNT(*) FROM alerts al
+          JOIN screenings s2 ON s2.id = al.screening_id
+         WHERE s2.customer_id = c.id AND al.status IN ('open','pending_review'))
+         AS open_alerts
+FROM customers c
+LEFT JOIN risk_assessments r ON r.id = (
+     SELECT id FROM risk_assessments WHERE customer_id=c.id
+     ORDER BY assessed_at DESC LIMIT 1)
+"""
+
+
+def _customer_rows_to_list(rows) -> list[dict[str, Any]]:
     today = datetime.now(timezone.utc).date().isoformat()
     return [
         dict(r) | {"review_overdue": bool(r["next_review"] and r["next_review"] <= today)}
         for r in rows
     ]
+
+
+def customer_list(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
+    """Customers of one organization, with their latest risk rating and
+    screening activity."""
+    rows = conn.execute(
+        _CUSTOMER_SELECT + "WHERE c.org_id = ? ORDER BY c.created_at DESC",
+        (org_id,),
+    ).fetchall()
+    return _customer_rows_to_list(rows)
+
+
+def search_customers(
+    conn: sqlite3.Connection, org_id: int, query: str
+) -> list[dict[str, Any]]:
+    """Search customers by name, reference, or Arabic name with canonicalization.
+
+    Matches against: full_name (LIKE), name_arabic (LIKE), reference (LIKE),
+    and canonical_key (prefix match on each canonical token from the query).
+    """
+    query = query.strip()
+    if not query:
+        return customer_list(conn, org_id)
+
+    from .names.arabic import canonical_tokens, has_arabic_script, normalize_arabic
+
+    like = f"%{query}%"
+    params: list = [org_id, like, like, like]
+
+    canon_clause = ""
+    tokens = canonical_tokens(query)
+    if tokens:
+        canon_conditions = []
+        for tok in tokens:
+            canon_conditions.append("c.canonical_key LIKE ?")
+            params.append(f"%{tok}%")
+        canon_clause = " OR (" + " AND ".join(canon_conditions) + ")"
+
+    arabic_canon_clause = ""
+    if has_arabic_script(query):
+        normalized = normalize_arabic(query)
+        if normalized:
+            arabic_canon_clause = " OR c.name_arabic LIKE ?"
+            params.append(f"%{normalized}%")
+
+    sql = (
+        _CUSTOMER_SELECT
+        + "WHERE c.org_id = ? AND ("
+        + "c.full_name LIKE ? COLLATE NOCASE"
+        + " OR c.reference LIKE ? COLLATE NOCASE"
+        + " OR c.name_arabic LIKE ?"
+        + canon_clause
+        + arabic_canon_clause
+        + ") ORDER BY c.created_at DESC"
+    )
+    rows = conn.execute(sql, params).fetchall()
+    return _customer_rows_to_list(rows)
 
 
 def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[str, Any] | None:
@@ -406,7 +576,7 @@ def signatures_for_customer(
 
 def audit_trail(
     conn: sqlite3.Connection, org_id: int, object_type: str | None = None,
-    object_id: int | str | None = None, limit: int = 200,
+    object_id: int | str | None = None, limit: int = 200, offset: int = 0,
 ) -> list[dict[str, Any]]:
     """Audit entries for one organization, plus shared/system entries.
 
@@ -423,8 +593,9 @@ def audit_trail(
         if object_id is not None:
             sql += " AND object_id=?"
             params.append(str(object_id))
-    sql += " ORDER BY id DESC LIMIT ?"
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
     params.append(limit)
+    params.append(offset)
     return [
         dict(r) | {"detail": json.loads(r["detail"]) if r["detail"] else None}
         for r in conn.execute(sql, params)
@@ -642,3 +813,101 @@ def org_customers(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]
     """All customers for a specific org, for super-admin drill-down."""
     return customer_list(conn, org_id)
 
+
+def freeze_obligations_list(conn: sqlite3.Connection, org_id: int, filter_status: str = "all") -> list[dict[str, Any]]:
+    """List all freeze obligations for an org, optionally filtered by status."""
+    query = """
+        SELECT f.*, c.reference AS customer_reference, c.full_name,
+               CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_since_identified
+        FROM freeze_obligations f
+        JOIN customers c ON c.id = f.customer_id
+        WHERE f.org_id = ?
+    """
+    params = [org_id]
+
+    if filter_status != "all":
+        query += " AND f.status = ?"
+        params.append(filter_status)
+
+    query += " ORDER BY f.identified_at DESC"
+
+    return [dict(row) for row in conn.execute(query, params).fetchall()]
+
+
+def freeze_obligations_stats(conn: sqlite3.Connection, org_id: int) -> dict[str, int]:
+    """Count of freeze obligations by status for an org."""
+    return dict(conn.execute("""
+        SELECT status, COUNT(*) as count
+        FROM freeze_obligations
+        WHERE org_id = ?
+        GROUP BY status
+    """, (org_id,)).fetchall())
+
+
+def freeze_obligation_detail(conn: sqlite3.Connection, org_id: int, freeze_id: int) -> dict[str, Any] | None:
+    """Get full freeze obligation details including related customer, alert, and report."""
+    row = conn.execute("""
+        SELECT f.*, c.reference AS customer_reference, c.full_name,
+               a.id AS alert_id, a.matched_name,
+               r.id AS report_id, r.reference AS report_reference
+        FROM freeze_obligations f
+        JOIN customers c ON c.id = f.customer_id
+        LEFT JOIN alerts a ON a.id = f.alert_id
+        LEFT JOIN reports r ON r.id = f.report_id
+        WHERE f.id = ? AND f.org_id = ?
+    """, (freeze_id, org_id)).fetchone()
+
+    if not row:
+        return None
+
+    obligation = dict(row)
+    obligation["assets_frozen_parsed"] = json.loads(obligation["assets_frozen"] or "[]")
+    return obligation
+
+
+
+def compliance_deadlines(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
+    """All compliance deadlines for an org, ordered by due date."""
+    rows = conn.execute("""
+        SELECT id, title, description, due_date, recurrence,
+               reminder_days_before, completed_at, created_at
+        FROM compliance_deadlines
+        WHERE org_id = ?
+        ORDER BY due_date ASC
+    """, (org_id,)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def compliance_deadline(conn: sqlite3.Connection, org_id: int, deadline_id: int) -> dict[str, Any] | None:
+    """Single compliance deadline, org-isolated."""
+    row = conn.execute("""
+        SELECT id, title, description, due_date, recurrence,
+               reminder_days_before, completed_at, created_at
+        FROM compliance_deadlines
+        WHERE id = ? AND org_id = ?
+    """, (deadline_id, org_id)).fetchone()
+    return dict(row) if row else None
+
+
+def customer_completeness(customer: dict[str, Any]) -> float:
+    """Calculate customer profile completeness percentage (p42).
+
+    Returns percentage of required fields that are filled. Required fields:
+    - full_name (always present)
+    - birth_date
+    - nationality
+    - address_line1
+    - risk_rating (from risk_assessments table)
+
+    UBO disclosure is checked separately (legal entities should have UBOs).
+    """
+    required_fields = [
+        "full_name",
+        "birth_date",
+        "nationality",
+        "address_line1",
+        "risk_rating",
+    ]
+
+    filled = sum(1 for field in required_fields if customer.get(field))
+    return round((filled / len(required_fields)) * 100, 1)

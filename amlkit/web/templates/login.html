@@ -6,8 +6,8 @@
   <div style="position:absolute; top:32px; right:40px;">
     <img src="/static/img/grovisor-logo.png" alt="Grovisor" style="height:48px; width:auto; display:block;">
   </div>
-  <div style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
-    <div style="width:340px; display:flex; flex-direction:column; gap:44px;">
+  <div style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px 20px;">
+    <div style="width:100%; max-width:340px; display:flex; flex-direction:column; gap:44px;">
       <div style="text-align:center;">
         <div style="font-size:36px; font-weight:800; letter-spacing:-0.02em; background:linear-gradient(100deg, var(--ink) 55%, oklch(48% 0.14 45)); -webkit-background-clip:text; background-clip:text; color:transparent;">amlkit</div>
         <div style="font-size:14px; color:var(--ink-3); margin-top:12px;">UAE sanctions screening &amp; CDD</div>
@@ -16,15 +16,15 @@
       <form method="post" action="/login" style="display:flex; flex-direction:column; gap:22px;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="field" style="margin-bottom:0;">
-          <label>Email</label>
-          <input type="email" name="email" class="input-underline" autofocus autocomplete="username"
+          <label for="login-email">Email</label>
+          <input type="email" name="email" id="login-email" class="input-underline" autofocus autocomplete="username"
                  inputmode="email" spellcheck="false" autocapitalize="off" style="font-size:16px;" required>
         </div>
         <div class="field" style="margin-bottom:0; position:relative;">
-          <label>Password</label>
+          <label for="password-input">Password</label>
           <input type="password" name="password" id="password-input" class="input-underline"
                  autocomplete="current-password" style="font-size:16px;" required>
-          <button type="button" onclick="togglePassword()"
+          <button type="button" data-action="toggle-password" aria-label="Show password"
                   style="position:absolute; right:0; top:26px; background:none; border:none; color:var(--ink-3); padding:4px; font-size:15px;">👁</button>
         </div>
         <button type="submit" class="btn-glow" style="margin-top:10px;" data-loading="Signing in…">SIGN IN</button>
@@ -52,11 +52,6 @@
   </div>
 </div>
 
-<script>
-function togglePassword() {
-  const pwd = document.getElementById('password-input');
-  pwd.type = pwd.type === 'password' ? 'text' : 'password';
-}
-</script>
+<script src="/static/js/app.js"></script>
 
 {% endblock %}

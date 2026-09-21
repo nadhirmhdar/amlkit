@@ -37,22 +37,32 @@ def _require(report_data: dict, key: str, label: str) -> str:
     return value
 
 
+# Report types with UI creation routes
+SUPPORTED_REPORT_TYPES = {"STR", "SAR", "FFR"}
+
+
 def serialize_goaml_xml(report_data: dict) -> str:
     """Serialize a report payload into a standard goAML XML format.
 
-    Supported report types: STR, SAR, PNMR, FFR, HRCT, HRCA, DPMSR, REAR, DTR, CTR
+    Only report types with UI creation routes are supported:
+    - STR (Suspicious Transaction Report) - via /reports/build
+    - SAR (Suspicious Activity Report) - via /reports/build
+    - FFR (Fund Freeze Report) - via /freeze-obligations/{id}/file-ffr
 
     FFR (Fund Freeze Report) specific requirements:
     - freeze_obligation_id (required)
     - obligation_type ('sanctions' | 'proliferation' | 'terrorism')
     - assets_frozen (list of asset dicts with type/identifier/amount_aed)
     - identified_at, executed_at (ISO timestamps)
-
-    CTR-specific validation (Phase 4, Item 5):
-        - transaction_type must be 'cash'
-        - amount must be >= threshold (typically 55000 AED)
     """
     report_code = report_data.get("report_type", "STR").upper()
+
+    # Gate unsupported report types (no creation routes)
+    if report_code not in SUPPORTED_REPORT_TYPES:
+        raise ValueError(
+            f"Report type '{report_code}' is not supported. "
+            f"Supported types: {', '.join(sorted(SUPPORTED_REPORT_TYPES))}"
+        )
     now = datetime.now(timezone.utc)
     now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -63,15 +73,6 @@ def serialize_goaml_xml(report_data: dict) -> str:
             raise GoAMLValidationError(
                 "Cannot export FFR: freeze obligation ID is required."
             )
-
-    # CTR validation
-    if report_code == "CTR":
-        if report_data.get("transaction_type") != "cash":
-            raise GoAMLValidationError("CTR requires transaction_type='cash'")
-        amount = report_data.get("amount", 0)
-        threshold = report_data.get("threshold", 55000)
-        if amount < threshold:
-            raise GoAMLValidationError(f"CTR requires amount >= {threshold} (got {amount})")
 
     root = ET.Element("report")
 

@@ -57,11 +57,13 @@ class TestSecurityHeaders:
         finally:
             os.environ.pop("AMLKIT_BEHIND_PROXY", None)
 
-    def test_csp_allows_inline_scripts(self, client) -> None:
-        """CSP must allow 'unsafe-inline' for scripts since templates use inline scripts."""
+    def test_csp_disallows_inline_scripts(self, client) -> None:
+        """CSP must NOT allow 'unsafe-inline' for scripts after migration to external JS."""
         r = client.get("/about")
         csp = r.headers["Content-Security-Policy"]
-        assert "script-src 'self' 'unsafe-inline'" in csp
+        # Verify script-src only allows 'self', not 'unsafe-inline'
+        assert "script-src 'self'" in csp
+        assert "script-src 'self' 'unsafe-inline'" not in csp
 
     def test_csp_allows_inline_styles(self, client) -> None:
         """CSP must allow 'unsafe-inline' for styles since templates use inline style attributes."""

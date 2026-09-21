@@ -189,3 +189,29 @@ class TestTokenize:
     def test_empty_input(self) -> None:
         assert tokenize("") == ([], [])
         assert canonical_key("") == ""
+
+
+class TestArabicNameCorruption:
+    """Issue #139: Names starting with Alef-Lam are corrupted by article stripping."""
+
+    def test_arabic_ilyas_not_corrupted(self) -> None:
+        """الياس (Ilyas) should not be stripped to just ياس."""
+        normalized = normalize_arabic("الياس")
+        # After hamza normalization, should be "الياس" not "ياس"
+        assert normalized == "الياس", f"Expected 'الياس', got {normalized!r}"
+
+    def test_arabic_ilyas_hamza_below_not_corrupted(self) -> None:
+        """إلياس (Ilyas with hamza-below) should normalize to الياس, not ياس."""
+        normalized = normalize_arabic("إلياس")
+        # Hamza-below normalizes to plain alef, producing "الياس"
+        assert normalized == "الياس", f"Expected 'الياس', got {normalized!r}"
+
+    def test_arabic_ilham_not_corrupted(self) -> None:
+        """إلهام (Ilham) should normalize to الهام, not هام."""
+        normalized = normalize_arabic("إلهام")
+        assert normalized == "الهام", f"Expected 'الهام', got {normalized!r}"
+
+    def test_arabic_almas_not_corrupted(self) -> None:
+        """الماس (Almas) should not be stripped."""
+        normalized = normalize_arabic("الماس")
+        assert normalized == "الماس", f"Expected 'الماس', got {normalized!r}"

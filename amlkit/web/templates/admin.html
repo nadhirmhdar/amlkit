@@ -9,6 +9,50 @@
   <p class="sub">Workspace slug: <span class="mono">{{ org.slug }}</span></p>
 </div>
 
+{% if eu_warning %}
+<div class="banner warning">
+  <strong>EU Sanctions Configuration:</strong> {{ eu_warning }}
+</div>
+{% endif %}
+
+<div class="panel mb-6">
+  <h2>goAML Reporting Entity Profile</h2>
+  <p class="muted small mt-0">
+    Organization details used when generating goAML XML reports (STR, SAR, etc.).
+    These fields populate the reporting entity section of the XML submission.
+  </p>
+  <form method="post" action="/admin/org-profile" class="row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div>
+      <label>Organization Address</label>
+      <input type="text" name="org_address"
+             value="{{ org.org_address or '' }}"
+             placeholder="Street, building, city">
+    </div>
+    <div>
+      <label>Reporting Person Name</label>
+      <input type="text" name="reporting_person_name"
+             value="{{ org.reporting_person_name or '' }}"
+             placeholder="Full name of MLRO or compliance officer">
+    </div>
+    <div>
+      <label>Reporting Person Title</label>
+      <input type="text" name="reporting_person_title"
+             value="{{ org.reporting_person_title or '' }}"
+             placeholder="e.g. MLRO, Chief Compliance Officer">
+    </div>
+    <div>
+      <label>Reporting Person Phone</label>
+      <input type="tel" name="reporting_person_phone"
+             value="{{ org.reporting_person_phone or '' }}"
+             placeholder="+971501234567">
+    </div>
+    <div>
+      <button type="submit">Save Profile</button>
+    </div>
+  </form>
+</div>
+
 <div class="mb-6">
   <div class="section-label">Operators</div>
   <div class="flat-list">
@@ -32,7 +76,7 @@
         <form method="post" action="/admin/operators/{{ op.id }}/deactivate" class="d-inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="small ghost" type="submit"
-                  onclick="return confirm('Deactivate {{ op.name }}? They will be signed out of every session immediately.')">
+                  data-confirm="Deactivate {{ op.name }}? They will be signed out of every session immediately.">
             Deactivate
           </button>
         </form>

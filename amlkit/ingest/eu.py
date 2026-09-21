@@ -26,18 +26,20 @@ import httpx
 from .base import AdapterError, SourceEntity
 
 BASE_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content"
-DEFAULT_TOKEN = "dG9rZW4tMjAxNy0xMS0xMw"
 ENV_TOKEN = "AMLKIT_EU_FSF_TOKEN"
 USER_AGENT = "amlkit/0.1 (UAE AML screening; compliance tooling)"
 
 
 def list_url() -> str:
-    token = os.environ.get(ENV_TOKEN, "").strip() or DEFAULT_TOKEN
+    token = os.environ.get(ENV_TOKEN, "").strip()
+    if not token:
+        raise AdapterError(
+            f"EU FSF token not configured. Set {ENV_TOKEN} environment variable. "
+            "Register at https://webgate.ec.europa.eu/fsd/fsf"
+        )
     return f"{BASE_URL}?token={token}"
 
 
-# Kept for callers that imported the module-level constant.
-URL = list_url()
 
 
 class EUSanctionsAdapter:
@@ -47,20 +49,22 @@ class EUSanctionsAdapter:
         self.key = "eu_sanctions"
         self.title = "EU Consolidated Sanctions List"
         self.publisher = "European Union"
-        # Resolved per instance, not at import, so a token set after startup
-        # (or in a test) is actually used.
-        self.source_url = list_url()
         self.licence = "Public Domain"
         self.is_mandatory = False
 
     def fetch(self) -> bytes:
+        # Resolved on fetch, not at init, so the adapter can be instantiated
+        # to check is_mandatory even when the token isn't set (e.g., in CI
+        # workflows that test optional-source graceful degradation).
+        source_url = list_url()
+
         import time
 
         last_exc: Exception | None = None
         for attempt in range(3):
             try:
                 r = httpx.get(
-                    self.source_url,
+                    source_url,
                     timeout=30,
                     follow_redirects=True,
                     headers={"User-Agent": USER_AGENT},
