@@ -41,6 +41,42 @@ def _require(report_data: dict, key: str, label: str) -> str:
 SUPPORTED_REPORT_TYPES = {"STR", "SAR", "FFR"}
 
 
+def inject_reporting_entity(payload: dict, db, org_id: int) -> None:
+    """Inject reporting entity details into a goAML payload from the organization record.
+
+    Fills reporting_entity_name, reporting_entity_branch, and entity_reference when absent.
+    Raises GoAMLValidationError if goaml_entity_reference is not set for the org.
+
+    This consolidates the org lookup logic previously copy-pasted across three call sites
+    (web export, mobile export, freeze report filing).
+    """
+    # Fetch org details
+    row = db.execute(
+        "SELECT name, org_address, goaml_entity_reference FROM organizations WHERE id = ?",
+        (org_id,)
+    ).fetchone()
+
+    if not row:
+        raise GoAMLValidationError(f"Organization {org_id} not found")
+
+    # Fill in missing fields
+    if not payload.get("reporting_entity_name"):
+        payload["reporting_entity_name"] = row["name"]
+
+    if not payload.get("reporting_entity_branch"):
+        payload["reporting_entity_branch"] = row["org_address"] or ""
+
+    # entity_reference is mandatory - raise if not configured
+    if not row["goaml_entity_reference"]:
+        raise GoAMLValidationError(
+            "goAML entity reference not configured for this organization. "
+            "Set it in the admin organization profile."
+        )
+
+    if not payload.get("entity_reference"):
+        payload["entity_reference"] = row["goaml_entity_reference"]
+
+
 def serialize_goaml_xml(report_data: dict) -> str:
     """Serialize a report payload into a standard goAML XML format.
 

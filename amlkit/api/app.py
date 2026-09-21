@@ -2781,19 +2781,12 @@ def report_export_xml(request: Request, db: DB, report_id: int):
         raise HTTPException(status_code=404, detail="Report not found")
 
     import json
-    from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
+    from ..reporting.goaml import GoAMLValidationError, inject_reporting_entity, serialize_goaml_xml
 
     payload = json.loads(rep["payload"] or "{}")
 
-    if not payload.get("reporting_entity_name"):
-        org = db.execute(
-            "SELECT name, org_address FROM organizations WHERE id = ?",
-            (session.org_id,),
-        ).fetchone()
-        if org:
-            payload["reporting_entity_name"] = org["name"]
-            if org["org_address"] and not payload.get("reporting_entity_branch"):
-                payload["reporting_entity_branch"] = org["org_address"]
+    # Inject org details into payload (follow-up to #231/#142)
+    inject_reporting_entity(payload, db, session.org_id)
 
     try:
         xml_content = serialize_goaml_xml(payload)
