@@ -1140,12 +1140,18 @@ def home(request: Request, db: DB):
     first_name = (session.operator_name or "").split()
     first_name = first_name[0] if first_name else session.operator_name
 
+    d = queries.dashboard(db, session.org_id)
+    customer_count = d["counts"]["customers"]
+    show_onboarding = customer_count == 0
+
     return render(request, "home.html", {
         "session": session,
-        "d": queries.dashboard(db, session.org_id),
+        "d": d,
+        "contextual_card": queries.contextual_home_card(db, session.org_id),
         "greeting": greeting,
         "first_name": first_name,
         "today": gst_now.strftime("%A, %d %B %Y"),
+        "show_onboarding": show_onboarding,
     }, db)
 
 
