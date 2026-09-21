@@ -3207,6 +3207,7 @@ def compliance_deadlines_delete(request: Request, db: DB, deadline_id: int):
     return Response(status_code=204)
 
 
+
 # ------------------------------------------------------------------ profile/password change (p16)
 @app.get("/profile", response_class=HTMLResponse)
 def profile_view(request: Request, db: DB):
@@ -3253,5 +3254,6 @@ def change_password(
     audit(db, session.operator_name, "operator.password_changed", "operator", session.operator_id,
           None, org_id=session.org_id)
     db.commit()
+
 
     return back("/profile", msg="Password changed successfully. All other sessions have been signed out.")
