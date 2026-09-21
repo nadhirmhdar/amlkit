@@ -77,7 +77,7 @@ def _seed_audit_rows(org_id, count=8, actor="test_actor"):
     conn.close()
 
 
-def _seed_other_org_audit(count=3):
+def _seed_other_org_audit(count=3, actor="zz_other_actor", action_prefix="zzother.leak", ts="2001-02-03T04:05:06+00:00"):
     from amlkit.db import utcnow as _utcnow
     conn = _db()
     conn.execute(
@@ -89,7 +89,7 @@ def _seed_other_org_audit(count=3):
     for i in range(count):
         conn.execute(
             "INSERT INTO audit_log (org_id, ts, actor, action, detail) VALUES (?,?,?,?,?)",
-            (other_org_id, utcnow(), "other_actor", f"other.action_{i}", json.dumps({"index": i})),
+            (other_org_id, ts, actor, f"{action_prefix}_{i}", json.dumps({"index": i})),
         )
     conn.commit()
     conn.close()
@@ -115,11 +115,16 @@ def officer_client(mlro_client):
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
 
-    mlro_client.post("/admin/operators", data={
+    created = mlro_client.post("/admin/operators", data={
         "name": "audit_officer", "email": "officer@audit.ae",
         "password": "a-strong-password-2", "role": "officer",
         "csrf_token": _csrf(mlro_client),
-    })
+    }, follow_redirects=False)
+    assert created.status_code in (200, 302, 303), created.status_code
+    conn = _db()
+    row = conn.execute("SELECT role FROM operators WHERE email=?", ("officer@audit.ae",)).fetchone()
+    conn.close()
+    assert row is not None and row["role"] == "officer"
 
     officer = TestClient(app)
     officer.get("/login")
@@ -127,6 +132,9 @@ def officer_client(mlro_client):
         "email": "officer@audit.ae", "password": "a-strong-password-2",
         "csrf_token": officer.cookies.get("amlkit_csrf"),
     }, follow_redirects=True)
+    # Prove the officer session is real, not a /login redirect
+    r = officer.get("/dashboard", follow_redirects=False)
+    assert r.status_code == 200, r.status_code
     return officer
 
 
@@ -147,7 +155,9 @@ class TestAuditFeedWidget:
             assert f"test action {i}" in r.text
         assert "test action 0" not in r.text
         assert "test action 1" not in r.text
-        assert "other action" not in r.text
+        # distinctive other-org values must not leak in any form
+        for leaked in ("zz_other_actor", "zzother", "2001-02-03", "Other Firm"):
+            assert leaked not in r.text
 
     def test_officer_does_not_see_widget(self, mlro_client, officer_client):
         conn = _db()
@@ -159,3 +169,20 @@ class TestAuditFeedWidget:
         assert r.status_code == 200
         assert "Recent activity" not in r.text
         assert "test action" not in r.text
+
+    def test_null_object_type_renders(self, mlro_client):
+        conn = _db()
+        org_id = conn.execute("SELECT id FROM organizations LIMIT 1").fetchone()["id"]
+        conn.close()
+        _seed_audit_rows(org_id, count=1, actor="nullobj_actor")
+        r = mlro_client.get("/dashboard")
+        assert r.status_code == 200
+        assert "nullobj_actor" in r.text
+        assert "nullobj_actor &middot;" not in r.text
+
+    def test_recent_audit_empty_state(self, tmp_path):
+        from amlkit.db import connect
+        from amlkit import queries
+        conn = connect(tmp_path / "e.db")
+        assert queries.recent_audit(conn, 999) == []
+        conn.close()

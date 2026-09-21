@@ -603,12 +603,17 @@ def audit_trail(
 
 
 def recent_audit(conn: sqlite3.Connection, org_id: int, limit: int = 6) -> list[dict[str, Any]]:
-    """Last N audit entries for one org (no shared/system rows)."""
+    """Last N audit entries for the dashboard widget.
+
+    Uses the same visibility predicate as audit_trail (the /audit view): this
+    org's rows plus shared/system rows (org_id IS NULL), so the widget never
+    disagrees with the full log.
+    """
     return [
         dict(r)
         for r in conn.execute(
             "SELECT ts, actor, action, object_type, object_id FROM audit_log"
-            " WHERE org_id=? ORDER BY id DESC LIMIT ?",
+            " WHERE (org_id=? OR org_id IS NULL) ORDER BY id DESC LIMIT ?",
             (org_id, limit),
         )
     ]

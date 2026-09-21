@@ -210,7 +210,7 @@
           <div class="primary">{{ entry.action.replace('.', ' ').replace('_', ' ') }}</div>
           <div class="secondary">{{ entry.actor }}{% if entry.object_type %} &middot; {{ entry.object_type }}{% endif %}</div>
         </div>
-        <div class="side nowrap muted small">{{ entry.ts[:16].replace('T', ' ') }}</div>
+        <div class="side nowrap muted small">{{ ((entry.ts or '')|string)[:16].replace('T', ' ') }}</div>
       </div>
     {% endfor %}
   </div>

@@ -142,6 +142,15 @@ def require_role(session: SessionInfo, *roles: str) -> None:
         )
 
 
+# Single source of truth for who may view the audit log (/audit, /audit/export
+# and the dashboard activity widget).
+AUDIT_VIEW_ROLES: tuple[str, ...] = ("mlro",)
+
+
+def can_view_audit(session: SessionInfo) -> bool:
+    return session.operator_role in AUDIT_VIEW_ROLES
+
+
 def require_super_admin(session: SessionInfo) -> None:
     """Guard for super-admin-only routes (multi-org console)."""
     if not session.super_admin:
