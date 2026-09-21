@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import os
-import re
 import sqlite3
+import sys
+from pathlib import Path
 
 import pytest
+
+# Import shared test helpers
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_api import _csrf, _register, _seed_sanctions_data  # noqa: E402
 
 try:
     import weasyprint  # noqa: F401
@@ -18,59 +23,6 @@ pytestmark = pytest.mark.skipif(
     not HAS_WEASYPRINT,
     reason="weasyprint not available (requires libpango/cairo system libraries)",
 )
-
-
-def _seed_sanctions_data(db_file):
-    from amlkit.db import connect, upsert_dataset, utcnow
-    from amlkit.names.arabic import blocking_keys, canonical_key
-
-    conn = connect(db_file)
-    ds = upsert_dataset(conn, "test_list", "Test List", is_mandatory=True)
-    now = utcnow()
-    cur = conn.execute(
-        """INSERT INTO entities (dataset_id, source_id, schema_type, caption,
-           countries, birth_date, gender, topics, programs, raw, first_seen, last_seen)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (ds, "T-1", "Person", "John Doe", '["ae"]', "1980-01-01", "male",
-         '["sanction"]', '["TEST"]', "{}", now, now),
-    )
-    eid = cur.lastrowid
-    conn.execute(
-        "INSERT INTO entity_names (entity_id, name, name_type, canonical_key, script)"
-        " VALUES (?,?,?,?,?)",
-        (eid, "John Doe", "primary", canonical_key("John Doe"), "latin"),
-    )
-    for tok in blocking_keys("John Doe"):
-        conn.execute(
-            "INSERT OR IGNORE INTO name_tokens (token, entity_id) VALUES (?,?)",
-            (tok, eid),
-        )
-    conn.execute(
-        "UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?",
-        (now, ds),
-    )
-    conn.commit()
-    conn.close()
-
-
-def _csrf(client) -> str:
-    return client.cookies.get("amlkit_csrf")
-
-
-def _register(client, org_name, name, email, password="a-strong-password-1"):
-    """Register, verify email, and sign in (matches test_api._register)."""
-    import re
-    client.get("/register-organization")
-    r = client.post("/register-organization", data={
-        "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
-    }, follow_redirects=True)
-    assert "Check your email" in r.text, f"registration failed: {r.text[:300]}"
-    m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
-    assert m, f"no dev verification link in registration response: {r.text[:500]}"
-    r2 = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
-    assert "Dashboard" in r2.text or "24-hour" in r2.text, f"verification failed: {r2.text[:300]}"
-    return client
 
 
 def _db():
