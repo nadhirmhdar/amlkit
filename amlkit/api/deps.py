@@ -95,19 +95,42 @@ def require_csrf(request: Request, form_csrf: str | None) -> None:
         raise PermissionError("Session expired or the form was submitted from a stale page. Reload and try again.")
 
 
+import ipaddress as _ipaddress
+
+_SKIP_NETWORKS = (
+    _ipaddress.ip_network("10.0.0.0/8"),
+    _ipaddress.ip_network("172.16.0.0/12"),
+    _ipaddress.ip_network("192.168.0.0/16"),
+    _ipaddress.ip_network("169.254.0.0/16"),
+    _ipaddress.ip_network("127.0.0.0/8"),
+)
+
+
+def _is_proxy_internal_ip(ip: str) -> bool:
+    """RFC 1918 + link-local + loopback — IPs that proxies/load balancers use internally."""
+    try:
+        addr = _ipaddress.ip_address(ip)
+        return any(addr in net for net in _SKIP_NETWORKS)
+    except ValueError:
+        return False
+
+
 def client_ip(request: Request) -> str | None:
     """Best-effort client IP for the signature audit trail.
 
     Trusts X-Forwarded-For only when AMLKIT_BEHIND_PROXY=1 is explicitly set
     (see startup_warning() above) -- otherwise a client could set that header
-    itself and forge the recorded address. Takes the first hop, which is the
-    proxy's own view of the original client; later hops in the chain are
-    other proxies, not the request's origin.
+    itself and forge the recorded address. Picks the first non-private IP from
+    the chain; falls back to the first hop if all are private.
     """
     if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            hops = [h.strip() for h in forwarded.split(",")]
+            for hop in hops:
+                if not _is_proxy_internal_ip(hop):
+                    return hop
+            return hops[0]
     return request.client.host if request.client else None
 
 

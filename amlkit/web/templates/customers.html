@@ -23,35 +23,37 @@
 </form>
 
 {% if customers %}
-<div class="list-head" style="grid-template-columns:110px 1.6fr 1fr 0.8fr 70px 110px 90px;">
-  <div>Reference</div><div>Name</div><div>Type / Sector</div><div>Risk</div><div>Alerts</div><div>Review due</div><div></div>
+<div class="grid-table">
+<div class="customers-head list-head">
+  <div>Reference</div><div>Name</div><div class="cust-col-type">Type / Sector</div><div>Risk</div><div>Alerts</div><div>Review due</div><div class="cust-col-evidence"></div>
 </div>
 <div id="customers-table">
   {% for c in customers %}
-  <div class="customer-row list-row" style="display:grid; grid-template-columns:110px 1.6fr 1fr 0.8fr 70px 110px 90px; align-items:center;">
-    <div class="mono small muted">{{ c.reference }}</div>
-    <div>
+  <div class="customer-row customers-row list-row">
+    <div class="mono small muted" data-label="Reference">{{ c.reference }}</div>
+    <div data-label="Name">
       <a href="/customers/{{ c.id }}" class="primary" style="display:block; color:var(--ink);">{{ name(c.full_name) }}</a>
       {% if c.name_arabic %}<div class="secondary">{{ name(c.name_arabic) }}</div>{% endif %}
       {% if c.status != 'active' %}<span class="tag other mt-1">{{ c.status }}</span>{% endif %}
     </div>
-    <div class="small" style="color:var(--ink-2);">{{ c.customer_type }}<div class="muted">{{ c.sector }}</div></div>
-    <div>
+    <div class="small cust-col-type" style="color:var(--ink-2);" data-label="Type">{{ c.customer_type }}<div class="muted">{{ c.sector }}</div></div>
+    <div data-label="Risk">
       {% if c.rating %}
         <span class="tag {{ c.rating }}">{{ c.rating }}</span>
         {% if c.requires_edd %}<div class="muted small mt-1">EDD</div>{% endif %}
       {% else %}<span class="muted">—</span>{% endif %}
     </div>
-    <div class="num">{% if c.open_alerts %}
+    <div class="num" data-label="Alerts">{% if c.open_alerts %}
         <a href="/alerts"><span class="tag high">{{ c.open_alerts }}</span></a>
       {% else %}<span class="muted">0</span>{% endif %}</div>
-    <div class="small nowrap">
+    <div class="small nowrap" data-label="Review">
       {% if c.review_overdue %}<span class="tag high">overdue</span>
       {% else %}{{ c.next_review or '—' }}{% endif %}
     </div>
-    <div><a class="btn small ghost" href="/customers/{{ c.id }}/evidence">Evidence</a></div>
+    <div class="cust-col-evidence"><a class="btn small ghost" href="/customers/{{ c.id }}/evidence">Evidence</a></div>
   </div>
   {% endfor %}
+</div>
 </div>
 {% else %}
   <div class="panel empty-state">

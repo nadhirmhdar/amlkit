@@ -1,0 +1,59 @@
+sources:
+  amlkit-db:
+    kind: sqlite
+    uri: ${AMLKIT_DB_PATH:-data/aml.db}
+
+tools:
+  search_customers:
+    source: amlkit-db
+    description: Search customers by name (LIKE match). Returns id, full_name, status, and risk-related fields.
+    statement: >
+      SELECT id, full_name, reference, customer_type, nationality, status, onboarded_at
+      FROM customers
+      WHERE full_name LIKE '%' || ? || '%'
+      ORDER BY full_name
+      LIMIT 50
+    parameters:
+      - name: name
+        type: string
+        description: Customer name to search for (partial match)
+
+  get_alerts:
+    source: amlkit-db
+    description: Get screening alerts for a customer, most recent first.
+    statement: >
+      SELECT a.id, a.score, a.matched_name, a.status, a.disposition,
+             a.dispositioned_by, a.dispositioned_at, a.created_at
+      FROM alerts a
+      JOIN screenings s ON s.id = a.screening_id
+      WHERE s.customer_id = ?
+      ORDER BY a.created_at DESC
+      LIMIT 20
+    parameters:
+      - name: customer_id
+        type: integer
+        description: Customer ID to look up alerts for
+
+  get_screenings:
+    source: amlkit-db
+    description: Get screening history for a customer.
+    statement: >
+      SELECT id, query_name, trigger, algorithm, threshold,
+             candidates, hits, run_at
+      FROM screenings
+      WHERE customer_id = ?
+      ORDER BY run_at DESC
+      LIMIT 20
+    parameters:
+      - name: customer_id
+        type: integer
+        description: Customer ID to look up screenings for
+
+  list_datasets:
+    source: amlkit-db
+    description: List all sanctions/screening datasets with refresh status.
+    statement: >
+      SELECT key, title, entity_count, last_refresh, is_mandatory,
+             max_age_hours, last_error
+      FROM datasets
+      ORDER BY title

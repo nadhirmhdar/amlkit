@@ -9,6 +9,7 @@ becoming visible to another's.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sqlite3
@@ -57,6 +58,11 @@ def _csrf(client) -> str:
     """The middleware sets a CSRF cookie on every response; every POST in
     these tests must echo it back as the synchronizer token."""
     return client.cookies.get("amlkit_csrf")
+
+
+def _flash_parse(cookie_val: str) -> dict:
+    """Decode a base64-encoded flash cookie and return the parsed dict."""
+    return json.loads(base64.b64decode(cookie_val.encode()).decode())
 
 
 def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
@@ -844,10 +850,12 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should get a redirect back to the form with error
+        # Should get a redirect back to the form with flash error cookie (Issue #102)
         assert r.status_code == 303
-        assert "err=" in r.headers["location"]
-        assert "100" in r.headers["location"]
+        _flash = r.cookies.get("amlkit_flash")
+        assert _flash is not None, "Expected flash error cookie"
+        assert _flash_parse(_flash)["type"] == "err"
+        assert "100" in _flash_parse(_flash)["text"]
 
         # Verify no customer was created
         conn = _db()
@@ -886,10 +894,12 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should get redirect back with error
+        # Should get redirect back with flash error cookie (Issue #102)
         assert r2.status_code == 303
-        assert "err=" in r2.headers["location"]
-        assert "110" in r2.headers["location"]
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is not None, "Expected flash error cookie"
+        assert _flash_parse(_flash)["type"] == "err"
+        assert "110" in _flash_parse(_flash)["text"]
 
         # Verify only 1 UBO exists (the first one)
         ubo_count = conn.execute(
@@ -946,9 +956,10 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should redirect with error
+        # Should redirect with flash error cookie (Issue #102)
         assert r2.status_code == 303
-        assert "err=" in r2.headers["location"]
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is not None and _flash_parse(_flash).get("type") == "err"
 
         # Verify UBO was NOT added
         ubo_count = conn.execute(
@@ -983,9 +994,10 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should redirect with error
+        # Should redirect with flash error cookie (Issue #102)
         assert r2.status_code == 303
-        assert "err=" in r2.headers["location"]
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is not None and _flash_parse(_flash).get("type") == "err"
 
         # Verify UBO was NOT added
         ubo_count = conn.execute(
@@ -1020,7 +1032,8 @@ class TestUboValidation:
         }, follow_redirects=False)
 
         assert r2.status_code == 303
-        assert "err=" not in r2.headers.get("location", "")
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is None or _flash_parse(_flash).get("type") != "err"
 
         # Verify UBO was added
         ubo_count = conn.execute(
@@ -1055,7 +1068,8 @@ class TestUboValidation:
         }, follow_redirects=False)
 
         assert r2.status_code == 303
-        assert "err=" not in r2.headers.get("location", "")
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is None or _flash_parse(_flash).get("type") != "err"
 
         # Verify UBO was added
         ubo_count = conn.execute(
@@ -1489,7 +1503,7 @@ class TestPolicyRepository:
                         "category": "AML_Policy",
                         "csrf_token": _csrf(client),
                     },
-                    files={"file": ("download-test.pdf", io.BytesIO(b"pdf content"), "application/pdf")},
+                    files={"file": ("download-test.pdf", io.BytesIO(b"%PDF-1.4 fake pdf content"), "application/pdf")},
                     follow_redirects=True)
 
         # Get policy ID
@@ -1506,7 +1520,7 @@ class TestPolicyRepository:
         assert r.headers["content-type"] == "application/pdf"
         assert "attachment" in r.headers["content-disposition"]
         assert "download-test.pdf" in r.headers["content-disposition"]
-        assert r.content == b"pdf content"
+        assert r.content == b"%PDF-1.4 fake pdf content"
 
     def test_policies_download_logs_audit(self, client) -> None:
         """Audit entry created."""
@@ -1518,7 +1532,7 @@ class TestPolicyRepository:
                         "category": "AML_Policy",
                         "csrf_token": _csrf(client),
                     },
-                    files={"file": ("audit-test.pdf", io.BytesIO(b"pdf"), "application/pdf")},
+                    files={"file": ("audit-test.pdf", io.BytesIO(b"%PDF-1.4 fake pdf"), "application/pdf")},
                     follow_redirects=True)
 
         conn = _db()
