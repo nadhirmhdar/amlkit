@@ -1035,6 +1035,44 @@ def screen_run(
     }, db)
 
 
+# --------------------------------------------------------------------- search
+@app.get("/search")
+def global_search(request: Request, db: DB, q: str = ""):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    q = q.strip()
+    if not q:
+        return JSONResponse({"results": []})
+
+    results: list[dict] = []
+    customers = queries.search_customers(db, session.org_id, q)[:10]
+    for c in customers:
+        results.append({
+            "type": "customer",
+            "name": c["full_name"],
+            "detail": c["reference"],
+            "url": f"/customers/{c['id']}",
+        })
+
+    if len(results) < 10:
+        alerts = queries.alert_queue(db, session.org_id, status="open")
+        for a in alerts:
+            if q.lower() in (a.get("customer_name") or "").lower() or q.lower() in str(a.get("id", "")):
+                results.append({
+                    "type": "alert",
+                    "name": a["customer_name"] or a["caption"],
+                    "detail": f"Alert #{a['id']} — {a['caption']}",
+                    "url": f"/customers/{a['customer_id']}",
+                })
+                if len(results) >= 10:
+                    break
+
+    return JSONResponse({"results": results[:10]})
+
+
 # ------------------------------------------------------------------ customers
 @app.get("/customers", response_class=HTMLResponse)
 def customers(request: Request, db: DB, q: str = ""):
