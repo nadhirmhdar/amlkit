@@ -39,6 +39,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
 
 from .. import auth, mail, queries, storage
+from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     StaleDatasetsError,
@@ -90,10 +91,19 @@ def api_session(request: Request, db: DB) -> auth.SessionInfo:
     Raises 401 rather than letting a route proceed with `None` -- same
     reasoning as `deps.require_session` for the cookie-based web app.
     """
-    session = auth.resolve_session(db, _bearer_token(request))
+    token = _bearer_token(request)
+    session = auth.resolve_session(db, token)
     if session is None:
         raise HTTPException(status_code=401, detail="Missing or expired token.")
+    # p15: an MLRO bearer token is issued locked (see _login_json) and stays
+    # useless until POST /auth/mfa/verify -- the web app's require_session()
+    # rule, so a stolen password alone never reaches tenant data by API either.
+    if session.operator_role == "mlro" and not auth.session_mfa_verified(db, token):
+        raise HTTPException(status_code=403, detail=MFA_REQUIRED)
     return session
+
+
+MFA_REQUIRED = "mfa_required"
 
 
 Session = Annotated[auth.SessionInfo, Depends(api_session)]
@@ -147,23 +157,81 @@ class LoginRequest(BaseModel):
     password: str
 
 
+def _login_json(db, token: str, info: auth.SessionInfo) -> dict[str, Any]:
+    """Session response for every token-minting route.
+
+    For an MLRO the token comes back locked: `mfa_required` is true and the
+    client must POST /auth/mfa/verify with a TOTP (or backup code) before any
+    other route accepts it. `mfa_enrolled` false means the operator has not
+    set up an authenticator yet, which today is done in the web app.
+    """
+    challenge = auth.mfa_lock_session(db, token, info.operator_id, info.operator_role)
+    out: dict[str, Any] = {
+        "token": token, "operator": _operator_json(info), "mfa_required": challenge is not None,
+    }
+    if challenge is not None:
+        out["mfa_enrolled"] = challenge == "/mfa/verify"
+    return out
+
+
 @router.post("/auth/login")
 def api_login(body: LoginRequest, db: DB):
     try:
         token, info = auth.login(db, body.email, body.password)
     except auth.AuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
-    return {"token": token, "operator": _operator_json(info)}
+    return _login_json(db, token, info)
+
+
+class MfaVerifyRequest(BaseModel):
+    code: str
+
+
+@router.post("/auth/mfa/verify")
+@limiter.limit("5/minute")
+def api_mfa_verify(request: Request, body: MfaVerifyRequest, db: DB):
+    """Unlock a locked MLRO token with a TOTP or one unused backup code (p15).
+
+    Deliberately not behind `Session`, which rejects locked tokens. Wrong
+    codes count towards auth.MFA_MAX_FAILURES, after which the challenge is
+    locked for auth.MFA_LOCKOUT and answered 429.
+    """
+    token = _bearer_token(request)
+    row = auth.mfa_session_state(db, token)
+    if row is None:
+        raise HTTPException(status_code=401, detail="Missing or expired token.")
+    if row["mfa_verified"]:
+        return {"ok": True}
+    if not auth.mfa_is_enrolled(db, row["operator_id"]):
+        raise HTTPException(status_code=403, detail=(
+            "Two-factor authentication is not set up for this account yet. "
+            "Sign in to the web app once to enrol an authenticator."
+        ))
+    outcome = auth.mfa_check_code(db, row["operator_id"], body.code, stage="verify",
+                                  actor=row["name"], org_id=row["org_id"])
+    if outcome == "ok":
+        auth.set_session_mfa_verified(db, token, True)
+        return {"ok": True}
+    if outcome == "locked":
+        raise HTTPException(status_code=429, detail=(
+            "Too many failed codes. Two-factor sign-in is locked for 15 minutes."
+        ))
+    raise HTTPException(status_code=401, detail="Invalid verification code.")
 
 
 @router.post("/auth/logout")
-def api_logout(request: Request, db: DB, session: Session):
+def api_logout(request: Request, db: DB):
     """Returns a small JSON body (not a bare 204) so every client -- including
     Retrofit's kotlinx.serialization converter, which errors decoding a
-    zero-byte body -- gets a response its JSON decoder can actually parse."""
+    zero-byte body -- gets a response its JSON decoder can actually parse.
+
+    Resolves the session itself rather than via `Session` so a locked MLRO
+    token can still be revoked."""
     token = _bearer_token(request)
-    if token:
-        auth.logout(db, token, session)
+    session = auth.resolve_session(db, token)
+    if session is None:
+        raise HTTPException(status_code=401, detail="Missing or expired token.")
+    auth.logout(db, token, session)
     return {"ok": True}
 
 
@@ -177,10 +245,22 @@ class RegisterOrgRequest(BaseModel):
     name: str
     email: str
     password: str
+    invite_code: str = ""
 
 
 @router.post("/auth/register-organization")
-def api_register_organization(body: RegisterOrgRequest, db: DB):
+@limiter.limit("5/minute")
+def api_register_organization(request: Request, body: RegisterOrgRequest, db: DB):
+    import os
+    import secrets
+
+    expected = os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()
+    if not expected or not secrets.compare_digest(body.invite_code.strip().encode(), expected.encode()):
+        auth._log_auth_event(db, "register_denied", body.email.strip().lower(),
+                             {"reason": "invalid_invite_code", "via": "api"})
+        db.commit()
+        raise HTTPException(status_code=403, detail="Registration requires a valid invite code.")
+
     if len(body.password) < 10:
         raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
     if not auth.looks_like_email(body.email):
@@ -296,7 +376,7 @@ def api_verify_email(body: VerifyEmailRequest, db: DB):
         operator_id=operator["id"], org_id=operator["org_id"], org_name=org_name_row["name"] if org_name_row else "",
         operator_name=operator["name"], operator_role=operator["role"], email=operator["email"],
     )
-    return {"token": token, "operator": _operator_json(info)}
+    return _login_json(db, token, info)
 
 
 class ResendVerificationRequest(BaseModel):
@@ -391,7 +471,7 @@ def api_setup_submit(body: SetupRequest, db: DB):
           {"email": body.email.strip().lower()}, org_id=row["org_id"])
     db.commit()
     token, info = auth.login(db, body.email.strip().lower(), body.password)
-    return {"token": token, "operator": _operator_json(info)}
+    return _login_json(db, token, info)
 
 
 # ----------------------------------------------------------------- dashboard
@@ -1478,6 +1558,11 @@ def api_report_submit(report_id: int, db: DB, session: Session):
     rep = queries.report(db, report_id, session.org_id)
     if not rep:
         raise HTTPException(status_code=404, detail="Report not found.")
+    from ..cases.manager import report_finalize_error
+    problem = report_finalize_error(rep)
+    if problem:
+        code = 409 if rep["status"] == "submitted" else 422
+        raise HTTPException(status_code=code, detail=problem)
     now = utcnow()
     from ..db import audit
 
@@ -1486,9 +1571,14 @@ def api_report_submit(report_id: int, db: DB, session: Session):
             "UPDATE reports SET status='submitted', submitted_at=? WHERE id=? AND org_id=?",
             (now, report_id, session.org_id),
         )
-        audit(db, session.operator_name, "report.submit", "report", report_id,
+        audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
-    return {"ok": True}
+    return {
+        "ok": True,
+        "finalized": True,
+        "fiu_transmission": "manual",
+        "message": "Report finalized. Download the goAML XML and upload it manually to the UAE FIU goAML portal.",
+    }
 
 
 @router.get("/reports/{report_id}/export")
@@ -1496,9 +1586,21 @@ def api_report_export(report_id: int, db: DB, session: Session):
     rep = queries.report(db, report_id, session.org_id)
     if not rep:
         raise HTTPException(status_code=404, detail="Report not found.")
-    from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
+    from ..reporting.goaml import GoAMLValidationError, inject_reporting_entity, serialize_goaml_xml
 
     payload = json.loads(rep["payload"] or "{}")
+
+    # Inject org details into payload (follow-up to #231/#142)
+    try:
+        inject_reporting_entity(payload, db, session.org_id)
+    except GoAMLValidationError as exc:
+        if "goAML entity reference" in str(exc):
+            raise HTTPException(
+                status_code=400,
+                detail="Set your goAML entity reference under Admin → Organisation profile before exporting."
+            ) from exc
+        raise
+
     try:
         xml_content = serialize_goaml_xml(payload)
     except GoAMLValidationError as exc:

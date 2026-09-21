@@ -33,13 +33,15 @@ def api(tmp_path, monkeypatch):
     client = TestClient(app)
     r = client.post("/api/v1/auth/register-organization", json={
         "org_name": "UBO Test Firm", "name": "tester",
-        "email": "tester@ubofirm.ae", "password": "StrongPass123!",
+        "email": "tester@ubofirm.ae", "password": "StrongPass123!", "invite_code": "test-invite",
     })
     assert r.status_code == 200, r.text
     verify_token = r.json()["dev_verification_token"]
     r2 = client.post("/api/v1/auth/verify-email", json={"token": verify_token})
     assert r2.status_code == 200, r2.text
     token = r2.json()["token"]
+    from conftest import unlock_mobile_mfa  # p15: MLRO tokens start locked
+    unlock_mobile_mfa(client, token)
     yield client, {"Authorization": f"Bearer {token}"}
 
 

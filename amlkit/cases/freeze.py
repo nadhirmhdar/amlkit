@@ -77,10 +77,6 @@ def file_ffr_report(
     if freeze["status"] != "executed_pending_report":
         raise ValueError("Freeze not ready for FFR filing")
 
-    org = db.execute(
-        "SELECT name, org_address FROM organizations WHERE id = ?", (org_id,)
-    ).fetchone()
-
     report_payload = {
         "report_type": "FFR",
         "freeze_obligation_id": freeze_id,
@@ -92,8 +88,6 @@ def file_ffr_report(
         "authority_ref": freeze["authority_ref"],
         "reporter_name": reporter_name,
         "reporter_email": reporter_email,
-        "reporting_entity_name": org["name"] if org else "",
-        "reporting_entity_branch": (org["org_address"] or "") if org else "",
         "first_name": freeze["full_name"].split()[0],
         "last_name": " ".join(freeze["full_name"].split()[1:]),
         "customer_type": freeze["customer_type"],
@@ -105,7 +99,10 @@ def file_ffr_report(
         "id_type": freeze["id_type"],
     }
 
+    # Inject org details into payload (follow-up to #231/#142)
     from ..reporting import goaml
+    goaml.inject_reporting_entity(report_payload, db, org_id)
+
     xml_content = goaml.serialize_goaml_xml(report_payload)
 
     now = utcnow()

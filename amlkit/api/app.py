@@ -26,11 +26,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, queries
+from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     StaleDatasetsError,
@@ -210,7 +211,6 @@ def login_rate_limit_key(request: Request) -> str:
     return ip
 
 
-limiter = Limiter(key_func=rate_limit_key_func, default_limits=["100/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -280,6 +280,10 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     if session and db is not None:
         banner = queries.dataset_health_banner(db)
         ctx.setdefault("dataset_banner", banner)
+        # Check for MFA lockouts (show to admin/MLRO roles)
+        if session.operator_role in ("mlro", "admin"):
+            mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
+            ctx.setdefault("mfa_banner", mfa_banner)
 
     # Inject organization name for authenticated sessions
     if session:
@@ -467,6 +471,11 @@ def health_check(db: DB):
 # ----------------------------------------------------------------- sign-in
 @app.get("/login", response_class=HTMLResponse)
 def login_form(request: Request, db: DB):
+    # A locked MLRO session bounced here by require_session() belongs on the
+    # MFA challenge, not on the password form it has already passed.
+    pending = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
+    if pending and pending["role"] == "mlro" and not pending["mfa_verified"]:
+        return RedirectResponse(auth.mfa_challenge_path(db, pending["operator_id"]), status_code=303)
     return render(request, "login.html", {"session": None})
 
 
@@ -495,8 +504,13 @@ def login_submit(
                 "session": None, "err": str(exc), "unverified_email": email.strip().lower(),
             })
         return _login_page_error(request, str(exc))
-    resp = RedirectResponse("/", status_code=303)
+
+    # p15: an MLRO session is issued locked; enrolled operators must pass the
+    # TOTP challenge, un-enrolled ones are sent straight to enrolment.
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+    target = auth.mfa_lock_session(db, token, info.operator_id, info.operator_role) or "/"
+
+    resp = RedirectResponse(target, status_code=303)
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     # M-01: Rotate CSRF token on login (defence-in-depth)
@@ -571,6 +585,172 @@ def password_change_submit(
     db.commit()
 
     return back("/", msg="Password changed successfully. All other sessions have been signed out.")
+
+
+@app.get("/mfa/verify", response_class=HTMLResponse)
+def mfa_verify_form(request: Request, db: DB):
+    """Render TOTP code entry form for MFA challenge (p15)."""
+    session_row = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
+    if not session_row:
+        return RedirectResponse("/login", status_code=303)
+    if session_row["mfa_verified"]:
+        return RedirectResponse("/", status_code=303)
+    if not auth.mfa_is_enrolled(db, session_row["operator_id"]):
+        return RedirectResponse("/mfa/setup", status_code=303)
+
+    return render(request, "mfa_verify.html", {
+        "session": None,  # No full session yet
+        "operator_name": session_row["name"],
+    })
+
+
+@app.post("/mfa/verify")
+@limiter.limit("5/minute")  # per IP; auth.mfa_check_code() adds the per-operator lockout
+def mfa_verify_submit(
+    request: Request, db: DB,
+    code: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Verify TOTP code and upgrade session to mfa_verified=1 (p15)."""
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/mfa/verify", err=str(exc))
+
+    token = request.cookies.get(SESSION_COOKIE)
+    session_row = auth.mfa_session_state(db, token)
+    if not session_row:
+        return RedirectResponse("/login", status_code=303)
+    if session_row["mfa_verified"]:
+        return RedirectResponse("/", status_code=303)
+
+    operator_id = session_row["operator_id"]
+    if not auth.mfa_is_enrolled(db, operator_id):
+        return RedirectResponse("/mfa/setup", status_code=303)
+    outcome = auth.mfa_check_code(db, operator_id, code, stage="verify",
+                                  actor=session_row["name"], org_id=session_row["org_id"])
+    if outcome == "ok":
+        auth.set_session_mfa_verified(db, token, True)
+        return RedirectResponse("/", status_code=303)
+    if outcome == "locked":
+        return back("/mfa/verify", err=_MFA_LOCKED_MESSAGE)
+    return back("/mfa/verify", err="Invalid verification code. Please try again.")
+
+
+_MFA_LOCKED_MESSAGE = ("Too many failed codes. Two-factor sign-in is locked for 15 minutes; "
+                       "the attempts have been recorded in the audit trail.")
+
+
+@app.get("/mfa/setup", response_class=HTMLResponse)
+def mfa_setup_form(request: Request, db: DB):
+    """Display QR code for MFA enrollment (p15 - forced for MLRO)."""
+    session_row = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
+    if not session_row:
+        return RedirectResponse("/login", status_code=303)
+    if session_row["mfa_verified"]:
+        return RedirectResponse("/", status_code=303)
+
+    # Block re-enrollment if already enrolled (prevents CSRF secret overwrite)
+    if auth.mfa_is_enrolled(db, session_row["operator_id"]):
+        return RedirectResponse("/mfa/verify", status_code=303)
+
+    # Reuses a pending secret, so a reload after scanning keeps the app valid.
+    secret, qr_uri = auth.mfa_enroll(db, session_row["operator_id"])
+
+    # Rendered locally: the provisioning URI carries the TOTP secret, so it must
+    # never be sent to a third-party QR service (and the CSP would block one).
+    # svg_data_uri() keeps the xmlns declaration; svg_inline() strips it, and an
+    # <img> decoder refuses a namespace-less SVG (broken-image icon).
+    import segno
+    qr_data_uri = segno.make(qr_uri, error="m").svg_data_uri(scale=5, border=2)
+
+    return render(request, "mfa_setup.html", {
+        "session": None,
+        "operator_name": session_row["name"],
+        "secret": secret,
+        "qr_data_uri": qr_data_uri,
+    })
+
+
+@app.post("/mfa/setup")
+@limiter.limit("5/minute")  # per IP; auth.mfa_check_code() adds the per-operator lockout
+def mfa_setup_confirm(
+    request: Request, db: DB,
+    code: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Confirm MFA enrollment by verifying a test TOTP code (p15)."""
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/mfa/setup", err=str(exc))
+
+    token = request.cookies.get(SESSION_COOKIE)
+    session_row = auth.mfa_session_state(db, token)
+    if not session_row:
+        return RedirectResponse("/login", status_code=303)
+
+    if session_row["mfa_verified"]:
+        return RedirectResponse("/", status_code=303)
+
+    # Enrolment is confirmed by proving possession of the authenticator once;
+    # until then the secret shown on the page is only pending.
+    operator_id = session_row["operator_id"]
+    outcome = auth.mfa_check_code(db, operator_id, code, stage="setup",
+                                  actor=session_row["name"], org_id=session_row["org_id"])
+    if outcome == "ok":
+        backup_codes = auth.mfa_confirm(db, operator_id)
+        auth.set_session_mfa_verified(db, token, True)
+        from ..db import audit
+        audit(db, session_row["name"], "mfa.enrolled", "operator", operator_id, None,
+              org_id=session_row["org_id"])
+        db.commit()
+        # Shown exactly once: the codes are stored hashed, so this response is
+        # the only place they ever appear in plaintext.
+        return render(request, "mfa_backup_codes.html", {
+            "session": None, "backup_codes": backup_codes,
+        })
+    if outcome == "locked":
+        return back("/mfa/setup", err=_MFA_LOCKED_MESSAGE)
+    return back("/mfa/setup", err="Invalid verification code. Please scan the QR code and try again.")
+
+
+@app.post("/mfa/disable")
+def mfa_disable_submit(
+    request: Request, db: DB,
+    totp_code: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Disable MFA for operator. Requires valid TOTP code (p15)."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/account", err=str(exc))
+
+    # Require TOTP code only (password alone is insufficient - prevents MFA removal via password compromise)
+    # Use mfa_check_code with stage="verify" to apply lockout and failed-attempt audit logging
+    if not totp_code:
+        return back("/account", err="Enter a valid TOTP code to disable MFA.")
+
+    outcome = auth.mfa_check_code(db, session.operator_id, totp_code, stage="verify",
+                                  actor=session.operator_name, org_id=session.org_id)
+    if outcome == "locked":
+        return back("/account", err="Too many failed attempts. Try again in 15 minutes.")
+    if outcome != "ok":
+        return back("/account", err="Enter a valid TOTP code to disable MFA.")
+
+    # Disable MFA
+    db.execute("DELETE FROM mfa_secrets WHERE operator_id=?", (session.operator_id,))
+    db.execute("DELETE FROM mfa_backup_codes WHERE operator_id=?", (session.operator_id,))
+    db.commit()
+
+    from ..db import audit
+    audit(db, session.operator_name, "operator.mfa_disabled", "operator", session.operator_id,
+          None, org_id=session.org_id)
+
+    return back("/account", msg="Two-factor authentication has been disabled.")
+
 
 @app.post("/acknowledge-disclaimer")
 def acknowledge_disclaimer(
@@ -655,8 +835,10 @@ def setup_submit(
             "session": None, "valid": False, "err": str(exc),
         })
 
-    session_token, _ = auth.login(db, result["email"], password, ip=client_ip(request))
-    resp = RedirectResponse("/", status_code=303)
+    session_token, info = auth.login(db, result["email"], password, ip=client_ip(request))
+    # p15: the first operator is the MLRO, so this session starts locked too.
+    target = auth.mfa_lock_session(db, session_token, info.operator_id, info.operator_role) or "/"
+    resp = RedirectResponse(target, status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
@@ -669,11 +851,14 @@ def setup_submit(
 
 @app.get("/register-organization", response_class=HTMLResponse)
 def register_org_form(request: Request, db: DB):
-    return render(request, "register_organization.html", {"session": None})
+    invite_configured = bool(os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip())
+    return render(request, "register_organization.html", {
+        "session": None, "registration_open": invite_configured,
+    })
 
 
 @app.post("/register-organization")
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 def register_org_submit(
     request: Request, db: DB,
     org_name: Annotated[str, Form()],
@@ -681,11 +866,23 @@ def register_org_submit(
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()] = "",
+    invite_code: Annotated[str, Form()] = "",
 ):
     try:
         require_csrf(request, csrf_token)
     except PermissionError as exc:
-        return render(request, "register_organization.html", {"session": None, "err": str(exc)})
+        return render(request, "register_organization.html", {
+            "session": None, "registration_open": True, "err": str(exc),
+        })
+
+    expected = os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()
+    if not expected or not secrets.compare_digest(invite_code.strip().encode(), expected.encode()):
+        auth._log_auth_event(db, "register_denied", email.strip().lower(),
+                             {"reason": "invalid_invite_code", "via": "web"})
+        db.commit()
+        return render(request, "register_organization.html", {
+            "session": None, "registration_open": bool(expected), "err": "Invalid invite code.",
+        })
 
     from ..cases.operators import register_organization
     from .. import mail
@@ -737,7 +934,10 @@ def verify_email(request: Request, db: DB, token: str = ""):
     audit(db, operator["name"], "operator.login", "operator", operator["id"],
           None, org_id=operator["org_id"])
     db.commit()
-    resp = RedirectResponse("/?msg=" + quote("Email verified. Welcome to amlkit."), status_code=303)
+    # p15: a brand-new MLRO must enrol now, not whenever they next log out.
+    target = auth.mfa_lock_session(db, session_token, operator["id"], operator["role"])
+    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to amlkit."),
+                            status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
@@ -888,7 +1088,17 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         )
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+    except Exception as exc:
+        # Catch GoAMLValidationError for missing entity_reference
+        if "goAML entity reference" in str(exc):
+            return back(
+                f"/freeze-obligations/{freeze_id}",
+                err='Set your goAML entity reference under Admin → Organisation profile before filing. '
+                    '<a href="/admin">Go to Admin</a>'
+            )
+        raise
 
+    db.commit()
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
@@ -957,6 +1167,7 @@ def home(request: Request, db: DB):
     return render(request, "home.html", {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
+        "contextual_card": queries.contextual_home_card(db, session.org_id),
         "greeting": greeting,
         "first_name": first_name,
         "today": gst_now.strftime("%A, %d %B %Y"),
@@ -1092,6 +1303,9 @@ def customer_create(
     ubo_controls: Annotated[list[str], Form()] = [],
     purpose_of_relationship: Annotated[str, Form()] = "",
     expected_activity: Annotated[str, Form()] = "",
+    risk_level: Annotated[str, Form()] = "",
+    source_of_wealth: Annotated[str, Form()] = "",
+    source_of_funds: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
 ):
     try:
@@ -1102,6 +1316,13 @@ def customer_create(
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back("/customers/new", err=str(exc))
+
+    # Validate EDD fields for high-risk customers (at onboarding, use declared risk_level)
+    if risk_level and risk_level.strip() == "high":
+        if not source_of_wealth or not source_of_wealth.strip():
+            return back("/customers/new", err="Source of Wealth is required for high-risk customers")
+        if not source_of_funds or not source_of_funds.strip():
+            return back("/customers/new", err="Source of Funds is required for high-risk customers")
 
     ubos = []
     for i, nm in enumerate(ubo_names):
@@ -1134,6 +1355,9 @@ def customer_create(
             jurisdiction_tier=jurisdiction_tier, structure=structure,
             purpose_of_relationship=purpose_of_relationship.strip() or None,
             expected_activity=expected_activity.strip() or None,
+            risk_level=risk_level.strip() or None,
+            source_of_wealth=source_of_wealth.strip() or None,
+            source_of_funds=source_of_funds.strip() or None,
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         )
@@ -1195,8 +1419,10 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     diagram_svg = generate_ubo_diagram(db, customer_id, session.org_id)
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
+    eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
-                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg})
+                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
+                         "effective_risk": eff_risk})
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
@@ -1210,7 +1436,9 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
         return back("/customers", err=f"Customer {customer_id} not found.")
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
-    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()}, db)
+    eff_risk = queries.effective_risk(db, customer_id, session.org_id)
+    return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow(),
+                                                     "effective_risk": eff_risk}, db)
 
 
 @app.get("/customers/{customer_id}/gdelt-bq")
@@ -1227,7 +1455,7 @@ def customer_gdelt_bq(request: Request, db: DB, customer_id: int):
 
     from ..screening.gdelt_bq import GdeltBqScreener
     screener = GdeltBqScreener()
-    result = screener.screen(cust["full_name"])
+    result = screener.screen(cust["customer"]["full_name"])
 
     from dataclasses import asdict
     return JSONResponse(asdict(result))
@@ -1901,6 +2129,7 @@ def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "ope
 
     from ..cases.review import review_history, REASON_CODES
     alert_list = queries.org_alerts(db, org_id, status=status if status != "all" else None)
+    from ..cases.review import review_history
     for a in alert_list:
         a["reviews"] = review_history(db, a["id"], org_id)
 
@@ -2006,6 +2235,7 @@ def admin_save_org_profile(
     reporting_person_name: Annotated[str, Form()] = "",
     reporting_person_title: Annotated[str, Form()] = "",
     reporting_person_phone: Annotated[str, Form()] = "",
+    goaml_entity_reference: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = ""
 ):
     """Save organization reporting entity profile for goAML exports (p46)."""
@@ -2023,13 +2253,15 @@ def admin_save_org_profile(
         SET org_address = ?,
             reporting_person_name = ?,
             reporting_person_title = ?,
-            reporting_person_phone = ?
+            reporting_person_phone = ?,
+            goaml_entity_reference = ?
         WHERE id = ?
     """, (
         org_address.strip() or None,
         reporting_person_name.strip() or None,
         reporting_person_title.strip() or None,
         reporting_person_phone.strip() or None,
+        goaml_entity_reference.strip() or None,
         session.org_id
     ))
 
@@ -2040,6 +2272,7 @@ def admin_save_org_profile(
         "reporting_person_name": reporting_person_name.strip() or None,
         "reporting_person_title": reporting_person_title.strip() or None,
         "reporting_person_phone": reporting_person_phone.strip() or None,
+        "goaml_entity_reference": goaml_entity_reference.strip() or None,
     }, org_id=session.org_id)
 
     db.commit()
@@ -2494,11 +2727,12 @@ def policies_download(request: Request, db: DB, policy_id: int):
             }
         )
     except ValueError as e:
-        return templates.TemplateResponse(
-            "error.html",
-            {"request": request, "error": str(e)},
-            status_code=404
-        )
+        # get_policy() raises ValueError for a missing policy (or an
+        # unreadable file). There is no error.html template and no HTML
+        # exception handler, so render a proper 404 the same way the report
+        # and customer download routes do, rather than a 500.
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)
@@ -2740,24 +2974,11 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
     if not rep:
         return back("/reports", err="Report not found")
 
-    # Check if already submitted (t2)
-    if rep["status"] == "submitted":
-        return back(f"/reports/{report_id}", err="Report has already been submitted to UAE FIU.")
-
-    # Validate required fields before submission (p17)
-    import json
-    try:
-        payload = json.loads(rep["payload"])
-    except (json.JSONDecodeError, TypeError):
-        return back(f"/reports/{report_id}", err="Report data is invalid. Cannot submit.")
-    
-    # Check for required fields
-    required_fields = ["reporting_entity_name"]
-    missing = [f for f in required_fields if not payload.get(f)]
-
-    if missing:
-        return back(f"/reports/{report_id}",
-                   err=f"Cannot submit report. Missing required fields: {', '.join(missing)}")
+    # Already-finalized / invalid payload / missing required fields (t2, p17)
+    from ..cases.manager import report_finalize_error
+    problem = report_finalize_error(rep)
+    if problem:
+        return back(f"/reports/{report_id}", err=problem)
 
     now = utcnow()
     with db:
@@ -2766,10 +2987,11 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
             (now, report_id, session.org_id)
         )
         from ..db import audit
-        audit(db, session.operator_name, "report.submit", "report", report_id,
+        audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
-    return back(f"/reports/{report_id}", msg="Report submitted to UAE FIU successfully.")
+    return back(f"/reports/{report_id}",
+               msg="Report finalized in amlkit. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
 
 
 @app.get("/reports/{report_id}/export")
@@ -2786,19 +3008,22 @@ def report_export_xml(request: Request, db: DB, report_id: int):
         raise HTTPException(status_code=404, detail="Report not found")
 
     import json
-    from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
+    from ..reporting.goaml import GoAMLValidationError, inject_reporting_entity, serialize_goaml_xml
 
     payload = json.loads(rep["payload"] or "{}")
 
-    if not payload.get("reporting_entity_name"):
-        org = db.execute(
-            "SELECT name, org_address FROM organizations WHERE id = ?",
-            (session.org_id,),
-        ).fetchone()
-        if org:
-            payload["reporting_entity_name"] = org["name"]
-            if org["org_address"] and not payload.get("reporting_entity_branch"):
-                payload["reporting_entity_branch"] = org["org_address"]
+    # Inject org details into payload (follow-up to #231/#142)
+    try:
+        inject_reporting_entity(payload, db, session.org_id)
+    except GoAMLValidationError as exc:
+        if "goAML entity reference" in str(exc):
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail='Set your goAML entity reference under Admin → Organisation profile before exporting. '
+                       '<a href="/admin">Go to Admin</a>'
+            )
+        raise
 
     try:
         xml_content = serialize_goaml_xml(payload)

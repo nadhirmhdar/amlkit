@@ -76,6 +76,20 @@
 </div>
 {% endif %}
 
+{% if effective_risk == 'high' and (customer.source_of_wealth or customer.source_of_funds) %}
+<div class="panel">
+  <h2>Enhanced Due Diligence</h2>
+  <table>
+    {% if customer.source_of_wealth %}
+    <tr><th>Source of Wealth</th><td>{{ customer.source_of_wealth }}</td></tr>
+    {% endif %}
+    {% if customer.source_of_funds %}
+    <tr><th>Source of Funds</th><td>{{ customer.source_of_funds }}</td></tr>
+    {% endif %}
+  </table>
+</div>
+{% endif %}
+
 <div class="panel">
   <h2>Screening record</h2>
   <table>

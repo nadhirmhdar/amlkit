@@ -44,7 +44,7 @@ def _register(client, email="mlro@firm.ae", role="mlro", org_name="Test Firm"):
             "name": "Test MLRO",
             "email": email,
             "password": "SecurePass123!",
-            "csrf_token": csrf,
+            "csrf_token": csrf, "invite_code": "test-invite",
         },
         follow_redirects=True,
     )
@@ -56,6 +56,8 @@ def _register(client, email="mlro@firm.ae", role="mlro", org_name="Test Firm"):
 
     # Verify email
     r = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
     assert r.status_code == 200
 
     return client.cookies

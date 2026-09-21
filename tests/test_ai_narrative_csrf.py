@@ -22,7 +22,7 @@ def _csrf(client) -> str:
 
 
 @pytest.fixture()
-def web(tmp_path, monkeypatch):
+def web(tmp_path, monkeypatch, complete_mfa):
     db_file = tmp_path / "test.db"
     monkeypatch.setenv("AMLKIT_DB", str(db_file))
     monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
@@ -38,7 +38,7 @@ def web(tmp_path, monkeypatch):
     r = c.post("/register-organization", data={
         "org_name": "Test Firm", "name": "alice",
         "email": "alice@testfirm.ae", "password": "a-strong-password-1",
-        "csrf_token": _csrf(c),
+        "csrf_token": _csrf(c), "invite_code": "test-invite",
     }, follow_redirects=True)
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m, f"No verification token found in response: {r.text[:200]}"
@@ -49,6 +49,7 @@ def web(tmp_path, monkeypatch):
         "email": "alice@testfirm.ae", "password": "a-strong-password-1",
         "csrf_token": _csrf(c),
     }, follow_redirects=True)
+    complete_mfa(c)  # p15: MLRO sessions are locked until TOTP enrolment
 
     import sqlite3
     conn = sqlite3.connect(str(db_file))

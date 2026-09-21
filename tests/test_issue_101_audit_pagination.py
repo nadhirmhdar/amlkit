@@ -28,13 +28,15 @@ def _register(client, org_name: str, name: str, email: str, password: str = "Pas
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": "test-invite",
     }, follow_redirects=True)
     assert "Check your email" in r.text
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m
     r2 = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
-    assert "Dashboard" in r2.text or "24-hour" in r2.text
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
+    assert any(s in r2.text for s in ("Dashboard", "24-hour", "Two-Factor"))
     return client
 
 
@@ -114,15 +116,15 @@ def test_audit_pagination_last_page_shows_remaining(client_with_many_audit_entri
     """Last page should show only remaining entries."""
     client = client_with_many_audit_entries
 
-    # 120 test entries + 4 from registration = 124 total
-    # 124 / 50 per page = 3 pages (50, 50, 24)
+    # 120 test entries + 5 from registration (org created, email verified,
+    # first login, MFA enrolled, ...) = 125 total -> 3 pages (50, 50, 25)
     resp = client.get("/audit?page=3")
     assert resp.status_code == 200
     html = resp.text
 
     import re
     rows = re.findall(r'class="list-row"', html)
-    assert len(rows) == 24, f"Expected 24 rows on page 3 (last page), got {len(rows)}"
+    assert len(rows) == 25, f"Expected 25 rows on page 3 (last page), got {len(rows)}"
 
     # Should NOT show "Next" link (last page)
     # But should show "Previous"
