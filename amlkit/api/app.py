@@ -1246,6 +1246,17 @@ def screen_run(
     }, db)
 
 
+# --------------------------------------------------------------------- search
+@app.get("/search")
+def global_search(request: Request, db: DB, q: str = ""):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return JSONResponse(queries.global_search(db, session.org_id, q))
+
+
 # ------------------------------------------------------------------ customers
 @app.get("/customers", response_class=HTMLResponse)
 def customers(request: Request, db: DB, q: str = ""):
