@@ -198,7 +198,8 @@ class TestCustomers:
         r = client.post(f"/api/v1/customers/{cid}/notes", headers=headers, json={"body": "Reviewed."})
         assert r.status_code == 200
 
-        r = client.post(f"/api/v1/customers/{cid}/close", headers=headers)
+        r = client.post(f"/api/v1/customers/{cid}/close", headers=headers,
+                        json={"reason": "customer_request"})
         assert r.status_code == 200
         assert "retention_until" in r.json()
 

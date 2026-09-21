@@ -839,6 +839,10 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "source_of_funds",   "ALTER TABLE customers ADD COLUMN source_of_funds   TEXT"),
     # Follow-up to #231/#142: per-org goAML entity reference (replaces hardcoded "AML-REF")
     ("organizations", "goaml_entity_reference", "ALTER TABLE organizations ADD COLUMN goaml_entity_reference TEXT"),
+    # Relationship exit: ISO date + fixed reason code (cases.manager.EXIT_REASONS).
+    # NULL while the relationship is open; cleared again on reactivation.
+    ("customers", "exit_date",   "ALTER TABLE customers ADD COLUMN exit_date   TEXT"),
+    ("customers", "exit_reason", "ALTER TABLE customers ADD COLUMN exit_reason TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -876,6 +880,16 @@ def _backfill_retention_until(conn: sqlite3.Connection) -> None:
         " date(substr(onboarded_at, 1, 10), '+' || ? || ' years')"
         " WHERE status != 'closed' AND retention_until IS NULL AND onboarded_at IS NOT NULL",
         (RETENTION_YEARS,),
+    )
+
+
+def _backfill_exit_date(conn: sqlite3.Connection) -> None:
+    """Closed customers from before exit_date existed: their last update is
+    the best available proxy for the closure date. The real reason is unknown."""
+    conn.execute(
+        "UPDATE customers SET exit_date = date(substr(updated_at, 1, 10)),"
+        " exit_reason = COALESCE(exit_reason, 'unspecified')"
+        " WHERE status = 'closed' AND exit_date IS NULL"
     )
 
 
@@ -1142,6 +1156,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     if "email_verified_at" not in _operators_cols_before_migrate:
         _backfill_email_verified(conn)
     _backfill_retention_until(conn)
+    _backfill_exit_date(conn)
     _create_org_indexes(conn)
     from .ingest.fatf import load_fatf_data
     load_fatf_data(conn)

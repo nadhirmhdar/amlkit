@@ -319,7 +319,7 @@ class TestRetention:
 
     def test_close_relationship_sets_ten_year_retention(self, conn, org_id) -> None:
         res = onboard(conn, org_id=org_id, reference="C-300", full_name="Ahmed Al Mansoori")
-        until = close_relationship(conn, res.customer_id, org_id=org_id)
+        until = close_relationship(conn, res.customer_id, org_id=org_id, reason="customer_request")
         row = conn.execute(
             "SELECT status, retention_until FROM customers WHERE id=?", (res.customer_id,)
         ).fetchone()

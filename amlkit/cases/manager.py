@@ -51,6 +51,23 @@ class StaleDatasetsError(Exception):
 UBO_THRESHOLD_PCT = 25.0
 RETENTION_YEARS = 10
 
+EXIT_REASONS: dict[str, str] = {
+    "customer_request": "Customer request",
+    "risk_appetite": "Outside risk appetite",
+    "str_filed": "STR/SAR filed",
+    "no_cdd": "CDD could not be completed",
+    "deceased_or_dissolved": "Deceased / dissolved",
+    "other": "Other",
+}
+
+
+def retention_from(start: date) -> str:
+    try:
+        return start.replace(year=start.year + RETENTION_YEARS).isoformat()
+    except ValueError:
+        # Feb 29 -> Feb 28 in a non-leap target year
+        return start.replace(year=start.year + RETENTION_YEARS, day=28).isoformat()
+
 
 @dataclass(slots=True)
 class OnboardingResult:
@@ -386,23 +403,39 @@ def ownership_state(
 
 
 def close_relationship(
-    conn: sqlite3.Connection, customer_id: int, org_id: int, actor: str = "system"
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    reason: str,
+    note: str = "",
+    actor: str = "system",
 ) -> str:
-    """Mark a customer inactive and set the 8-year retention date."""
-    today = date.today()
-    try:
-        until = today.replace(year=today.year + RETENTION_YEARS).isoformat()
-    except ValueError:
-        # Feb 29 → Feb 28 in the target year (non-leap)
-        until = (today + timedelta(days=365 * RETENTION_YEARS + 1)).isoformat()
+    """Close a customer relationship, recording exit date and reason.
+
+    Retention runs RETENTION_YEARS from the exit date. Returns retention_until.
+    """
+    if reason not in EXIT_REASONS:
+        raise ValueError("A valid exit reason is required")
+    row = conn.execute(
+        "SELECT status FROM customers WHERE id=? AND org_id=?",
+        (customer_id, org_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("Customer not found")
+    if row["status"] == "closed":
+        raise ValueError("Relationship is already closed")
+    exit_date = date.today()
+    until = retention_from(exit_date)
+    note = note.strip()
     with conn:
         conn.execute(
-            "UPDATE customers SET status='closed', retention_until=?, updated_at=?"
-            " WHERE id=? AND org_id=?",
-            (until, utcnow(), customer_id, org_id),
+            "UPDATE customers SET status='closed', exit_date=?, exit_reason=?,"
+            " retention_until=?, updated_at=? WHERE id=? AND org_id=?",
+            (exit_date.isoformat(), reason, until, utcnow(), customer_id, org_id),
         )
         audit(conn, actor, "customer.close", "customer", customer_id,
-              {"retention_until": until}, org_id=org_id)
+              {"exit_date": exit_date.isoformat(), "exit_reason": reason,
+               "note": note or None, "retention_until": until}, org_id=org_id)
     return until
 
 
@@ -415,26 +448,24 @@ def reactivate_customer(
 ) -> None:
     """Reactivate a closed customer, resetting the retention period from today."""
     row = conn.execute(
-        "SELECT status FROM customers WHERE id=? AND org_id=?",
+        "SELECT status, exit_date, exit_reason FROM customers WHERE id=? AND org_id=?",
         (customer_id, org_id),
     ).fetchone()
     if row is None:
         raise ValueError("Customer not found")
     if row["status"] != "closed":
         raise ValueError("Only closed customers can be reactivated")
-    today = date.today()
-    try:
-        new_retention = today.replace(year=today.year + RETENTION_YEARS).isoformat()
-    except ValueError:
-        new_retention = (today + timedelta(days=365 * RETENTION_YEARS + 1)).isoformat()
+    new_retention = retention_from(date.today())
     with conn:
         conn.execute(
-            "UPDATE customers SET status='active', retention_until=?, updated_at=?"
-            " WHERE id=? AND org_id=?",
+            "UPDATE customers SET status='active', exit_date=NULL, exit_reason=NULL,"
+            " retention_until=?, updated_at=? WHERE id=? AND org_id=?",
             (new_retention, utcnow(), customer_id, org_id),
         )
         audit(conn, actor, "customer.reactivated", "customer", customer_id,
-              {"reason": reason, "retention_until": new_retention}, org_id=org_id)
+              {"reason": reason, "retention_until": new_retention,
+               "previous_exit_date": row["exit_date"],
+               "previous_exit_reason": row["exit_reason"]}, org_id=org_id)
 
 
 def purge_expired(
