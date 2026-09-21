@@ -9,6 +9,7 @@ rewritten rather than extended.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import sqlite3
 from pathlib import Path
@@ -95,21 +96,19 @@ def require_csrf(request: Request, form_csrf: str | None) -> None:
         raise PermissionError("Session expired or the form was submitted from a stale page. Reload and try again.")
 
 
-import ipaddress as _ipaddress
-
 _SKIP_NETWORKS = (
-    _ipaddress.ip_network("10.0.0.0/8"),
-    _ipaddress.ip_network("172.16.0.0/12"),
-    _ipaddress.ip_network("192.168.0.0/16"),
-    _ipaddress.ip_network("169.254.0.0/16"),
-    _ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
 )
 
 
 def _is_proxy_internal_ip(ip: str) -> bool:
     """RFC 1918 + link-local + loopback — IPs that proxies/load balancers use internally."""
     try:
-        addr = _ipaddress.ip_address(ip)
+        addr = ipaddress.ip_address(ip)
         return any(addr in net for net in _SKIP_NETWORKS)
     except ValueError:
         return False
@@ -120,17 +119,27 @@ def client_ip(request: Request) -> str | None:
 
     Trusts X-Forwarded-For only when AMLKIT_BEHIND_PROXY=1 is explicitly set
     (see startup_warning() above) -- otherwise a client could set that header
-    itself and forge the recorded address. Picks the first non-private IP from
-    the chain; falls back to the first hop if all are private.
+    itself and forge the recorded address.
+
+    Reads X-Forwarded-For RIGHT-TO-LEFT: the rightmost hop is closest to our
+    server (added by our reverse proxy), moving left takes us further from the
+    server toward the original client. Returns the first public IP from the
+    right; falls back to the last hop if all are internal.
+
+    This prevents clients from spoofing their IP by prepending fake public
+    hops (e.g., "6.6.6.6, 203.0.113.42, 169.254.1.1" correctly returns
+    203.0.113.42, not 6.6.6.6).
     """
     if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
             hops = [h.strip() for h in forwarded.split(",")]
-            for hop in hops:
+            # Iterate RIGHT-TO-LEFT (reverse) to find first public IP from the right
+            for hop in reversed(hops):
                 if not _is_proxy_internal_ip(hop):
                     return hop
-            return hops[0]
+            # All hops are internal - return the last one (rightmost)
+            return hops[-1] if hops else None
     return request.client.host if request.client else None
 
 
