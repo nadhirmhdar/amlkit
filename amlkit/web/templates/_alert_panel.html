@@ -1,10 +1,14 @@
-<div class="alert-panel-detail panel" data-alert-id="{{ a.id }}">
+<div class="alert-panel-detail panel">
   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px;">
     <div>
       <div style="font-weight:700; font-size:15px;">{{ a.caption }}</div>
       <div class="muted small mt-2">
+        {% if a.customer_id %}
         <a href="/customers/{{ a.customer_id }}">{{ a.customer_name }}</a>
         &middot; {{ a.reference }}
+        {% else %}
+        {{ a.query_name or 'No linked customer' }}
+        {% endif %}
       </div>
     </div>
     <button class="small ghost alert-panel-close" type="button">&times;</button>
@@ -35,7 +39,9 @@
       <input type="hidden" name="back_to" value="/dashboard">
       <button class="small ghost" type="submit" name="operator" value="{{ session.operator_name }}">Assign to me</button>
     </form>
+    {% if a.customer_id %}
     <a class="btn small ghost" href="/customers/{{ a.customer_id }}">View customer</a>
+    {% endif %}
   </div>
   {% endif %}
 </div>

@@ -1610,14 +1610,18 @@ def alert_panel(request: Request, db: DB, alert_id: int):
     try:
         session = require_session(request, db)
     except PermissionError:
-        return RedirectResponse("/login", status_code=303)
+        return HTMLResponse(
+            '<div class="muted small">Session expired. Please sign in again.</div>',
+            status_code=401,
+        )
     rows = queries.alert_queue(db, session.org_id, status=None, alert_id=alert_id)
     if not rows:
-        from fastapi.responses import JSONResponse
-        return JSONResponse({"error": "not found"}, status_code=404)
-    alert = rows[0]
+        return HTMLResponse(
+            '<div class="muted small">Alert not found.</div>', status_code=404,
+        )
     html = templates.get_template("_alert_panel.html").render(
-        a=alert, session=session, csrf_token="",
+        a=rows[0], session=session,
+        csrf_token=request.cookies.get(CSRF_COOKIE, ""),
         request=request,
     )
     return HTMLResponse(html)

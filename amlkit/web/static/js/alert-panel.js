@@ -33,7 +33,7 @@
 
     fetch("/alerts/" + alertId + "/panel")
       .then(function (r) {
-        if (!r.ok) throw new Error(r.status);
+        if (!r.ok || r.redirected) throw new Error(r.status);
         return r.text();
       })
       .then(function (html) {
@@ -52,7 +52,9 @@
   }
 
   document.addEventListener("click", function (e) {
-    var row = e.target.closest("[data-alert-id]");
+    if (e.defaultPrevented || e.button !== 0 ||
+        e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    var row = e.target.closest(".list-row[data-alert-id]");
     if (row) {
       e.preventDefault();
       openPanel(row, row.getAttribute("data-alert-id"));

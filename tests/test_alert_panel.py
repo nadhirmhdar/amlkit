@@ -64,13 +64,47 @@ def _db():
     return conn
 
 
+def _insert_alert(org_id: int, customer_id=None, query_name="Adhoc Query") -> int:
+    """Insert a screening + open alert directly for the given org."""
+    from amlkit.db import utcnow
+
+    conn = _db()
+    ent = conn.execute("SELECT id FROM entities LIMIT 1").fetchone()["id"]
+    now = utcnow()
+    cur = conn.execute(
+        "INSERT INTO screenings (org_id, customer_id, query_name, trigger, algorithm,"
+        " threshold, run_at) VALUES (?,?,?,?,?,?,?)",
+        (org_id, customer_id, query_name, "adhoc", "test", 0.8, now),
+    )
+    cur2 = conn.execute(
+        "INSERT INTO alerts (org_id, screening_id, entity_id, score, score_detail,"
+        " matched_name, status, created_at) VALUES (?,?,?,?,?,?,?,?)",
+        (org_id, cur.lastrowid, ent, 0.91, "{}", "John Doe", "open", now),
+    )
+    conn.commit()
+    conn.close()
+    return cur2.lastrowid
+
+
+def _org_ids() -> list[int]:
+    conn = _db()
+    ids = [r["id"] for r in conn.execute("SELECT id FROM organizations ORDER BY id")]
+    conn.close()
+    return ids
+
+
 def _first_alert_id() -> int:
     conn = _db()
     row = conn.execute("SELECT id FROM alerts ORDER BY id DESC LIMIT 1").fetchone()
     conn.close()
     if row:
         return row["id"]
-    return -1
+    # Screening did not fire in setup; create an alert for the customer's org.
+    org_id = _org_ids()[0]
+    conn = _db()
+    cust = conn.execute("SELECT id FROM customers WHERE org_id=?", (org_id,)).fetchone()
+    conn.close()
+    return _insert_alert(org_id, cust["id"] if cust else None)
 
 
 @pytest.fixture()
@@ -100,16 +134,54 @@ def client(tmp_path, monkeypatch):
 class TestAlertPanel:
     def test_panel_returns_fragment_with_customer_name(self, client):
         aid = _first_alert_id()
-        if aid < 0:
-            pytest.skip("no alerts generated in test setup")
         r = client.get(f"/alerts/{aid}/panel")
         assert r.status_code == 200
         assert "John Doe" in r.text
         assert "<html" not in r.text.lower()
+        # Panel root must not carry data-alert-id (would hijack delegated clicks).
+        assert "data-alert-id" not in r.text
 
     def test_panel_404_cross_org(self, client):
-        r = client.get("/alerts/999999/panel")
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        other = TestClient(app)
+        _register(other, "Other Firm", "other_user", "other@test.ae")
+        org_ids = _org_ids()
+        assert len(org_ids) == 2
+        foreign_alert = _insert_alert(org_ids[1], None, "Other Org Query")
+        # Original client (org 1) must not see org 2's real alert.
+        r = client.get(f"/alerts/{foreign_alert}/panel")
         assert r.status_code == 404
+        assert "<html" not in r.text.lower()
+        # Sanity: the owning org can see it.
+        assert other.get(f"/alerts/{foreign_alert}/panel").status_code == 200
+
+    def test_panel_404_missing(self, client):
+        assert client.get("/alerts/999999/panel").status_code == 404
+
+    def test_assign_form_has_real_csrf_token(self, client):
+        aid = _first_alert_id()
+        r = client.get(f"/alerts/{aid}/panel")
+        m = re.search(r'name="csrf_token" value="([^"]*)"', r.text)
+        assert m and m.group(1)
+        assert m.group(1) == _csrf(client)
+
+    def test_unauthenticated_returns_401(self, client):
+        aid = _first_alert_id()
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        anon = TestClient(app)
+        r = anon.get(f"/alerts/{aid}/panel", follow_redirects=False)
+        assert r.status_code == 401
+
+    def test_null_customer_alert_renders(self, client):
+        aid = _insert_alert(_org_ids()[0], None, "Walk-in Query")
+        r = client.get(f"/alerts/{aid}/panel")
+        assert r.status_code == 200
+        assert "/customers/None" not in r.text
+        assert "Walk-in Query" in r.text
 
     def test_js_file_served(self, client):
         r = client.get("/static/js/alert-panel.js")
