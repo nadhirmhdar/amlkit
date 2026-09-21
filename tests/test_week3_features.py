@@ -18,19 +18,8 @@ def _csrf(client) -> str:
 
 
 def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
-    import re
-    client.get("/register-organization")
-    r = client.post("/register-organization", data={
-        "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
-    }, follow_redirects=True)
-    assert "Check your email" in r.text or "Welcome" in r.text
-    m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
-    if m:
-        client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
-        from conftest import settle_mfa  # p15: MLRO sessions start locked
-        settle_mfa(client)
-    return client
+    from conftest import register_org
+    return register_org(client, org_name, name, email, password)
 
 
 @pytest.fixture()

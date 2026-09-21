@@ -26,11 +26,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, queries
+from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     StaleDatasetsError,
@@ -208,7 +209,6 @@ def login_rate_limit_key(request: Request) -> str:
     return ip
 
 
-limiter = Limiter(key_func=rate_limit_key_func, default_limits=["100/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -837,11 +837,14 @@ def setup_submit(
 
 @app.get("/register-organization", response_class=HTMLResponse)
 def register_org_form(request: Request, db: DB):
-    return render(request, "register_organization.html", {"session": None})
+    invite_configured = bool(os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip())
+    return render(request, "register_organization.html", {
+        "session": None, "registration_open": invite_configured,
+    })
 
 
 @app.post("/register-organization")
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 def register_org_submit(
     request: Request, db: DB,
     org_name: Annotated[str, Form()],
@@ -849,11 +852,23 @@ def register_org_submit(
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()] = "",
+    invite_code: Annotated[str, Form()] = "",
 ):
     try:
         require_csrf(request, csrf_token)
     except PermissionError as exc:
-        return render(request, "register_organization.html", {"session": None, "err": str(exc)})
+        return render(request, "register_organization.html", {
+            "session": None, "registration_open": True, "err": str(exc),
+        })
+
+    expected = os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()
+    if not expected or not secrets.compare_digest(invite_code.strip().encode(), expected.encode()):
+        auth._log_auth_event(db, "register_denied", email.strip().lower(),
+                             {"reason": "invalid_invite_code", "via": "web"})
+        db.commit()
+        return render(request, "register_organization.html", {
+            "session": None, "registration_open": bool(expected), "err": "Invalid invite code.",
+        })
 
     from ..cases.operators import register_organization
     from .. import mail
@@ -2069,6 +2084,7 @@ def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "ope
 
     from ..cases.review import review_history, REASON_CODES
     alert_list = queries.org_alerts(db, org_id, status=status if status != "all" else None)
+    from ..cases.review import review_history
     for a in alert_list:
         a["reviews"] = review_history(db, a["id"], org_id)
 

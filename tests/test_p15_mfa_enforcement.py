@@ -37,7 +37,7 @@ def _register(client, name: str, email: str, password: str = PASSWORD, org: str 
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": "test-invite",
     }, follow_redirects=True)
     assert "Check your email" in r.text
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)

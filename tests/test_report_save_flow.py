@@ -35,7 +35,7 @@ def _register(client, org_name: str, name: str, email: str, password: str = "a-s
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": "test-invite",
     }, follow_redirects=True)
     assert "Check your email" in r.text, f"registration failed: {r.text[:300]}"
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
@@ -99,7 +99,7 @@ class TestReportSave:
         customer_id = _customer_id(client)
         r = client.post("/reports", data={
             "customer_id": customer_id, "report_type": "STR",
-            "csrf_token": _csrf(client), **NATURAL_PERSON_FORM,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **NATURAL_PERSON_FORM,
         })
         assert r.status_code != 422, r.text
 
@@ -107,7 +107,7 @@ class TestReportSave:
         customer_id = _customer_id(client)
         client.post("/reports", data={
             "customer_id": customer_id, "report_type": "STR",
-            "csrf_token": _csrf(client), **NATURAL_PERSON_FORM,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **NATURAL_PERSON_FORM,
         })
 
         from amlkit.db import connect
@@ -132,7 +132,7 @@ class TestReportSave:
 
         client.post("/reports", data={
             "customer_id": customer_id, "report_type": "STR",
-            "csrf_token": _csrf(client), **form,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **form,
         })
 
         from amlkit.db import connect
@@ -154,7 +154,7 @@ class TestReportSave:
 
         client.post("/reports", data={
             "customer_id": customer_id, "report_type": "SAR",
-            "csrf_token": _csrf(client), **form,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **form,
         })
 
         from amlkit.db import connect
@@ -178,7 +178,7 @@ class TestReportSave:
 
         r = client.post("/reports", data={
             "customer_id": customer_id, "report_type": "STR",
-            "csrf_token": _csrf(client), **form,
+            "csrf_token": _csrf(client), "invite_code": "test-invite", **form,
         }, follow_redirects=False)
         assert r.status_code != 500
 

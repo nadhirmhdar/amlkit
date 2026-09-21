@@ -41,7 +41,7 @@ def _register(client, org_name: str, name: str, email: str, password: str = "a-s
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": "test-invite",
     }, follow_redirects=True)
     assert "Check your email" in r.text, f"registration failed: {r.text[:300]}"
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
@@ -76,7 +76,7 @@ def client(tmp_path, monkeypatch):
 def customer_id(client) -> int:
     r = client.post("/customers", data={
         "reference": "E2E-1", "full_name": "Test Customer", "customer_type": "natural",
-        "sector": "real_estate", "csrf_token": _csrf(client),
+        "sector": "real_estate", "csrf_token": _csrf(client), "invite_code": "test-invite",
     }, follow_redirects=True)
     assert r.status_code == 200
     conn = sqlite3.connect(os.environ["AMLKIT_DB"])
@@ -91,7 +91,7 @@ class TestTransactionMonitoringE2E:
     def test_large_cash_transaction_raises_a_visible_alert(self, client, customer_id) -> None:
         r = client.post(f"/customers/{customer_id}/transactions", data={
             "direction": "inbound", "method": "cash", "amount": "60000",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
         assert r.status_code == 200
         assert "large cash" in r.text.lower()
@@ -104,14 +104,14 @@ class TestTransactionMonitoringE2E:
     def test_small_cash_transaction_raises_no_alert(self, client, customer_id) -> None:
         r = client.post(f"/customers/{customer_id}/transactions", data={
             "direction": "inbound", "method": "cash", "amount": "500",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
         assert "no rules triggered" in r.text.lower()
 
     def test_dashboard_shows_open_transaction_alert_count(self, client, customer_id) -> None:
         client.post(f"/customers/{customer_id}/transactions", data={
             "direction": "inbound", "method": "cash", "amount": "60000",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         })
         dash = client.get("/dashboard")
         assert "Transaction alerts open" in dash.text
@@ -119,7 +119,7 @@ class TestTransactionMonitoringE2E:
     def test_disposition_clears_the_alert_from_the_customer_page(self, client, customer_id) -> None:
         client.post(f"/customers/{customer_id}/transactions", data={
             "direction": "inbound", "method": "cash", "amount": "60000",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         })
         conn = sqlite3.connect(os.environ["AMLKIT_DB"])
         conn.row_factory = sqlite3.Row
@@ -130,7 +130,7 @@ class TestTransactionMonitoringE2E:
 
         r = client.post(f"/transaction-alerts/{alert_id}/disposition", data={
             "status": "false_positive", "note": "Verified payroll run",
-            "customer_id": str(customer_id), "csrf_token": _csrf(client),
+            "customer_id": str(customer_id), "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
         assert r.status_code == 200
         assert "dispositioned" in r.text.lower()
@@ -142,7 +142,7 @@ class TestTransactionMonitoringE2E:
         client.cookies.delete("amlkit_session")
         r = client.post(f"/customers/{customer_id}/transactions", data={
             "direction": "inbound", "method": "cash", "amount": "1000",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=False)
         assert r.status_code == 303
         assert r.headers["location"] == "/login"
@@ -169,7 +169,7 @@ class TestSignatureE2E:
             "purpose": "Risk acknowledgment",
             "statement": "I acknowledge the assigned risk rating and CDD outcome.",
             "signer_name": "Test Customer", "signer_role": "customer",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
         assert r.status_code == 200
         assert "Signed by Test Customer" in r.text
@@ -181,7 +181,7 @@ class TestSignatureE2E:
     def test_empty_statement_is_rejected(self, client, customer_id) -> None:
         r = client.post(f"/customers/{customer_id}/signatures", data={
             "purpose": "x", "statement": "   ", "signer_name": "Test Customer",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
         assert "required" in r.text.lower()
 
@@ -190,7 +190,7 @@ class TestSignatureE2E:
 
         client.post(f"/customers/{customer_id}/signatures", data={
             "purpose": "P", "statement": "S", "signer_name": "N",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         })
         conn = sqlite3.connect(os.environ["AMLKIT_DB"])
         conn.row_factory = sqlite3.Row

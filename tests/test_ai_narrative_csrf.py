@@ -38,7 +38,7 @@ def web(tmp_path, monkeypatch, complete_mfa):
     r = c.post("/register-organization", data={
         "org_name": "Test Firm", "name": "alice",
         "email": "alice@testfirm.ae", "password": "a-strong-password-1",
-        "csrf_token": _csrf(c),
+        "csrf_token": _csrf(c), "invite_code": "test-invite",
     }, follow_redirects=True)
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m, f"No verification token found in response: {r.text[:200]}"
