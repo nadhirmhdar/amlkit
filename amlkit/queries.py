@@ -424,6 +424,73 @@ def customer_list(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]
     return _customer_rows_to_list(rows)
 
 
+def _like_escape(text: str) -> str:
+    """Escape LIKE wildcards so user input matches literally (ESCAPE '\\')."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+GLOBAL_SEARCH_LIMIT = 10
+_ALERT_SCAN_LIMIT = 1000
+
+
+def global_search(conn: sqlite3.Connection, org_id: int, query: str) -> dict[str, Any]:
+    """Palette search over customers and open alerts for one organization.
+
+    Returns {"results": [...], "truncated": bool}. Alerts match by exact
+    numeric id, or canonicalized name against the customer name and the
+    screened query name; they collapse to one row per customer.
+    """
+    from .names.arabic import canonical_tokens
+
+    query = query.strip()
+    if not query:
+        return {"results": [], "truncated": False}
+
+    results: list[dict[str, Any]] = []
+    for c in search_customers(conn, org_id, query)[:GLOBAL_SEARCH_LIMIT]:
+        results.append({
+            "type": "customer", "name": c["full_name"],
+            "detail": c["reference"], "url": f"/customers/{c['id']}",
+        })
+
+    truncated = False
+    if len(results) < GLOBAL_SEARCH_LIMIT:
+        alerts = alert_queue(conn, org_id, status="open", limit=_ALERT_SCAN_LIMIT)
+        truncated = len(alerts) >= _ALERT_SCAN_LIMIT
+        qtokens = canonical_tokens(query)
+        qlow = query.lower()
+        seen: set = set()
+        for a in alerts:
+            hit = query.isdigit() and int(query) == a["id"]
+            if not hit:
+                for n in (a.get("customer_name"), a.get("query_name")):
+                    if not n:
+                        continue
+                    ntoks = canonical_tokens(n)
+                    if qtokens and all(any(t in nt for nt in ntoks) for t in qtokens):
+                        hit = True
+                    elif qlow in n.lower():
+                        hit = True
+                    if hit:
+                        break
+            if not hit:
+                continue
+            cid = a.get("customer_id")
+            key = ("c", cid) if cid is not None else ("a", a["id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append({
+                "type": "alert",
+                "name": a.get("customer_name") or a.get("query_name") or a["caption"],
+                "detail": f"Alert #{a['id']} — {a['caption']}",
+                "url": f"/customers/{cid}" if cid is not None else "/alerts",
+            })
+            if len(results) >= GLOBAL_SEARCH_LIMIT:
+                break
+    return {"results": results[:GLOBAL_SEARCH_LIMIT], "truncated": truncated}
+
+
 def search_customers(
     conn: sqlite3.Connection, org_id: int, query: str
 ) -> list[dict[str, Any]]:
@@ -438,7 +505,7 @@ def search_customers(
 
     from .names.arabic import canonical_tokens, has_arabic_script, normalize_arabic
 
-    like = f"%{query}%"
+    like = f"%{_like_escape(query)}%"
     params: list = [org_id, like, like, like]
 
     canon_clause = ""
@@ -446,23 +513,23 @@ def search_customers(
     if tokens:
         canon_conditions = []
         for tok in tokens:
-            canon_conditions.append("c.canonical_key LIKE ?")
-            params.append(f"%{tok}%")
+            canon_conditions.append("c.canonical_key LIKE ? ESCAPE '\\'")
+            params.append(f"%{_like_escape(tok)}%")
         canon_clause = " OR (" + " AND ".join(canon_conditions) + ")"
 
     arabic_canon_clause = ""
     if has_arabic_script(query):
         normalized = normalize_arabic(query)
         if normalized:
-            arabic_canon_clause = " OR c.name_arabic LIKE ?"
-            params.append(f"%{normalized}%")
+            arabic_canon_clause = " OR c.name_arabic LIKE ? ESCAPE '\\'"
+            params.append(f"%{_like_escape(normalized)}%")
 
     sql = (
         _CUSTOMER_SELECT
         + "WHERE c.org_id = ? AND ("
-        + "c.full_name LIKE ? COLLATE NOCASE"
-        + " OR c.reference LIKE ? COLLATE NOCASE"
-        + " OR c.name_arabic LIKE ?"
+        + "c.full_name LIKE ? ESCAPE '\\' COLLATE NOCASE"
+        + " OR c.reference LIKE ? ESCAPE '\\' COLLATE NOCASE"
+        + " OR c.name_arabic LIKE ? ESCAPE '\\'"
         + canon_clause
         + arabic_canon_clause
         + ") ORDER BY c.created_at DESC"

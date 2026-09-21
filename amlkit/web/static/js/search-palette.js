@@ -6,6 +6,8 @@
   var list = null;
   var activeIndex = -1;
   var debounceTimer = null;
+  var inflight = null;
+  var requestSeq = 0;
 
   function createOverlay() {
     overlay = document.createElement("div");
@@ -51,8 +53,9 @@
         highlightItem(items);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (activeIndex >= 0 && items[activeIndex]) {
-          window.location.href = items[activeIndex].getAttribute("data-url");
+        var target = items[activeIndex >= 0 ? activeIndex : 0];
+        if (target) {
+          window.location.href = target.getAttribute("data-url");
         }
       }
     });
@@ -70,23 +73,48 @@
     }
   }
 
+  function showMessage(text) {
+    if (!list) return;
+    list.innerHTML = "";
+    activeIndex = -1;
+    var msg = document.createElement("div");
+    msg.style.cssText = "padding:12px 18px;color:var(--ink-2,#888);";
+    msg.textContent = text;
+    list.appendChild(msg);
+  }
+
   function doSearch() {
+    if (!input || !list) return;
     var q = input.value.trim();
+    if (inflight) { inflight.abort(); inflight = null; }
+    var seq = ++requestSeq;
     if (!q) {
       list.innerHTML = "";
       activeIndex = -1;
       return;
     }
-    fetch("/search?q=" + encodeURIComponent(q))
-      .then(function (r) { return r.json(); })
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    inflight = ctrl;
+    fetch("/search?q=" + encodeURIComponent(q), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal: ctrl ? ctrl.signal : undefined
+    })
+      .then(function (r) {
+        var ct = r.headers.get("content-type") || "";
+        if (r.redirected || !r.ok || ct.indexOf("application/json") === -1) {
+          var err = new Error("search-unavailable");
+          err.expired = r.redirected || r.status === 401 || r.status === 303;
+          throw err;
+        }
+        return r.json();
+      })
       .then(function (data) {
+        if (seq !== requestSeq || !list) return; // stale or palette closed
         list.innerHTML = "";
         activeIndex = -1;
         if (!data.results || !data.results.length) {
-          var empty = document.createElement("div");
-          empty.style.cssText = "padding:12px 18px;color:var(--ink-2,#888);";
-          empty.textContent = "No results found";
-          list.appendChild(empty);
+          showMessage("No results found");
           return;
         }
         data.results.forEach(function (item) {
@@ -103,6 +131,7 @@
             window.location.href = item.url;
           });
           row.addEventListener("mouseenter", function () {
+            if (!list) return;
             var items = list.querySelectorAll("[data-url]");
             for (var j = 0; j < items.length; j++) {
               if (items[j] === row) activeIndex = j;
@@ -112,6 +141,19 @@
           });
           list.appendChild(row);
         });
+        if (data.truncated) {
+          var note = document.createElement("div");
+          note.style.cssText = "padding:8px 18px;font-size:12px;color:var(--ink-2,#888);";
+          note.textContent = "Results may be incomplete — refine your search";
+          list.appendChild(note);
+        }
+      })
+      .catch(function (err) {
+        if (err && err.name === "AbortError") return;
+        if (seq !== requestSeq || !list) return;
+        showMessage(err && err.expired
+          ? "Session expired — please sign in again"
+          : "Search unavailable, try again");
       });
   }
 
@@ -122,6 +164,9 @@
   }
 
   function close() {
+    clearTimeout(debounceTimer);
+    requestSeq++;
+    if (inflight) { inflight.abort(); inflight = null; }
     if (overlay) {
       overlay.remove();
       overlay = null;
