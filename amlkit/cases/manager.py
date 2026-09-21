@@ -1951,37 +1951,31 @@ def run_adverse_media_async(
     window_months: int = DEFAULT_WINDOW_MONTHS,
     actor: str = "system",
 ) -> str:
-    """Start adverse media search in background thread, return immediately.
+    """Start adverse media search in background, return immediately.
 
     Returns job_id (UUID) that can be used to check status with
-    check_adverse_media_status(). The search runs in a background thread and
-    stores results in the database when complete.
-
-    This is the non-blocking version of run_adverse_media() - it returns
-    immediately instead of waiting for HTTP calls to complete. Useful for:
-    - Onboarding flows where blocking on GDELT (5+ seconds) is unacceptable
-    - Bulk screening operations
-    - API endpoints that need low latency
-
-    The background thread uses the same connection - SQLite WAL mode allows
-    concurrent reads and one writer, so this works safely as long as the
-    connection is used from only one thread at a time (which it is - the
-    background thread writes, foreground reads).
+    check_adverse_media_status(). When AMLKIT_TASKS_BACKEND=cloudtasks,
+    enqueues via Cloud Tasks (payload carries only IDs, no PII); otherwise
+    runs in a background thread (default for local dev and tests).
     """
+    import os
+    if os.environ.get("AMLKIT_TASKS_BACKEND", "").lower() == "cloudtasks":
+        from ..jobs import dispatch
+        payload = {"org_id": org_id, "trigger": trigger, "actor": actor,
+                   "window_months": window_months}
+        if customer_id:
+            payload["customer_id"] = customer_id
+        return dispatch("adverse_media", payload)
+
     job_id = str(uuid.uuid4())
 
-    # Get DB path from connection to open new connection in thread
     db_path = conn.execute("PRAGMA database_list").fetchone()[2]
 
     def _background_search():
-        """Run search in background and store results."""
         from ..db import connect
 
         try:
-            # Open new connection for this thread
             thread_conn = connect(db_path)
-
-            # Run synchronous search
             screening_id, result, new_findings = run_adverse_media(
                 thread_conn,
                 org_id=org_id,
@@ -1994,8 +1988,6 @@ def run_adverse_media_async(
                 window_months=window_months,
                 actor=actor,
             )
-
-            # Update job status
             with _jobs_lock:
                 _adverse_media_jobs[job_id] = {
                     "status": "complete",
@@ -2004,11 +1996,8 @@ def run_adverse_media_async(
                     "new_findings": new_findings,
                     "error": None,
                 }
-
             thread_conn.close()
-
         except Exception as exc:
-            # Store error
             with _jobs_lock:
                 _adverse_media_jobs[job_id] = {
                     "status": "failed",
@@ -2018,7 +2007,6 @@ def run_adverse_media_async(
                     "new_findings": 0,
                 }
 
-    # Register job as pending
     with _jobs_lock:
         _adverse_media_jobs[job_id] = {
             "status": "pending",
@@ -2028,7 +2016,6 @@ def run_adverse_media_async(
             "error": None,
         }
 
-    # Start background thread
     thread = threading.Thread(target=_background_search, daemon=True)
     thread.start()
 
