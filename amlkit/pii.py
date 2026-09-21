@@ -83,3 +83,73 @@ def redact(text: str | None) -> str:
     )
 
     return text
+
+
+# ---------------------------------------------------------------- Cloud DLP (optional)
+
+
+def inspect_document(
+    content: bytes,
+    mime_type: str = "application/pdf",
+) -> list[dict]:
+    """Inspect a document for PII using Google Cloud DLP.
+
+    Only runs when AMLKIT_DLP_ENABLED=1. Returns a list of finding dicts
+    with keys: info_type, likelihood, quote (redacted).
+
+    Fails closed: if the DLP API rejects the configured location, logs a
+    warning and returns an empty list (does not fall back to global).
+    """
+    import logging
+    import os
+
+    log = logging.getLogger("amlkit.pii")
+
+    if os.environ.get("AMLKIT_DLP_ENABLED", "0") != "1":
+        return []
+
+    location = os.environ.get("AMLKIT_DLP_LOCATION", "me-central1")
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("AMLKIT_TASKS_PROJECT", "")
+
+    if not project:
+        log.warning("DLP enabled but no GCP project configured")
+        return []
+
+    try:
+        from google.cloud import dlp_v2
+    except ImportError:
+        log.warning("google-cloud-dlp not installed; DLP inspection skipped")
+        return []
+
+    client = dlp_v2.DlpServiceClient()
+    parent = f"projects/{project}/locations/{location}"
+
+    inspect_config = {
+        "info_types": [
+            {"name": "EMAIL_ADDRESS"},
+            {"name": "PASSPORT"},
+            {"name": "PHONE_NUMBER"},
+        ],
+        "min_likelihood": "POSSIBLE",
+        "include_quote": True,
+    }
+
+    item = {"byte_item": {"type_": mime_type, "data": content}}
+
+    try:
+        response = client.inspect_content(
+            request={"parent": parent, "inspect_config": inspect_config, "item": item}
+        )
+    except Exception as exc:
+        log.warning("Cloud DLP inspection failed (fail-closed): %s", exc)
+        return []
+
+    findings = []
+    for finding in response.result.findings:
+        findings.append({
+            "info_type": finding.info_type.name,
+            "likelihood": finding.likelihood.name,
+            "quote": redact(finding.quote) if finding.quote else None,
+        })
+
+    return findings

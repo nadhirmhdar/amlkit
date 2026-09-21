@@ -1963,11 +1963,16 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
     import io
 
     from fastapi.responses import StreamingResponse
+    from ..pii import redact as _redact_pii
 
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([_escape_csv_formula(h) for h in header])
-    writer.writerows([[_escape_csv_formula(cell) for cell in row] for row in rows])
+    writer.writerows([
+        [_escape_csv_formula(_redact_pii(str(cell)) if isinstance(cell, str) else cell)
+         for cell in row]
+        for row in rows
+    ])
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]), media_type="text/csv",
@@ -2064,6 +2069,8 @@ def audit_export(request: Request, db: DB):
     import io as _io
     from fastapi.responses import StreamingResponse
 
+    from ..pii import redact as _redact_pii
+
     entries = queries.audit_trail(db, session.org_id, limit=100000)
     buf = _io.StringIO()
     writer = csv.writer(buf)
@@ -2075,7 +2082,7 @@ def audit_export(request: Request, db: DB):
             e.get("actor", ""),
             e.get("object_type", ""),
             e.get("object_id", ""),
-            e.get("detail", ""),
+            _redact_pii(e.get("detail") or ""),
         ])
     buf.seek(0)
 
