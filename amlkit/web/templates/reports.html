@@ -9,7 +9,7 @@
     <h1>Reports</h1>
     <p class="sub">
       Suspicious Transaction Reports (STRs), Suspicious Activity Reports (SARs),
-      Partial Name Match Reports (PNMRs), and other UAE FIU regulatory filings.
+      Partial Name Match Reports (PNMRs), and other UAE FIU regulatory reports (finalized in amlkit, filed manually via goAML).
     </p>
   </div>
   <a class="btn" href="/reports/new">New STR</a>
@@ -22,7 +22,7 @@
         <span class="tag {{ 'high' if r.report_type in ('STR','SAR','FFR') else 'other' }}" style="width:80px;">{{ r.report_type }}</span>
         <div class="grow">
           <div class="primary">{{ r.reference or 'DRAFT-' ~ r.id }}</div>
-          <div class="secondary">{{ r.customer_name or 'No associated customer' }} &middot; filed {{ r.created_at[:16].replace('T', ' ') }}</div>
+          <div class="secondary">{{ r.customer_name or 'No associated customer' }} &middot; created {{ r.created_at[:16].replace('T', ' ') }}</div>
         </div>
         <span class="tag {{ 'low' if r.status == 'submitted' else 'other' }}" style="width:90px;">{{ r.status }}</span>
         <div style="display:flex; gap:8px;">
@@ -36,7 +36,7 @@
   <div class="panel empty-state">
     <div class="empty-state__icon">📄</div>
     <div class="empty-state__title">No regulatory reports created yet</div>
-    <p class="empty-state__text mt-0">Create a report draft to begin your filing process.</p>
+    <p class="empty-state__text mt-0">Create a report draft to begin your reporting process.</p>
   </div>
 {% endif %}
 

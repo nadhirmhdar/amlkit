@@ -137,6 +137,24 @@ def save_report(
     payload_json = json.dumps(payload_dict)
     now = utcnow()
 
+    if report_id:
+        # A submitted report is a filed regulatory record; the UI already
+        # tells the operator it is "locked and archived" once submitted, so
+        # the save path must actually enforce that rather than silently
+        # overwriting it. Also catches a report_id that doesn't belong to
+        # this org, which the bare UPDATE below would otherwise just no-op
+        # on (0 rows matched) and still report as a success.
+        existing = db.execute(
+            "SELECT status FROM reports WHERE id=? AND org_id=?", (report_id, org_id)
+        ).fetchone()
+        if existing is None:
+            return ReportResult(success=False, error=f"Report {report_id} not found.")
+        if existing["status"] != "draft":
+            return ReportResult(
+                success=False,
+                error=f"Report {report_id} has been finalized and can no longer be edited.",
+            )
+
     with db:
         if report_id:
             # Update existing report

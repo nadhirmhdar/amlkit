@@ -28,12 +28,14 @@ def _register_and_login(client, org_name: str, name: str, email: str, password: 
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": "test-invite",
     }, follow_redirects=True)
     assert "Check your email" in r.text
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m
     client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
     return client
 
 
@@ -92,6 +94,8 @@ class TestAdminRBAC:
             "email": "bob1@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/threshold", data={
             "threshold": "0.85", "csrf_token": _csrf(client),
@@ -107,6 +111,8 @@ class TestAdminRBAC:
             "email": "bob2@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/operators", data={
             "name": "charlie", "email": "charlie@testfirm.ae",
@@ -130,6 +136,8 @@ class TestAdminRBAC:
             "email": "bob3@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post(f"/admin/operators/{bob_id}/reset-password", data={
             "new_password": "new-password-123", "csrf_token": _csrf(client),
@@ -151,6 +159,8 @@ class TestAdminRBAC:
             "email": "bob4@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post(f"/admin/operators/{charlie_id}/deactivate", data={
             "csrf_token": _csrf(client),
@@ -165,6 +175,8 @@ class TestAdminRBAC:
             "email": "bob5@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/refresh", data={
             "csrf_token": _csrf(client),
@@ -179,6 +191,8 @@ class TestAdminRBAC:
             "email": "bob6@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/rescreen", data={
             "csrf_token": _csrf(client),
@@ -193,6 +207,8 @@ class TestAdminRBAC:
             "email": "bob7@testfirm.ae", "password": "a-strong-password-2",
             "csrf_token": _csrf(client),
         })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         r = client.post("/admin/rule-config", data={
             "large_cash_threshold_aed": "50000",
@@ -203,3 +219,15 @@ class TestAdminRBAC:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
         assert r.status_code == 403
+
+    def test_mlro_rule_config_page_renders(self, client) -> None:
+        """GET /admin/rule-config renders the configuration form body.
+
+        Regression test: the template previously declared {% block content %}
+        while base.html renders {% block body %}, so the page rendered blank
+        (200 OK, empty body) for every MLRO.
+        """
+        r = client.get("/admin/rule-config")
+        assert r.status_code == 200
+        assert "Transaction Monitoring Rules" in r.text
+        assert "large_cash_threshold_aed" in r.text

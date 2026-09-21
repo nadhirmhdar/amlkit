@@ -32,11 +32,13 @@ def _register(client, org_name, name, email, password="a-strong-password-1"):
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": "test-invite",
     }, follow_redirects=True)
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     if m:
         client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
     return client
 
 
@@ -69,6 +71,8 @@ def test_login_success_records_ip(client):
         "password": "a-strong-password-1",
         "csrf_token": _csrf(client),
     }, follow_redirects=False)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
     assert r.status_code == 303
 
     # Check auth_log has IP for login_success
@@ -90,6 +94,8 @@ def test_login_failure_records_ip(client):
         "password": "wrong-password",
         "csrf_token": _csrf(client),
     }, follow_redirects=False)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
     assert r.status_code == 200  # Returns login page with error
 
     # Check auth_log has IP for login_failure
@@ -112,6 +118,8 @@ def test_login_failure_unknown_email_records_ip(client):
         "password": "any-password",
         "csrf_token": _csrf(client),
     }, follow_redirects=False)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
     assert r.status_code == 200
 
     conn = _db()

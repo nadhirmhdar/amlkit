@@ -142,21 +142,23 @@ class SessionInfo:
     disclaimer_acknowledged: bool = False
 
 
-def create_session(conn: sqlite3.Connection, operator_id: int, org_id: int) -> str:
+def create_session(conn: sqlite3.Connection, operator_id: int, org_id: int, mfa_verified: bool = True) -> str:
     """Create a session row and return the raw token to set as a cookie.
 
     Only the hash is ever stored -- identical treatment to a password, since
     the token IS a credential for the lifetime of the session.
+
+    mfa_verified: Set to False for MLRO users awaiting MFA challenge (p15).
     """
     raw = _new_token()
     _enforce_session_limit(conn, operator_id)
     now = datetime.now(timezone.utc)
     now_str = utcnow()
     conn.execute(
-        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at, last_active)
-           VALUES (?,?,?,?,?,?)""",
+        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at, last_active, mfa_verified)
+           VALUES (?,?,?,?,?,?,?)""",
         (_token_hash(raw), operator_id, org_id, now_str,
-         (now + SESSION_LIFETIME).isoformat(timespec="seconds"), now_str),
+         (now + SESSION_LIFETIME).isoformat(timespec="seconds"), now_str, 1 if mfa_verified else 0),
     )
     conn.commit()
     return raw
@@ -507,46 +509,191 @@ def csrf_valid(cookie_value: str | None, form_value: str | None) -> bool:
 
 
 # --------------------------------------------------------------------- MFA/TOTP (p15)
-def mfa_enroll(conn, operator_id: int):
-    """Enroll operator in MFA. Returns (secret, qr_uri, backup_codes)."""
+MFA_MAX_FAILURES = 5
+MFA_LOCKOUT = timedelta(minutes=15)
+
+
+def mfa_enroll(conn, operator_id: int) -> tuple[str, str]:
+    """Start, or resume, TOTP enrolment. Returns (secret, provisioning_uri).
+
+    The secret is only *pending* until mfa_confirm(): confirmed_at stays NULL
+    so an abandoned setup page never counts as an enrolment. A pending secret
+    is reused rather than rotated, so reloading /mfa/setup after scanning
+    does not invalidate the authenticator the operator just set up. Backup
+    codes are issued by mfa_confirm(), once the authenticator is proven.
+    """
     import pyotp
 
-    secret = pyotp.random_base32()
-
-    row = conn.execute("SELECT email, name FROM operators WHERE id=?", (operator_id,)).fetchone()
+    row = conn.execute("SELECT email FROM operators WHERE id=?", (operator_id,)).fetchone()
     email = row["email"]
 
-    from .db import utcnow
-    now = utcnow()
-    conn.execute(
-        "INSERT OR REPLACE INTO mfa_secrets (operator_id, secret, enrolled_at) VALUES (?,?,?)",
-        (operator_id, secret, now)
-    )
+    pending = conn.execute(
+        "SELECT secret FROM mfa_secrets WHERE operator_id=? AND confirmed_at IS NULL",
+        (operator_id,),
+    ).fetchone()
+    if pending:
+        secret = pending["secret"]
+    else:
+        secret = pyotp.random_base32()
+        conn.execute(
+            "INSERT OR REPLACE INTO mfa_secrets"
+            " (operator_id, secret, enrolled_at, confirmed_at, failed_attempts, locked_until)"
+            " VALUES (?,?,?,NULL,0,NULL)",
+            (operator_id, secret, utcnow()),
+        )
+        conn.commit()
 
-    backup_codes = _generate_backup_codes(conn, operator_id)
-
-    conn.commit()
-
-    totp = pyotp.TOTP(secret)
-    qr_uri = totp.provisioning_uri(name=email, issuer_name="amlkit")
-
-    return secret, qr_uri, backup_codes
+    qr_uri = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name="amlkit")
+    return secret, qr_uri
 
 
-def mfa_verify(conn, operator_id: int, code: str) -> bool:
-    """Verify TOTP code for operator."""
+def mfa_verify(conn, operator_id: int, code: str, *, confirmed_only: bool = False) -> bool:
+    """Verify a TOTP code for operator.
+
+    confirmed_only=True is the login challenge: only a confirmed enrolment
+    counts. The default also accepts the pending secret shown on /mfa/setup,
+    which is how that enrolment gets confirmed in the first place.
+    """
     import pyotp
-    
+
     row = conn.execute(
-        "SELECT secret FROM mfa_secrets WHERE operator_id=?",
+        "SELECT secret, confirmed_at FROM mfa_secrets WHERE operator_id=?",
         (operator_id,)
     ).fetchone()
-    
-    if not row:
+
+    if not row or (confirmed_only and row["confirmed_at"] is None):
         return False
-    
+
     totp = pyotp.TOTP(row["secret"])
     return totp.verify(code, valid_window=1)
+
+
+def mfa_confirm(conn, operator_id: int) -> list[str]:
+    """Promote the pending secret to a live enrolment (first TOTP proven).
+
+    Returns the ten plaintext backup codes, which exist from this moment
+    only: they are shown once and stored argon2-hashed.
+    """
+    conn.execute(
+        "UPDATE mfa_secrets SET confirmed_at=?, failed_attempts=0, locked_until=NULL"
+        " WHERE operator_id=? AND confirmed_at IS NULL",
+        (utcnow(), operator_id),
+    )
+    codes = _generate_backup_codes(conn, operator_id)
+    conn.commit()
+    return codes
+
+
+def mfa_check_code(conn, operator_id: int, code: str, *, stage: str, actor: str, org_id: int) -> str:
+    """Check a code against the operator's enrolment, with lockout.
+
+    stage="setup" accepts the pending secret (this is how enrolment is
+    confirmed); stage="verify" is the sign-in challenge and accepts a
+    confirmed TOTP or one unused backup code. Returns "ok", "invalid" or
+    "locked". MFA_MAX_FAILURES consecutive misses lock the challenge for
+    MFA_LOCKOUT, and every miss and every lockout is an audit row, so a
+    brute-force attempt is visible to the operator's own firm.
+    """
+    row = conn.execute(
+        "SELECT failed_attempts, locked_until FROM mfa_secrets WHERE operator_id=?",
+        (operator_id,),
+    ).fetchone()
+    if row is None:
+        return "invalid"
+    if row["locked_until"] and row["locked_until"] > utcnow():
+        return "locked"
+
+    code = (code or "").strip().replace(" ", "")
+    ok = mfa_verify(conn, operator_id, code, confirmed_only=(stage == "verify"))
+    if not ok and stage == "verify":
+        ok = mfa_verify_backup_code(conn, operator_id, code)
+    if ok:
+        conn.execute(
+            "UPDATE mfa_secrets SET failed_attempts=0, locked_until=NULL WHERE operator_id=?",
+            (operator_id,),
+        )
+        conn.commit()
+        return "ok"
+
+    failures = row["failed_attempts"] + 1
+    locked_until = None
+    if failures >= MFA_MAX_FAILURES:
+        locked_until = (datetime.now(timezone.utc) + MFA_LOCKOUT).isoformat(timespec="seconds")
+    conn.execute(
+        "UPDATE mfa_secrets SET failed_attempts=?, locked_until=? WHERE operator_id=?",
+        (0 if locked_until else failures, locked_until, operator_id),
+    )
+    audit(conn, actor, "mfa.failed", "operator", operator_id,
+          {"stage": stage, "consecutive_failures": failures}, org_id=org_id)
+    if locked_until:
+        audit(conn, actor, "mfa.locked", "operator", operator_id,
+              {"until": locked_until, "after_failures": failures}, org_id=org_id)
+    conn.commit()
+    return "locked" if locked_until else "invalid"
+
+
+def mfa_challenge_path(conn, operator_id: int) -> str:
+    """Where a locked MLRO session must go next: the TOTP challenge if
+    enrolled, otherwise enrolment."""
+    return "/mfa/verify" if mfa_is_enrolled(conn, operator_id) else "/mfa/setup"
+
+
+def mfa_lock_session(conn, raw_token: str, operator_id: int, role: str) -> str | None:
+    """Lock a freshly issued session behind MFA when the operator is an MLRO.
+
+    Every path that mints a session for a human (form login, verify-email
+    auto-login, setup-token claim, and their mobile counterparts) calls this
+    right after create_session()/login(), so no entry point hands an MLRO an
+    unlocked session. Returns the challenge path to send them to, or None
+    when the role is not challenged.
+    """
+    if role != "mlro":
+        return None
+    set_session_mfa_verified(conn, raw_token, False)
+    return mfa_challenge_path(conn, operator_id)
+
+
+def mfa_is_enrolled(conn, operator_id: int) -> bool:
+    """True only for a confirmed enrolment; a pending /mfa/setup secret is not one."""
+    row = conn.execute(
+        "SELECT 1 FROM mfa_secrets WHERE operator_id=? AND confirmed_at IS NOT NULL",
+        (operator_id,),
+    ).fetchone()
+    return row is not None
+
+
+def mfa_session_state(conn, raw_token: str | None):
+    """Live session row for the MFA challenge pages, or None.
+
+    Unlike resolve_session() this also returns sessions still awaiting MFA,
+    so /mfa/* can identify the operator without granting tenant access.
+    """
+    if not raw_token:
+        return None
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return conn.execute(
+        """SELECT s.operator_id, s.org_id, s.mfa_verified, o.name, o.email, o.role
+           FROM sessions s JOIN operators o ON o.id = s.operator_id
+           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at > ?""",
+        (_token_hash(raw_token), now),
+    ).fetchone()
+
+
+def session_mfa_verified(conn, raw_token: str | None) -> bool:
+    if not raw_token:
+        return False
+    row = conn.execute(
+        "SELECT mfa_verified FROM sessions WHERE token_hash=?", (_token_hash(raw_token),)
+    ).fetchone()
+    return bool(row and row["mfa_verified"])
+
+
+def set_session_mfa_verified(conn, raw_token: str, verified: bool) -> None:
+    conn.execute(
+        "UPDATE sessions SET mfa_verified=? WHERE token_hash=?",
+        (1 if verified else 0, _token_hash(raw_token)),
+    )
+    conn.commit()
 
 
 def mfa_get_backup_codes(conn, operator_id: int) -> list:

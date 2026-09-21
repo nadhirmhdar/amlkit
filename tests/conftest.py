@@ -4,6 +4,39 @@ import pytest
 from amlkit.db import connect, upsert_dataset, utcnow
 from amlkit.names.arabic import blocking_keys, canonical_key
 
+INVITE_CODE = "test-invite"
+
+
+def register_org(client, org_name, name, email, password="a-strong-password-1", invite_code="test-invite"):
+    """Register an organization and verify email to get a logged-in session.
+
+    Used by test files that need a working organization fixture but don't use
+    the main `client` fixture (e.g., files with their own setUp).
+    """
+    import re
+    client.get("/register-organization")
+    csrf = client.cookies.get("amlkit_csrf")
+    r = client.post("/register-organization", data={
+        "org_name": org_name, "name": name, "email": email, "password": password,
+        "csrf_token": csrf, "invite_code": invite_code,
+    }, follow_redirects=True)
+    assert "Check your email" in r.text or "Welcome" in r.text, f"registration failed: {r.text[:300]}"
+    m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
+    if m:
+        client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
+        settle_mfa(client)  # p15: the first operator is the MLRO; its session starts locked
+    return client
+
+
+@pytest.fixture(autouse=True)
+def _invite_code_and_limiter_reset(monkeypatch):
+    """Every test gets AMLKIT_REGISTRATION_INVITE_CODE set and a fresh rate-limiter."""
+    monkeypatch.setenv("AMLKIT_REGISTRATION_INVITE_CODE", INVITE_CODE)
+    from amlkit.api.app import limiter
+    limiter.reset()
+    yield
+    limiter.reset()
+
 
 LISTED = "AHMED ABD AL-JALEEL AL-HASNAWI"
 
@@ -34,6 +67,70 @@ def seed_fresh_dataset(conn, key="test_list", title="Synthetic Test List"):
         conn.execute("INSERT OR IGNORE INTO name_tokens (token, entity_id) VALUES (?,?)", (tok, eid))
     conn.commit()
     return ds
+
+
+def settle_mfa(client) -> None:
+    """Get a freshly minted MLRO session past the MFA gate (p15).
+
+    Every session minted for an MLRO -- verify-email auto-login, setup-token
+    claim, the login form -- starts locked, so test helpers call this right
+    after those steps. On first sight it enrols (and remembers the TOTP secret
+    on the client); on a later form login by the same client it answers the
+    challenge with a remembered secret. A no-op when nothing is locked
+    (officers, already-verified sessions, failed logins).
+    """
+    import re
+    import pyotp
+
+    page = client.get("/mfa/setup", follow_redirects=False)
+    if page.status_code == 200:
+        secret = re.search(r"\b([A-Z2-7]{32})\b", page.text).group(1)
+        r = client.post("/mfa/setup", data={
+            "code": pyotp.TOTP(secret).now(),
+            "csrf_token": client.cookies.get("amlkit_csrf"),
+        }, follow_redirects=False)
+        assert r.status_code == 200 and "backup codes" in r.text.lower(), \
+            (r.status_code, r.headers.get("location"))
+        known = getattr(client, "_amlkit_mfa_secrets", [])
+        client._amlkit_mfa_secrets = [secret] + [k for k in known if k != secret]
+        return
+    if page.headers.get("location") != "/mfa/verify":
+        return  # nothing locked
+    known = getattr(client, "_amlkit_mfa_secrets", [])
+    assert known, "session is locked at /mfa/verify but this client never enrolled"
+    for secret in known:
+        r = client.post("/mfa/verify", data={
+            "code": pyotp.TOTP(secret).now(),
+            "csrf_token": client.cookies.get("amlkit_csrf"),
+        }, follow_redirects=False)
+        if r.headers.get("location") == "/":
+            return
+    raise AssertionError("no remembered TOTP secret unlocked this session")
+
+
+complete_mfa_enrolment = settle_mfa  # older name, same behaviour
+
+
+def unlock_mobile_mfa(client, token: str) -> None:
+    """Enrol + unlock a locked MLRO bearer token (p15).
+
+    A bearer token and a session cookie are the same sessions row, so the
+    web enrolment page can be driven with the token as the cookie; the
+    client's own cookie (if any) is put back afterwards.
+    """
+    previous = client.cookies.get("amlkit_session")
+    client.cookies.set("amlkit_session", token)
+    client.get("/login")  # a locked session is sent on to /mfa/setup, which issues the CSRF cookie
+    settle_mfa(client)
+    client.cookies.delete("amlkit_session")
+    if previous:
+        client.cookies.set("amlkit_session", previous)
+
+
+@pytest.fixture()
+def complete_mfa():
+    """Fixture form of settle_mfa() for fixtures that log in through the form."""
+    return settle_mfa
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -74,9 +171,9 @@ def conn():
 def org_id(conn) -> int:
     """Test organization."""
     row = conn.execute(
-        "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+        "INSERT INTO organizations (name, slug, status, created_at, goaml_entity_reference) VALUES (?,?,?,?,?)"
         " RETURNING id",
-        ("Test Firm", "test-firm", "active", utcnow()),
+        ("Test Firm", "test-firm", "active", utcnow(), "TEST-ORG-001"),
     ).fetchone()
     conn.commit()
     return row["id"]

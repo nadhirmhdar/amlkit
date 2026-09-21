@@ -29,13 +29,15 @@ def api(tmp_path, monkeypatch):
     c = TestClient(app)
     r = c.post("/api/v1/auth/register-organization", json={
         "org_name": "Test Firm", "name": "alice", "email": "alice@testfirm.ae",
-        "password": "a-strong-password-1",
+        "password": "a-strong-password-1", "invite_code": "test-invite",
     })
     assert r.status_code == 200, r.text
     verify_token = r.json()["dev_verification_token"]
     r2 = c.post("/api/v1/auth/verify-email", json={"token": verify_token})
     assert r2.status_code == 200, r2.text
     mlro_token = r2.json()["token"]
+    from conftest import unlock_mobile_mfa  # p15: MLRO tokens start locked
+    unlock_mobile_mfa(c, mlro_token)
     mlro_headers = {"Authorization": f"Bearer {mlro_token}"}
 
     r3 = c.post("/api/v1/admin/operators", headers=mlro_headers, json={
@@ -76,7 +78,39 @@ class TestMlroReportSubmitAPI:
         assert r.status_code == 403
 
     def test_mlro_can_submit_report(self, api) -> None:
+        """MLRO can submit and response clarifies manual FIU transmission (issue #141)."""
         client, mlro_headers, _ = api
         rid = _create_report(client, mlro_headers)
         r = client.post(f"/api/v1/reports/{rid}/submit", headers=mlro_headers)
         assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert data["finalized"] is True
+        assert data["fiu_transmission"] == "manual"
+        assert "goAML portal" in data["message"]
+        assert "UAE FIU successfully" not in data["message"]
+
+    def test_double_finalize_rejected(self, api) -> None:
+        """Second finalize returns 409 and neither rewrites submitted_at nor re-audits."""
+        import os
+        from amlkit.db import connect
+        client, mlro_headers, _ = api
+        rid = _create_report(client, mlro_headers)
+        assert client.post(f"/api/v1/reports/{rid}/submit", headers=mlro_headers).status_code == 200
+
+        conn = connect(os.environ["AMLKIT_DB"])
+        first = conn.execute("SELECT submitted_at FROM reports WHERE id=?", (rid,)).fetchone()[0]
+        conn.close()
+
+        r = client.post(f"/api/v1/reports/{rid}/submit", headers=mlro_headers)
+        assert r.status_code == 409
+        assert "already been finalized" in r.json()["detail"]
+
+        conn = connect(os.environ["AMLKIT_DB"])
+        second = conn.execute("SELECT submitted_at FROM reports WHERE id=?", (rid,)).fetchone()[0]
+        n = conn.execute(
+            "SELECT COUNT(*) FROM audit_log WHERE action='report.finalized' AND object_id=?",
+            (str(rid),)).fetchone()[0]
+        conn.close()
+        assert second == first
+        assert n == 1

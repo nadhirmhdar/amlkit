@@ -591,10 +591,12 @@ class TestMobileApi:
         client = TestClient(app)
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "API Firm", "name": "alice", "email": "alice@apifirm.ae",
-            "password": "a-strong-password-1",
+            "password": "a-strong-password-1", "invite_code": "test-invite",
         })
         token = r.json()["dev_verification_token"]
         r = client.post("/api/v1/auth/verify-email", json={"token": token})
+        from conftest import unlock_mobile_mfa  # p15: MLRO tokens start locked
+        unlock_mobile_mfa(client, r.json()["token"])
         return client, {"Authorization": f"Bearer {r.json()['token']}"}
 
     def test_run_and_disposition(self, api, monkeypatch) -> None:
