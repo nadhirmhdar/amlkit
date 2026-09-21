@@ -400,6 +400,37 @@ def close_relationship(
     return until
 
 
+def reactivate_customer(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    reason: str,
+    actor: str = "system",
+) -> None:
+    """Reactivate a closed customer, resetting the retention period from today."""
+    row = conn.execute(
+        "SELECT status FROM customers WHERE id=? AND org_id=?",
+        (customer_id, org_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("Customer not found")
+    if row["status"] != "closed":
+        raise ValueError("Only closed customers can be reactivated")
+    today = date.today()
+    try:
+        new_retention = today.replace(year=today.year + RETENTION_YEARS).isoformat()
+    except ValueError:
+        new_retention = (today + timedelta(days=365 * RETENTION_YEARS + 1)).isoformat()
+    with conn:
+        conn.execute(
+            "UPDATE customers SET status='active', retention_until=?, updated_at=?"
+            " WHERE id=? AND org_id=?",
+            (new_retention, utcnow(), customer_id, org_id),
+        )
+        audit(conn, actor, "customer.reactivated", "customer", customer_id,
+              {"reason": reason, "retention_until": new_retention}, org_id=org_id)
+
+
 def purge_expired(
     conn: sqlite3.Connection,
     org_id: int,

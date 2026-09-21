@@ -4,9 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}amlkit{% endblock %}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -27,9 +25,8 @@
     </div>
     <nav aria-label="Main navigation">
       <a href="/"          class="{{ 'on' if nav=='home' }}">Home</a>
-      <a href="/dashboard" class="{{ 'on' if nav=='dash' }}">Dashboard</a>
+      <a href="/dashboard" class="{{ 'on' if nav in ('dash','alerts') }}">Dashboard</a>
       <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
-      <a href="/alerts"    class="{{ 'on' if nav=='alerts' }}">Alerts</a>
       <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
@@ -38,39 +35,28 @@
         <a href="/freeze-obligations" class="{{ 'on' if nav=='freeze' }}">Freeze Obligations</a>
       {% endif %}
     </nav>
-    <div class="spacer"></div>
-    <button id="alerts-drawer-toggle" class="small" style="width:calc(100% - 24px); margin:0 12px 12px;">
-      Alerts <span id="alerts-badge" class="badge" style="display:none;">0</span>
-    </button>
   </aside>
-
-  <div id="alerts-drawer" style="display:none; position:fixed; left:200px; top:0; width:320px; height:100vh; background:var(--bg); border-right:1px solid var(--line); z-index:999; overflow-y:auto; padding:16px; box-shadow:2px 0 8px rgba(0,0,0,0.08);">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-      <strong>Open Alerts</strong>
-      <button id="alerts-drawer-close" class="small" aria-label="Close alerts">&times;</button>
-    </div>
-    <div id="alerts-drawer-content">
-      <p class="muted small">Loading...</p>
-    </div>
-  </div>
 
   {# Content column: wraps the topnav bar and main so they stack vertically.
      Without this, desktop-topnav was a flex sibling of sidebar and main in a
      row, appearing as a narrow strip rather than a full-width header. #}
   <div class="content-col">
 
-  {# Desktop top nav — visible on tablets/desktop (>680px). Has profile
-     avatar chip top-right with dropdown for profile, admin, audit, policies. #}
+  {# Desktop top nav — visible on tablets/desktop (>680px). Avatar-only
+     button top-right, same as the phone header; the dropdown carries the
+     name, role and org. #}
   <div class="desktop-topnav no-print">
     <div class="user-menu-wrap" id="desktop-user-menu-wrap">
       <button class="user-menu-btn" data-action="toggle-desktop-user-menu" aria-label="User menu" aria-expanded="false">
         <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
-        <span class="desktop-user-name">{{ session.operator_name }}</span>
       </button>
       <div class="user-dropdown" role="menu">
         <div class="user-dropdown__header">
           <strong>{{ session.operator_name }}</strong>
           <span class="user-dropdown__role">{{ session.operator_role }}</span>
+          {% if org_name %}
+            <span class="user-dropdown__role muted">{{ org_name }}</span>
+          {% endif %}
         </div>
         <a href="/reports" class="user-dropdown__item" role="menuitem">Reports</a>
         <a href="/audit" class="user-dropdown__item" role="menuitem">Audit Trails</a>
@@ -154,7 +140,7 @@
       <div class="banner {{ 'err' if dataset_banner.severity == 'critical' else 'warning' }}">
         <strong>{{ dataset_banner.message }}</strong>
         {% if session.operator_role == 'mlro' %}
-          — <a href="{{ dataset_banner.link }}">View compliance dashboard</a>
+          <a href="{{ dataset_banner.link }}">View compliance dashboard</a>
         {% endif %}
       </div>
     {% endif %}

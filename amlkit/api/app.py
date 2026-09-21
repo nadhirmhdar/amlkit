@@ -37,6 +37,7 @@ from ..cases.manager import (
     add_case_note,
     add_ubo,
     close_relationship,
+    reactivate_customer,
     disposition_adverse_media_finding,
     disposition_transaction_alert,
     onboard,
@@ -60,6 +61,7 @@ from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
+from .csv_utils import _escape_csv_formula
 from .deps import (
     CSRF_COOKIE,
     SESSION_COOKIE,
@@ -1206,6 +1208,26 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
     return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()}, db)
 
 
+@app.get("/customers/{customer_id}/gdelt-bq")
+def customer_gdelt_bq(request: Request, db: DB, customer_id: int):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    cust = queries.customer(db, customer_id, session.org_id)
+    if not cust:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    from ..screening.gdelt_bq import GdeltBqScreener
+    screener = GdeltBqScreener()
+    result = screener.screen(cust["full_name"])
+
+    from dataclasses import asdict
+    return JSONResponse(asdict(result))
+
+
 @app.get("/customers/{customer_id}/kg-screen")
 def customer_kg_screen(request: Request, db: DB, customer_id: int):
     from fastapi.responses import JSONResponse
@@ -1236,6 +1258,33 @@ def customer_close(request: Request, db: DB, customer_id: int,
         return back(f"/customers/{customer_id}", err=str(exc))
     until = close_relationship(db, customer_id, org_id=session.org_id, actor=session.operator_name)
     return back(f"/customers/{customer_id}", msg=f"Relationship closed. Records retained until {until}.")
+
+
+@app.post("/customers/{customer_id}/reactivate")
+def customer_reactivate(
+    request: Request, db: DB, customer_id: int,
+    reason: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    try:
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    try:
+        reactivate_customer(db, customer_id, org_id=session.org_id,
+                            reason=reason.strip() or "No reason provided",
+                            actor=session.operator_name)
+    except ValueError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    return back(f"/customers/{customer_id}", msg="Customer reactivated.")
 
 
 @app.post("/customers/{customer_id}/ubo")
@@ -1679,22 +1728,6 @@ def customers_csv(request: Request, db: DB):
             for c in rows
         ],
     )
-
-
-def _escape_csv_formula(value):
-    """Escape cells starting with formula injection characters.
-
-    Prefixes cells starting with =, +, -, @, tab, or carriage return with a
-    single quote to prevent Excel/LibreOffice from interpreting them as formulas.
-    This is the standard mitigation for CSV formula injection (also known as
-    CSV injection or formula injection attacks).
-    """
-    if value is None:
-        return value
-    s = str(value)
-    if s and s[0] in ('=', '+', '-', '@', '\t', '\r'):
-        return "'" + s
-    return s
 
 
 def _csv_response(filename: str, header: list[str], rows: list[list]):
@@ -2751,6 +2784,17 @@ def report_export_xml(request: Request, db: DB, report_id: int):
     from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
 
     payload = json.loads(rep["payload"] or "{}")
+
+    if not payload.get("reporting_entity_name"):
+        org = db.execute(
+            "SELECT name, org_address FROM organizations WHERE id = ?",
+            (session.org_id,),
+        ).fetchone()
+        if org:
+            payload["reporting_entity_name"] = org["name"]
+            if org["org_address"] and not payload.get("reporting_entity_branch"):
+                payload["reporting_entity_branch"] = org["org_address"]
+
     try:
         xml_content = serialize_goaml_xml(payload)
     except GoAMLValidationError as exc:

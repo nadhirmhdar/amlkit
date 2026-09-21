@@ -26,3 +26,7 @@ documents/
 scratch_*.py
 .env
 
+# MCP Toolbox binary (downloaded, not committed)
+toolbox/toolbox
+toolbox/toolbox.exe
+
