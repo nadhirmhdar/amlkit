@@ -323,7 +323,7 @@ main {
   font: inherit; font-size: 15px; color: var(--ink); padding: 6px 0;
 }
 .home-quick-screen button { border-radius: 999px; flex-shrink: 0; }
-.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .action-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 40px; }
 @media (max-width: 860px) {
   .action-cards { grid-template-columns: 1fr; }
