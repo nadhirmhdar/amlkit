@@ -276,7 +276,44 @@ def test_cross_org_freeze_isolation(client):
 
 
 def test_freeze_list_view_renders(client):
-    """GET /freeze-obligations list view renders successfully."""
+    """GET /freeze-obligations list view renders successfully.
+
+    Asserts on body content (not just the <title> tag, which is set by a
+    separate block and would still read "Freeze Obligations" even if the
+    page body itself were blank).
+    """
     r = client.get("/freeze-obligations")
     assert r.status_code == 200
-    assert "Freeze Obligations" in r.text
+    assert "TFS Freeze Obligations" in r.text
+    assert "Cabinet Resolution 134/2025" in r.text
+
+
+def test_freeze_detail_view_renders(client):
+    """GET /freeze-obligations/{id} detail view renders the obligation body."""
+    from amlkit.db import utcnow
+
+    conn = _db()
+    org_id = conn.execute("SELECT id FROM organizations LIMIT 1").fetchone()["id"]
+    now = utcnow()
+    cur = conn.execute("""
+        INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+                               status, onboarded_at, created_at, updated_at)
+        VALUES (?, 'C-FREEZE-DETAIL', 'Detail Test Customer', 'natural', 'detail_test_customer',
+                'active', ?, ?, ?)
+    """, (org_id, now, now, now))
+    customer_id = cur.lastrowid
+
+    cur = conn.execute("""
+        INSERT INTO freeze_obligations (org_id, customer_id, obligation_type, risk_category,
+                                        status, identified_at, identified_by, authority_ref)
+        VALUES (?, ?, 'sanctions', 'critical', 'pending_execution', ?, 'alice', 'UN-456')
+    """, (org_id, customer_id, now))
+    freeze_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    r = client.get(f"/freeze-obligations/{freeze_id}")
+    assert r.status_code == 200
+    assert f"Freeze Obligation #{freeze_id}" in r.text
+    assert "Detail Test Customer" in r.text
+    assert "by alice" in r.text
