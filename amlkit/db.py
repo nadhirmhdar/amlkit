@@ -1119,7 +1119,20 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     """
     target = Path(path) if path else DB_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target, timeout=30)
+    # check_same_thread=False: api/deps.py hands out one connection per
+    # request via a sync generator dependency, and FastAPI/Starlette runs a
+    # sync generator dependency's setup and its teardown (the code after
+    # `yield`) as separate calls into the threadpool -- each one can land on
+    # a different worker thread. With the sqlite3 default (True), a request
+    # whose teardown lands on a different thread than its setup raises
+    # sqlite3.ProgrammingError ("SQLite objects created in a thread can only
+    # be used in that same thread"), a 500 under concurrent load. Each
+    # request still gets its own dedicated connection, closed at the end of
+    # that same request -- nothing here shares one connection across
+    # concurrently-running threads -- so disabling the check is safe; the
+    # WAL journal mode and busy_timeout PRAGMA below already handle actual
+    # concurrent access from separate connections.
+    conn = sqlite3.connect(target, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
