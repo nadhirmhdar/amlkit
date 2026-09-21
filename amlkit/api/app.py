@@ -657,10 +657,10 @@ def mfa_setup_form(request: Request, db: DB):
 
     # Rendered locally: the provisioning URI carries the TOTP secret, so it must
     # never be sent to a third-party QR service (and the CSP would block one).
-    import base64
+    # svg_data_uri() keeps the xmlns declaration; svg_inline() strips it, and an
+    # <img> decoder refuses a namespace-less SVG (broken-image icon).
     import segno
-    svg = segno.make(qr_uri, error="m").svg_inline(scale=5, border=2)
-    qr_data_uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+    qr_data_uri = segno.make(qr_uri, error="m").svg_data_uri(scale=5, border=2)
 
     return render(request, "mfa_setup.html", {
         "session": None,
@@ -1440,7 +1440,7 @@ def customer_gdelt_bq(request: Request, db: DB, customer_id: int):
 
     from ..screening.gdelt_bq import GdeltBqScreener
     screener = GdeltBqScreener()
-    result = screener.screen(cust["full_name"])
+    result = screener.screen(cust["customer"]["full_name"])
 
     from dataclasses import asdict
     return JSONResponse(asdict(result))
@@ -2708,11 +2708,12 @@ def policies_download(request: Request, db: DB, policy_id: int):
             }
         )
     except ValueError as e:
-        return templates.TemplateResponse(
-            "error.html",
-            {"request": request, "error": str(e)},
-            status_code=404
-        )
+        # get_policy() raises ValueError for a missing policy (or an
+        # unreadable file). There is no error.html template and no HTML
+        # exception handler, so render a proper 404 the same way the report
+        # and customer download routes do, rather than a 500.
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)
