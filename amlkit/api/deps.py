@@ -107,17 +107,42 @@ def require_csrf(request: Request, form_csrf: str | None) -> None:
         raise PermissionError("Session expired or the form was submitted from a stale page. Reload and try again.")
 
 
-_SKIP_NETWORKS = (
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("127.0.0.0/8"),
-)
+# Default trusted proxy CIDRs: RFC1918 + link-local + loopback + Google Cloud Load Balancer ranges
+_DEFAULT_PROXY_CIDRS = [
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "169.254.0.0/16",
+    "127.0.0.0/8",
+    "35.191.0.0/16",      # Google Cloud Load Balancer
+    "130.211.0.0/22",     # Google Cloud Load Balancer
+]
+
+
+def _get_trusted_proxy_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    """Load trusted proxy CIDRs from env or use defaults."""
+    cidrs_str = os.environ.get("AMLKIT_TRUSTED_PROXY_CIDRS")
+    if cidrs_str:
+        # Parse comma-separated CIDRs from environment
+        cidrs = [c.strip() for c in cidrs_str.split(",") if c.strip()]
+    else:
+        cidrs = _DEFAULT_PROXY_CIDRS
+
+    networks = []
+    for cidr in cidrs:
+        try:
+            networks.append(ipaddress.ip_network(cidr))
+        except ValueError:
+            # Invalid CIDR, skip it
+            pass
+    return tuple(networks)
+
+
+_SKIP_NETWORKS = _get_trusted_proxy_networks()
 
 
 def _is_proxy_internal_ip(ip: str) -> bool:
-    """RFC 1918 + link-local + loopback — IPs that proxies/load balancers use internally."""
+    """Check if IP is in trusted proxy CIDR list (RFC 1918 + link-local + loopback + configured ranges)."""
     try:
         addr = ipaddress.ip_address(ip)
         return any(addr in net for net in _SKIP_NETWORKS)
