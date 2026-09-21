@@ -1208,6 +1208,26 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
     return render(request, "evidence.html", data | {"session": session, "generated_at": utcnow()}, db)
 
 
+@app.get("/customers/{customer_id}/gdelt-bq")
+def customer_gdelt_bq(request: Request, db: DB, customer_id: int):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    cust = queries.customer(db, customer_id, session.org_id)
+    if not cust:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    from ..screening.gdelt_bq import GdeltBqScreener
+    screener = GdeltBqScreener()
+    result = screener.screen(cust["full_name"])
+
+    from dataclasses import asdict
+    return JSONResponse(asdict(result))
+
+
 @app.post("/customers/{customer_id}/close")
 def customer_close(request: Request, db: DB, customer_id: int,
                    csrf_token: Annotated[str, Form()] = ""):
