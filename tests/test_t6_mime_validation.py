@@ -37,8 +37,8 @@ def test_pdf_with_fake_png_extension_rejected(tmp_path, monkeypatch):
         (1, "Test User", "test@example.ae", hash_password("Pass123!"), "analyst", 1, now, now, now)
     )
     conn.execute(
-        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, created_at) VALUES (?,?,?,?,?,?,?)",
-        (1, "CUST-001", "Test Customer", _ck("Test Customer"), "natural", "active", now)
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (1, "CUST-001", "Test Customer", _ck("Test Customer"), "natural", "active", now, now, now)
     )
     conn.commit()
 
@@ -87,8 +87,8 @@ def test_valid_pdf_accepted(tmp_path, monkeypatch):
         (1, "Test User", "test@example.ae", hash_password("Pass123!"), "analyst", 1, now, now, now)
     )
     conn.execute(
-        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, created_at) VALUES (?,?,?,?,?,?,?)",
-        (1, "CUST-001", "Test Customer", _ck("Test Customer"), "natural", "active", now)
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (1, "CUST-001", "Test Customer", _ck("Test Customer"), "natural", "active", now, now, now)
     )
     conn.commit()
 
@@ -134,8 +134,8 @@ def test_valid_png_accepted(tmp_path, monkeypatch):
         (1, "Test User", "test@example.ae", hash_password("Pass123!"), "analyst", 1, now, now, now)
     )
     conn.execute(
-        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, created_at) VALUES (?,?,?,?,?,?,?)",
-        (1, "CUST-001", "Test Customer", _ck("Test Customer"), "natural", "active", now)
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (1, "CUST-001", "Test Customer", _ck("Test Customer"), "natural", "active", now, now, now)
     )
     conn.commit()
 
@@ -181,8 +181,8 @@ def test_faked_jpeg_rejected(tmp_path, monkeypatch):
         (1, "Test User", "test@example.ae", hash_password("Pass123!"), "analyst", 1, now, now, now)
     )
     conn.execute(
-        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, created_at) VALUES (?,?,?,?,?,?,?)",
-        (1, "CUST-001", "Test Customer", _ck("Test Customer"), "natural", "active", now)
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (1, "CUST-001", "Test Customer", _ck("Test Customer"), "natural", "active", now, now, now)
     )
     conn.commit()
 

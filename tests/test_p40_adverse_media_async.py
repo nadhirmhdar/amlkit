@@ -28,8 +28,8 @@ def test_async_returns_immediately(tmp_path):
     )
     org_id = cur.lastrowid
     cur = conn.execute(
-        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at) "
-        "VALUES (?, 'CUST-001', 'John Smith', ?, 'individual', 'active', datetime('now'))",
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at, created_at, updated_at) "
+        "VALUES (?, 'CUST-001', 'John Smith', ?, 'individual', 'active', datetime('now'), datetime('now'), datetime('now'))",
         (org_id, _ck('John Smith'))
     )
     customer_id = cur.lastrowid
@@ -64,8 +64,8 @@ def test_async_status_pending_then_complete(tmp_path):
     )
     org_id = cur.lastrowid
     cur = conn.execute(
-        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at) "
-        "VALUES (?, 'CUST-001', 'Test Name', ?, 'individual', 'active', datetime('now'))",
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at, created_at, updated_at) "
+        "VALUES (?, 'CUST-001', 'Test Name', ?, 'individual', 'active', datetime('now'), datetime('now'), datetime('now'))",
         (org_id, _ck('Test Name'))
     )
     customer_id = cur.lastrowid
@@ -107,8 +107,8 @@ def test_async_stores_results_when_done(tmp_path):
     )
     org_id = cur.lastrowid
     cur = conn.execute(
-        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at) "
-        "VALUES (?, 'CUST-001', 'Test Person', ?, 'individual', 'active', datetime('now'))",
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at, created_at, updated_at) "
+        "VALUES (?, 'CUST-001', 'Test Person', ?, 'individual', 'active', datetime('now'), datetime('now'), datetime('now'))",
         (org_id, _ck('Test Person'))
     )
     customer_id = cur.lastrowid
@@ -157,8 +157,8 @@ def test_async_multiple_concurrent_jobs(tmp_path):
     for i in range(3):
         name = f"Person {i}"
         cur = conn.execute(
-            "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at) "
-            "VALUES (?, ?, ?, ?, 'individual', 'active', datetime('now'))",
+            "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 'individual', 'active', datetime('now'), datetime('now'), datetime('now'))",
             (org_id, f"CUST-{i:03d}", name, _ck(name))
         )
         customers.append(cur.lastrowid)
