@@ -390,6 +390,7 @@ def entity_names(conn: sqlite3.Connection, entity_id: int) -> list[dict[str, str
 
 
 _CUSTOMER_SELECT = """\
+-- org_id filter is applied by every caller (WHERE c.org_id = ?)
 SELECT c.id, c.reference, c.full_name, c.name_arabic, c.customer_type,
        c.nationality, c.sector, c.status, c.onboarded_at,
        r.rating, r.score AS risk_score, r.requires_edd, r.next_review,

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, Request, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -2871,35 +2872,42 @@ def compliance_deadlines_list(request: Request, db: DB):
         return RedirectResponse("/login", status_code=303)
     return queries.compliance_deadlines(db, session.org_id)
 
+class _DeadlineCreate(BaseModel):
+    title: str = ""
+    due_date: str = ""
+    description: str = ""
+    recurrence: str = "none"
+
+
+class _DeadlineUpdate(BaseModel):
+    title: str | None = None
+    due_date: str | None = None
+    description: str | None = None
+    recurrence: str | None = None
+
+
 @app.post("/compliance/deadlines")
-async def compliance_deadlines_create(request: Request, db: DB):
+def compliance_deadlines_create(request: Request, db: DB, body: _DeadlineCreate):
     try:
         session = require_session(request, db)
         csrf_token = request.headers.get("X-CSRF-Token") or ""
         require_csrf(request, csrf_token)
     except PermissionError:
         return Response(status_code=403)
-    try:
-        body = await request.json()
-    except Exception:
-        return Response(status_code=400)
-    title = body.get("title", "")
-    due_date = body.get("due_date", "")
-    description = body.get("description", "")
-    recurrence = body.get("recurrence", "none")
     from ..db import audit, utcnow
     cur = db.execute(
         "INSERT INTO compliance_deadlines (org_id, title, description, due_date, recurrence, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (session.org_id, title, description, due_date, recurrence, utcnow())
+        (session.org_id, body.title, body.description, body.due_date, body.recurrence, utcnow())
     )
     deadline_id = cur.lastrowid
     audit(db, session.operator_name, "compliance.deadline_created", "compliance_deadline", deadline_id,
-          {"title": title}, org_id=session.org_id)
+          {"title": body.title}, org_id=session.org_id)
     db.commit()
     return queries.compliance_deadline(db, session.org_id, deadline_id)
 
+
 @app.patch("/compliance/deadlines/{deadline_id}")
-async def compliance_deadlines_update(request: Request, db: DB, deadline_id: int):
+def compliance_deadlines_update(request: Request, db: DB, deadline_id: int, body: _DeadlineUpdate):
     try:
         session = require_session(request, db)
         csrf_token = request.headers.get("X-CSRF-Token") or ""
@@ -2909,13 +2917,8 @@ async def compliance_deadlines_update(request: Request, db: DB, deadline_id: int
     existing = queries.compliance_deadline(db, session.org_id, deadline_id)
     if existing is None:
         return Response(status_code=404)
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    title = body.get("title")
-    if title:
-        db.execute("UPDATE compliance_deadlines SET title=? WHERE id=? AND org_id=?", (title, deadline_id, session.org_id))
+    if body.title:
+        db.execute("UPDATE compliance_deadlines SET title=? WHERE id=? AND org_id=?", (body.title, deadline_id, session.org_id))
         db.commit()
     return queries.compliance_deadline(db, session.org_id, deadline_id)
 
