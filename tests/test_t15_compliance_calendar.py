@@ -44,7 +44,7 @@ def _register(client, email="mlro@firm.ae", role="mlro", org_name="Test Firm"):
             "name": "Test MLRO",
             "email": email,
             "password": "SecurePass123!",
-            "csrf_token": csrf,
+            "csrf_token": csrf, "invite_code": "test-invite",
         },
         follow_redirects=True,
     )

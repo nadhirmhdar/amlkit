@@ -177,6 +177,14 @@ class TestAuthEventLogging:
 
 
 class TestNonRegression:
+    @pytest.fixture(autouse=True)
+    def _enable_limiter(self):
+        from amlkit.api.app import app
+        app.state.limiter.enabled = True
+        app.state.limiter._storage.reset()
+        yield
+        app.state.limiter.enabled = False
+
     def test_login_unaffected_by_invite_setting(self, client, monkeypatch):
         """Existing login works regardless of invite code configuration."""
         csrf = _csrf(client)

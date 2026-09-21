@@ -39,7 +39,7 @@ def test_register_organization_rate_limit(client):
             "name": f"User {i}",
             "email": f"test{i}@example.ae",
             "password": f"Password{i}123!",
-            "csrf_token": csrf,
+            "csrf_token": csrf, "invite_code": "test-invite",
         })
         assert resp.status_code != 429, f"Request {i+1} was rate limited (should not be)"
 
@@ -49,7 +49,7 @@ def test_register_organization_rate_limit(client):
         "name": "User 11",
         "email": "test11@example.ae",
         "password": "Password11123!",
-        "csrf_token": csrf,
+        "csrf_token": csrf, "invite_code": "test-invite",
     })
     assert resp.status_code == 429, "11th request should be rate limited"
 
