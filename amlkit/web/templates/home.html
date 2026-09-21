@@ -64,29 +64,26 @@
     <span class="action-card__arrow">&rarr;</span>
   </a>
 
-  <a class="action-card" href="{{ contextual_card.link }}">
+  <a class="action-card" href="/dashboard">
     <span class="action-card__icon">
-      {% if contextual_card.type == 'alerts' %}
+      {% if d.open_alerts|length %}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
       </svg>
-      {% elif contextual_card.type == 'adverse_media' %}
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-      </svg>
-      {% elif contextual_card.type == 'datasets' %}
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
-      </svg>
       {% else %}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
       </svg>
       {% endif %}
     </span>
     <span class="action-card__body">
-      <span class="action-card__title">{{ contextual_card.title }}</span>
-      <span class="action-card__sub">{{ contextual_card.description }}</span>
+      {% if d.open_alerts|length %}
+      <span class="action-card__title">Review alerts</span>
+      <span class="action-card__sub">{{ d.open_alerts|length }} alert{{ 's' if d.open_alerts|length != 1 }} awaiting decision</span>
+      {% else %}
+      <span class="action-card__title">Dashboard</span>
+      <span class="action-card__sub">Overview and compliance status</span>
+      {% endif %}
     </span>
     <span class="action-card__arrow">&rarr;</span>
   </a>
