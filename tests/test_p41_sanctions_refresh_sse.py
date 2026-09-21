@@ -91,6 +91,40 @@ def test_sse_generator_reports_failures(monkeypatch):
     assert "connection timeout" in error_event.get("error", "")
 
 
+def test_adapter_without_source_url_attribute_does_not_crash_refresh(monkeypatch):
+    """A real adapter that never sets self.source_url must not crash the loop.
+
+    EUSanctionsAdapter (amlkit/ingest/eu.py) resolves its URL at fetch() time
+    (it embeds a rotatable token) and never assigns self.source_url. Before
+    this fix, the failure-path upsert_dataset() call read adapter.source_url
+    directly, so an EU FSF failure (missing/rotated token -- the exact
+    scenario the adapter's own docstring calls realistic) raised an
+    uncaught AttributeError instead of AdapterError, aborting the whole
+    refresh loop before later sources (UK, CIA, FATF, Interpol) ever ran.
+    """
+    from amlkit.cases.scheduler import refresh_with_progress
+    from amlkit.ingest.eu import EUSanctionsAdapter
+    from amlkit.db import connect
+
+    monkeypatch.delenv("AMLKIT_EU_FSF_TOKEN", raising=False)
+    monkeypatch.setattr("amlkit.match.cache.invalidate", lambda: None)
+
+    conn = connect(":memory:")
+    conn.execute("DELETE FROM datasets")
+    conn.commit()
+
+    # Must not raise AttributeError.
+    events = list(refresh_with_progress(conn, "test-actor", adapters=[EUSanctionsAdapter]))
+
+    assert any(e.get("type") == "adapter_error" for e in events)
+    row = conn.execute(
+        "SELECT last_error, is_mandatory FROM datasets WHERE key='eu_sanctions'"
+    ).fetchone()
+    assert row is not None
+    assert row["last_error"]
+    conn.close()
+
+
 def test_first_ever_failure_still_creates_a_visible_dataset_row(monkeypatch):
     """A mandatory source that has NEVER loaded successfully must still show
     up as a failed/breach row, not disappear from the compliance dashboard.
