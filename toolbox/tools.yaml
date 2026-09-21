@@ -6,52 +6,61 @@ sources:
 tools:
   search_customers:
     source: amlkit-db
-    description: Search customers by name (LIKE match). Returns id, full_name, status, and risk-related fields.
+    description: Search customers by name (LIKE match) within a single organization. Returns id, full_name, status, and risk-related fields.
     statement: >
       SELECT id, full_name, reference, customer_type, nationality, status, onboarded_at
       FROM customers
-      WHERE full_name LIKE '%' || ? || '%'
+      WHERE org_id = ? AND full_name LIKE '%' || ? || '%'
       ORDER BY full_name
       LIMIT 50
     parameters:
+      - name: org_id
+        type: integer
+        description: Organization ID -- required. Scopes the search to a single tenant; every customer row belongs to exactly one organization.
       - name: name
         type: string
         description: Customer name to search for (partial match)
 
   get_alerts:
     source: amlkit-db
-    description: Get screening alerts for a customer, most recent first.
+    description: Get screening alerts for a customer within a single organization, most recent first.
     statement: >
       SELECT a.id, a.score, a.matched_name, a.status, a.disposition,
              a.dispositioned_by, a.dispositioned_at, a.created_at
       FROM alerts a
       JOIN screenings s ON s.id = a.screening_id
-      WHERE s.customer_id = ?
+      WHERE a.org_id = ? AND s.customer_id = ?
       ORDER BY a.created_at DESC
       LIMIT 20
     parameters:
+      - name: org_id
+        type: integer
+        description: Organization ID -- required. Scopes the lookup to a single tenant; must match the customer's own organization.
       - name: customer_id
         type: integer
         description: Customer ID to look up alerts for
 
   get_screenings:
     source: amlkit-db
-    description: Get screening history for a customer.
+    description: Get screening history for a customer within a single organization.
     statement: >
       SELECT id, query_name, trigger, algorithm, threshold,
              candidates, hits, run_at
       FROM screenings
-      WHERE customer_id = ?
+      WHERE org_id = ? AND customer_id = ?
       ORDER BY run_at DESC
       LIMIT 20
     parameters:
+      - name: org_id
+        type: integer
+        description: Organization ID -- required. Scopes the lookup to a single tenant; must match the customer's own organization.
       - name: customer_id
         type: integer
         description: Customer ID to look up screenings for
 
   list_datasets:
     source: amlkit-db
-    description: List all sanctions/screening datasets with refresh status.
+    description: List all sanctions/screening datasets with refresh status. Shared reference data, not scoped to any one organization.
     statement: >
       SELECT key, title, entity_count, last_refresh, is_mandatory,
              max_age_hours, last_error
