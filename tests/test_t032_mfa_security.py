@@ -105,11 +105,12 @@ def test_mfa_disable_validates_code_with_lockout(tmp_path, monkeypatch):
     client = TestClient(app)
     client.cookies.set("amlkit_session", token)
 
-    # Get CSRF token
-    r = client.get("/account")
-    import re
-    csrf_match = re.search(r'name="csrf_token"\s+value="([^"]+)"', r.text)
-    csrf = csrf_match.group(1) if csrf_match else ""
+    # Get CSRF token: any rendered page sets the synchronizer cookie
+    # (there is no GET /account page; /account/password renders a form).
+    r = client.get("/account/password")
+    assert r.status_code == 200
+    csrf = client.cookies.get("amlkit_csrf")
+    assert csrf, "CSRF cookie should be set by a rendered page"
 
     # Try to disable with wrong code 5 times (exhaust attempts)
     for i in range(5):

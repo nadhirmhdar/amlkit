@@ -62,11 +62,14 @@ def mfa_lockout_banner(conn: sqlite3.Connection, org_id: int) -> dict[str, Any] 
     """
     # Check for mfa.locked events in last 24 hours
     from datetime import timedelta
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    # audit_log's timestamp column is `ts`, written by db.utcnow() as
+    # isoformat(timespec="seconds"); match that format so the string
+    # comparison is lexicographically consistent.
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
     lockout_rows = conn.execute(
-        """SELECT actor, created_at FROM audit_log
-           WHERE org_id = ? AND action = 'mfa.locked' AND created_at > ?
-           ORDER BY created_at DESC LIMIT 5""",
+        """SELECT actor, ts FROM audit_log
+           WHERE org_id = ? AND action = 'mfa.locked' AND ts > ?
+           ORDER BY ts DESC LIMIT 5""",
         (org_id, cutoff)
     ).fetchall()
 
