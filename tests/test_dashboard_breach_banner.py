@@ -23,7 +23,8 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
+def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1",
+              invite_code: str = "test-invite"):
     """Registers, then completes email verification via the dev-fallback
     link the response renders (no SMTP configured in tests -- see
     amlkit/mail.py), so callers still get back a signed-in client."""
@@ -32,7 +33,7 @@ def _register(client, org_name: str, name: str, email: str, password: str = "a-s
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": invite_code,
     }, follow_redirects=True)
     assert "Check your email" in r.text, f"registration failed: {r.text[:300]}"
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)

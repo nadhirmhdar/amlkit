@@ -42,7 +42,7 @@ def api(tmp_path, monkeypatch):
     c = TestClient(app)
     r = c.post("/api/v1/auth/register-organization", json={
         "org_name": "Test Firm", "name": "alice", "email": "alice@testfirm.ae",
-        "password": "a-strong-password-1",
+        "password": "a-strong-password-1", "invite_code": "test-invite",
     })
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "verification_required"
@@ -70,6 +70,7 @@ class TestAuth:
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "A Totally Different Firm", "name": "alice again",
             "email": "alice@testfirm.ae", "password": "another-strong-pw-1",
+            "invite_code": "test-invite",
         })
         assert r.status_code == 400, r.text
         assert "already exists" in r.json()["detail"]
@@ -79,6 +80,7 @@ class TestAuth:
         r2 = client.post("/api/v1/auth/register-organization", json={
             "org_name": "A Totally Different Firm", "name": "someone else",
             "email": "someone.else@testfirm.ae", "password": "yet-another-pw-1",
+            "invite_code": "test-invite",
         })
         assert r2.status_code == 200, r2.text
 
@@ -476,7 +478,7 @@ class TestTransactionEndpoints:
         # Register a second org
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "Other Firm", "name": "bob", "email": "bob@otherfirm.ae",
-            "password": "b-strong-password-1",
+            "password": "b-strong-password-1", "invite_code": "test-invite",
         })
         verify_token_b = r.json()["dev_verification_token"]
         r2 = client.post("/api/v1/auth/verify-email", json={"token": verify_token_b})

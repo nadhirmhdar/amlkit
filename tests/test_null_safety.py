@@ -89,7 +89,7 @@ class TestAdminViewOrgMissing:
         r = client.post("/register-organization", data={
             "org_name": "Vanishing Org", "name": "admin",
             "email": "admin@vanish.test", "password": "a-strong-password-1",
-            "csrf_token": _csrf(),
+            "csrf_token": _csrf(), "invite_code": "test-invite",
         }, follow_redirects=True)
         m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
         assert m, "no verification link"

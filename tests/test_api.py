@@ -65,7 +65,8 @@ def _flash_parse(cookie_val: str) -> dict:
     return json.loads(base64.b64decode(cookie_val.encode()).decode())
 
 
-def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
+def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1",
+              invite_code: str = "test-invite"):
     """Registers, then completes email verification and signs in.
 
     Registration alone no longer produces a usable session (see
@@ -81,7 +82,7 @@ def _register(client, org_name: str, name: str, email: str, password: str = "a-s
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": invite_code,
     }, follow_redirects=True)
     assert "Check your email" in r.text, f"registration failed: {r.text[:300]}"
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
@@ -232,7 +233,7 @@ class TestAuth:
         r = client.post("/register-organization", data={
             "org_name": "A Totally Different Firm", "name": "alice again",
             "email": "alice@testfirm.ae", "password": "another-strong-pw-1",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         })
         assert r.status_code == 200
         assert "already exists" in r.text
@@ -244,7 +245,7 @@ class TestAuth:
         r2 = client.post("/register-organization", data={
             "org_name": "A Totally Different Firm", "name": "someone else",
             "email": "someone.else@testfirm.ae", "password": "yet-another-pw-1",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
         assert "Check your email" in r2.text, f"registration failed: {r2.text[:300]}"
 
@@ -1131,7 +1132,7 @@ class TestCookieSecurity:
             "name": "Admin",
             "email": "secure@test.local",
             "password": "SecurePass123",
-            "csrf_token": csrf,
+            "csrf_token": csrf, "invite_code": "test-invite",
         }, follow_redirects=True)
 
         # Extract verification token
@@ -1175,7 +1176,7 @@ class TestCookieSecurity:
             "name": "Dev Admin",
             "email": "dev@test.local",
             "password": "DevPass123",
-            "csrf_token": csrf,
+            "csrf_token": csrf, "invite_code": "test-invite",
         }, follow_redirects=True)
 
         import re
@@ -1241,7 +1242,7 @@ class TestCookieSecurity:
             "name": "Admin",
             "email": "verify@test.local",
             "password": "VerifyPass123",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
 
         csrf_before = _csrf(client)

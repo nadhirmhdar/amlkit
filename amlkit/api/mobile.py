@@ -39,6 +39,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
 
 from .. import auth, mail, queries, storage
+from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     StaleDatasetsError,
@@ -177,10 +178,22 @@ class RegisterOrgRequest(BaseModel):
     name: str
     email: str
     password: str
+    invite_code: str = ""
 
 
 @router.post("/auth/register-organization")
-def api_register_organization(body: RegisterOrgRequest, db: DB):
+@limiter.limit("5/minute")
+def api_register_organization(request: Request, body: RegisterOrgRequest, db: DB):
+    import os
+    import secrets
+
+    expected = os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()
+    if not expected or not secrets.compare_digest(body.invite_code.strip().encode(), expected.encode()):
+        auth._log_auth_event(db, "register_denied", body.email.strip().lower(),
+                             {"reason": "invalid_invite_code", "via": "api"})
+        db.commit()
+        raise HTTPException(status_code=403, detail="Registration requires a valid invite code.")
+
     if len(body.password) < 10:
         raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
     if not auth.looks_like_email(body.email):
