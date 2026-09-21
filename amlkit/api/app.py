@@ -65,8 +65,10 @@ from ..risk.model import ruleset
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
 from .csv_utils import _escape_csv_formula
 from .deps import (
+    AUDIT_VIEW_ROLES,
     CSRF_COOKIE,
     SESSION_COOKIE,
+    can_view_audit,
     client_ip,
     current_session,
     db_path,
@@ -1180,11 +1182,14 @@ def dashboard(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    return render(request, "dashboard.html", {
+    ctx = {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
         "datasets": queries.datasets(db),
-    }, db)
+    }
+    if can_view_audit(session):
+        ctx["recent_audit"] = queries.recent_audit(db, session.org_id)
+    return render(request, "dashboard.html", ctx, db)
 
 
 # --------------------------------------------------------------------- screen
@@ -2072,7 +2077,7 @@ def feedback_submit(
 def audit_view(request: Request, db: DB, page: int = 1):
     try:
         session = require_session(request, db)
-        require_role(session, "mlro")
+        require_role(session, *AUDIT_VIEW_ROLES)
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
@@ -2094,7 +2099,7 @@ def audit_export(request: Request, db: DB):
     """Export the full audit log for the org as a CSV file. MLRO only."""
     try:
         session = require_session(request, db)
-        require_role(session, "mlro")
+        require_role(session, *AUDIT_VIEW_ROLES)
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
