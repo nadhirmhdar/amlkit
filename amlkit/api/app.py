@@ -2001,6 +2001,7 @@ def admin_save_org_profile(
     reporting_person_name: Annotated[str, Form()] = "",
     reporting_person_title: Annotated[str, Form()] = "",
     reporting_person_phone: Annotated[str, Form()] = "",
+    goaml_entity_reference: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = ""
 ):
     """Save organization reporting entity profile for goAML exports (p46)."""
@@ -2018,13 +2019,15 @@ def admin_save_org_profile(
         SET org_address = ?,
             reporting_person_name = ?,
             reporting_person_title = ?,
-            reporting_person_phone = ?
+            reporting_person_phone = ?,
+            goaml_entity_reference = ?
         WHERE id = ?
     """, (
         org_address.strip() or None,
         reporting_person_name.strip() or None,
         reporting_person_title.strip() or None,
         reporting_person_phone.strip() or None,
+        goaml_entity_reference.strip() or None,
         session.org_id
     ))
 
@@ -2035,6 +2038,7 @@ def admin_save_org_profile(
         "reporting_person_name": reporting_person_name.strip() or None,
         "reporting_person_title": reporting_person_title.strip() or None,
         "reporting_person_phone": reporting_person_phone.strip() or None,
+        "goaml_entity_reference": goaml_entity_reference.strip() or None,
     }, org_id=session.org_id)
 
     db.commit()
