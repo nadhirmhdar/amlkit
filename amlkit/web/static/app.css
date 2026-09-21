@@ -165,9 +165,6 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
   position: relative;
 }
 
-/* Compliance-state chip beside the avatar. Only rendered when there is
-   something to say (single-operator mode); the four-eyes default is the
-   norm and does not need a badge. */
 .mode-chip {
   display: inline-flex; align-items: center; gap: 6px;
   margin-right: 14px; padding: 5px 12px;
@@ -181,33 +178,43 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 .desktop-topnav .user-menu-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
+  gap: 10px;
+  padding: 6px 12px 6px 6px;
   border: 1px solid var(--line);
-  border-radius: 50%;
+  border-radius: 24px;
   background: var(--surface);
   cursor: pointer;
-  transition: box-shadow 120ms;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  transition: background 120ms;
 }
 
 .desktop-topnav .user-menu-btn:hover {
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--line-soft);
 }
 
 .desktop-topnav .user-menu-btn .avatar--sm {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--ink);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
 }
+
+.desktop-topnav .desktop-user-name {
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 
 .desktop-topnav .user-dropdown {
   position: absolute;

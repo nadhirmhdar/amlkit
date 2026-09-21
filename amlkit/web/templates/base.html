@@ -31,17 +31,15 @@
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
       {% endif %}
+      {% if session.operator_role == 'mlro' %}
+        <a href="/freeze-obligations" class="{{ 'on' if nav=='freeze' }}">Freeze Obligations</a>
+      {% endif %}
     </nav>
+    <div class="spacer"></div>
   </aside>
 
-  {# Content column: wraps the topnav bar and main so they stack vertically.
-     Without this, desktop-topnav was a flex sibling of sidebar and main in a
-     row, appearing as a narrow strip rather than a full-width header. #}
   <div class="content-col">
 
-  {# Desktop top nav — visible on tablets/desktop (>680px). Avatar-only
-     button top-right, same as the phone header; the dropdown carries the
-     name, role and org. #}
   <div class="desktop-topnav no-print">
     {% if single_operator %}
       <span class="mode-chip mode-chip--warn" title="Dismissals of sanctions and proliferation matches are recorded as having had no independent review">
@@ -51,6 +49,7 @@
     <div class="user-menu-wrap" id="desktop-user-menu-wrap">
       <button class="user-menu-btn" data-action="toggle-desktop-user-menu" aria-label="User menu" aria-expanded="false">
         <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
+        <span class="desktop-user-name">{{ session.operator_name }}</span>
       </button>
       <div class="user-dropdown" role="menu">
         <div class="user-dropdown__header">
