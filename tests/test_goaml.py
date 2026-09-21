@@ -24,6 +24,7 @@ def _base_payload(**overrides) -> dict:
     payload = {
         "report_type": "STR",
         "customer_type": "natural",
+        "reporting_entity_name": "Test Firm",
         "reporter_name": "Jane Officer",
         "reporter_email": "jane@grovisor.test",
         "first_name": "Ahmed",

@@ -2719,6 +2719,17 @@ def report_export_xml(request: Request, db: DB, report_id: int):
     from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
 
     payload = json.loads(rep["payload"] or "{}")
+
+    if not payload.get("reporting_entity_name"):
+        org = db.execute(
+            "SELECT name, org_address FROM organizations WHERE id = ?",
+            (session.org_id,),
+        ).fetchone()
+        if org:
+            payload["reporting_entity_name"] = org["name"]
+            if org["org_address"] and not payload.get("reporting_entity_branch"):
+                payload["reporting_entity_branch"] = org["org_address"]
+
     try:
         xml_content = serialize_goaml_xml(payload)
     except GoAMLValidationError as exc:

@@ -78,15 +78,18 @@ def serialize_goaml_xml(report_data: dict) -> str:
 
     # Report Header
     ET.SubElement(root, "report_code").text = report_code
-    ET.SubElement(root, "entity_reference").text = report_data.get("entity_reference") or "GROVISOR-AML"
+    ET.SubElement(root, "entity_reference").text = report_data.get("entity_reference") or "AML-REF"
     ET.SubElement(root, "submission_code").text = "NEW"
     ET.SubElement(root, "submission_date").text = now_str
     ET.SubElement(root, "currency_code_local").text = "AED"
 
     # Reporting Entity Details
     rep_ent = ET.SubElement(root, "reporting_entity")
-    ET.SubElement(rep_ent, "reporting_entity_name").text = report_data.get("reporting_entity_name") or "Grovisor Consultants"
-    ET.SubElement(rep_ent, "reporting_entity_branch").text = report_data.get("reporting_entity_branch") or "Dubai HQ"
+    entity_name = _require(report_data, "reporting_entity_name", "reporting entity name")
+    ET.SubElement(rep_ent, "reporting_entity_name").text = entity_name
+    branch = report_data.get("reporting_entity_branch") or report_data.get("org_address") or ""
+    if branch:
+        ET.SubElement(rep_ent, "reporting_entity_branch").text = branch
 
     # Reporter Details. The reporting officer is legally accountable for this
     # filing, so their name/email must be the real submitter's, never a
