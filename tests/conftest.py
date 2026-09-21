@@ -171,9 +171,9 @@ def conn():
 def org_id(conn) -> int:
     """Test organization."""
     row = conn.execute(
-        "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+        "INSERT INTO organizations (name, slug, status, created_at, goaml_entity_reference) VALUES (?,?,?,?,?)"
         " RETURNING id",
-        ("Test Firm", "test-firm", "active", utcnow()),
+        ("Test Firm", "test-firm", "active", utcnow(), "TEST-ORG-001"),
     ).fetchone()
     conn.commit()
     return row["id"]
