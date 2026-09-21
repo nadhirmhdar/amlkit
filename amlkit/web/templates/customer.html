@@ -20,6 +20,12 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="small ghost" type="submit">Close relationship</button>
       </form>
+      {% elif c.status == 'closed' and session.operator_role == 'mlro' %}
+      <form method="post" action="/customers/{{ c.id }}/reactivate" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="reason" value="Reactivated via customer profile">
+        <button class="small ghost" type="submit">Reactivate</button>
+      </form>
       {% endif %}
     </div>
     {% if c.retention_until %}
