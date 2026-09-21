@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import os
-import re
 import sqlite3
 
 import pytest
+from conftest import register_org
 
 
 def _seed_sanctions_data(db_file):
@@ -46,18 +46,6 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register(client, org_name, name, email, password="a-strong-password-1"):
-    client.get("/register-organization")
-    r = client.post("/register-organization", data={
-        "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
-    }, follow_redirects=True)
-    m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
-    assert m, "no dev verification link"
-    client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
-    return client
-
-
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_file = tmp_path / "test.db"
@@ -70,7 +58,7 @@ def client(tmp_path, monkeypatch):
 
     c = TestClient(app)
     c.db_file = db_file
-    _register(c, "Search Firm", "searcher", "search@test.ae")
+    register_org(c, "Search Firm", "searcher", "search@test.ae")
 
     c.get("/customers/new")
     c.post("/customers", data={
@@ -143,7 +131,7 @@ class TestSearchPalette:
         from fastapi.testclient import TestClient
         from amlkit.api.app import app
         other = TestClient(app)
-        _register(other, "Other Firm", "other", "other@test.ae")
+        register_org(other, "Other Firm", "other", "other@test.ae")
         _add_customer(other, "OTHER-001", "Mohammed Al Rashid")
         r = client.get("/search?q=Mohammed")
         refs = [i["detail"] for i in r.json()["results"]]
