@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from amlkit.pii import redact, _luhn_check  # noqa: E402
+from amlkit.pii import inspect_document, redact, _luhn_check  # noqa: E402
 
 
 class TestEmiratesIdRedaction:
@@ -136,3 +136,80 @@ class TestLuhnCheck:
 
     def test_too_short_returns_false(self):
         assert _luhn_check("784") is False
+
+
+class TestCloudDLP:
+    def test_disabled_by_default_makes_zero_calls(self, monkeypatch):
+        monkeypatch.delenv("AMLKIT_DLP_ENABLED", raising=False)
+        result = inspect_document(b"some document content")
+        assert result == []
+
+    def test_explicitly_disabled_makes_zero_calls(self, monkeypatch):
+        monkeypatch.setenv("AMLKIT_DLP_ENABLED", "0")
+        result = inspect_document(b"some document content")
+        assert result == []
+
+    def test_enabled_without_project_returns_empty(self, monkeypatch):
+        monkeypatch.setenv("AMLKIT_DLP_ENABLED", "1")
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("AMLKIT_TASKS_PROJECT", raising=False)
+        result = inspect_document(b"some content")
+        assert result == []
+
+    def test_enabled_with_faked_client(self, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setenv("AMLKIT_DLP_ENABLED", "1")
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+        mock_finding = MagicMock()
+        mock_finding.info_type.name = "EMAIL_ADDRESS"
+        mock_finding.likelihood.name = "VERY_LIKELY"
+        mock_finding.quote = "test@example.com"
+
+        mock_response = MagicMock()
+        mock_response.result.findings = [mock_finding]
+
+        mock_client = MagicMock()
+        mock_client.inspect_content.return_value = mock_response
+
+        mock_dlp_module = MagicMock()
+        mock_dlp_module.DlpServiceClient.return_value = mock_client
+
+        mock_google_cloud = MagicMock()
+        mock_google_cloud.dlp_v2 = mock_dlp_module
+
+        with patch.dict("sys.modules", {"google.cloud.dlp_v2": mock_dlp_module, "google.cloud": mock_google_cloud, "google": MagicMock()}):
+            import importlib
+            import amlkit.pii
+            importlib.reload(amlkit.pii)
+
+            result = amlkit.pii.inspect_document(b"Document with test@example.com")
+
+        assert len(result) == 1
+        assert result[0]["info_type"] == "EMAIL_ADDRESS"
+        assert "test@example.com" not in result[0]["quote"]
+
+    def test_api_failure_fails_closed(self, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setenv("AMLKIT_DLP_ENABLED", "1")
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+        mock_client = MagicMock()
+        mock_client.inspect_content.side_effect = RuntimeError("API location not supported")
+
+        mock_dlp_module = MagicMock()
+        mock_dlp_module.DlpServiceClient.return_value = mock_client
+
+        mock_google_cloud = MagicMock()
+        mock_google_cloud.dlp_v2 = mock_dlp_module
+
+        with patch.dict("sys.modules", {"google.cloud.dlp_v2": mock_dlp_module, "google.cloud": mock_google_cloud, "google": MagicMock()}):
+            import importlib
+            import amlkit.pii
+            importlib.reload(amlkit.pii)
+
+            result = amlkit.pii.inspect_document(b"some content")
+
+        assert result == []
