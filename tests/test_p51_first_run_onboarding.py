@@ -127,22 +127,29 @@ def test_org_with_customers_hides_onboarding_guide(tmp_path, monkeypatch):
     """Org with 1+ customers does not show the onboarding guide."""
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
-    from amlkit.db import connect, utcnow
+    from amlkit.db import connect, utcnow, upsert_dataset
     from amlkit.auth import hash_password, create_session
+    from amlkit.cases.manager import onboard
 
     db_file = tmp_path / "test.db"
     monkeypatch.setenv("AMLKIT_DB", str(db_file))
 
     conn = connect(db_file)
     now = utcnow()
+
+    # Create org and operator
     conn.execute("INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
                  ("Test Org", "test-org", "active", now))
     conn.execute("INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at, email_verified_at, disclaimer_acknowledged_at) VALUES (?,?,?,?,?,?,?,?,?)",
                  (1, "Test User", "test@example.ae", hash_password("TestPass123!"), "mlro", 1, now, now, now))
 
-    # Add a customer
-    conn.execute("INSERT INTO customers (org_id, reference, customer_type, full_name, canonical_key, status, onboarded_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                 (1, "C-001", "natural", "Test Customer", "test|customer", "active", now, now, now))
+    # Seed fresh dataset so onboard() doesn't fail
+    ds = upsert_dataset(conn, "test_list", "Test List", is_mandatory=True)
+    conn.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
+    conn.commit()
+
+    # Onboard a customer
+    onboard(conn, org_id=1, reference="C-001", full_name="Test Customer")
     conn.commit()
 
     token = create_session(conn, operator_id=1, org_id=1)
