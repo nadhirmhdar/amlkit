@@ -13,6 +13,7 @@ import pytest
 
 from amlkit.db import connect
 from amlkit.cases.manager import run_adverse_media_async, check_adverse_media_status
+from amlkit.names.arabic import canonical_key as _ck
 
 
 def test_async_returns_immediately(tmp_path):
@@ -27,9 +28,9 @@ def test_async_returns_immediately(tmp_path):
     )
     org_id = cur.lastrowid
     cur = conn.execute(
-        "INSERT INTO customers (org_id, name, customer_type, onboarded_at) "
-        "VALUES (?, 'John Smith', 'individual', datetime('now'))",
-        (org_id,)
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at) "
+        "VALUES (?, 'CUST-001', 'John Smith', ?, 'individual', 'active', datetime('now'))",
+        (org_id, _ck('John Smith'))
     )
     customer_id = cur.lastrowid
     conn.commit()
@@ -63,9 +64,9 @@ def test_async_status_pending_then_complete(tmp_path):
     )
     org_id = cur.lastrowid
     cur = conn.execute(
-        "INSERT INTO customers (org_id, name, customer_type, onboarded_at) "
-        "VALUES (?, 'Test Name', 'individual', datetime('now'))",
-        (org_id,)
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at) "
+        "VALUES (?, 'CUST-001', 'Test Name', ?, 'individual', 'active', datetime('now'))",
+        (org_id, _ck('Test Name'))
     )
     customer_id = cur.lastrowid
     conn.commit()
@@ -106,9 +107,9 @@ def test_async_stores_results_when_done(tmp_path):
     )
     org_id = cur.lastrowid
     cur = conn.execute(
-        "INSERT INTO customers (org_id, name, customer_type, onboarded_at) "
-        "VALUES (?, 'Test Person', 'individual', datetime('now'))",
-        (org_id,)
+        "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at) "
+        "VALUES (?, 'CUST-001', 'Test Person', ?, 'individual', 'active', datetime('now'))",
+        (org_id, _ck('Test Person'))
     )
     customer_id = cur.lastrowid
     conn.commit()
@@ -154,10 +155,11 @@ def test_async_multiple_concurrent_jobs(tmp_path):
     # Create multiple customers
     customers = []
     for i in range(3):
+        name = f"Person {i}"
         cur = conn.execute(
-            "INSERT INTO customers (org_id, name, customer_type, onboarded_at) "
-            "VALUES (?, ?, 'individual', datetime('now'))",
-            (org_id, f"Person {i}")
+            "INSERT INTO customers (org_id, reference, full_name, canonical_key, customer_type, status, onboarded_at) "
+            "VALUES (?, ?, ?, ?, 'individual', 'active', datetime('now'))",
+            (org_id, f"CUST-{i:03d}", name, _ck(name))
         )
         customers.append(cur.lastrowid)
     conn.commit()

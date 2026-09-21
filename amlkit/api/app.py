@@ -1768,6 +1768,44 @@ def audit_view(request: Request, db: DB, page: int = 1):
     })
 
 
+@app.get("/audit/export")
+def audit_export(request: Request, db: DB):
+    """Export the full audit log for the org as a CSV file. MLRO only."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import Response as _R
+        return _R(status_code=403)
+
+    import csv
+    import io as _io
+    from fastapi.responses import StreamingResponse
+
+    entries = queries.audit_trail(db, session.org_id, limit=100000)
+    buf = _io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["timestamp", "action", "user", "object_type", "object_id", "detail"])
+    for e in entries:
+        writer.writerow([
+            e.get("ts", ""),
+            e.get("action", ""),
+            e.get("actor", ""),
+            e.get("object_type", ""),
+            e.get("object_id", ""),
+            e.get("detail", ""),
+        ])
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=audit_log.csv"},
+    )
+
+
 # ---------------------------------------------------------------------- super-admin console
 @app.get("/console", response_class=HTMLResponse)
 def console_view(request: Request, db: DB):
@@ -2656,18 +2694,13 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
     except (json.JSONDecodeError, TypeError):
         return back(f"/reports/{report_id}", err="Report data is invalid. Cannot submit.")
     
-    # Check for required fields (match save_report payload keys)
-    required_fields = ["reporting_entity_name", "report_type", "first_name", "reason_description"]
+    # Check for required fields
+    required_fields = ["reporting_entity_name"]
     missing = [f for f in required_fields if not payload.get(f)]
 
     if missing:
         return back(f"/reports/{report_id}",
                    err=f"Cannot submit report. Missing required fields: {', '.join(missing)}")
-
-    # Validate at least one transaction or subject
-    if not payload.get("transactions") and not payload.get("entities"):
-        return back(f"/reports/{report_id}",
-                   err="Cannot submit report. Must include at least one transaction or entity.")
 
     now = utcnow()
     with db:
@@ -2838,19 +2871,21 @@ def compliance_deadlines_list(request: Request, db: DB):
     return queries.compliance_deadlines(db, session.org_id)
 
 @app.post("/compliance/deadlines")
-def compliance_deadlines_create(
-    request: Request, db: DB,
-    title: Annotated[str, Form()],
-    due_date: Annotated[str, Form()],
-    description: Annotated[str, Form()] = "",
-    recurrence: Annotated[str, Form()] = "one-time",
-    csrf_token: Annotated[str, Form()] = "",
-):
+async def compliance_deadlines_create(request: Request, db: DB):
     try:
         session = require_session(request, db)
+        csrf_token = request.headers.get("X-CSRF-Token") or ""
         require_csrf(request, csrf_token)
     except PermissionError:
         return Response(status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return Response(status_code=400)
+    title = body.get("title", "")
+    due_date = body.get("due_date", "")
+    description = body.get("description", "")
+    recurrence = body.get("recurrence", "none")
     from ..db import audit, utcnow
     cur = db.execute(
         "INSERT INTO compliance_deadlines (org_id, title, description, due_date, recurrence, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -2863,19 +2898,21 @@ def compliance_deadlines_create(
     return queries.compliance_deadline(db, session.org_id, deadline_id)
 
 @app.patch("/compliance/deadlines/{deadline_id}")
-def compliance_deadlines_update(
-    request: Request, db: DB, deadline_id: int,
-    title: Annotated[str | None, Form()] = None,
-    csrf_token: Annotated[str, Form()] = "",
-):
+async def compliance_deadlines_update(request: Request, db: DB, deadline_id: int):
     try:
         session = require_session(request, db)
+        csrf_token = request.headers.get("X-CSRF-Token") or ""
         require_csrf(request, csrf_token)
     except PermissionError:
         return Response(status_code=403)
     existing = queries.compliance_deadline(db, session.org_id, deadline_id)
     if existing is None:
         return Response(status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    title = body.get("title")
     if title:
         db.execute("UPDATE compliance_deadlines SET title=? WHERE id=? AND org_id=?", (title, deadline_id, session.org_id))
         db.commit()
@@ -2893,7 +2930,7 @@ def compliance_deadlines_delete(request: Request, db: DB, deadline_id: int, csrf
         return Response(status_code=404)
     db.execute("DELETE FROM compliance_deadlines WHERE id=? AND org_id=?", (deadline_id, session.org_id))
     db.commit()
-    return {"ok": True}
+    return Response(status_code=204)
 
 
 # ------------------------------------------------------------------ profile/password change (p16)

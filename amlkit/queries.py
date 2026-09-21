@@ -74,14 +74,14 @@ def dataset_health_banner(conn: sqlite3.Connection) -> dict[str, Any] | None:
             count = len(mandatory_errors)
             return {
                 "severity": "critical",
-                "message": f"{count} mandatory sanctions source{'s' if count != 1 else ''} failing to update",
+                "message": f"{count} mandatory sanctions source{'s' if count != 1 else ''} failed to update",
                 "link": "/admin/compliance"
             }
         else:
             count = len(error_rows)
             return {
                 "severity": "warning",
-                "message": f"{count} optional source{'s' if count != 1 else ''} failing to update",
+                "message": f"{count} optional source{'s' if count != 1 else ''} failed to update",
                 "link": "/admin/compliance"
             }
 

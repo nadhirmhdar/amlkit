@@ -43,6 +43,24 @@ def _disable_rate_limiter():
     app.state.limiter.enabled = False  # slowapi uses .enabled, not ._enabled
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter_storage():
+    """Reset rate limiter in-memory counters before every test.
+
+    All TestClient instances share the same "testclient" IP, so counters from
+    one test bleed into the next. Clearing storage here ensures each test
+    starts with a clean slate regardless of order.
+    """
+    from amlkit.api.app import app
+    try:
+        app.state.limiter._storage.reset()
+    except Exception:
+        pass
+    app.state.limiter.enabled = False
+    yield
+    app.state.limiter.enabled = False
+
+
 @pytest.fixture()
 def conn():
     """In-memory database with fresh mandatory dataset."""
