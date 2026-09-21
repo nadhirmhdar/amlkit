@@ -266,97 +266,6 @@ async function performPassportOCR(input) {
   }
 }
 
-// Alerts drawer (p33)
-function toggleAlertsDrawer() {
-  var drawer = document.getElementById('alerts-drawer');
-  if (!drawer) return;
-  if (drawer.style.display === 'none') {
-    drawer.style.display = 'block';
-    loadAlertsDrawer();
-  } else {
-    drawer.style.display = 'none';
-  }
-}
-
-function _el(tag, cls, text) {
-  var e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text) e.textContent = text;
-  return e;
-}
-
-function _alertRow(href, tagClass, tagText, label) {
-  var a = document.createElement('a');
-  a.href = href;
-  a.className = 'list-row';
-  a.style.cssText = 'padding:6px 0;';
-  var span = _el('span', 'tag ' + tagClass, tagText);
-  span.style.cssText = 'width:90px;flex-shrink:0;font-size:11px;';
-  a.appendChild(span);
-  a.appendChild(_el('div', 'grow small', label));
-  return a;
-}
-
-function loadAlertsDrawer() {
-  var content = document.getElementById('alerts-drawer-content');
-  if (!content) return;
-  content.textContent = '';
-  content.appendChild(_el('p', 'muted small', 'Loading...'));
-
-  fetch('/api/alerts-summary')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      content.textContent = '';
-      var badge = document.getElementById('alerts-badge');
-      if (data.total > 0) {
-        if (badge) { badge.textContent = data.total; badge.style.display = 'inline'; }
-
-        if (data.screening_alerts && data.screening_alerts.length) {
-          var h = _el('div', 'section-label', 'Screening alerts');
-          h.style.marginBottom = '8px';
-          content.appendChild(h);
-          data.screening_alerts.forEach(function(a) {
-            content.appendChild(_alertRow('/alerts', a.category, a.category, a.caption));
-          });
-        }
-        if (data.transaction_alerts && data.transaction_alerts.length) {
-          var h2 = _el('div', 'section-label', 'Transaction alerts');
-          h2.style.cssText = 'margin:12px 0 8px;';
-          content.appendChild(h2);
-          data.transaction_alerts.forEach(function(a) {
-            content.appendChild(_alertRow(
-              '/customers/' + encodeURIComponent(a.customer_id),
-              a.severity, a.rule_key.replace(/_/g, ' '), a.customer_name
-            ));
-          });
-        }
-        if (data.overdue_reviews && data.overdue_reviews.length) {
-          var h3 = _el('div', 'section-label', 'Overdue reviews');
-          h3.style.cssText = 'margin:12px 0 8px;';
-          content.appendChild(h3);
-          data.overdue_reviews.forEach(function(c) {
-            var a = document.createElement('a');
-            a.href = '/customers/' + encodeURIComponent(c.id);
-            a.className = 'list-row';
-            a.style.cssText = 'padding:6px 0;';
-            a.appendChild(_el('div', 'grow small', c.full_name));
-            a.appendChild(_el('div', 'side small muted', c.next_review));
-            content.appendChild(a);
-          });
-        }
-      } else {
-        if (badge) badge.style.display = 'none';
-        content.appendChild(_el('p', 'muted small', 'No open alerts.'));
-      }
-    })
-    .catch(function() {
-      content.textContent = '';
-      var p = _el('p', 'muted small', 'Failed to load alerts.');
-      p.style.color = 'var(--danger)';
-      content.appendChild(p);
-    });
-}
-
 // Customer search filter (customers page)
 function filterCustomers(query) {
   const q = query.toLowerCase();
@@ -481,10 +390,4 @@ document.addEventListener('DOMContentLoaded', function() {
   if (desktopUserMenuBtn) {
     desktopUserMenuBtn.addEventListener('click', window.toggleDesktopUserMenu);
   }
-
-  // Alerts drawer buttons
-  var alertsToggle = document.getElementById('alerts-drawer-toggle');
-  if (alertsToggle) alertsToggle.addEventListener('click', toggleAlertsDrawer);
-  var alertsClose = document.getElementById('alerts-drawer-close');
-  if (alertsClose) alertsClose.addEventListener('click', toggleAlertsDrawer);
 });
