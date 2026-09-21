@@ -2923,9 +2923,10 @@ def compliance_deadlines_update(request: Request, db: DB, deadline_id: int, body
     return queries.compliance_deadline(db, session.org_id, deadline_id)
 
 @app.delete("/compliance/deadlines/{deadline_id}")
-def compliance_deadlines_delete(request: Request, db: DB, deadline_id: int, csrf_token: Annotated[str, Form()] = ""):
+def compliance_deadlines_delete(request: Request, db: DB, deadline_id: int):
     try:
         session = require_session(request, db)
+        csrf_token = request.headers.get("X-CSRF-Token") or ""
         require_csrf(request, csrf_token)
     except PermissionError:
         return Response(status_code=403)

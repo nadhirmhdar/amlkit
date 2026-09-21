@@ -184,7 +184,7 @@ def test_delete_deadline(web):
     # Delete deadline
     r = web.delete(
         f"/compliance/deadlines/{deadline_id}",
-        data={"csrf_token": csrf},
+        headers={"X-CSRF-Token": csrf},
     )
     assert r.status_code == 204
 
