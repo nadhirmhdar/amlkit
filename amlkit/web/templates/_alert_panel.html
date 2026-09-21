@@ -1,0 +1,41 @@
+<div class="alert-panel-detail panel" data-alert-id="{{ a.id }}">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px;">
+    <div>
+      <div style="font-weight:700; font-size:15px;">{{ a.caption }}</div>
+      <div class="muted small mt-2">
+        <a href="/customers/{{ a.customer_id }}">{{ a.customer_name }}</a>
+        &middot; {{ a.reference }}
+      </div>
+    </div>
+    <button class="small ghost alert-panel-close" type="button">&times;</button>
+  </div>
+
+  <table class="small">
+    <tr><td class="muted" style="width:120px;">Dataset</td><td>{{ a.dataset_title }}</td></tr>
+    <tr><td class="muted">Matched name</td><td>{{ a.matched_name }}</td></tr>
+    <tr><td class="muted">Score</td><td>{{ '%.3f'|format(a.score) }}</td></tr>
+    <tr><td class="muted">Category</td><td><span class="tag {{ a.category }}">{{ a.category }}</span></td></tr>
+    <tr><td class="muted">Status</td><td>{{ a.status.replace('_',' ')|title }}</td></tr>
+    {% if a.assigned_to %}
+    <tr><td class="muted">Assigned to</td><td>{{ a.assigned_to }}</td></tr>
+    {% endif %}
+    {% if a.disposition %}
+    <tr><td class="muted">Disposition</td><td>{{ a.disposition }}</td></tr>
+    {% endif %}
+    {% if a.programs %}
+    <tr><td class="muted">Programmes</td><td>{{ a.programs }}</td></tr>
+    {% endif %}
+    <tr><td class="muted">Created</td><td>{{ a.created_at[:19].replace('T',' ') }}</td></tr>
+  </table>
+
+  {% if a.status == 'open' %}
+  <div class="mt-4" style="display:flex; gap:8px; flex-wrap:wrap;">
+    <form method="post" action="/alerts/{{ a.id }}/assign" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="back_to" value="/dashboard">
+      <button class="small ghost" type="submit" name="operator" value="{{ session.operator_name }}">Assign to me</button>
+    </form>
+    <a class="btn small ghost" href="/customers/{{ a.customer_id }}">View customer</a>
+  </div>
+  {% endif %}
+</div>

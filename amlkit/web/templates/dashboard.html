@@ -111,12 +111,12 @@
   <div class="section-label">Oldest open alerts</div>
   <div class="flat-list">
     {% for a in d.oldest_open %}
-      <a href="/alerts" class="list-row">
+      <div data-alert-id="{{ a.id }}" class="list-row" style="cursor:pointer;">
         <span class="tag {{ a.category }}" style="min-width:80px; flex-shrink:0;">{{ a.category }}</span>
         <div class="grow primary">{{ a.caption }}</div>
         <div class="num">{{ '%.3f'|format(a.score) }}</div>
         <div class="side nowrap">{{ a.assigned_to or 'Unassigned' }}</div>
-      </a>
+      </div>
     {% endfor %}
   </div>
 </div>
@@ -200,4 +200,5 @@
   {% endif %}
 </div>
 
+<script src="/static/js/alert-panel.js"></script>
 {% endblock %}

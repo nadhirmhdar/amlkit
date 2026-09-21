@@ -1605,6 +1605,24 @@ def alerts_bulk_dismiss(
     return back(back_to, msg=f"Dismissed {count} alert(s).")
 
 
+@app.get("/alerts/{alert_id}/panel", response_class=HTMLResponse)
+def alert_panel(request: Request, db: DB, alert_id: int):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    rows = queries.alert_queue(db, session.org_id, status=None, alert_id=alert_id)
+    if not rows:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "not found"}, status_code=404)
+    alert = rows[0]
+    html = templates.get_template("_alert_panel.html").render(
+        a=alert, session=session, csrf_token="",
+        request=request,
+    )
+    return HTMLResponse(html)
+
+
 @app.post("/alerts/{alert_id}/disposition")
 def alert_disposition(
     request: Request, db: DB, alert_id: int,
