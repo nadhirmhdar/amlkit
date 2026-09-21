@@ -149,6 +149,12 @@
         {% endif %}
       </div>
     {% endif %}
+    {% if mfa_banner %}
+      <div class="banner warning">
+        <strong>{{ mfa_banner.message }}</strong>
+        <a href="{{ mfa_banner.link }}">View audit log</a>
+      </div>
+    {% endif %}
 {% else %}
 <div class="fade-in">
   {% if security_warning %}

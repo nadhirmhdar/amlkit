@@ -48,6 +48,14 @@
              placeholder="+971501234567">
     </div>
     <div>
+      <label>goAML Entity Reference *</label>
+      <input type="text" name="goaml_entity_reference"
+             value="{{ org.goaml_entity_reference or '' }}"
+             placeholder="e.g. AML-ORG-12345"
+             required>
+      <span class="muted small">Your organization's unique reference code for goAML submissions. Required for XML export.</span>
+    </div>
+    <div>
       <button type="submit">Save Profile</button>
     </div>
   </form>
