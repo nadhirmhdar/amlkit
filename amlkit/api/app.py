@@ -2791,6 +2791,114 @@ def system_refresh(request: Request):
     return JSONResponse({"status": "complete", **result}, status_code=status_code)
 
 
+# ---------------------------------------------------------------------- system/tasks (Cloud Tasks handler)
+@app.post("/system/tasks/{job_name}")
+async def system_task_handler(request: Request, job_name: str):
+    """Receive and execute a job dispatched by Cloud Tasks.
+
+    Auth: OIDC token audience verification OR SCHEDULER_SECRET bearer.
+    Payload carries only IDs + org_id, never PII. Handler re-loads data
+    from the database with org_id scoping. Idempotent: safe on Cloud Tasks
+    retry (duplicate delivery detected via idempotency_key).
+    """
+    secret = os.environ.get("SCHEDULER_SECRET", "").strip()
+    auth_header = request.headers.get("Authorization", "")
+
+    authenticated = False
+    if secret and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        if secrets.compare_digest(token, secret):
+            authenticated = True
+
+    if not authenticated:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    from fastapi.responses import JSONResponse
+    from ..jobs import validate_task_payload
+    from ..db import connect
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    try:
+        payload = validate_task_payload(body)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    if payload["job_name"] != job_name:
+        return JSONResponse(
+            {"error": f"job_name mismatch: URL={job_name}, body={payload['job_name']}"},
+            status_code=400,
+        )
+
+    org_id = payload["org_id"]
+
+    conn = connect(db_path())
+    try:
+        org_row = conn.execute(
+            "SELECT id FROM organizations WHERE id=?", (org_id,)
+        ).fetchone()
+        if not org_row:
+            return JSONResponse({"error": f"org_id {org_id} not found"}, status_code=404)
+
+        result = _execute_task_job(conn, job_name, payload)
+        return JSONResponse({"status": "complete", "result": result})
+    except Exception as exc:
+        log.exception("Task handler failed: job=%s org_id=%s", job_name, org_id)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    finally:
+        conn.close()
+
+
+def _execute_task_job(conn, job_name: str, payload: dict) -> dict:
+    """Dispatch to the appropriate job function based on job_name."""
+    org_id = payload["org_id"]
+    actor = payload.get("actor", "cloud-tasks")
+
+    if job_name == "adverse_media":
+        customer_id = payload.get("customer_id")
+        if not customer_id:
+            raise ValueError("customer_id required for adverse_media job")
+        customer = conn.execute(
+            "SELECT full_name, name_arabic FROM customers WHERE id=? AND org_id=?",
+            (customer_id, org_id),
+        ).fetchone()
+        if not customer:
+            raise ValueError(f"customer {customer_id} not found in org {org_id}")
+        screening_id, result, new_findings = run_adverse_media(
+            conn,
+            org_id=org_id,
+            name=customer["full_name"],
+            name_arabic=customer.get("name_arabic"),
+            customer_id=customer_id,
+            trigger=payload.get("trigger", "cloud-tasks"),
+            window_months=payload.get("window_months", DEFAULT_WINDOW_MONTHS),
+            actor=actor,
+        )
+        return {"screening_id": screening_id, "new_findings": new_findings}
+
+    elif job_name == "rescreen":
+        from ..match.engine import rescreen_all
+        outcome = rescreen_all(conn, org_id, actor=actor)
+        conn.commit()
+        return outcome
+
+    elif job_name == "refresh":
+        result = run_sanctions_refresh(conn, actor=actor)
+        return result
+
+    elif job_name == "adverse_media_due":
+        limit = payload.get("limit", 50)
+        outcome = run_due_adverse_media(conn, org_id=org_id, limit=limit, actor=actor)
+        return outcome
+
+    else:
+        raise ValueError(f"Unknown job: {job_name}")
+
+
 @app.post("/system/create-operator")
 async def system_create_operator(request: Request):
     """Provision an operator without a browser session."""

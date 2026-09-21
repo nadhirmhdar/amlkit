@@ -21,4 +21,5 @@ pyotp>=2.9
 segno>=1.6
 google-cloud-storage>=2.18,<3.0
 google-cloud-bigquery>=3.0
+google-cloud-tasks>=2.16,<3.0
 google-generativeai>=0.8
