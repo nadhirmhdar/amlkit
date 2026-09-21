@@ -839,6 +839,12 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "source_of_funds",   "ALTER TABLE customers ADD COLUMN source_of_funds   TEXT"),
     # Follow-up to #231/#142: per-org goAML entity reference (replaces hardcoded "AML-REF")
     ("organizations", "goaml_entity_reference", "ALTER TABLE organizations ADD COLUMN goaml_entity_reference TEXT"),
+    # T-009: CLDR region codes, multi-nationality, subregion, establishment date
+    ("customers", "subregion", "ALTER TABLE customers ADD COLUMN subregion TEXT"),
+    ("customers", "nationalities", "ALTER TABLE customers ADD COLUMN nationalities TEXT"),
+    ("customers", "tax_residencies", "ALTER TABLE customers ADD COLUMN tax_residencies TEXT"),
+    ("customers", "establishment_date", "ALTER TABLE customers ADD COLUMN establishment_date TEXT"),
+    ("transactions", "counterparty_subregion", "ALTER TABLE transactions ADD COLUMN counterparty_subregion TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -896,6 +902,20 @@ def _backfill_email_verified(conn: sqlite3.Connection) -> None:
         "UPDATE operators SET email_verified_at=created_at "
         "WHERE password_hash IS NOT NULL AND email_verified_at IS NULL"
     )
+
+
+def _backfill_nationalities(conn: sqlite3.Connection) -> None:
+    """Backfill nationalities JSON list from the single nationality column."""
+    rows = conn.execute(
+        "SELECT id, nationality FROM customers WHERE nationalities IS NULL"
+    ).fetchall()
+    for row in rows:
+        nat = row["nationality"]
+        lst = json.dumps([nat] if nat else [])
+        conn.execute(
+            "UPDATE customers SET nationalities=? WHERE id=?",
+            (lst, row["id"]),
+        )
 
 
 def _migrate_operators_table(conn: sqlite3.Connection) -> None:
@@ -1142,6 +1162,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     if "email_verified_at" not in _operators_cols_before_migrate:
         _backfill_email_verified(conn)
     _backfill_retention_until(conn)
+    _backfill_nationalities(conn)
     _create_org_indexes(conn)
     from .ingest.fatf import load_fatf_data
     load_fatf_data(conn)

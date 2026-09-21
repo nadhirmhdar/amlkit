@@ -133,6 +133,11 @@ def onboard(
     risk_level: str | None = None,
     source_of_wealth: str | None = None,
     source_of_funds: str | None = None,
+    # T-009: CLDR region codes, multi-nationality
+    subregion: str | None = None,
+    nationalities: list[str] | None = None,
+    tax_residencies: list[str] | None = None,
+    establishment_date: str | None = None,
 ) -> OnboardingResult:
     """Create a customer, screen them and their UBOs, and assign a risk rating.
 
@@ -140,6 +145,7 @@ def onboard(
     rating to high regardless of every other factor -- the two are not
     independent inputs.
     """
+    from ..datamodel import validate_country_code, validate_emirate
     from ..ingest.loader import datasets_fresh
 
     if not datasets_fresh(conn):
@@ -161,6 +167,24 @@ def onboard(
                 f"Total UBO ownership is {round(total_ownership, 2)}% (cannot exceed 100%)"
             )
 
+    validate_country_code(nationality)
+    validate_country_code(country)
+    if nationalities:
+        for nc in nationalities:
+            validate_country_code(nc)
+    if tax_residencies:
+        for tc in tax_residencies:
+            validate_country_code(tc)
+    if country and country.strip().upper() == "AE" and subregion:
+        validate_emirate(subregion)
+    if establishment_date and customer_type != "legal":
+        raise ValueError("establishment_date is only valid for legal persons")
+
+    nationalities_json = json.dumps(
+        nationalities if nationalities else ([nationality] if nationality else [])
+    )
+    tax_residencies_json = json.dumps(tax_residencies or [])
+
     now = utcnow()
     ck = canonical_key(full_name)
 
@@ -180,8 +204,9 @@ def onboard(
                 contact_person, contact_phone, contact_email,
                 purpose_of_relationship, expected_activity,
                 risk_level, source_of_wealth, source_of_funds,
+                subregion, nationalities, tax_residencies, establishment_date,
                 onboarded_at, retention_until, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, reference, customer_type, full_name, name_arabic, ck,
                 nationality, country, birth_date, gender, id_number, id_type,
@@ -191,6 +216,8 @@ def onboard(
                 contact_person, contact_phone, contact_email,
                 purpose_of_relationship, expected_activity,
                 risk_level, source_of_wealth, source_of_funds,
+                subregion or None, nationalities_json, tax_residencies_json,
+                establishment_date or None,
                 now, retention, now, now,
             ),
         )
