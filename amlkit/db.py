@@ -622,7 +622,6 @@ CREATE TABLE IF NOT EXISTS freeze_obligations (
 CREATE INDEX IF NOT EXISTS ix_freeze_org      ON freeze_obligations(org_id);
 CREATE INDEX IF NOT EXISTS ix_freeze_customer ON freeze_obligations(customer_id);
 CREATE INDEX IF NOT EXISTS ix_freeze_status   ON freeze_obligations(status);
-
 -- -------------------------------------------------------- compliance calendar (Phase 4, Item 6)
 CREATE TABLE IF NOT EXISTS compliance_deadlines (
     id                 INTEGER PRIMARY KEY,

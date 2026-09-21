@@ -96,11 +96,10 @@ def evaluate_transaction(
     config = get_rule_config(conn, org_id)
     large_cash_threshold = config["large_cash_threshold_aed"]
     structuring_window_days = config["structuring_window_days"]
+    structuring_min_count = config["structuring_min_count"]
     velocity_window_hours = config["velocity_window_hours"]
     velocity_max_count = config["velocity_max_count"]
     high_risk_countries = set(config["high_risk_countries"])
-    # structuring_min_count is not org-configurable yet, use module constant
-    structuring_min_count = STRUCTURING_MIN_COUNT
 
     triggered: list[TriggeredRule] = []
 
@@ -218,13 +217,11 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
         {
             "large_cash_threshold_aed": 55000.0,
             "structuring_window_days": 7,
+            "structuring_min_count": 2,
             "velocity_window_hours": 24,
             "velocity_max_count": 5,
             "high_risk_countries": ["KP", "IR", "MM", "SY", "AF", "YE", "SS", "SD"],
         }
-
-    Note: structuring_min_count is not configurable yet and is not included in the
-    returned dict. Code using it should reference STRUCTURING_MIN_COUNT directly.
     """
     global _config_cache
     if org_id in _config_cache:
@@ -245,14 +242,17 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
         config = {
             "large_cash_threshold_aed": row["kyt_large_cash_threshold"] if row["kyt_large_cash_threshold"] is not None else LARGE_CASH_THRESHOLD_AED,
             "structuring_window_days": row["kyt_structuring_window_days"] if row["kyt_structuring_window_days"] is not None else STRUCTURING_WINDOW_DAYS,
+            "structuring_min_count": STRUCTURING_MIN_COUNT,  # Not configurable yet
             "velocity_window_hours": row["kyt_velocity_window_hours"] if row["kyt_velocity_window_hours"] is not None else VELOCITY_WINDOW_HOURS,
             "velocity_max_count": row["kyt_velocity_max_count"] if row["kyt_velocity_max_count"] is not None else VELOCITY_MAX_COUNT,
             "high_risk_countries": _get_high_risk_countries(conn, org_additional),
         }
     else:
+        # No org_settings row yet - return module defaults
         config = {
             "large_cash_threshold_aed": LARGE_CASH_THRESHOLD_AED,
             "structuring_window_days": STRUCTURING_WINDOW_DAYS,
+            "structuring_min_count": STRUCTURING_MIN_COUNT,
             "velocity_window_hours": VELOCITY_WINDOW_HOURS,
             "velocity_max_count": VELOCITY_MAX_COUNT,
             "high_risk_countries": _get_high_risk_countries(conn, None),

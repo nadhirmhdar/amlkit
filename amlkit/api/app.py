@@ -2482,6 +2482,7 @@ def admin_refresh_stream(request: Request, db: DB):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+
 @app.post("/admin/rescreen")
 @limiter.limit("10/minute")
 def admin_rescreen(
@@ -2646,12 +2647,12 @@ def policies_upload(
     try:
         file_content = file.file.read()
 
-        # Validate MIME type by magic bytes
         from ..validation import validate_file_mime
         try:
             detected_mime = validate_file_mime(file_content, file.filename or "upload.pdf")
         except ValueError as exc:
             return back("/policies", err=f"File validation failed: {exc}")
+
 
         policy_id, version = upload_policy(
             db,
@@ -2696,10 +2697,6 @@ def policies_download(request: Request, db: DB, policy_id: int):
             }
         )
     except ValueError as e:
-        # get_policy() raises ValueError for a missing policy (or an
-        # unreadable file). There is no error.html template and no HTML
-        # exception handler, so render a proper 404 the same way the report
-        # and customer download routes do, rather than a 500.
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=str(e))
 

@@ -11,17 +11,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from amlkit.cases.manager import onboard, record_transaction  # noqa: E402
-from amlkit.db import connect, upsert_dataset, utcnow  # noqa: E402
+from amlkit.db import connect, utcnow  # noqa: E402
 from amlkit.queries import dashboard_kpis  # noqa: E402
 
 
 @pytest.fixture()
 def conn():
     c = connect(":memory:")
-    now = utcnow()
-    ds = upsert_dataset(c, "test_list", "Test List", is_mandatory=True)
-    c.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
-    c.commit()
     yield c
     c.close()
 
