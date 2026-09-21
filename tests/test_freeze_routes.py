@@ -317,3 +317,257 @@ def test_freeze_detail_view_renders(client):
     assert f"Freeze Obligation #{freeze_id}" in r.text
     assert "Detail Test Customer" in r.text
     assert "by alice" in r.text
+
+
+def test_tenant_isolation_cannot_view_other_org_freeze_list(client):
+    """Org A operator cannot see Org B's freeze obligations in list view.
+
+    SECURITY TEST: This test verifies tenant isolation. If this test fails,
+    there is a cross-org data leakage vulnerability.
+    """
+    from amlkit.db import utcnow
+
+    # Create org A (the default test org from _register())
+    conn = _db()
+    org_a_id = conn.execute("SELECT id FROM organizations LIMIT 1").fetchone()["id"]
+
+    # Create org B
+    cur = conn.execute("""
+        INSERT INTO organizations (name, slug, status, created_at)
+        VALUES ('Organization B', 'org-b-test', 'active', ?)
+    """, (utcnow(),))
+    org_b_id = cur.lastrowid
+
+    # Create customer and freeze obligation in Org B
+    now = utcnow()
+    cur = conn.execute("""
+        INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+                               status, onboarded_at, created_at, updated_at)
+        VALUES (?, 'C-ORG-B-001', 'Org B Customer', 'natural', 'org_b_customer',
+                'active', ?, ?, ?)
+    """, (org_b_id, now, now, now))
+    customer_b_id = cur.lastrowid
+
+    cur = conn.execute("""
+        INSERT INTO freeze_obligations (org_id, customer_id, obligation_type, risk_category,
+                                        status, identified_at, identified_by, authority_ref)
+        VALUES (?, ?, 'sanctions', 'critical', 'pending_execution', ?, 'bob', 'UN-789')
+    """, (org_b_id, customer_b_id, now))
+    freeze_b_id = cur.lastrowid
+
+    # Also create a freeze obligation in Org A for comparison
+    cur = conn.execute("""
+        INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+                               status, onboarded_at, created_at, updated_at)
+        VALUES (?, 'C-ORG-A-001', 'Org A Customer', 'natural', 'org_a_customer',
+                'active', ?, ?, ?)
+    """, (org_a_id, now, now, now))
+    customer_a_id = cur.lastrowid
+
+    conn.execute("""
+        INSERT INTO freeze_obligations (org_id, customer_id, obligation_type, risk_category,
+                                        status, identified_at, identified_by, authority_ref)
+        VALUES (?, ?, 'sanctions', 'critical', 'pending_execution', ?, 'alice', 'UN-999')
+    """, (org_a_id, customer_a_id, now))
+    freeze_a_id = cur.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    # Logged in as Org A operator (default from client fixture)
+    r = client.get("/freeze-obligations")
+    assert r.status_code == 200
+
+    # Should see Org A's freeze obligation
+    assert "C-ORG-A-001" in r.text or "Org A Customer" in r.text
+
+    # CRITICAL: Should NOT see Org B's freeze obligation
+    assert "C-ORG-B-001" not in r.text
+    assert "Org B Customer" not in r.text
+
+
+def test_tenant_isolation_cannot_view_other_org_freeze_detail(client):
+    """Org A operator cannot access Org B's freeze obligation detail view.
+
+    SECURITY TEST: This test verifies tenant isolation at the detail level.
+    Attempting to access another org's freeze obligation should either redirect
+    or show "not found" error.
+    """
+    from amlkit.db import utcnow
+
+    # Get org A (the default test org)
+    conn = _db()
+    org_a_id = conn.execute("SELECT id FROM organizations LIMIT 1").fetchone()["id"]
+
+    # Create org B
+    cur = conn.execute("""
+        INSERT INTO organizations (name, slug, status, created_at)
+        VALUES ('Organization B Detail', 'org-b-detail-test', 'active', ?)
+    """, (utcnow(),))
+    org_b_id = cur.lastrowid
+
+    # Create freeze obligation in Org B only
+    now = utcnow()
+    cur = conn.execute("""
+        INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+                               status, onboarded_at, created_at, updated_at)
+        VALUES (?, 'C-DETAIL-B-001', 'Org B Detail Customer', 'natural', 'org_b_detail_customer',
+                'active', ?, ?, ?)
+    """, (org_b_id, now, now, now))
+    customer_b_id = cur.lastrowid
+
+    cur = conn.execute("""
+        INSERT INTO freeze_obligations (org_id, customer_id, obligation_type, risk_category,
+                                        status, identified_at, identified_by, authority_ref)
+        VALUES (?, ?, 'sanctions', 'critical', 'pending_execution', ?, 'bob', 'UN-DETAIL-999')
+    """, (org_b_id, customer_b_id, now))
+    freeze_b_id = cur.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    # Org A operator tries to access Org B's freeze obligation
+    r = client.get(f"/freeze-obligations/{freeze_b_id}", follow_redirects=True)
+
+    # Should get redirected back or see error (not 500)
+    assert r.status_code == 200
+    # Should show error message about not found
+    assert ("not found" in r.text.lower() or "err=" in str(r.url).lower())
+    # CRITICAL: Should NOT show Org B's customer details
+    assert "Org B Detail Customer" not in r.text
+    assert "C-DETAIL-B-001" not in r.text
+
+
+def test_tenant_isolation_cannot_execute_other_org_freeze(client):
+    """Org A MLRO cannot execute Org B's freeze obligation.
+
+    SECURITY TEST: This test verifies tenant isolation for state-changing
+    operations. Attempting to execute another org's freeze should fail with
+    proper error, not update the record.
+    """
+    from amlkit.db import utcnow
+
+    # Get org A
+    conn = _db()
+    org_a_id = conn.execute("SELECT id FROM organizations LIMIT 1").fetchone()["id"]
+
+    # Create org B
+    cur = conn.execute("""
+        INSERT INTO organizations (name, slug, status, created_at)
+        VALUES ('Organization B Execute', 'org-b-exec-test', 'active', ?)
+    """, (utcnow(),))
+    org_b_id = cur.lastrowid
+
+    # Create freeze obligation in Org B
+    now = utcnow()
+    cur = conn.execute("""
+        INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+                               status, onboarded_at, created_at, updated_at)
+        VALUES (?, 'C-EXEC-B-001', 'Org B Exec Customer', 'natural', 'org_b_exec_customer',
+                'active', ?, ?, ?)
+    """, (org_b_id, now, now, now))
+    customer_b_id = cur.lastrowid
+
+    cur = conn.execute("""
+        INSERT INTO freeze_obligations (org_id, customer_id, obligation_type, risk_category,
+                                        status, identified_at, identified_by, authority_ref)
+        VALUES (?, ?, 'sanctions', 'critical', 'pending_execution', ?, 'bob', 'UN-EXEC-123')
+    """, (org_b_id, customer_b_id, now))
+    freeze_b_id = cur.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    # Org A MLRO tries to execute Org B's freeze obligation
+    r = client.post(f"/freeze-obligations/{freeze_b_id}/execute",
+                    data={
+                        "csrf_token": _csrf(client),
+                        "notes": "Malicious cross-org execution attempt",
+                        "asset_type_1": "bank_account",
+                        "asset_identifier_1": "HACKED",
+                        "asset_amount_1": "999999.00",
+                    },
+                    follow_redirects=True)
+
+    # Should get error response (not 500)
+    assert r.status_code == 200
+    assert ("not found" in r.text.lower() or "err=" in str(r.url).lower())
+
+    # CRITICAL: Verify the freeze obligation was NOT modified
+    conn = _db()
+    row = conn.execute("""
+        SELECT status, executed_at, executed_by, assets_frozen
+        FROM freeze_obligations WHERE id=?
+    """, (freeze_b_id,)).fetchone()
+    conn.close()
+
+    assert row["status"] == "pending_execution"  # Status unchanged
+    assert row["executed_at"] is None  # Not executed
+    assert row["executed_by"] is None  # No executor recorded
+    assert row["assets_frozen"] is None or "HACKED" not in (row["assets_frozen"] or "")
+
+
+def test_tenant_isolation_cannot_resolve_other_org_freeze(client):
+    """Org A MLRO cannot resolve Org B's freeze obligation.
+
+    SECURITY TEST: Verifies tenant isolation for resolve operation.
+    """
+    from amlkit.db import utcnow
+
+    # Get org A
+    conn = _db()
+    org_a_id = conn.execute("SELECT id FROM organizations LIMIT 1").fetchone()["id"]
+
+    # Create org B
+    cur = conn.execute("""
+        INSERT INTO organizations (name, slug, status, created_at)
+        VALUES ('Organization B Resolve', 'org-b-resolve-test', 'active', ?)
+    """, (utcnow(),))
+    org_b_id = cur.lastrowid
+
+    # Create executed freeze obligation in Org B
+    now = utcnow()
+    cur = conn.execute("""
+        INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+                               status, onboarded_at, created_at, updated_at)
+        VALUES (?, 'C-RESOLVE-B-001', 'Org B Resolve Customer', 'natural', 'org_b_resolve_customer',
+                'active', ?, ?, ?)
+    """, (org_b_id, now, now, now))
+    customer_b_id = cur.lastrowid
+
+    cur = conn.execute("""
+        INSERT INTO freeze_obligations (org_id, customer_id, obligation_type, risk_category,
+                                        status, identified_at, identified_by, executed_at, executed_by,
+                                        assets_frozen, authority_ref)
+        VALUES (?, ?, 'sanctions', 'critical', 'executed_pending_report', ?, 'bob', ?, 'bob',
+                '[{"type":"cash","identifier":"USD","amount_aed":5000}]', 'UN-RESOLVE-456')
+    """, (org_b_id, customer_b_id, now, now))
+    freeze_b_id = cur.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    # Org A MLRO tries to resolve Org B's freeze obligation
+    r = client.post(f"/freeze-obligations/{freeze_b_id}/resolve",
+                    data={
+                        "csrf_token": _csrf(client),
+                        "resolution_reason": "delisted",
+                        "notes": "Malicious cross-org resolution",
+                    },
+                    follow_redirects=True)
+
+    # Should get error response
+    assert r.status_code == 200
+    assert ("not found" in r.text.lower() or "err=" in str(r.url).lower())
+
+    # CRITICAL: Verify the freeze obligation was NOT resolved
+    conn = _db()
+    row = conn.execute("""
+        SELECT status, resolved_at, resolved_by
+        FROM freeze_obligations WHERE id=?
+    """, (freeze_b_id,)).fetchone()
+    conn.close()
+
+    assert row["status"] == "executed_pending_report"  # Status unchanged
+    assert row["resolved_at"] is None  # Not resolved
+    assert row["resolved_by"] is None  # No resolver recorded
