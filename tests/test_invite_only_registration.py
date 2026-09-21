@@ -177,13 +177,14 @@ class TestAuthEventLogging:
 
 
 class TestNonRegression:
-    @pytest.fixture(autouse=True)
+    @pytest.fixture()
     def _enable_limiter(self):
         from amlkit.api.app import app
-        app.state.limiter.enabled = True
         app.state.limiter._storage.reset()
+        app.state.limiter.enabled = True
         yield
         app.state.limiter.enabled = False
+        app.state.limiter._storage.reset()
 
     def test_login_unaffected_by_invite_setting(self, client, monkeypatch):
         """Existing login works regardless of invite code configuration."""
@@ -233,7 +234,7 @@ class TestNonRegression:
         assert r.status_code == 200
         assert r.json()["status"] == "created"
 
-    def test_api_registration_rate_limited_to_5_per_minute(self, client):
+    def test_api_registration_rate_limited_to_5_per_minute(self, client, _enable_limiter):
         """POST /api/v1/auth/register-organization is rate-limited to 5/minute."""
         for i in range(5):
             r = client.post("/api/v1/auth/register-organization", json={
@@ -248,7 +249,7 @@ class TestNonRegression:
         })
         assert r.status_code == 429, f"6th attempt should be 429 (got {r.status_code})"
 
-    def test_web_registration_rate_limited_to_5_per_minute(self, client):
+    def test_web_registration_rate_limited_to_5_per_minute(self, client, _enable_limiter):
         """POST /register-organization is rate-limited to 5/minute."""
         for i in range(5):
             csrf = _csrf(client)
