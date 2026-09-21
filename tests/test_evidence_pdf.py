@@ -19,7 +19,14 @@ try:
 except (ImportError, OSError):
     HAS_WEASYPRINT = False
 
-pytestmark = pytest.mark.skipif(
+from amlkit.reporting.evidence_pdf import (  # noqa: E402
+    PDF_BASE_URL,
+    STATIC_ROOT,
+    mime_type_for,
+    resolve_static_asset,
+)
+
+needs_weasyprint = pytest.mark.skipif(
     not HAS_WEASYPRINT,
     reason="weasyprint not available (requires libpango/cairo system libraries)",
 )
@@ -64,6 +71,7 @@ def client(tmp_path, monkeypatch):
     return c
 
 
+@needs_weasyprint
 class TestEvidencePdf:
     def test_returns_pdf_for_own_org(self, client):
         cid = _onboard_customer(client)
@@ -87,3 +95,97 @@ class TestEvidencePdf:
         # Org 1's client tries to access Org 2's customer PDF
         r = client.get(f"/customers/{other_cid}/evidence.pdf")
         assert r.status_code == 404, f"Expected 404 for cross-org access, got {r.status_code}"
+
+    def test_arabic_customer_name_download(self, client):
+        """Non-latin-1 names must not break the Content-Disposition header."""
+        cid = _onboard_customer(client, name="محمد بن راشد")
+        r = client.get(f"/customers/{cid}/evidence.pdf")
+        assert r.status_code == 200
+        cd = r.headers["content-disposition"]
+        assert f'filename="evidence-{cid}-customer.pdf"' in cd
+        assert "filename*=UTF-8''" in cd
+
+
+class TestStaticAssetResolution:
+    """The PDF fetcher's allow-list: runs without WeasyPrint installed."""
+
+    def test_static_css_allowed(self):
+        path = resolve_static_asset(PDF_BASE_URL + "static/app.css")
+        assert path == STATIC_ROOT / "app.css"
+        assert mime_type_for(path) == "text/css"
+
+    def test_root_relative_href_resolves_to_allowed_url(self):
+        from urllib.parse import urljoin
+        assert resolve_static_asset(urljoin(PDF_BASE_URL, "/static/app.css")) is not None
+
+    @pytest.mark.parametrize("url", [
+        "http://169.254.169.254/latest/meta-data/",
+        "https://example.com/static/app.css",
+        "http://localhost:8000/static/app.css",
+        "file:///etc/passwd",
+        (STATIC_ROOT / "app.css").as_uri(),
+        "ftp://example.com/x",
+        "data:text/css,body{}",
+        PDF_BASE_URL + "templates/base.html",
+        PDF_BASE_URL + "static/../templates/base.html",
+        PDF_BASE_URL + "static/%2e%2e/templates/base.html",
+        PDF_BASE_URL + "static/..%2f..%2fdb.py",
+        PDF_BASE_URL + "static/does-not-exist.css",
+        PDF_BASE_URL + "static/",
+    ])
+    def test_everything_else_blocked(self, url):
+        assert resolve_static_asset(url) is None
+
+
+@needs_weasyprint
+class TestStaticOnlyFetcher:
+    """The real WeasyPrint fetcher object (pinned WeasyPrint API)."""
+
+    def test_is_weasyprint_url_fetcher(self):
+        from weasyprint.urls import URLFetcher
+        from amlkit.reporting.evidence_pdf import make_url_fetcher
+        assert isinstance(make_url_fetcher(), URLFetcher)
+
+    def test_serves_local_static_css(self):
+        from amlkit.reporting.evidence_pdf import make_url_fetcher
+        resp = make_url_fetcher().fetch(PDF_BASE_URL + "static/app.css")
+        try:
+            assert resp.content_type == "text/css"
+            assert resp.read() == (STATIC_ROOT / "app.css").read_bytes()
+        finally:
+            resp.close()
+
+    @pytest.mark.parametrize("url", [
+        "http://169.254.169.254/latest/meta-data/",
+        "https://example.com/logo.png",
+        "file:///etc/passwd",
+    ])
+    def test_external_urls_refused(self, url, monkeypatch):
+        import urllib.request
+        from amlkit.reporting.evidence_pdf import make_url_fetcher
+
+        def _no_network(*a, **kw):
+            raise AssertionError(f"network/file open attempted for {url}")
+        monkeypatch.setattr(urllib.request.OpenerDirector, "open", _no_network)
+        with pytest.raises(ValueError, match="blocked"):
+            make_url_fetcher().fetch(url)
+
+    def test_render_does_not_fetch_external_resources(self, monkeypatch):
+        """End to end: an external <img>/<link> in the HTML is never fetched."""
+        import urllib.request
+        from amlkit.reporting.evidence_pdf import render_pdf
+
+        opened = []
+
+        def _record_open(self, *a, **kw):
+            opened.append(a)
+            raise AssertionError("network/file fetch attempted")
+        monkeypatch.setattr(urllib.request.OpenerDirector, "open", _record_open)
+        pdf = render_pdf(
+            '<html><head><link rel="stylesheet" href="http://127.0.0.1:9/x.css">'
+            '<link rel="stylesheet" href="/static/app.css"></head>'
+            '<body><img src="http://169.254.169.254/x.png">'
+            '<img src="file:///etc/passwd"><p>hi</p></body></html>'
+        )
+        assert pdf[:5] == b"%PDF-"
+        assert opened == []

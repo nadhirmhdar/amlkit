@@ -1467,7 +1467,9 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     from ..risk.model import ruleset as load_ruleset
     rs = load_ruleset()
     generated_at = utcnow()
-    ctx = data | {"session": session, "generated_at": generated_at}
+    eff_risk = queries.effective_risk(db, customer_id, session.org_id)
+    ctx = data | {"session": session, "generated_at": generated_at,
+                  "effective_risk": eff_risk}
     ctx.setdefault("security_warning", startup_warning())
     ctx.setdefault("single_operator", single_operator_mode())
     ctx["csrf_token"] = ""
@@ -1483,34 +1485,28 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     html_str = html_str.replace("</body>", footer_html + "</body>")
 
     try:
-        import weasyprint
-
-        def url_fetcher(url):
-            """Resolve /static/ URLs to local filesystem for WeasyPrint."""
-            if url.startswith("/static/"):
-                # Map /static/app.css -> WEB/static/app.css
-                local_path = WEB / url.lstrip("/")
-                if local_path.exists():
-                    return {"string": local_path.read_text(), "mime_type": "text/css"}
-            # Fallback to default fetcher
-            return weasyprint.default_url_fetcher(url)
-
-        pdf_bytes = weasyprint.HTML(
-            string=html_str,
-            base_url=str(WEB),
-            url_fetcher=url_fetcher,
-        ).write_pdf()
+        from ..reporting.evidence_pdf import render_pdf
+        pdf_bytes = render_pdf(html_str)
     except (ImportError, OSError):
         return back(f"/customers/{customer_id}/evidence",
                     err="PDF generation unavailable — WeasyPrint system libraries not installed.")
 
     from fastapi.responses import Response
-    safe_name = data["customer"]["full_name"].replace('"', "")
+    # Header values must be latin-1: give an ASCII fallback filename plus the
+    # full (possibly Arabic) name via RFC 6266 filename*.
+    import re as _re
+    from urllib.parse import quote as _quote
+    full_name = data["customer"]["full_name"]
+    ascii_name = _re.sub(r"[^A-Za-z0-9._-]+", "_", full_name).strip("_") or "customer"
+    utf8_name = _quote(f"evidence-{customer_id}-{full_name}.pdf", safe="")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="evidence-{customer_id}-{safe_name}.pdf"',
+            "Content-Disposition": (
+                f'attachment; filename="evidence-{customer_id}-{ascii_name}.pdf"; '
+                f"filename*=UTF-8''{utf8_name}"
+            ),
         },
     )
 

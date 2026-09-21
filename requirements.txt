@@ -22,4 +22,4 @@ segno>=1.6
 google-cloud-storage>=2.18,<3.0
 google-cloud-bigquery>=3.0
 google-generativeai>=0.8
-weasyprint>=60.0
+weasyprint==70.0  # evidence PDF; URLFetcher-class fetcher API (amlkit/reporting/evidence_pdf.py)
