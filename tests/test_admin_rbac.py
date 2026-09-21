@@ -219,3 +219,15 @@ class TestAdminRBAC:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
         assert r.status_code == 403
+
+    def test_mlro_rule_config_page_renders(self, client) -> None:
+        """GET /admin/rule-config renders the configuration form body.
+
+        Regression test: the template previously declared {% block content %}
+        while base.html renders {% block body %}, so the page rendered blank
+        (200 OK, empty body) for every MLRO.
+        """
+        r = client.get("/admin/rule-config")
+        assert r.status_code == 200
+        assert "Transaction Monitoring Rules" in r.text
+        assert "large_cash_threshold_aed" in r.text
