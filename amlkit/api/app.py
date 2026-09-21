@@ -1451,6 +1451,58 @@ def customer_kg_screen(request: Request, db: DB, customer_id: int):
     return JSONResponse(asdict(result))
 
 
+@app.get("/customers/{customer_id}/evidence.pdf")
+def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    data = queries.customer(db, customer_id, session.org_id)
+    if data is None:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "not found"}, status_code=404)
+    for alert in data["alerts"]:
+        alert["reviews"] = review_history(db, alert["id"], session.org_id)
+
+    from ..risk.model import ruleset as load_ruleset
+    rs = load_ruleset()
+    generated_at = utcnow()
+    ctx = data | {"session": session, "generated_at": generated_at}
+    ctx.setdefault("security_warning", startup_warning())
+    ctx.setdefault("single_operator", single_operator_mode())
+    ctx["csrf_token"] = ""
+    ctx["request"] = request
+
+    html_str = templates.get_template("evidence.html").render(ctx)
+    footer_html = (
+        f'<div style="text-align:center; font-size:9px; color:#888; padding:4px;">'
+        f'Generated {generated_at[:19].replace("T", " ")} UTC'
+        f' &middot; amlkit &middot; ruleset {rs.get("version", "unknown")}'
+        f'</div>'
+    )
+    html_str = html_str.replace("</body>", footer_html + "</body>")
+
+    try:
+        import weasyprint
+        pdf_bytes = weasyprint.HTML(
+            string=html_str,
+            base_url=str(WEB),
+        ).write_pdf()
+    except (ImportError, OSError):
+        return back(f"/customers/{customer_id}/evidence",
+                    err="PDF generation unavailable — WeasyPrint system libraries not installed.")
+
+    from fastapi.responses import Response
+    safe_name = data["customer"]["full_name"].replace('"', "")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="evidence-{customer_id}-{safe_name}.pdf"',
+        },
+    )
+
+
 @app.post("/customers/{customer_id}/close")
 def customer_close(request: Request, db: DB, customer_id: int,
                    csrf_token: Annotated[str, Form()] = ""):
