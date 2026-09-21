@@ -1,0 +1,24 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: python-syntax-check
+        name: Check Python syntax (compileall)
+        entry: python -m compileall -q
+        language: system
+        files: \.py$
+        pass_filenames: false
+        args: [amlkit, tests]
+
+      - id: pyflakes
+        name: Pyflakes static analysis
+        entry: python -m pyflakes
+        language: system
+        files: \.py$
+        types: [python]
+        args: [amlkit]

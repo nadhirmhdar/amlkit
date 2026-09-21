@@ -187,6 +187,15 @@ Run the tests:
 .venv\Scripts\python -m pytest tests -q
 ```
 
+### Development
+
+Install pre-commit hooks to catch syntax errors before committing:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
 ---
 
 ## Adverse media
