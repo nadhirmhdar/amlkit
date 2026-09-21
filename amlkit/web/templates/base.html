@@ -29,6 +29,8 @@
       <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
       <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
       <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
+      <a href="/policies"  class="{{ 'on' if nav=='policies' }}">Policies</a>
+      <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
       {% endif %}
