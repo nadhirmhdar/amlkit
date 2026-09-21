@@ -67,6 +67,9 @@ def test_sse_generator_reports_failures(monkeypatch):
     class FakeAdapter:
         title = "Failing List"
         key = "fail"
+        publisher = "Test Publisher"
+        source_url = "https://example.test/fail"
+        licence = "Public Domain"
         is_mandatory = True
         def __call__(self): return self
 
@@ -77,6 +80,7 @@ def test_sse_generator_reports_failures(monkeypatch):
 
     monkeypatch.setattr("amlkit.ingest.loader.load", failing_load)
     monkeypatch.setattr("amlkit.db.record_dataset_error", lambda *a, **kw: None)
+    monkeypatch.setattr("amlkit.db.upsert_dataset", lambda *a, **kw: None)
     monkeypatch.setattr("amlkit.db.audit", lambda *a, **kw: None)
     monkeypatch.setattr("amlkit.match.cache.invalidate", lambda: None)
 
@@ -85,3 +89,55 @@ def test_sse_generator_reports_failures(monkeypatch):
     assert any(e.get("type") == "adapter_error" for e in events)
     error_event = next(e for e in events if e.get("type") == "adapter_error")
     assert "connection timeout" in error_event.get("error", "")
+
+
+def test_first_ever_failure_still_creates_a_visible_dataset_row(monkeypatch):
+    """A mandatory source that has NEVER loaded successfully must still show
+    up as a failed/breach row, not disappear from the compliance dashboard.
+
+    Finding #1 (2026-09-21 deployed-site review): load() only calls
+    upsert_dataset() on success, so a source whose very first refresh fails
+    has no `datasets` row at all -- record_dataset_error() then silently
+    no-ops (see test_record_on_missing_dataset_is_noop), and the compliance
+    dashboard shows nothing for it instead of a failure. Uses a real
+    in-memory DB (not the FakeConn used above) so staleness_report() runs
+    for real against what refresh_with_progress() actually wrote.
+    """
+    from amlkit.cases.scheduler import refresh_with_progress
+    from amlkit.ingest.base import AdapterError
+    from amlkit.ingest.loader import staleness_report
+    from amlkit.db import connect
+
+    conn = connect(":memory:")
+    conn.execute("DELETE FROM datasets")  # ignore FATF's connect()-time seed
+    conn.commit()
+
+    class NeverLoadedAdapter:
+        title = "Never Loaded Sanctions List"
+        key = "never_loaded_sanctions_list"
+        publisher = "Test Publisher"
+        source_url = "https://example.test/never-loaded"
+        licence = "Public Domain"
+        is_mandatory = True
+        def __call__(self): return self
+
+    def failing_load(conn, adapter, actor="system"):
+        raise AdapterError("HTTP 403 Forbidden")
+
+    monkeypatch.setattr("amlkit.ingest.loader.load", failing_load)
+    monkeypatch.setattr("amlkit.match.cache.invalidate", lambda: None)
+
+    list(refresh_with_progress(conn, "test-actor", adapters=[NeverLoadedAdapter()]))
+
+    row = conn.execute(
+        "SELECT is_mandatory, last_error, last_refresh FROM datasets WHERE key=?",
+        ("never_loaded_sanctions_list",),
+    ).fetchone()
+    assert row is not None, "failed source must get a dataset row even on its first-ever refresh"
+    assert row["is_mandatory"] == 1
+    assert "403" in row["last_error"]
+    assert row["last_refresh"] is None
+
+    report = {d["key"]: d for d in staleness_report(conn)}
+    assert report["never_loaded_sanctions_list"]["breach"] is True
+    conn.close()

@@ -219,17 +219,29 @@ def staleness_report(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
+# FATF's country-risk list is mandatory but is a jurisdiction-risk table used
+# by risk scoring, not a screenable sanctions/PEP entity list. Its adapter
+# also falls back to hardcoded data whenever the live fetch fails, so it is
+# "fresh" even when the network is fully blocked and every real sanctions
+# source is unreachable. It must never, on its own, satisfy the freshness
+# gate that decides whether screening has real coverage.
+_NON_SCREENING_MANDATORY_KEYS = frozenset({"fatf_country_risk"})
+
+
 def datasets_fresh(conn: sqlite3.Connection) -> bool:
-    """True when at least one mandatory dataset has a non-zero entity count
-    and was refreshed within its max_age_hours window.
+    """True when at least one mandatory *screenable sanctions* dataset has a
+    non-zero entity count and was refreshed within its max_age_hours window.
 
     Not org-scoped: datasets are shared reference data.
     """
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc)
+    placeholders = ",".join("?" * len(_NON_SCREENING_MANDATORY_KEYS))
     rows = conn.execute(
-        "SELECT entity_count, last_refresh, max_age_hours FROM datasets WHERE is_mandatory=1"
+        f"SELECT entity_count, last_refresh, max_age_hours FROM datasets "
+        f"WHERE is_mandatory=1 AND key NOT IN ({placeholders})",
+        tuple(_NON_SCREENING_MANDATORY_KEYS),
     ).fetchall()
 
     for row in rows:
