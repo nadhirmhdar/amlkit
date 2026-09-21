@@ -41,7 +41,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     from ..ingest.interpol import InterpolRedNoticeAdapter
     from ..match.engine import rescreen_all
     from ..match.cache import invalidate as invalidate_cache
-    from ..db import audit, record_dataset_error
+    from ..db import audit, record_dataset_error, upsert_dataset
 
     loaded: list[str] = []
     failures: list[str] = []
@@ -58,6 +58,19 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             failures.append(msg)
             if adapter.is_mandatory:
                 mandatory_failures.append(msg)
+            # A source that has never once loaded successfully has no dataset
+            # row yet (load() only upserts one on success), so record_dataset_error
+            # below would silently no-op and the compliance dashboard would show
+            # nothing at all for it instead of a failed/breach row. Ensure the
+            # row exists first, exactly as a successful load() would have.
+            # getattr, not adapter.source_url: EUSanctionsAdapter resolves its
+            # URL at fetch() time (it embeds a token that can rotate), so it
+            # never sets self.source_url and a plain attribute access here
+            # would raise AttributeError instead of recording the failure.
+            upsert_dataset(conn, key=adapter.key, title=adapter.title,
+                            publisher=adapter.publisher,
+                            source_url=getattr(adapter, "source_url", ""),
+                            licence=adapter.licence, is_mandatory=adapter.is_mandatory)
             # Persist onto the dataset row so /admin/compliance shows which
             # source failed and why, not just a transient audit-log line.
             record_dataset_error(conn, adapter.key, str(exc))
@@ -122,7 +135,7 @@ def refresh_with_progress(conn, actor, adapters=None):
     from ..ingest.loader import load
     from ..match.engine import rescreen_all
     from ..match.cache import invalidate as invalidate_cache
-    from ..db import audit, record_dataset_error
+    from ..db import audit, record_dataset_error, upsert_dataset
 
     if adapters is None:
         adapters = _default_adapters()
@@ -145,6 +158,15 @@ def refresh_with_progress(conn, actor, adapters=None):
             }
         except AdapterError as exc:
             failures.append(adapter.title)
+            # See run_sanctions_refresh: without this, a source that has
+            # never once loaded successfully has no dataset row yet, so
+            # record_dataset_error below would silently no-op. getattr, not
+            # adapter.source_url: EUSanctionsAdapter never sets that
+            # attribute (resolved at fetch() time instead).
+            upsert_dataset(conn, key=adapter.key, title=adapter.title,
+                            publisher=adapter.publisher,
+                            source_url=getattr(adapter, "source_url", ""),
+                            licence=adapter.licence, is_mandatory=adapter.is_mandatory)
             record_dataset_error(conn, adapter.key, str(exc))
             audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
                   {"error": str(exc)}, org_id=None)

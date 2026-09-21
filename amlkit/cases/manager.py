@@ -129,6 +129,10 @@ def onboard(
     # p35: CDD enhancement
     purpose_of_relationship: str | None = None,
     expected_activity: str | None = None,
+    # p36: Enhanced due diligence fields
+    risk_level: str | None = None,
+    source_of_wealth: str | None = None,
+    source_of_funds: str | None = None,
 ) -> OnboardingResult:
     """Create a customer, screen them and their UBOs, and assign a risk rating.
 
@@ -175,8 +179,9 @@ def onboard(
                 email, phone, address_line1, address_line2, city, postal_code,
                 contact_person, contact_phone, contact_email,
                 purpose_of_relationship, expected_activity,
+                risk_level, source_of_wealth, source_of_funds,
                 onboarded_at, retention_until, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, reference, customer_type, full_name, name_arabic, ck,
                 nationality, country, birth_date, gender, id_number, id_type,
@@ -185,6 +190,7 @@ def onboard(
                 email, phone, address_line1, address_line2, city, postal_code,
                 contact_person, contact_phone, contact_email,
                 purpose_of_relationship, expected_activity,
+                risk_level, source_of_wealth, source_of_funds,
                 now, retention, now, now,
             ),
         )
@@ -2052,3 +2058,25 @@ def check_adverse_media_status(conn: sqlite3.Connection, job_id: str) -> dict[st
         "new_findings": job.get("new_findings", 0),
         "error": job.get("error"),
     }
+
+
+REPORT_REQUIRED_FIELDS = ("reporting_entity_name",)
+
+
+def report_finalize_error(rep) -> str | None:
+    """Return a user-facing reason a report cannot be finalized, else None.
+
+    Shared by the web route and the mobile API so both apply identical rules.
+    Finalizing only marks the report locked in amlkit; it is NOT transmitted
+    to the UAE FIU (the goAML XML must be uploaded manually).
+    """
+    if rep["status"] == "submitted":
+        return "Report has already been finalized."
+    try:
+        payload = json.loads(rep["payload"])
+    except (json.JSONDecodeError, TypeError):
+        return "Report data is invalid. Cannot finalize."
+    missing = [f for f in REPORT_REQUIRED_FIELDS if not payload.get(f)]
+    if missing:
+        return f"Cannot finalize report. Missing required fields: {', '.join(missing)}"
+    return None

@@ -26,32 +26,32 @@ def client(tmp_path, monkeypatch):
 
 
 def test_register_organization_rate_limit(client):
-    """Sending 11 requests to /register-organization → 11th returns 429."""
+    """Sending 6 requests to /register-organization → 6th returns 429 (limit: 5/minute)."""
 
     # Get CSRF token
     client.get("/register-organization")
     csrf = client.cookies.get("amlkit_csrf")
 
-    # First 10 should succeed or return validation errors (not rate limited)
-    for i in range(10):
+    # First 5 should succeed or return validation errors (not rate limited)
+    for i in range(5):
         resp = client.post("/register-organization", data={
             "org_name": f"Test Org {i}",
             "name": f"User {i}",
             "email": f"test{i}@example.ae",
             "password": f"Password{i}123!",
-            "csrf_token": csrf,
+            "csrf_token": csrf, "invite_code": "test-invite",
         })
         assert resp.status_code != 429, f"Request {i+1} was rate limited (should not be)"
 
-    # 11th request should be rate limited
+    # 6th request should be rate limited
     resp = client.post("/register-organization", data={
-        "org_name": "Test Org 11",
-        "name": "User 11",
-        "email": "test11@example.ae",
-        "password": "Password11123!",
-        "csrf_token": csrf,
+        "org_name": "Test Org 6",
+        "name": "User 6",
+        "email": "test6@example.ae",
+        "password": "Password6123!",
+        "csrf_token": csrf, "invite_code": "test-invite",
     })
-    assert resp.status_code == 429, "11th request should be rate limited"
+    assert resp.status_code == 429, "6th request should be rate limited"
 
 
 def test_resend_verification_rate_limit(client, tmp_path, monkeypatch):

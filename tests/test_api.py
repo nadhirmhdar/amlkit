@@ -65,7 +65,8 @@ def _flash_parse(cookie_val: str) -> dict:
     return json.loads(base64.b64decode(cookie_val.encode()).decode())
 
 
-def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
+def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1",
+              invite_code: str = "test-invite"):
     """Registers, then completes email verification and signs in.
 
     Registration alone no longer produces a usable session (see
@@ -81,13 +82,15 @@ def _register(client, org_name: str, name: str, email: str, password: str = "a-s
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
-        "csrf_token": _csrf(client),
+        "csrf_token": _csrf(client), "invite_code": invite_code,
     }, follow_redirects=True)
     assert "Check your email" in r.text, f"registration failed: {r.text[:300]}"
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
     assert m, f"no dev verification link in registration response: {r.text[:500]}"
     r2 = client.get(f"/verify-email?token={m.group(1)}", follow_redirects=True)
-    assert "Dashboard" in r2.text or "24-hour" in r2.text, f"verification failed: {r2.text[:300]}"
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
+    assert any(s in r2.text for s in ("Dashboard", "24-hour", "Two-Factor")), f"verification failed: {r2.text[:300]}"
     return client
 
 
@@ -96,6 +99,8 @@ def _login(client, email: str, password: str = "a-strong-password-1"):
     r = client.post("/login", data={
         "email": email, "password": password, "csrf_token": _csrf(client),
     }, follow_redirects=True)
+    from conftest import settle_mfa  # p15: MLRO sessions start locked
+    settle_mfa(client)
     return r
 
 
@@ -211,6 +216,8 @@ class TestAuth:
     def test_login_without_csrf_rejected(self, client) -> None:
         client.cookies.delete("amlkit_session")
         r = client.post("/login", data={"email": "alice@testfirm.ae", "password": "a-strong-password-1"})
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
         assert "Incorrect email or password" not in r.text
         # CSRF failure keeps the user on the login page with a distinct error,
         # never a successful sign-in.
@@ -232,7 +239,7 @@ class TestAuth:
         r = client.post("/register-organization", data={
             "org_name": "A Totally Different Firm", "name": "alice again",
             "email": "alice@testfirm.ae", "password": "another-strong-pw-1",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         })
         assert r.status_code == 200
         assert "already exists" in r.text
@@ -244,7 +251,7 @@ class TestAuth:
         r2 = client.post("/register-organization", data={
             "org_name": "A Totally Different Firm", "name": "someone else",
             "email": "someone.else@testfirm.ae", "password": "yet-another-pw-1",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
         assert "Check your email" in r2.text, f"registration failed: {r2.text[:300]}"
 
@@ -1131,7 +1138,7 @@ class TestCookieSecurity:
             "name": "Admin",
             "email": "secure@test.local",
             "password": "SecurePass123",
-            "csrf_token": csrf,
+            "csrf_token": csrf, "invite_code": "test-invite",
         }, follow_redirects=True)
 
         # Extract verification token
@@ -1175,7 +1182,7 @@ class TestCookieSecurity:
             "name": "Dev Admin",
             "email": "dev@test.local",
             "password": "DevPass123",
-            "csrf_token": csrf,
+            "csrf_token": csrf, "invite_code": "test-invite",
         }, follow_redirects=True)
 
         import re
@@ -1205,6 +1212,8 @@ class TestCookieSecurity:
             "password": "a-strong-password-1",
             "csrf_token": csrf_before,
         }, follow_redirects=False)
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
 
         assert r.status_code == 303
 
@@ -1241,7 +1250,7 @@ class TestCookieSecurity:
             "name": "Admin",
             "email": "verify@test.local",
             "password": "VerifyPass123",
-            "csrf_token": _csrf(client),
+            "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
 
         csrf_before = _csrf(client)
@@ -1650,3 +1659,46 @@ class TestRuleConfigRoutes:
         assert r.status_code in (200, 403)
         if r.status_code == 200:
             assert "mlro" in r.text.lower() or "permission" in r.text.lower()
+
+
+class TestRouteErrorHandling:
+    """Routes that used to surface an unhandled exception as HTTP 500 where a
+    proper status was expected (QA-06, QA-07 in the 2026-09-21 deployed-site
+    review)."""
+
+    def test_gdelt_bq_returns_unconfigured_not_500(self, client, monkeypatch) -> None:
+        """GET /customers/{id}/gdelt-bq must return the screener's structured
+        result when BigQuery is unconfigured, not a 500.
+
+        Regression: the route read cust["full_name"] on the case-file dict
+        (whose name lives under cust["customer"]["full_name"]), raising
+        KeyError before the screener ever ran."""
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        client.post("/customers", data={
+            "reference": "GDELT-1", "full_name": "Ahmed Al Mansoori",
+            "customer_type": "natural", "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        conn = _db()
+        cid = conn.execute(
+            "SELECT id FROM customers WHERE reference='GDELT-1'").fetchone()["id"]
+        conn.close()
+
+        r = client.get(f"/customers/{cid}/gdelt-bq")
+        assert r.status_code == 200, r.text[:300]
+        assert r.json()["status"] == "unconfigured"
+
+    def test_gdelt_bq_missing_customer_returns_404(self, client) -> None:
+        r = client.get("/customers/999999/gdelt-bq")
+        assert r.status_code == 404
+
+    def test_policy_download_missing_id_returns_404(self, client) -> None:
+        """GET /policies/{missing}/download must render the 404 error page,
+        not 500.
+
+        Regression: get_policy() raises ValueError for a missing policy, the
+        route caught it and tried templates.TemplateResponse("error.html",
+        {...}) using the deprecated argument order. On Starlette >= 1.x that
+        passes the context dict where the template name is expected, raising
+        TypeError: unhashable type: 'dict'."""
+        r = client.get("/policies/999999/download", follow_redirects=False)
+        assert r.status_code == 404, r.text[:300]

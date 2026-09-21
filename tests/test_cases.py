@@ -476,6 +476,57 @@ class TestStalenessGuard:
         conn.commit()
         assert datasets_fresh(conn) is False
 
+    def test_datasets_fresh_fatf_alone_does_not_count(self, conn) -> None:
+        """A fresh FATF country-risk row alone must not satisfy the gate.
+
+        Finding #1 (2026-09-21 deployed-site review): FATFAdapter falls back
+        to hardcoded jurisdiction data whenever its live fetch fails, so it
+        is always "fresh" -- even with every real sanctions source (EOCN, UN,
+        OFAC, EU, UK) unreachable. Before this fix, datasets_fresh() treated
+        FATF's freshness as proof of sanctions coverage, so onboarding
+        proceeded and every customer was screened against zero sanctions
+        entities while the dashboard reported lists as fresh.
+        """
+        conn.execute("DELETE FROM datasets")
+        ds_id = upsert_dataset(conn, "fatf_country_risk", "FATF High-Risk Jurisdictions",
+                                is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=26, last_refresh=? WHERE id=?",
+            (utcnow(), ds_id),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is False
+
+    def test_datasets_fresh_with_real_sanctions_list_plus_fatf(self, conn) -> None:
+        """A fresh real sanctions source alongside FATF does count."""
+        conn.execute("DELETE FROM datasets")
+        fatf_id = upsert_dataset(conn, "fatf_country_risk", "FATF High-Risk Jurisdictions",
+                                  is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=26, last_refresh=? WHERE id=?",
+            (utcnow(), fatf_id),
+        )
+        ofac_id = upsert_dataset(conn, "ofac_sdn", "OFAC SDN List", is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=12000, last_refresh=? WHERE id=?",
+            (utcnow(), ofac_id),
+        )
+        conn.commit()
+        assert datasets_fresh(conn) is True
+
+    def test_onboard_blocked_when_only_fatf_is_fresh(self, conn, org_id) -> None:
+        """onboard() must refuse when FATF is the only fresh mandatory dataset."""
+        conn.execute("DELETE FROM datasets")
+        ds_id = upsert_dataset(conn, "fatf_country_risk", "FATF High-Risk Jurisdictions",
+                                is_mandatory=True)
+        conn.execute(
+            "UPDATE datasets SET entity_count=26, last_refresh=? WHERE id=?",
+            (utcnow(), ds_id),
+        )
+        conn.commit()
+        with pytest.raises(StaleDatasetsError):
+            onboard(conn, org_id=org_id, reference="FATF-ONLY-1", full_name="Test Customer")
+
     def test_onboard_blocked_when_stale(self, conn, org_id) -> None:
         """onboard raises StaleDatasetsError when datasets are stale."""
         conn.execute("DELETE FROM datasets")
