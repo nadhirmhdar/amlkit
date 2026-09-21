@@ -34,4 +34,13 @@
 </div>
 </div>
 
+<div class="pagination" style="margin-top:24px; display:flex; gap:12px; justify-content:center;">
+  {% if page > 1 %}
+    <a href="/audit?page={{ page - 1 }}" class="btn">Previous</a>
+  {% endif %}
+  {% if entries|length == per_page %}
+    <a href="/audit?page={{ page + 1 }}" class="btn">Next</a>
+  {% endif %}
+</div>
+
 {% endblock %}

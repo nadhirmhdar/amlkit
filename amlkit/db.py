@@ -137,7 +137,12 @@ CREATE TABLE IF NOT EXISTS organizations (
     name       TEXT NOT NULL,
     slug       TEXT NOT NULL UNIQUE,
     status     TEXT NOT NULL DEFAULT 'active',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    -- goAML reporting entity profile fields (p46)
+    org_address            TEXT,
+    reporting_person_name  TEXT,
+    reporting_person_title TEXT,
+    reporting_person_phone TEXT
 );
 
 -- Session tokens are stored hashed, exactly like a password would be -- the
@@ -670,7 +675,7 @@ CREATE INDEX IF NOT EXISTS ix_audit_ts  ON audit_log(ts);
 -- User feedback from pilot users. Deliberately org-scoped so each firm's
 -- feedback stays with their own data, not mixed into a global pool.
 -- operator_id (not just actor name) so deactivated operators' feedback
--- can be retained per the 5-year rule even after the operator row is gone.
+-- can be retained per the 10-year rule even after the operator row is gone.
 CREATE TABLE IF NOT EXISTS feedback (
     id          INTEGER PRIMARY KEY,
     org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -695,6 +700,25 @@ BEFORE DELETE ON audit_log
 BEGIN
     SELECT RAISE(ABORT, 'audit_log is append-only');
 END;
+
+-- ----------------------------------------------------------------- MFA/TOTP (p15)
+-- One row per operator; replaced on re-enrolment.
+CREATE TABLE IF NOT EXISTS mfa_secrets (
+    operator_id INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
+    secret      TEXT NOT NULL,
+    enrolled_at TEXT NOT NULL
+);
+
+-- 10 single-use recovery codes per operator.  code_hash is argon2 so the raw
+-- token is never stored; used_at is stamped when consumed.
+CREATE TABLE IF NOT EXISTS mfa_backup_codes (
+    id          INTEGER PRIMARY KEY,
+    operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    code_hash   TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    used_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_mfa_backup_operator ON mfa_backup_codes(operator_id);
 """
 
 
@@ -766,6 +790,9 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "contact_person", "ALTER TABLE customers ADD COLUMN contact_person TEXT"),
     ("customers", "contact_phone",  "ALTER TABLE customers ADD COLUMN contact_phone  TEXT"),
     ("customers", "contact_email",  "ALTER TABLE customers ADD COLUMN contact_email  TEXT"),
+    # p35: CDD enhancement — purpose of relationship and expected activity
+    ("customers", "purpose_of_relationship", "ALTER TABLE customers ADD COLUMN purpose_of_relationship TEXT"),
+    ("customers", "expected_activity",       "ALTER TABLE customers ADD COLUMN expected_activity       TEXT"),
     ("datasets",  "max_age_hours",  "ALTER TABLE datasets ADD COLUMN max_age_hours INTEGER NOT NULL DEFAULT 24"),
     ("operators", "super_admin",    "ALTER TABLE operators ADD COLUMN super_admin INTEGER NOT NULL DEFAULT 0"),
     ("datasets",  "staleness_notified_at", "ALTER TABLE datasets ADD COLUMN staleness_notified_at TEXT"),
@@ -784,6 +811,15 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("org_settings", "kyt_velocity_window_hours", "ALTER TABLE org_settings ADD COLUMN kyt_velocity_window_hours INTEGER"),
     ("org_settings", "kyt_velocity_max_count", "ALTER TABLE org_settings ADD COLUMN kyt_velocity_max_count INTEGER"),
     ("org_settings", "kyt_high_risk_countries", "ALTER TABLE org_settings ADD COLUMN kyt_high_risk_countries TEXT"),  # JSON list
+    # p14: Idle session timeout. NULL on existing sessions; grandfathered until absolute expiry.
+    ("sessions", "last_active", "ALTER TABLE sessions ADD COLUMN last_active TEXT"),
+    # p38: UBO periodic re-verification tracking
+    ("ubo_links", "last_verified_at",  "ALTER TABLE ubo_links ADD COLUMN last_verified_at  TEXT"),
+    # p46: Organization goAML reporting entity profile fields
+    ("organizations", "org_address",            "ALTER TABLE organizations ADD COLUMN org_address            TEXT"),
+    ("organizations", "reporting_person_name",  "ALTER TABLE organizations ADD COLUMN reporting_person_name  TEXT"),
+    ("organizations", "reporting_person_title", "ALTER TABLE organizations ADD COLUMN reporting_person_title TEXT"),
+    ("organizations", "reporting_person_phone", "ALTER TABLE organizations ADD COLUMN reporting_person_phone TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -797,6 +833,31 @@ def _migrate(conn: sqlite3.Connection) -> None:
         cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(ddl)
+
+
+def _backfill_retention_until(conn: sqlite3.Connection) -> None:
+    """Set retention_until for existing customers where it is NULL.
+
+    UAE Federal Decree-Law No. 10/2025: retention for closed customers runs
+    from relationship termination (updated_at); for active customers it runs
+    from onboarding (onboarded_at). Called once during connect().
+    """
+    from .cases.manager import RETENTION_YEARS
+    # Closed customers: 10 years from closure date (updated_at).
+    conn.execute(
+        "UPDATE customers SET retention_until ="
+        " date(substr(COALESCE(updated_at, onboarded_at), 1, 10), '+' || ? || ' years')"
+        " WHERE status = 'closed' AND retention_until IS NULL"
+        " AND (updated_at IS NOT NULL OR onboarded_at IS NOT NULL)",
+        (RETENTION_YEARS,),
+    )
+    # Active / other customers: 10 years from onboarding date.
+    conn.execute(
+        "UPDATE customers SET retention_until ="
+        " date(substr(onboarded_at, 1, 10), '+' || ? || ' years')"
+        " WHERE status != 'closed' AND retention_until IS NULL AND onboarded_at IS NOT NULL",
+        (RETENTION_YEARS,),
+    )
 
 
 def _backfill_email_verified(conn: sqlite3.Connection) -> None:
@@ -1054,6 +1115,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     _migrate(conn)
     if "email_verified_at" not in _operators_cols_before_migrate:
         _backfill_email_verified(conn)
+    _backfill_retention_until(conn)
     _create_org_indexes(conn)
     from .ingest.fatf import load_fatf_data
     load_fatf_data(conn)

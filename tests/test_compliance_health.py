@@ -94,6 +94,51 @@ class TestDatasetErrorColumns:
         assert row["error_at"] is None
         conn.close()
 
+    def test_clear_dataset_error_commits_transaction(self, tmp_path) -> None:
+        """Regression test for Issue #40: clear_dataset_error must commit.
+
+        The bug was that clear_dataset_error() executed UPDATE but never
+        committed, causing errors to persist in the UI after successful
+        recovery. This test catches that by using separate connections.
+        """
+        from amlkit.db import (
+            connect, upsert_dataset, record_dataset_error, clear_dataset_error,
+        )
+
+        db_file = tmp_path / "test.db"
+
+        # Setup: create dataset and record error
+        conn1 = connect(str(db_file))
+        upsert_dataset(conn1, "un_consolidated", "UN", is_mandatory=True)
+        record_dataset_error(conn1, "un_consolidated", "HTTP 401 unauthorized")
+        conn1.close()
+
+        # Verify error persisted
+        conn2 = connect(str(db_file))
+        row = conn2.execute(
+            "SELECT last_error FROM datasets WHERE key='un_consolidated'"
+        ).fetchone()
+        assert row["last_error"] == "HTTP 401 unauthorized"
+        conn2.close()
+
+        # Clear error (this is where the bug was - no commit)
+        conn3 = connect(str(db_file))
+        clear_dataset_error(conn3, "un_consolidated")
+        conn3.close()
+
+        # Read from NEW connection - must see cleared state
+        # This FAILS if clear_dataset_error doesn't commit
+        conn4 = connect(str(db_file))
+        row = conn4.execute(
+            "SELECT last_error, error_at FROM datasets WHERE key='un_consolidated'"
+        ).fetchone()
+        assert row["last_error"] is None, (
+            "clear_dataset_error must commit the transaction - error persists "
+            "across connections (Issue #40 bug)"
+        )
+        assert row["error_at"] is None
+        conn4.close()
+
     def test_record_on_missing_dataset_is_noop(self) -> None:
         """A source can fail before its dataset row is ever upserted; the
         UPDATE simply matches nothing rather than raising."""

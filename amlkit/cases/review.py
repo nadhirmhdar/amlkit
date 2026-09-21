@@ -251,6 +251,18 @@ def propose_disposition(
         raise ReviewError("an operator identity is required to disposition an alert")
     _validate(status, reason_code, narrative)
 
+    # Issue #167: Prevent double-disposition - check if alert already has final status
+    current = conn.execute(
+        "SELECT status FROM alerts WHERE id=? AND org_id=?", (alert_id, org_id)
+    ).fetchone()
+    if current is None:
+        raise ReviewError(f"alert {alert_id} not found")
+    if current["status"] not in ("open", PENDING):
+        raise ReviewError(
+            f"alert {alert_id} already has a final disposition (status={current['status']}). "
+            "Cannot re-disposition an already-resolved alert."
+        )
+
     # needs_independent_review() only checks alert ownership when status is
     # false_positive (it short-circuits for the others) -- so the UPDATE
     # below carries its own "AND org_id=?" and checks rowcount, which is the
@@ -420,3 +432,33 @@ def assign_alert(
             raise ReviewError(f"alert {alert_id} not found")
         audit(conn, actor, "alert.assign", "alert", alert_id,
               {"assigned_to": operator}, org_id=org_id)
+
+
+def bulk_dismiss_alerts(
+    conn: sqlite3.Connection,
+    org_id: int,
+    *,
+    customer_id: int,
+    reason_code: str,
+    operator: str,
+) -> int:
+    """Dismiss all open alerts for a given customer in one operation."""
+    now = utcnow()
+    rows = conn.execute(
+        """SELECT a.id FROM alerts a
+           JOIN screenings s ON s.id = a.screening_id
+           WHERE a.org_id = ? AND s.customer_id = ? AND a.status = 'open'""",
+        (org_id, customer_id),
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            "UPDATE alerts SET status='false_positive', disposition=?, "
+            "reason_code=?, dispositioned_by=?, dispositioned_at=? "
+            "WHERE id=? AND org_id=?",
+            (reason_code, reason_code, operator, now, row["id"], org_id),
+        )
+        audit(conn, operator, "alert.bulk_dismiss", "alert", row["id"],
+              {"reason_code": reason_code, "customer_id": customer_id},
+              org_id=org_id)
+    conn.commit()
+    return len(rows)

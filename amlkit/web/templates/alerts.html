@@ -17,81 +17,164 @@
   {% for s, label in [('open','Open'), ('pending_review','Awaiting review'),
                       ('false_positive','Dismissed'), ('true_positive','Confirmed'),
                       ('escalated','Escalated'), ('all','All')] %}
-    <a class="{{ 'on' if status == s else '' }}" href="/alerts?status={{ s }}">{{ label }}</a>
+    <a class="{{ 'on' if status == s else '' }}" href="/alerts?status={{ s }}{% if group_by %}&group_by={{ group_by }}{% endif %}">{{ label }}</a>
   {% endfor %}
   <div style="flex:1;"></div>
+  {% if group_by == 'customer' %}
+    <a href="/alerts?status={{ status }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Flat view</a>
+  {% else %}
+    <a href="/alerts?status={{ status }}&group_by=customer" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Group by customer</a>
+  {% endif %}
   <a href="/alerts.csv?status={{ status }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Export CSV</a>
 </div>
 
-{% if not alerts %}
+{% if group_by == 'customer' and grouped %}
+  {% for g in grouped %}
+  <div class="customer-group" style="margin-bottom:24px;">
+    <div style="display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:2px solid var(--border);">
+      <h2 style="margin:0; font-size:18px;">
+        {% if g.customer_id %}
+          <a href="/customers/{{ g.customer_id }}">{{ g.customer_name }}</a>
+          <span class="muted small">· {{ g.reference }}</span>
+        {% else %}
+          Ad-hoc screenings
+        {% endif %}
+      </h2>
+      <span class="muted small">{{ g.alerts|length }} alert{{ 's' if g.alerts|length != 1 }}</span>
+      {% if g.customer_id and status == 'open' %}
+        <form method="post" action="/alerts/bulk-dismiss" style="margin-left:auto;"
+              data-confirm="Dismiss all {{ g.alerts|length }} open alert(s) for {{ g.customer_name }}?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="customer_id" value="{{ g.customer_id }}">
+          <input type="hidden" name="reason_code" value="name_coincidence">
+          <input type="hidden" name="back_to" value="/alerts?status={{ status }}&group_by=customer">
+          <button type="submit" class="small ghost">Dismiss all</button>
+        </form>
+      {% endif %}
+    </div>
+
+    {% for a in g.alerts %}
+    <div class="alert-card">
+      <div class="alert-head">
+        <h3>{{ name(a.caption) }}</h3>
+        <div style="display:flex; gap:12px; align-items:center; flex-shrink:0;">
+          <span class="tag {{ a.category }}">{{ a.category }}</span>
+          <span class="score">{{ '%.3f'|format(a.score) }}</span>
+        </div>
+      </div>
+
+      <div class="muted small">
+        {{ a.schema_type }} · {{ a.dataset_title }}
+        {% if a.programs %} · programme {{ a.programs|join(', ') }}{% endif %}
+        {% if a.birth_date %} · DOB {{ a.birth_date }}{% endif %}
+        {% if a.countries %} · {{ a.countries|join(', ')|upper }}{% endif %}
+      </div>
+
+      <div class="small mt-4">
+        {% if a.assigned_to %}
+          Assigned to <strong>{{ a.assigned_to }}</strong>
+          <form method="post" action="/alerts/{{ a.id }}/assign" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="back_to" value="/alerts?status={{ status }}&group_by=customer">
+            <input type="hidden" name="operator" value="">
+            <button class="small ghost" type="submit">Clear</button>
+          </form>
+        {% else %}
+          <span class="muted">Unassigned</span>
+          <form method="post" action="/alerts/{{ a.id }}/assign" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="back_to" value="/alerts?status={{ status }}&group_by=customer">
+            <input type="hidden" name="operator" value="{{ session.operator_name }}">
+            <button class="small ghost" type="submit">Assign to me</button>
+          </form>
+        {% endif %}
+      </div>
+
+      {{ aliases(a.aliases) }}
+      <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
+
+      <details class="evidence" {% if a.status in ('open','pending_review') %}open{% endif %}>
+        <summary></summary>
+        {{ score_breakdown(a.detail) }}
+      </details>
+
+      {{ review_trail(a.reviews) }}
+      {{ disposition_form(a, reason_codes, '/alerts?status=' ~ status ~ '&group_by=customer') }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+{% elif not alerts and not grouped %}
   <div class="panel empty-state">
     <div class="empty-state__icon">✓</div>
-    <div class="empty-state__title">No alerts</div>
+    <div class="empty-state__title">No alerts{% if org_name %} in {{ org_name }}{% endif %}</div>
     <p class="empty-state__text mt-0">No alerts with this status.</p>
   </div>
-{% endif %}
 
-{% for a in alerts %}
-<div class="alert-card">
-  <div class="alert-head">
-    <h3>{{ name(a.caption) }}</h3>
-    <div style="display:flex; gap:12px; align-items:center; flex-shrink:0;">
-      <span class="tag {{ a.category }}">{{ a.category }}</span>
-      <span class="score">{{ '%.3f'|format(a.score) }}</span>
+{% else %}
+  {% for a in alerts %}
+  <div class="alert-card">
+    <div class="alert-head">
+      <h3>{{ name(a.caption) }}</h3>
+      <div style="display:flex; gap:12px; align-items:center; flex-shrink:0;">
+        <span class="tag {{ a.category }}">{{ a.category }}</span>
+        <span class="score">{{ '%.3f'|format(a.score) }}</span>
+      </div>
     </div>
-  </div>
 
-  <div class="muted small">
-    {{ a.schema_type }} · {{ a.dataset_title }}
-    {% if a.programs %} · programme {{ a.programs|join(', ') }}{% endif %}
-    {% if a.birth_date %} · DOB {{ a.birth_date }}{% endif %}
-    {% if a.countries %} · {{ a.countries|join(', ')|upper }}{% endif %}
-  </div>
+    <div class="muted small">
+      {{ a.schema_type }} · {{ a.dataset_title }}
+      {% if a.programs %} · programme {{ a.programs|join(', ') }}{% endif %}
+      {% if a.birth_date %} · DOB {{ a.birth_date }}{% endif %}
+      {% if a.countries %} · {{ a.countries|join(', ')|upper }}{% endif %}
+    </div>
 
-  <div class="small mt-4">
-    {% if a.assigned_to %}
-      Assigned to <strong>{{ a.assigned_to }}</strong>
-      <form method="post" action="/alerts/{{ a.id }}/assign" class="d-inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="back_to" value="/alerts?status={{ status }}">
-        <input type="hidden" name="operator" value="">
-        <button class="small ghost" type="submit">Clear</button>
-      </form>
-    {% else %}
-      <span class="muted">Unassigned</span>
-      <form method="post" action="/alerts/{{ a.id }}/assign" class="d-inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="back_to" value="/alerts?status={{ status }}">
-        <input type="hidden" name="operator" value="{{ session.operator_name }}">
-        <button class="small ghost" type="submit">Assign to me</button>
-      </form>
-    {% endif %}
-  </div>
-
-  <div class="mt-4" style="font-size:14px;">
-    Matched against
-    {% if a.customer_id %}
-      <a href="/customers/{{ a.customer_id }}">{{ name(a.matched_party) }}</a>
-      {% if a.via_ubo %}
-        <span class="muted small">&middot; beneficial owner of {{ a.customer_name }}</span>
+    <div class="small mt-4">
+      {% if a.assigned_to %}
+        Assigned to <strong>{{ a.assigned_to }}</strong>
+        <form method="post" action="/alerts/{{ a.id }}/assign" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="back_to" value="/alerts?status={{ status }}">
+          <input type="hidden" name="operator" value="">
+          <button class="small ghost" type="submit">Clear</button>
+        </form>
+      {% else %}
+        <span class="muted">Unassigned</span>
+        <form method="post" action="/alerts/{{ a.id }}/assign" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="back_to" value="/alerts?status={{ status }}">
+          <input type="hidden" name="operator" value="{{ session.operator_name }}">
+          <button class="small ghost" type="submit">Assign to me</button>
+        </form>
       {% endif %}
-      <span class="muted small">· {{ a.reference }}</span>
-    {% else %}
-      {{ name(a.matched_party) }} <span class="muted small">(ad-hoc screening)</span>
-    {% endif %}
+    </div>
+
+    <div class="mt-4" style="font-size:14px;">
+      Matched against
+      {% if a.customer_id %}
+        <a href="/customers/{{ a.customer_id }}">{{ name(a.matched_party) }}</a>
+        {% if a.via_ubo %}
+          <span class="muted small">&middot; beneficial owner of {{ a.customer_name }}</span>
+        {% endif %}
+        <span class="muted small">· {{ a.reference }}</span>
+      {% else %}
+        {{ name(a.matched_party) }} <span class="muted small">(ad-hoc screening)</span>
+      {% endif %}
+    </div>
+
+    {{ aliases(a.aliases) }}
+    <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
+
+    <details class="evidence" {% if a.status in ('open','pending_review') %}open{% endif %}>
+      <summary></summary>
+      {{ score_breakdown(a.detail) }}
+    </details>
+
+    {{ review_trail(a.reviews) }}
+    {{ disposition_form(a, reason_codes, '/alerts?status=' ~ status) }}
   </div>
-
-  {{ aliases(a.aliases) }}
-  <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
-
-  <details class="evidence" {% if a.status in ('open','pending_review') %}open{% endif %}>
-    <summary></summary>
-    {{ score_breakdown(a.detail) }}
-  </details>
-
-  {{ review_trail(a.reviews) }}
-  {{ disposition_form(a, reason_codes, '/alerts?status=' ~ status) }}
-</div>
-{% endfor %}
+  {% endfor %}
+{% endif %}
 
 {% endblock %}

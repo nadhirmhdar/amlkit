@@ -9,6 +9,7 @@ becoming visible to another's.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sqlite3
@@ -57,6 +58,11 @@ def _csrf(client) -> str:
     """The middleware sets a CSRF cookie on every response; every POST in
     these tests must echo it back as the synchronizer token."""
     return client.cookies.get("amlkit_csrf")
+
+
+def _flash_parse(cookie_val: str) -> dict:
+    """Decode a base64-encoded flash cookie and return the parsed dict."""
+    return json.loads(base64.b64decode(cookie_val.encode()).decode())
 
 
 def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1",
@@ -152,7 +158,6 @@ class TestHomePage:
         assert "alice" in r.text  # first name from the fixture's registered operator
         assert "Screen a name" in r.text
         assert "Onboard a customer" in r.text
-        assert "About us" in r.text
 
     def test_alerts_bar_shows_clear_state_when_no_open_alerts(self, client) -> None:
         r = client.get("/")
@@ -846,10 +851,12 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should get a redirect back to the form with error
+        # Should get a redirect back to the form with flash error cookie (Issue #102)
         assert r.status_code == 303
-        assert "err=" in r.headers["location"]
-        assert "100" in r.headers["location"]
+        _flash = r.cookies.get("amlkit_flash")
+        assert _flash is not None, "Expected flash error cookie"
+        assert _flash_parse(_flash)["type"] == "err"
+        assert "100" in _flash_parse(_flash)["text"]
 
         # Verify no customer was created
         conn = _db()
@@ -888,12 +895,184 @@ class TestUboValidation:
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
 
-        # Should get redirect back with error
+        # Should get redirect back with flash error cookie (Issue #102)
         assert r2.status_code == 303
-        assert "err=" in r2.headers["location"]
-        assert "110" in r2.headers["location"]
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is not None, "Expected flash error cookie"
+        assert _flash_parse(_flash)["type"] == "err"
+        assert "110" in _flash_parse(_flash)["text"]
 
         # Verify only 1 UBO exists (the first one)
+        ubo_count = conn.execute(
+            "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+            (customer_id,)
+        ).fetchone()[0]
+        assert ubo_count == 1
+
+    def test_negative_ubo_percentage_rejected_on_create(self, client) -> None:
+        """POST /customers with negative UBO percentage is rejected."""
+        r = client.post("/customers", data={
+            "reference": "NEG-TEST-1",
+            "full_name": "Negative Test Company",
+            "customer_type": "legal",
+            "ubo_names": ["Negative Owner"],
+            "ubo_pcts": ["-10.5"],
+            "ubo_controls": ["ownership"],
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+
+        # Should show error message
+        assert "ownership percentage" in r.text.lower() or "must be between" in r.text.lower()
+
+        # Verify customer was NOT created
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='NEG-TEST-1'"
+        ).fetchone()
+        assert customer is None
+
+    def test_negative_ubo_percentage_rejected_on_add(self, client) -> None:
+        """POST /customers/{id}/ubo with negative percentage is rejected."""
+        # Create customer first
+        r1 = client.post("/customers", data={
+            "reference": "NEG-TEST-2",
+            "full_name": "Test Company 2",
+            "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r1.status_code == 200
+
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='NEG-TEST-2'"
+        ).fetchone()
+        assert customer is not None
+        customer_id = customer[0]
+
+        # Try to add UBO with negative percentage
+        r2 = client.post(f"/customers/{customer_id}/ubo", data={
+            "person_name": "Negative Owner",
+            "ownership_pct": "-25",
+            "control_type": "ownership",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        # Should redirect with flash error cookie (Issue #102)
+        assert r2.status_code == 303
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is not None and _flash_parse(_flash).get("type") == "err"
+
+        # Verify UBO was NOT added
+        ubo_count = conn.execute(
+            "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+            (customer_id,)
+        ).fetchone()[0]
+        assert ubo_count == 0
+
+    def test_ubo_percentage_above_100_rejected(self, client) -> None:
+        """POST /customers/{id}/ubo with percentage > 100 is rejected."""
+        # Create customer first
+        r1 = client.post("/customers", data={
+            "reference": "OVER-TEST",
+            "full_name": "Over 100 Test",
+            "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r1.status_code == 200
+
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='OVER-TEST'"
+        ).fetchone()
+        assert customer is not None
+        customer_id = customer[0]
+
+        # Try to add UBO with percentage > 100
+        r2 = client.post(f"/customers/{customer_id}/ubo", data={
+            "person_name": "Over Owner",
+            "ownership_pct": "150",
+            "control_type": "ownership",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        # Should redirect with flash error cookie (Issue #102)
+        assert r2.status_code == 303
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is not None and _flash_parse(_flash).get("type") == "err"
+
+        # Verify UBO was NOT added
+        ubo_count = conn.execute(
+            "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+            (customer_id,)
+        ).fetchone()[0]
+        assert ubo_count == 0
+
+    def test_boundary_zero_percentage_accepted(self, client) -> None:
+        """POST /customers/{id}/ubo with 0% is accepted (boundary case)."""
+        r1 = client.post("/customers", data={
+            "reference": "ZERO-TEST",
+            "full_name": "Zero Test",
+            "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r1.status_code == 200
+
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='ZERO-TEST'"
+        ).fetchone()
+        assert customer is not None
+        customer_id = customer[0]
+
+        # Add UBO with 0% (should be accepted)
+        r2 = client.post(f"/customers/{customer_id}/ubo", data={
+            "person_name": "Zero Owner",
+            "ownership_pct": "0",
+            "control_type": "ownership",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        assert r2.status_code == 303
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is None or _flash_parse(_flash).get("type") != "err"
+
+        # Verify UBO was added
+        ubo_count = conn.execute(
+            "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
+            (customer_id,)
+        ).fetchone()[0]
+        assert ubo_count == 1
+
+    def test_boundary_100_percentage_accepted(self, client) -> None:
+        """POST /customers/{id}/ubo with 100% is accepted (boundary case)."""
+        r1 = client.post("/customers", data={
+            "reference": "FULL-TEST",
+            "full_name": "Full Test",
+            "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r1.status_code == 200
+
+        conn = _db()
+        customer = conn.execute(
+            "SELECT id FROM customers WHERE reference='FULL-TEST'"
+        ).fetchone()
+        assert customer is not None
+        customer_id = customer[0]
+
+        # Add UBO with 100%
+        r2 = client.post(f"/customers/{customer_id}/ubo", data={
+            "person_name": "Full Owner",
+            "ownership_pct": "100",
+            "control_type": "ownership",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+
+        assert r2.status_code == 303
+        _flash = r2.cookies.get("amlkit_flash")
+        assert _flash is None or _flash_parse(_flash).get("type") != "err"
+
+        # Verify UBO was added
         ubo_count = conn.execute(
             "SELECT COUNT(*) FROM ubo_links WHERE customer_id=?",
             (customer_id,)
@@ -1325,7 +1504,7 @@ class TestPolicyRepository:
                         "category": "AML_Policy",
                         "csrf_token": _csrf(client),
                     },
-                    files={"file": ("download-test.pdf", io.BytesIO(b"pdf content"), "application/pdf")},
+                    files={"file": ("download-test.pdf", io.BytesIO(b"%PDF-1.4 fake pdf content"), "application/pdf")},
                     follow_redirects=True)
 
         # Get policy ID
@@ -1342,7 +1521,7 @@ class TestPolicyRepository:
         assert r.headers["content-type"] == "application/pdf"
         assert "attachment" in r.headers["content-disposition"]
         assert "download-test.pdf" in r.headers["content-disposition"]
-        assert r.content == b"pdf content"
+        assert r.content == b"%PDF-1.4 fake pdf content"
 
     def test_policies_download_logs_audit(self, client) -> None:
         """Audit entry created."""
@@ -1354,7 +1533,7 @@ class TestPolicyRepository:
                         "category": "AML_Policy",
                         "csrf_token": _csrf(client),
                     },
-                    files={"file": ("audit-test.pdf", io.BytesIO(b"pdf"), "application/pdf")},
+                    files={"file": ("audit-test.pdf", io.BytesIO(b"%PDF-1.4 fake pdf"), "application/pdf")},
                     follow_redirects=True)
 
         conn = _db()

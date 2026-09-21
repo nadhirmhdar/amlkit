@@ -13,17 +13,24 @@
     {% if c.name_arabic %}<div style="font-size:15px; color:var(--ink-2); margin-top:4px;">{{ name(c.name_arabic) }}</div>{% endif %}
     <div class="mono small muted mt-2">{{ c.reference }} &middot; {{ c.customer_type }} &middot; {{ c.sector }}</div>
     <div class="mt-4">
+      <a class="btn small" href="/customers/{{ c.id }}">Customer Profile</a>
       <a class="btn small ghost" href="/customers/{{ c.id }}/evidence">Evidence pack</a>
       {% if c.status == 'active' %}
       <form method="post" action="/customers/{{ c.id }}/close" class="d-inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="small ghost" type="submit">Close relationship</button>
       </form>
+      {% elif c.status == 'closed' and session.operator_role == 'mlro' %}
+      <form method="post" action="/customers/{{ c.id }}/reactivate" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="reason" value="Reactivated via customer profile">
+        <button class="small ghost" type="submit">Reactivate</button>
+      </form>
       {% endif %}
     </div>
     {% if c.retention_until %}
       <p class="muted small mt-4">Records retained until <strong>{{ c.retention_until }}</strong>
-        (five years after the relationship ended).</p>
+        (ten years after the relationship ended).</p>
     {% endif %}
   </div>
   <div style="flex-shrink:0;">
@@ -32,35 +39,17 @@
   </div>
 </div>
 
-{% if alerts %}
-<div class="mb-6">
-  <div class="section-label">Alerts on this customer</div>
-  <div class="stack">
-    {% for a in alerts %}
-      <div class="alert-card">
-        <div class="alert-head">
-          <h3 style="font-size:16px;">{{ name(a.caption) }}</h3>
-          <div style="display:flex; gap:12px; align-items:center;">
-            <span class="tag {{ a.category }}">{{ a.category }}</span>
-            <span class="score">{{ '%.3f'|format(a.score) }}</span>
-          </div>
-        </div>
-        <div class="muted small">
-          {{ a.dataset_title }}
-          {% if a.via_ubo %} · matched via beneficial owner
-            <strong>{{ a.matched_party }}</strong>{% endif %}
-        </div>
-        {{ aliases(a.aliases) }}
-        <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
-        <details class="evidence"><summary></summary>
-          {{ score_breakdown(a.detail) }}</details>
-        {{ review_trail(a.reviews) }}
-        {{ disposition_form(a, reason_codes, '/customers/' ~ c.id) }}
-      </div>
-    {% endfor %}
-  </div>
+{# ---- Tab bar ---- #}
+<div class="tab-filter" id="customer-tabs" data-has-alerts="{{ 'true' if alerts else 'false' }}">
+  <a href="#overview" data-tab="overview">Overview</a>
+  <a href="#alerts" data-tab="alerts">Alerts{% if alerts %} <span style="font-weight:800; color:var(--danger); margin-left:4px;">{{ alerts|length }}</span>{% endif %}</a>
+  <a href="#monitoring" data-tab="monitoring">Monitoring</a>
+  <a href="#casefile" data-tab="casefile">Case file</a>
+  <a href="#history" data-tab="history">History</a>
 </div>
-{% endif %}
+
+{# ---- Tab: Overview ---- #}
+<div class="tab-panel" id="tab-overview">
 
 <div class="grid two mb-6">
   <div>
@@ -71,8 +60,8 @@
         <div class="list-row">
           <div class="grow">{{ name(u.person_name) }}</div>
           <div class="num">{{ u.ownership_pct if u.ownership_pct is not none else '—' }}%</div>
-          <div class="side" style="width:120px; text-align:right;">{{ u.control_type.replace('_',' ') }}</div>
-          <div style="width:70px; text-align:right;">{% if u.is_ubo %}<span class="tag low">UBO</span>
+          <div class="side">{{ u.control_type.replace('_',' ') }}</div>
+          <div style="min-width:50px; text-align:right;">{% if u.is_ubo %}<span class="tag low">UBO</span>
               {% else %}<span class="muted small">below</span>{% endif %}</div>
         </div>
         {% endfor %}
@@ -134,36 +123,47 @@
 </div>
 {% endif %}
 
+</div>{# end tab-overview #}
+
+{# ---- Tab: Alerts ---- #}
+<div class="tab-panel" id="tab-alerts">
+
+{% if alerts %}
 <div class="mb-6">
-  <div class="section-label">Notes</div>
-  <p class="muted small mt-0">
-    Investigative narrative not tied to any one alert — periodic review
-    commentary, source-of-wealth notes, anything that belongs in the case
-    file but isn't a disposition decision.
-  </p>
-  {% if notes %}
-    <div class="flat-list mb-4">
-      {% for n in notes %}
-      <div class="list-row" style="align-items:flex-start; display:block;">
-        <div class="small">
-          <strong>{{ n.author }}</strong> ·
-          <span class="muted">{{ n.created_at[:16].replace('T',' ') }}</span>
+  <div class="section-label">Alerts on this customer</div>
+  <div class="stack">
+    {% for a in alerts %}
+      <div class="alert-card">
+        <div class="alert-head">
+          <h3 style="font-size:16px;">{{ name(a.caption) }}</h3>
+          <div style="display:flex; gap:12px; align-items:center;">
+            <span class="tag {{ a.category }}">{{ a.category }}</span>
+            <span class="score">{{ '%.3f'|format(a.score) }}</span>
+          </div>
         </div>
-        <div class="mt-2">{{ n.body }}</div>
+        <div class="muted small">
+          {{ a.dataset_title }}
+          {% if a.via_ubo %} · matched via beneficial owner
+            <strong>{{ a.matched_party }}</strong>{% endif %}
+        </div>
+        {{ aliases(a.aliases) }}
+        <div class="obligation {{ a.category }}">{{ a.obligation }}</div>
+        <details class="evidence"><summary></summary>
+          {{ score_breakdown(a.detail) }}</details>
+        {{ review_trail(a.reviews) }}
+        {{ disposition_form(a, reason_codes, '/customers/' ~ c.id) }}
       </div>
-      {% endfor %}
-    </div>
-  {% else %}
-    <p class="muted small">No notes yet.</p>
-  {% endif %}
-  <form method="post" action="/customers/{{ c.id }}/notes" class="mt-4">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="field">
-      <textarea name="body" placeholder="Add a note to this case file" required></textarea>
-    </div>
-    <button class="small" type="submit">Add note</button>
-  </form>
+    {% endfor %}
+  </div>
 </div>
+{% else %}
+  <p class="muted">No alerts on this customer.</p>
+{% endif %}
+
+</div>{# end tab-alerts #}
+
+{# ---- Tab: Monitoring ---- #}
+<div class="tab-panel" id="tab-monitoring">
 
 <div class="mb-6">
   <div class="section-label">Transaction monitoring</div>
@@ -247,7 +247,7 @@
       </select></div>
     <div><label>Amount (AED)</label><input type="number" name="amount" step="0.01" min="0.01" required></div>
     <div><label>Counterparty</label><input type="text" name="counterparty_name" dir="auto"></div>
-    <div><label>Counterparty country</label><input type="text" name="counterparty_country" maxlength="2" placeholder="AE" pattern="[A-Za-z]{2}" title="Two-letter country code (e.g. AE)"></div>
+    <div><label>Counterparty country</label><input type="text" name="counterparty_country" data-country-dropdown placeholder="Type to search countries..."></div>
     <div><label>Date</label><input type="date" name="occurred_at" required></div>
     <div><button class="small" type="submit">Record</button></div>
   </form>
@@ -338,6 +338,42 @@
   </p>
 </div>
 
+</div>{# end tab-monitoring #}
+
+{# ---- Tab: Case File ---- #}
+<div class="tab-panel" id="tab-casefile">
+
+<div class="mb-6">
+  <div class="section-label">Notes</div>
+  <p class="muted small mt-0">
+    Investigative narrative not tied to any one alert — periodic review
+    commentary, source-of-wealth notes, anything that belongs in the case
+    file but isn't a disposition decision.
+  </p>
+  {% if notes %}
+    <div class="flat-list mb-4">
+      {% for n in notes %}
+      <div class="list-row" style="align-items:flex-start; display:block;">
+        <div class="small">
+          <strong>{{ n.author }}</strong> ·
+          <span class="muted">{{ n.created_at[:16].replace('T',' ') }}</span>
+        </div>
+        <div class="mt-2">{{ n.body }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted small">No notes yet.</p>
+  {% endif %}
+  <form method="post" action="/customers/{{ c.id }}/notes" class="mt-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field">
+      <textarea name="body" placeholder="Add a note to this case file" required></textarea>
+    </div>
+    <button class="small" type="submit">Add note</button>
+  </form>
+</div>
+
 <div class="mb-6">
   <div class="section-label">Signatures &amp; acknowledgments</div>
   <p class="muted small mt-0">
@@ -383,6 +419,11 @@
   </form>
 </div>
 
+</div>{# end tab-casefile #}
+
+{# ---- Tab: History ---- #}
+<div class="tab-panel" id="tab-history">
+
 <div class="mb-6">
   <div class="section-label">Screening history</div>
   <p class="muted small mt-0">
@@ -425,5 +466,9 @@
   </div>
   </div>
 </div>
+
+</div>{# end tab-history #}
+
+<script src="/static/js/customer_tabs.js"></script>
 
 {% endblock %}

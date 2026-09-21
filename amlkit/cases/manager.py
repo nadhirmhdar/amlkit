@@ -10,14 +10,18 @@ an inspection. Three obligations drive the design:
 * **Identify the UBO at 25%, with fallback.** Cabinet Res. 134/2025 sets the
   threshold and requires falling back to the senior managing official where no
   one meets it. Inability to identify a UBO is scored as opacity, not ignored.
-* **Retain for eight years after the relationship ends.** The retention date is
+* **Retain for ten years after the relationship ends.** The retention date is
   computed and stored rather than left to policy.
+  Cabinet Resolution No. 134 of 2025 (effective 14 December 2025) extended
+  the UAE AML/CFT record retention period from five to ten years.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -45,7 +49,7 @@ class StaleDatasetsError(Exception):
 
 
 UBO_THRESHOLD_PCT = 25.0
-RETENTION_YEARS = 8
+RETENTION_YEARS = 10
 
 
 @dataclass(slots=True)
@@ -122,6 +126,9 @@ def onboard(
     contact_person: str | None = None,
     contact_phone: str | None = None,
     contact_email: str | None = None,
+    # p35: CDD enhancement
+    purpose_of_relationship: str | None = None,
+    expected_activity: str | None = None,
 ) -> OnboardingResult:
     """Create a customer, screen them and their UBOs, and assign a risk rating.
 
@@ -153,6 +160,12 @@ def onboard(
     now = utcnow()
     ck = canonical_key(full_name)
 
+    today = date.today()
+    try:
+        retention = today.replace(year=today.year + RETENTION_YEARS).isoformat()
+    except ValueError:
+        retention = (today + timedelta(days=365 * RETENTION_YEARS + 1)).isoformat()
+
     with conn:
         cur = conn.execute(
             """INSERT INTO customers
@@ -161,8 +174,9 @@ def onboard(
                 trade_licence, sector, delivery_channel, is_cash_intensive,
                 email, phone, address_line1, address_line2, city, postal_code,
                 contact_person, contact_phone, contact_email,
-                onboarded_at, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                purpose_of_relationship, expected_activity,
+                onboarded_at, retention_until, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, reference, customer_type, full_name, name_arabic, ck,
                 nationality, country, birth_date, gender, id_number, id_type,
@@ -170,7 +184,8 @@ def onboard(
                 int(cash_level == "predominantly_cash"),
                 email, phone, address_line1, address_line2, city, postal_code,
                 contact_person, contact_phone, contact_email,
-                now, now, now,
+                purpose_of_relationship, expected_activity,
+                now, retention, now, now,
             ),
         )
         customer_id = cur.lastrowid
@@ -284,16 +299,28 @@ def add_ubo(
                     f"parent_ubo_id {parent_ubo_id} not found for customer {customer_id}"
                 )
 
+        if ownership_pct is not None and parent_ubo_id is None:
+            existing = conn.execute(
+                "SELECT COALESCE(SUM(ownership_pct), 0) FROM ubo_links"
+                " WHERE customer_id=? AND org_id=? AND parent_ubo_id IS NULL",
+                (customer_id, org_id),
+            ).fetchone()[0]
+            new_total = round(existing + ownership_pct, 2)
+            if new_total > 100:
+                raise ValueError(
+                    f"Total UBO ownership would be {new_total}% (cannot exceed 100%)"
+                )
+
         cur = conn.execute(
             """INSERT INTO ubo_links
                (org_id, customer_id, person_name, name_arabic, canonical_key, nationality,
                 birth_date, ownership_pct, control_type, is_ubo, is_nominee,
-                parent_ubo_id, notes, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                parent_ubo_id, notes, created_at, last_verified_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, customer_id, person_name, name_arabic, canonical_key(person_name),
                 nationality, birth_date, ownership_pct, control_type,
-                int(is_ubo), int(is_nominee), parent_ubo_id, notes, utcnow(),
+                int(is_ubo), int(is_nominee), parent_ubo_id, notes, utcnow(), utcnow(),
             ),
         )
         ubo_id = cur.lastrowid
@@ -347,65 +374,9 @@ def ownership_state(
     return "fully_transparent"
 
 
-def resolve_ubo_chain(
-    conn: sqlite3.Connection,
-    customer_id: int,
-    org_id: int,
-    *,
-    max_depth: int = 10,
-) -> list[dict[str, Any]]:
-    """Walk the UBO ownership tree and return all nodes with effective ownership.
-
-    For each leaf (a UBO with no children), effective_pct is the product of
-    ownership_pct along the path from root to leaf.  Nominees are included in
-    the result (so the caller can display them) but marked; their children are
-    still traversed.
-    """
-    all_rows = [dict(r) for r in conn.execute(
-        "SELECT id, person_name, ownership_pct, control_type, is_ubo, is_nominee, parent_ubo_id"
-        " FROM ubo_links WHERE customer_id=? AND org_id=?",
-        (customer_id, org_id),
-    ).fetchall()]
-
-    by_parent: dict[int | None, list[dict]] = {}
-    for row in all_rows:
-        by_parent.setdefault(row["parent_ubo_id"], []).append(row)
-
-    child_ids = {r["parent_ubo_id"] for r in all_rows if r["parent_ubo_id"] is not None}
-    result: list[dict[str, Any]] = []
-    visited: set[int] = set()
-
-    def _walk(node: dict, effective_pct: float, depth: int) -> None:
-        if node["id"] in visited or depth > max_depth:
-            return
-        visited.add(node["id"])
-
-        own_pct = node["ownership_pct"] if node["ownership_pct"] is not None else 0.0
-        node_effective = effective_pct * (own_pct / 100.0) if effective_pct is not None else own_pct
-
-        children = by_parent.get(node["id"], [])
-        is_leaf = len(children) == 0
-
-        result.append({
-            "id": node["id"],
-            "person_name": node["person_name"],
-            "ownership_pct": node["ownership_pct"],
-            "effective_pct": node_effective,
-            "control_type": node["control_type"],
-            "is_ubo": node["is_ubo"],
-            "is_nominee": bool(node["is_nominee"]),
-            "is_leaf": is_leaf,
-            "depth": depth,
-            "parent_ubo_id": node["parent_ubo_id"],
-        })
-
-        for child in children:
-            _walk(child, node_effective, depth + 1)
-
-    for root in by_parent.get(None, []):
-        _walk(root, 100.0, 0)
-
-    return result
+# Issue #164: resolve_ubo_chain() removed - was dead code only called from tests.
+# ownership_state() correctly uses simple ownership_pct sum for risk classification.
+# UBO chain resolution logic should be implemented in diagram/display layer if needed.
 
 
 def close_relationship(
@@ -427,6 +398,37 @@ def close_relationship(
         audit(conn, actor, "customer.close", "customer", customer_id,
               {"retention_until": until}, org_id=org_id)
     return until
+
+
+def reactivate_customer(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    reason: str,
+    actor: str = "system",
+) -> None:
+    """Reactivate a closed customer, resetting the retention period from today."""
+    row = conn.execute(
+        "SELECT status FROM customers WHERE id=? AND org_id=?",
+        (customer_id, org_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("Customer not found")
+    if row["status"] != "closed":
+        raise ValueError("Only closed customers can be reactivated")
+    today = date.today()
+    try:
+        new_retention = today.replace(year=today.year + RETENTION_YEARS).isoformat()
+    except ValueError:
+        new_retention = (today + timedelta(days=365 * RETENTION_YEARS + 1)).isoformat()
+    with conn:
+        conn.execute(
+            "UPDATE customers SET status='active', retention_until=?, updated_at=?"
+            " WHERE id=? AND org_id=?",
+            (new_retention, utcnow(), customer_id, org_id),
+        )
+        audit(conn, actor, "customer.reactivated", "customer", customer_id,
+              {"reason": reason, "retention_until": new_retention}, org_id=org_id)
 
 
 def purge_expired(
@@ -460,6 +462,18 @@ def purge_expired(
     for row in rows:
         cid = row["id"]
         ref = row["reference"]
+
+        active_freeze = conn.execute(
+            "SELECT COUNT(*) FROM freeze_obligations"
+            " WHERE customer_id=? AND org_id=? AND status != 'resolved'",
+            (cid, org_id),
+        ).fetchone()[0]
+        if active_freeze:
+            with conn:
+                audit(conn, actor, "retention.purge_skipped_frozen", "customer", cid,
+                      {"reference": ref, "active_freeze_count": active_freeze},
+                      org_id=org_id)
+            continue
 
         # Try to delete documents first. If any fail, skip this customer
         # entirely so it retries on the next purge run. An orphaned GCS object
@@ -1908,4 +1922,133 @@ def get_policy(
         "uploaded_by": row["uploaded_by"],
         "uploaded_at": row["uploaded_at"],
         "file_content": file_content,
+    }
+
+
+# ---------------------------------------------------------------- async adverse media
+# Global job tracker for background adverse media searches
+# In-memory for now - could be persisted to DB for production
+_adverse_media_jobs: dict[str, dict[str, Any]] = {}
+_jobs_lock = threading.Lock()
+
+
+def run_adverse_media_async(
+    conn: sqlite3.Connection,
+    *,
+    org_id: int,
+    name: str,
+    name_arabic: str | None = None,
+    customer_id: int | None = None,
+    ubo_id: int | None = None,
+    trigger: str = "adhoc",
+    client: Any | None = None,
+    window_months: int = DEFAULT_WINDOW_MONTHS,
+    actor: str = "system",
+) -> str:
+    """Start adverse media search in background thread, return immediately.
+
+    Returns job_id (UUID) that can be used to check status with
+    check_adverse_media_status(). The search runs in a background thread and
+    stores results in the database when complete.
+
+    This is the non-blocking version of run_adverse_media() - it returns
+    immediately instead of waiting for HTTP calls to complete. Useful for:
+    - Onboarding flows where blocking on GDELT (5+ seconds) is unacceptable
+    - Bulk screening operations
+    - API endpoints that need low latency
+
+    The background thread uses the same connection - SQLite WAL mode allows
+    concurrent reads and one writer, so this works safely as long as the
+    connection is used from only one thread at a time (which it is - the
+    background thread writes, foreground reads).
+    """
+    job_id = str(uuid.uuid4())
+
+    # Get DB path from connection to open new connection in thread
+    db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+
+    def _background_search():
+        """Run search in background and store results."""
+        from ..db import connect
+
+        try:
+            # Open new connection for this thread
+            thread_conn = connect(db_path)
+
+            # Run synchronous search
+            screening_id, result, new_findings = run_adverse_media(
+                thread_conn,
+                org_id=org_id,
+                name=name,
+                name_arabic=name_arabic,
+                customer_id=customer_id,
+                ubo_id=ubo_id,
+                trigger=trigger,
+                client=client,
+                window_months=window_months,
+                actor=actor,
+            )
+
+            # Update job status
+            with _jobs_lock:
+                _adverse_media_jobs[job_id] = {
+                    "status": "complete",
+                    "screening_id": screening_id,
+                    "result": result,
+                    "new_findings": new_findings,
+                    "error": None,
+                }
+
+            thread_conn.close()
+
+        except Exception as exc:
+            # Store error
+            with _jobs_lock:
+                _adverse_media_jobs[job_id] = {
+                    "status": "failed",
+                    "error": str(exc),
+                    "screening_id": None,
+                    "result": None,
+                    "new_findings": 0,
+                }
+
+    # Register job as pending
+    with _jobs_lock:
+        _adverse_media_jobs[job_id] = {
+            "status": "pending",
+            "screening_id": None,
+            "result": None,
+            "new_findings": 0,
+            "error": None,
+        }
+
+    # Start background thread
+    thread = threading.Thread(target=_background_search, daemon=True)
+    thread.start()
+
+    return job_id
+
+
+def check_adverse_media_status(conn: sqlite3.Connection, job_id: str) -> dict[str, Any]:
+    """Check status of background adverse media job.
+
+    Returns:
+        {
+            "status": "pending" | "complete" | "failed",
+            "screening_id": int or None,
+            "new_findings": int,
+            "error": str or None
+        }
+    """
+    with _jobs_lock:
+        job = _adverse_media_jobs.get(job_id)
+
+    if job is None:
+        raise ValueError(f"Job {job_id} not found")
+
+    return {
+        "status": job["status"],
+        "screening_id": job.get("screening_id"),
+        "new_findings": job.get("new_findings", 0),
+        "error": job.get("error"),
     }

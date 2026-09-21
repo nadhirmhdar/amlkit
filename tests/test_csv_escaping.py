@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from amlkit.api.app import _escape_csv_formula  # noqa: E402
+from amlkit.api.csv_utils import _escape_csv_formula  # noqa: E402
 
 
 class TestCsvFormulaEscaping:

@@ -58,6 +58,11 @@ _ARABIC_LETTER_MAP = {
 
 _ARABIC_RANGE = re.compile(r"[؀-ۿݐ-ݿ]")
 
+# Names that inherently start with "ال" or hamza-bearing variants as part of
+# their root, not as a definite article prefix. Issue #139: these must be
+# protected from article stripping.
+_PROTECTED_AL_NAMES = frozenset({"الياس", "إلياس", "الهام", "إلهام", "الماس", "إلماس"})
+
 # Arabic -> Latin transliteration.
 #
 # The goal is NOT scholarly romanisation; it is to land Arabic script in the
@@ -133,6 +138,10 @@ ARABIC_FORMS: dict[str, str] = {
     "سلمان": "salman",
     "ماجد": "majid",
     "وليد": "walid",
+    # Issue #139: Names that inherently start with alef-lam
+    "الياس": "ilyas",
+    "الهام": "ilham",
+    "الماس": "almas",
 }
 
 
@@ -171,9 +180,15 @@ def normalize_arabic(text: str) -> str:
     text = unicodedata.normalize("NFKC", text)
     text = _ARABIC_DIACRITICS.sub("", text)
     text = text.replace(_TATWEEL, "")
+    # Definite article stripping BEFORE hamza normalization. The article "ال"
+    # always uses plain Alef (ا U+0627), never hamza forms (إ/أ/آ). Names like
+    # "إلياس" (Ilyas) start with hamza-bearing Alef and are NOT articles.
+    # Issue #139: stripping after hamza normalization corrupts these names.
+    is_protected = any(text.startswith(name) for name in _PROTECTED_AL_NAMES)
+
+    if not is_protected:
+        text = re.sub(r"(?<![؀-ۿ])ال(?=[؀-ۿ]{3,})", "", text)
     text = "".join(_ARABIC_LETTER_MAP.get(ch, ch) for ch in text)
-    # Definite article: "ال" prefixed to a token of 3+ letters.
-    text = re.sub(r"(?<![؀-ۿ])ال(?=[؀-ۿ]{3,})", "", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -268,6 +283,10 @@ _register("fouad", "foad", "fuad", "fouaad")
 _register("salman", "selman", "salmaan")
 _register("majid", "majed", "maged", "magid")
 _register("walid", "waleed", "weleed")
+# Issue #139: Names that start with alef-lam as part of their root
+_register("ilyas", "elias", "ilias", "elyas")
+_register("ilham", "elham")
+_register("almas")
 
 
 def canonical_token(token: str) -> str:

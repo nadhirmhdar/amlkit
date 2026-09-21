@@ -210,12 +210,52 @@ class TestCustomers:
         assert r.status_code == 200
         assert r.json()["transaction_id"]
 
+    def test_negative_ubo_percentage_returns_422(self, api):
+        """POST /api/v1/customers/{id}/ubo with negative percentage returns 422 validation error."""
+        client, headers = api
+        # Create customer first
+        cid = client.post("/api/v1/customers", headers=headers, json={
+            "reference": "UBO-NEG-TEST", "full_name": "Test Company", "customer_type": "legal",
+        }).json()["customer_id"]
+
+        # Try to add UBO with negative percentage
+        r = client.post(f"/api/v1/customers/{cid}/ubo", headers=headers, json={
+            "person_name": "Negative Owner",
+            "ownership_pct": -25.0,
+            "control_type": "ownership",
+        })
+
+        # Should return 422 (validation error), not 400 or 500
+        assert r.status_code == 422
+        assert "ownership_pct" in r.json()["detail"][0]["loc"]
+
+    def test_ubo_percentage_above_100_returns_422(self, api):
+        """POST /api/v1/customers/{id}/ubo with percentage > 100 returns 422 validation error."""
+        client, headers = api
+        cid = client.post("/api/v1/customers", headers=headers, json={
+            "reference": "UBO-OVER-TEST", "full_name": "Test Company 2", "customer_type": "legal",
+        }).json()["customer_id"]
+
+        # Try to add UBO with percentage > 100
+        r = client.post(f"/api/v1/customers/{cid}/ubo", headers=headers, json={
+            "person_name": "Over Owner",
+            "ownership_pct": 150.0,
+            "control_type": "ownership",
+        })
+
+        # Should return 422 (validation error)
+        assert r.status_code == 422
+        assert "ownership_pct" in r.json()["detail"][0]["loc"]
+
 
 class TestDocumentScan:
     """Route-wiring tests only, not OCR correctness -- `tests/test_ocr.py`
     already covers extraction/quality logic directly, and CI has no
     tesseract binary, so the extraction/quality calls are monkeypatched
     at their import site inside amlkit/api/mobile.py."""
+
+    # Minimal bytes that pass the JPEG magic-byte MIME check (\xff\xd8\xff\xe0).
+    _JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
 
     def test_scan_passport_merges_image_quality_into_response(self, api, monkeypatch):
         import amlkit.cases.ocr as ocr
@@ -231,7 +271,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-passport", headers=headers,
-            files={"passport_file": ("passport.jpg", b"fake-image-bytes", "image/jpeg")},
+            files={"passport_file": ("passport.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 200, r.text
         assert r.json()["full_name"] == "Jane Doe"
@@ -247,7 +287,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-passport", headers=headers,
-            files={"passport_file": ("passport.jpg", b"not-an-image", "image/jpeg")},
+            files={"passport_file": ("passport.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 400
         assert "not a readable image" in r.json()["detail"]
@@ -269,7 +309,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-passport", headers=headers,
-            files={"passport_file": ("passport.jpg", b"not-an-image", "image/jpeg")},
+            files={"passport_file": ("passport.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 400
         assert "MRZ not found" in r.json()["detail"]
@@ -279,7 +319,7 @@ class TestDocumentScan:
         client, _ = api
         r = client.post(
             "/api/v1/customers/scan-passport",
-            files={"passport_file": ("passport.jpg", b"fake-image-bytes", "image/jpeg")},
+            files={"passport_file": ("passport.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 401
 
@@ -301,7 +341,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-emirates-id", headers=headers,
-            files={"emirates_id_file": ("id.jpg", b"fake-image-bytes", "image/jpeg")},
+            files={"emirates_id_file": ("id.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 200, r.text
         assert r.json()["id_number"] == "784-1990-1234567-1"
@@ -317,7 +357,7 @@ class TestDocumentScan:
         client, headers = api
         r = client.post(
             "/api/v1/customers/scan-emirates-id", headers=headers,
-            files={"emirates_id_file": ("id.jpg", b"not-an-image", "image/jpeg")},
+            files={"emirates_id_file": ("id.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 400
         assert "no tesseract binary available" in r.json()["detail"]
@@ -326,7 +366,7 @@ class TestDocumentScan:
         client, _ = api
         r = client.post(
             "/api/v1/customers/scan-emirates-id",
-            files={"emirates_id_file": ("id.jpg", b"fake-image-bytes", "image/jpeg")},
+            files={"emirates_id_file": ("id.jpg", self._JPEG, "image/jpeg")},
         )
         assert r.status_code == 401
 

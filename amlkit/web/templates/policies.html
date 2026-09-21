@@ -12,7 +12,7 @@
     </p>
   </div>
   {% if session.operator_role == 'mlro' %}
-    <button class="btn" onclick="toggleUploadForm()">+ Upload Policy</button>
+    <button class="btn" data-action="toggle-upload-form">+ Upload Policy</button>
   {% endif %}
 </div>
 
@@ -45,7 +45,7 @@
 
     <div style="display:flex; gap:8px; margin-top:16px;">
       <button type="submit" class="btn">Upload</button>
-      <button type="button" class="btn ghost" onclick="toggleUploadForm()">Cancel</button>
+      <button type="button" class="btn ghost" data-action="toggle-upload-form">Cancel</button>
     </div>
   </form>
 </div>
@@ -93,16 +93,7 @@
   </div>
 {% endif %}
 
-<script>
-function toggleUploadForm() {
-  const form = document.getElementById('upload-form');
-  if (form.style.display === 'none') {
-    form.style.display = 'block';
-  } else {
-    form.style.display = 'none';
-  }
-}
-</script>
+<script src="/static/js/app.js"></script>
 
 <style>
 .current-version {

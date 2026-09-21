@@ -3,114 +3,118 @@
 {% block title %}Console — amlkit{% endblock %}
 
 {% block body %}
-<div class="panel">
-  <h1>Multi-Organization Console</h1>
-  <p class="muted">Consolidated view across all managed organizations.</p>
 
-  {% if not breaches %}
-    <div class="banner ok"><strong>✓ All organizations compliant.</strong> No stale sanctions lists.</div>
-  {% else %}
-    <div class="banner err">
-      <strong>{{ breaches|length }} dataset(s) stale across all organizations.</strong>
-      See details below.
-    </div>
-  {% endif %}
+{% if not breaches %}
+  <div class="banner ok"><strong>All organizations compliant.</strong> No stale sanctions lists.</div>
+{% else %}
+  <div class="banner err">
+    <strong>{{ breaches|length }} dataset(s) stale across all organizations.</strong>
+    See details below.
+  </div>
+{% endif %}
 
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:24px 0;">
-    <div class="stat-card">
-      <div class="stat-value">{{ total_orgs }}</div>
-      <div class="stat-label">Organizations</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">{{ total_customers }}</div>
-      <div class="stat-label">Total Customers</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">{{ total_open_alerts }}</div>
-      <div class="stat-label">Open Alerts</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">{{ total_high_risk }}</div>
-      <div class="stat-label">High-Risk Customers</div>
+<div class="page-head">
+  <div class="eyebrow">Multi-org</div>
+  <h1>Console</h1>
+  <p class="sub">Consolidated view across all managed organizations.</p>
+</div>
+
+<div class="dashboard-hero">
+  <div class="hero-stat">
+    <div class="eyebrow">Organizations</div>
+    <div>
+      <div class="n">{{ total_orgs }}</div>
+      <div class="l">managed</div>
     </div>
   </div>
-
-  <h2>Organizations</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Organization</th>
-        <th>Customers</th>
-        <th>Open Alerts</th>
-        <th>High-Risk</th>
-        <th>Screenings</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for org in organizations %}
-      <tr>
-        <td>
-          <strong>{{ org.name }}</strong><br>
-          <span class="muted small">{{ org.slug }}</span>
-        </td>
-        <td>{{ org.customers }}</td>
-        <td>
-          {% if org.open_alerts > 0 %}
-            <strong>{{ org.open_alerts }}</strong>
-            {% if org.alerts_by_category %}
-              <br><span class="muted small">
-                {% for cat, count in org.alerts_by_category.items() %}
-                  {{ cat }}: {{ count }}{% if not loop.last %}, {% endif %}
-                {% endfor %}
-              </span>
-            {% endif %}
-          {% else %}
-            —
-          {% endif %}
-        </td>
-        <td>{{ org.high_risk if org.high_risk > 0 else '—' }}</td>
-        <td>{{ org.screenings }}</td>
-        <td>
-          <a href="/console/org/{{ org.id }}/alerts">Alerts</a> ·
-          <a href="/console/org/{{ org.id }}/customers">Customers</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  {% if staleness %}
-  <h2 style="margin-top:32px;">Sanctions List Staleness</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Dataset</th>
-        <th>Last Refresh</th>
-        <th>Status</th>
-        <th>Entities</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for d in staleness %}
-      <tr class="{{ 'err-row' if d.breach }}">
-        <td>
-          <strong>{{ d.title }}</strong>
-          {% if d.is_mandatory %}<span class="badge">mandatory</span>{% endif %}
-        </td>
-        <td>{{ d.last_refresh or 'Never' }}</td>
-        <td>
-          {% if d.breach %}
-            <strong style="color:var(--danger);">STALE ({{ d.hours_ago }}h)</strong>
-          {% else %}
-            <span style="color:var(--good);">Fresh</span>
-          {% endif %}
-        </td>
-        <td>{{ d.entity_count }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
+  <div class="stat-list">
+    <div class="row-item">
+      <div class="label">Total customers</div>
+      <div class="value">{{ total_customers }}</div>
+    </div>
+    <div class="row-item">
+      <div class="label">Open alerts</div>
+      <div class="value" style="color:{{ 'var(--danger)' if total_open_alerts else 'var(--ink)' }}">{{ total_open_alerts }}</div>
+    </div>
+    <div class="row-item">
+      <div class="label">High-risk customers</div>
+      <div class="value" style="color:{{ 'var(--warn)' if total_high_risk else 'var(--ink)' }}">{{ total_high_risk }}</div>
+    </div>
+  </div>
 </div>
+
+<div class="mb-6">
+  <div class="section-label">Organizations</div>
+  <div class="flat-list">
+    {% for org in organizations %}
+    <div class="list-row" style="align-items:flex-start; gap:14px;">
+      <div class="grow">
+        <div class="primary">{{ org.name }}</div>
+        <div class="secondary mono">{{ org.slug }}</div>
+      </div>
+      <div style="width:80px; text-align:right;">
+        <div class="num">{{ org.customers }}</div>
+        <div class="secondary">customers</div>
+      </div>
+      <div style="width:90px; text-align:right;">
+        {% if org.open_alerts > 0 %}
+          <span class="tag high">{{ org.open_alerts }} alert{{ 's' if org.open_alerts != 1 }}</span>
+          {% if org.alerts_by_category %}
+            <div class="secondary mt-1">
+              {% for cat, count in org.alerts_by_category.items() %}
+                {{ cat }}: {{ count }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% else %}
+          <span class="muted">&mdash;</span>
+        {% endif %}
+      </div>
+      <div style="width:70px; text-align:right;">
+        {% if org.high_risk > 0 %}
+          <span class="tag medium">{{ org.high_risk }}</span>
+        {% else %}
+          <span class="muted">&mdash;</span>
+        {% endif %}
+      </div>
+      <div style="width:70px; text-align:right;">
+        <div class="num">{{ org.screenings }}</div>
+        <div class="secondary">screens</div>
+      </div>
+      <div style="width:140px; text-align:right; display:flex; gap:8px; justify-content:flex-end;">
+        <a class="btn small ghost" href="/console/org/{{ org.id }}/alerts">Alerts</a>
+        <a class="btn small ghost" href="/console/org/{{ org.id }}/customers">Customers</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if staleness %}
+<div>
+  <div class="section-label">Sanctions list staleness</div>
+  <div class="flat-list">
+    {% for d in staleness %}
+    <div class="list-row {{ 'audit-row--error' if d.breach }}">
+      <div class="grow">
+        <div class="primary">{{ d.title }}{% if d.is_mandatory %} <span class="tag other">mandatory</span>{% endif %}</div>
+        <div class="secondary">Last refresh: {{ d.last_refresh or 'Never' }}</div>
+      </div>
+      <div style="width:80px; text-align:right;">
+        <div class="num">{{ d.entity_count }}</div>
+        <div class="secondary">entities</div>
+      </div>
+      <div style="width:120px; text-align:right;">
+        {% if d.breach %}
+          <span class="tag high">stale ({{ d.hours_ago }}h)</span>
+        {% else %}
+          <span class="tag low">fresh</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
