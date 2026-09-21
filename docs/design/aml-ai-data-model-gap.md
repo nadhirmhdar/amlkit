@@ -244,6 +244,71 @@ and 2, since without real validity times it would have to invent them, which the
 input model warns causes leakage. The scope, history and tenancy problems above
 also make it unrealistic for DNFBPs.
 
+## Adoption plan: Google formats and logic, natively in amlkit
+
+Decision (2026-09-21): adopt as much of the AML AI input and output model,
+and of the Cloud Logging LogEntry model, as fits a DNFBP. It is implemented
+inside amlkit with no runtime dependency on Google Cloud. Where Google's model
+assumes banking (accounts), amlkit keeps its own concept and maps it.
+
+Principles:
+
+- Google's field names, enums and semantics where they exist; UAE-specific
+  extensions (freeze obligations, FFR, goAML) are added as extra enum values,
+  never by redefining Google's.
+- Every new table carries `org_id NOT NULL`; every query takes `org_id`.
+- Additive migrations only (`_MIGRATIONS`); existing columns stay until a
+  later cleanup, so each phase ships without breaking the app.
+- Retention: versioned and event rows follow the customer's retention
+  (10 years from exit) and are purged with it, through an audited path.
+
+### Phase A: formats (no change to behaviour)
+
+| ID | Change | Google source |
+|---|---|---|
+| A1 | `Money` value type: ISO 4217 `currency_code`, integer `units`, integer `nanos` (0 to 999,999,999), non-negative. New `amount_units` / `amount_nanos` columns beside `amount_aed`, backfilled; KYT and goAML read the exact value | `normalized_booked_amount`, `assets_value_range` |
+| A2 | Enum alignment: party type COMPANY / CONSUMER, transaction type adds CARD, direction DEBIT / CREDIT (mapped from outbound / inbound), `civil_status_code` (ISO 20022), `occupation`; mapping functions in one module, used by exports | Party, Transaction |
+| A3 | Region codes: every country field validated as two-letter CLDR code; `subregion` (emirate for UAE) on customer and counterparty addresses; `nationalities[]` and tax `residencies[]` as lists; `establishment_date` for companies; `join_date` / `exit_date` (exit date already in progress, recommendation 3) | Party.addresses, nationalities, residencies |
+| A4 | Structured logs in LogEntry shape: `severity`, `logging.googleapis.com/trace` and `spanId` from `X-Cloud-Trace-Context`, `labels` (`org_id`, `request_id`), `sourceLocation`; PII redaction of identity numbers and emails in the formatter | Cloud Logging LogEntry |
+
+### Phase B: history over time (depends on A)
+
+| ID | Change | Google source |
+|---|---|---|
+| B1 | `party_versions`: append-only snapshots with `validity_start_time` (when the organisation received and verified the data), `is_entity_deleted`, `source_system`; written on onboard, edit, close, reactivate; "as of" queries | Party mutability rules |
+| B2 | `party_links`: UBOs and relationships with `role`, `validity_start_time`, `is_entity_deleted` (the DNFBP counterpart of AccountPartyLink) | AccountPartyLink |
+| B3 | Transaction corrections: new version rows instead of edits, `is_entity_deleted` for reversals | Transaction |
+| B4 | `party_supplementary_data`: numeric indicators per party with history (risk score, EDD flag, PEP / sanctions hit counts, adverse-media severity, cash-intensive flag, open freeze count), fixed IDs | PartySupplementaryData |
+
+### Phase C: cases and events (depends on B1)
+
+| ID | Change | Google source |
+|---|---|---|
+| C1 | `risk_cases` and `risk_case_events` with Google's event types (AML_PROCESS_START / END, AML_ALERT_LEGACY / ADHOC / EXTERNAL, AML_SUSPICIOUS_ACTIVITY_START / END, AML_SAR, AML_EXIT) plus UAE extensions (TFS_FREEZE, FFR, PNMR); emitted by alert creation, review, STR / SAR, freeze, exit | RiskCaseEvent |
+| C2 | Typology catalogue (`risk_typology_id`) aligned with goAML indicators; tagged on alerts, cases and reports | `risk_typology_measurements` |
+| C3 | `interaction_events` for KYC_CHANGE (from the audit trail) and OTHER | InteractionEvent |
+
+### Phase D: outputs and model governance (depends on B and C)
+
+| ID | Change | Google source |
+|---|---|---|
+| D1 | Monthly `risk_scores` per party (`risk_period_end_time`, `risk_score` normalised 0 to 1) and `risk_attributions` by feature family, derived from the rule factors | Risk scores, Explainability |
+| D2 | Missingness report per feature family (CDD completeness) | Missingness metric |
+| D3 | Back-test: recall at 20 operating points per threshold (KYT, screening match, risk bands), overall and per typology, from past alerts and STRs | ObservedRecallValues, per typology |
+| D4 | Skew: month-over-month drift per feature family | Skew metric |
+
+### Phase E: export (optional)
+
+E1: a BigQuery export in the exact AML AI table shapes, pseudonymous IDs,
+one org per dataset. It is only worth building after B and C, when real
+validity times exist.
+
+### Sequencing
+
+Phase A items are independent and can run in parallel (they only meet in
+`db.py` migrations, which merge mechanically). B, C and D each start after the
+previous phase is merged. B1 and C1 get a short schema review before coding.
+
 ## Open questions
 
 - Which GCP regions AML AI is available in, and whether any satisfy UAE
