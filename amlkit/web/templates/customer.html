@@ -112,6 +112,26 @@
       </p>
     {% else %}<p class="muted">Not assessed.</p>{% endif %}
   </div>
+
+  {% if effective_risk == 'high' and (customer.source_of_wealth or customer.source_of_funds) %}
+  <div>
+    <div class="section-label">Enhanced Due Diligence</div>
+    <div class="flat-list">
+      {% if customer.source_of_wealth %}
+      <div class="list-row">
+        <div class="grow">Source of Wealth</div>
+        <div class="secondary">{{ customer.source_of_wealth }}</div>
+      </div>
+      {% endif %}
+      {% if customer.source_of_funds %}
+      <div class="list-row">
+        <div class="grow">Source of Funds</div>
+        <div class="secondary">{{ customer.source_of_funds }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {% if ubo_diagram %}
