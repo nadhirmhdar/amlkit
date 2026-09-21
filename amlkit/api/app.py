@@ -1428,7 +1428,7 @@ def customer_gdelt_bq(request: Request, db: DB, customer_id: int):
 
     from ..screening.gdelt_bq import GdeltBqScreener
     screener = GdeltBqScreener()
-    result = screener.screen(cust["full_name"])
+    result = screener.screen(cust["customer"]["full_name"])
 
     from dataclasses import asdict
     return JSONResponse(asdict(result))
@@ -2696,11 +2696,12 @@ def policies_download(request: Request, db: DB, policy_id: int):
             }
         )
     except ValueError as e:
-        return templates.TemplateResponse(
-            "error.html",
-            {"request": request, "error": str(e)},
-            status_code=404
-        )
+        # get_policy() raises ValueError for a missing policy (or an
+        # unreadable file). There is no error.html template and no HTML
+        # exception handler, so render a proper 404 the same way the report
+        # and customer download routes do, rather than a 500.
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)

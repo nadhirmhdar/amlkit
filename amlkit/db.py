@@ -1119,7 +1119,14 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     """
     target = Path(path) if path else DB_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target, timeout=30)
+    # check_same_thread=False: FastAPI runs sync dependencies through
+    # contextmanager_in_threadpool, which can open the connection on one
+    # threadpool worker and run the request body (and the teardown close())
+    # on another. That cross-thread use trips sqlite3's default thread guard
+    # and surfaced as intermittent HTTP 500s under parallel load (QA-04,
+    # 2026-09-21 review). Safe here: deps.get_db() hands each request its own
+    # connection and never shares one between concurrent requests.
+    conn = sqlite3.connect(target, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
