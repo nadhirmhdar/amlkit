@@ -54,6 +54,54 @@ def test_inject_reporting_entity_fills_payload(tmp_path, monkeypatch):
     conn.close()
 
 
+def test_inject_reporting_entity_keeps_payload_reference_when_org_unset(tmp_path, monkeypatch):
+    """A report that already carries its own entity_reference (the STR/SAR builder
+    and mobile API both require one) must stay exportable even when the org has not
+    configured goaml_entity_reference yet -- e.g. every org right after upgrade."""
+    from amlkit.db import connect, utcnow
+    from amlkit.reporting.goaml import inject_reporting_entity
+
+    db_file = tmp_path / "test.db"
+    monkeypatch.setenv("AMLKIT_DB", str(db_file))
+
+    conn = connect(db_file)
+    conn.execute("INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
+                 ("Test Org", "test-org", "active", utcnow()))
+    conn.commit()
+
+    payload = {"report_type": "STR", "entity_reference": "LIC-1"}
+    inject_reporting_entity(payload, conn, 1)
+
+    assert payload["entity_reference"] == "LIC-1"
+    assert payload["reporting_entity_name"] == "Test Org"
+    conn.close()
+
+
+def test_inject_reporting_entity_does_not_override_payload_reference(tmp_path, monkeypatch):
+    """The per-report reference wins over the org default when both are set."""
+    from amlkit.db import connect, utcnow
+    from amlkit.reporting.goaml import inject_reporting_entity
+
+    db_file = tmp_path / "test.db"
+    monkeypatch.setenv("AMLKIT_DB", str(db_file))
+
+    conn = connect(db_file)
+    conn.execute("""INSERT INTO organizations
+                    (name, slug, status, created_at, goaml_entity_reference)
+                    VALUES (?,?,?,?,?)""",
+                 ("Test Org", "test-org", "active", utcnow(), "ORG-DEFAULT"))
+    conn.commit()
+
+    payload = {"report_type": "STR", "entity_reference": "LIC-1"}
+    inject_reporting_entity(payload, conn, 1)
+    assert payload["entity_reference"] == "LIC-1"
+
+    blank = {"report_type": "STR", "entity_reference": "   "}
+    inject_reporting_entity(blank, conn, 1)
+    assert blank["entity_reference"] == "ORG-DEFAULT"
+    conn.close()
+
+
 def test_mobile_export_contains_org_name_not_aml_ref(tmp_path, monkeypatch):
     """Mobile API export XML contains org name and not hardcoded AML-REF."""
     from fastapi.testclient import TestClient
