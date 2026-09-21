@@ -2944,7 +2944,7 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
 
     # Check if already submitted (t2)
     if rep["status"] == "submitted":
-        return back(f"/reports/{report_id}", err="Report has already been submitted to UAE FIU.")
+        return back(f"/reports/{report_id}", err="Report has already been finalized.")
 
     # Validate required fields before submission (p17)
     import json
@@ -2952,7 +2952,7 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
         payload = json.loads(rep["payload"])
     except (json.JSONDecodeError, TypeError):
         return back(f"/reports/{report_id}", err="Report data is invalid. Cannot submit.")
-    
+
     # Check for required fields
     required_fields = ["reporting_entity_name"]
     missing = [f for f in required_fields if not payload.get(f)]
@@ -2968,10 +2968,11 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
             (now, report_id, session.org_id)
         )
         from ..db import audit
-        audit(db, session.operator_name, "report.submit", "report", report_id,
+        audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
-    return back(f"/reports/{report_id}", msg="Report submitted to UAE FIU successfully.")
+    return back(f"/reports/{report_id}",
+               msg=f"Report finalized. Download the goAML XML and upload it manually to the <a href='https://goaml.uaeiec.gov.ae'>UAE FIU goAML portal</a>. <a href='/reports/{report_id}/export'>Download XML</a>")
 
 
 @app.get("/reports/{report_id}/export")
