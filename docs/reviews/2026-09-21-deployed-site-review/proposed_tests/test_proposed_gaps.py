@@ -55,20 +55,17 @@ def client(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 class TestMfaLoginGate:
     def test_password_alone_does_not_open_a_session_for_an_mfa_enrolled_operator(self, client):
-        """Production change that makes this pass: login_submit must, when the
-        operator has a row in mfa_secrets, NOT issue the session cookie until a
-        valid TOTP (or backup code) is presented -- e.g. redirect to a
-        /login/mfa challenge. Today auth.mfa_enroll() exists but app.py never
-        consults it, so a stolen password is enough."""
-        from amlkit.auth import mfa_enroll
-        from amlkit.db import connect
-
-        conn = connect(os.environ["AMLKIT_DB"])
-        op_id = conn.execute("SELECT id FROM operators WHERE email=?",
-                             ("alice@testfirm.ae",)).fetchone()["id"]
-        mfa_enroll(conn, op_id)
-        conn.close()
-
+        """Already satisfied by master (see README "Corrections to lane
+        reports"): login_submit locks every fresh MLRO session until a valid
+        TOTP (or backup code) is presented. `client` already enrolled and
+        *confirmed* alice's MFA via `_register()` -> `settle_mfa()`; a second
+        `mfa_enroll(conn, op_id)` call here used to re-run against her already
+        -confirmed row, which `auth.mfa_enroll()` only reuses when *pending*
+        (confirmed_at IS NULL) -- so it fell through to INSERT OR REPLACE and
+        silently reset her back to unconfirmed. The assertions below still
+        passed, but only because every fresh MLRO session locks regardless of
+        enrollment state, not because this exercised the TOTP-challenge path
+        for an already-enrolled operator as the test name claims."""
         # Fresh, logged-out client for the same app/DB.
         from fastapi.testclient import TestClient
         from amlkit.api.app import app
