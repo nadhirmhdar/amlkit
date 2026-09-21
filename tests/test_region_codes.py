@@ -188,6 +188,163 @@ def _create_test_org(conn):
     return cur.lastrowid
 
 
+class TestScorerMultiNationality:
+    """score_entity must accept query_countries (plural) so that a dual national
+    who matches on ANY nationality avoids the country_mismatch penalty."""
+
+    def test_no_mismatch_when_any_nationality_matches(self):
+        from amlkit.match.scorer import score_entity
+        result = score_entity(
+            "Kim Jong Un",
+            ["Kim Jong Un"],
+            query_countries=["AE", "KP"],
+            cand_countries=["KP"],
+        )
+        adjustments = result.features.get("adjustments", {})
+        assert "country_mismatch" not in adjustments
+
+    def test_mismatch_when_no_nationality_matches(self):
+        from amlkit.match.scorer import score_entity
+        result = score_entity(
+            "Kim Jong Un",
+            ["Kim Jong Un"],
+            query_countries=["AE", "US"],
+            cand_countries=["KP"],
+        )
+        adjustments = result.features.get("adjustments", {})
+        assert "country_mismatch" in adjustments
+
+    def test_backward_compat_single_country(self):
+        from amlkit.match.scorer import score_entity
+        result = score_entity(
+            "Kim Jong Un",
+            ["Kim Jong Un"],
+            query_country="KP",
+            cand_countries=["KP"],
+        )
+        adjustments = result.features.get("adjustments", {})
+        assert "country_mismatch" not in adjustments
+
+
+class TestJurisdictionTierFromNationalities:
+    """The highest-risk nationality must determine the jurisdiction tier."""
+
+    def _setup_fatf(self, conn):
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS fatf_countries (
+                country_code TEXT PRIMARY KEY,
+                country_name TEXT NOT NULL,
+                list_type TEXT NOT NULL
+            )"""
+        )
+        conn.execute("DELETE FROM fatf_countries")
+        conn.execute(
+            "INSERT INTO fatf_countries VALUES ('KP', 'DPRK', 'blacklist')"
+        )
+        conn.execute(
+            "INSERT INTO fatf_countries VALUES ('IR', 'Iran', 'blacklist')"
+        )
+        conn.execute(
+            "INSERT INTO fatf_countries VALUES ('NG', 'Nigeria', 'greylist')"
+        )
+        conn.commit()
+
+    def test_blacklist_nationality_forces_blacklist_tier(self):
+        from amlkit.db import connect
+        from amlkit.cases.manager import jurisdiction_tier_for_nationalities
+        conn = connect(":memory:")
+        self._setup_fatf(conn)
+        tier = jurisdiction_tier_for_nationalities(conn, ["AE", "IR"])
+        assert tier == "fatf_blacklist"
+
+    def test_greylist_nationality_elevates_tier(self):
+        from amlkit.db import connect
+        from amlkit.cases.manager import jurisdiction_tier_for_nationalities
+        conn = connect(":memory:")
+        self._setup_fatf(conn)
+        tier = jurisdiction_tier_for_nationalities(conn, ["AE", "NG"])
+        assert tier == "fatf_greylist"
+
+    def test_safe_nationalities_remain_standard(self):
+        from amlkit.db import connect
+        from amlkit.cases.manager import jurisdiction_tier_for_nationalities
+        conn = connect(":memory:")
+        self._setup_fatf(conn)
+        tier = jurisdiction_tier_for_nationalities(conn, ["AE", "US"])
+        assert tier == "standard"
+
+    def test_empty_list_returns_standard(self):
+        from amlkit.db import connect
+        from amlkit.cases.manager import jurisdiction_tier_for_nationalities
+        conn = connect(":memory:")
+        self._setup_fatf(conn)
+        tier = jurisdiction_tier_for_nationalities(conn, [])
+        assert tier == "standard"
+
+
+class TestOnboardDualNationalRisk:
+    """A dual national where one nationality is high-risk must have the
+    jurisdiction factor elevated, even if the other nationality is safe."""
+
+    def _setup(self):
+        from amlkit.db import connect, utcnow
+        conn = connect(":memory:")
+        org_id = _create_test_org(conn)
+        conn.execute(
+            "INSERT INTO datasets (key, title, publisher, is_mandatory, "
+            "last_refresh, entity_count, max_age_hours) "
+            "VALUES ('test_list', 'Test', 'Test', 1, ?, 1, 24)",
+            (utcnow(),),
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS fatf_countries (
+                country_code TEXT PRIMARY KEY,
+                country_name TEXT NOT NULL,
+                list_type TEXT NOT NULL
+            )"""
+        )
+        conn.execute("DELETE FROM fatf_countries")
+        conn.execute(
+            "INSERT INTO fatf_countries VALUES ('IR', 'Iran', 'blacklist')"
+        )
+        conn.execute(
+            "INSERT INTO fatf_countries VALUES ('NG', 'Nigeria', 'greylist')"
+        )
+        conn.commit()
+        return conn, org_id
+
+    def test_dual_national_blacklist_elevates_risk(self):
+        from amlkit.cases.manager import onboard
+        conn, org_id = self._setup()
+        result = onboard(
+            conn, org_id=org_id, reference="DUAL-BL",
+            full_name="Test Dual", customer_type="natural",
+            nationality="AE", nationalities=["AE", "IR"],
+            actor="test",
+        )
+        assert result.risk.factors["jurisdiction"]["value"] == "fatf_blacklist"
+
+    def test_dual_national_greylist_elevates_risk(self):
+        from amlkit.cases.manager import onboard
+        conn, org_id = self._setup()
+        result = onboard(
+            conn, org_id=org_id, reference="DUAL-GL",
+            full_name="Test Dual Grey", customer_type="natural",
+            nationality="AE", nationalities=["AE", "NG"],
+            actor="test",
+        )
+        assert result.risk.factors["jurisdiction"]["value"] == "fatf_greylist"
+
+
+def _create_test_org(conn):
+    cur = conn.execute(
+        "INSERT INTO organizations (name, slug, created_at) "
+        "VALUES ('Test Org', 'test-org', '2026-01-01')"
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
 def _create_test_customer(conn, org_id, nationality=None):
     cur = conn.execute(
         "INSERT INTO customers (org_id, reference, full_name, customer_type, "

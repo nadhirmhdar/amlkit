@@ -48,6 +48,36 @@ class StaleDatasetsError(Exception):
     """Raised when onboarding is attempted with stale or empty sanctions data."""
 
 
+_FATF_TIER_RANK = {"fatf_blacklist": 3, "fatf_greylist": 2, "high_risk_other": 1, "standard": 0}
+
+
+def jurisdiction_tier_for_nationalities(
+    conn: sqlite3.Connection,
+    nationalities: list[str],
+    baseline: str = "standard",
+) -> str:
+    """Return the highest-risk jurisdiction tier across all nationalities.
+
+    Queries the fatf_countries table (populated by the FATF ingest adapter).
+    The result only elevates; it never lowers a tier the caller already set.
+    """
+    best_tier = baseline
+    best_rank = _FATF_TIER_RANK.get(baseline, 0)
+    for code in nationalities:
+        if not code:
+            continue
+        row = conn.execute(
+            "SELECT list_type FROM fatf_countries WHERE country_code = ?",
+            (code.strip().upper(),),
+        ).fetchone()
+        if row:
+            tier = "fatf_blacklist" if row[0] == "blacklist" else "fatf_greylist"
+            rank = _FATF_TIER_RANK.get(tier, 0)
+            if rank > best_rank:
+                best_tier, best_rank = tier, rank
+    return best_tier
+
+
 UBO_THRESHOLD_PCT = 25.0
 RETENTION_YEARS = 10
 
@@ -226,16 +256,17 @@ def onboard(
               {"reference": reference, "name": full_name}, org_id=org_id)
 
     # --- screen the customer, in both scripts where available --------------
+    all_nats = nationalities or ([nationality] if nationality else None)
     result = screen(
-        conn, full_name, org_id=org_id, trigger="onboarding", country=nationality,
-        birth_date=birth_date, gender=gender, customer_id=customer_id, actor=actor,
-        threshold=threshold,
+        conn, full_name, org_id=org_id, trigger="onboarding",
+        countries=all_nats, birth_date=birth_date, gender=gender,
+        customer_id=customer_id, actor=actor, threshold=threshold,
     )
     if name_arabic:
         ar = screen(
-            conn, name_arabic, org_id=org_id, trigger="onboarding", country=nationality,
-            birth_date=birth_date, gender=gender, customer_id=customer_id, actor=actor,
-            threshold=threshold,
+            conn, name_arabic, org_id=org_id, trigger="onboarding",
+            countries=all_nats, birth_date=birth_date, gender=gender,
+            customer_id=customer_id, actor=actor, threshold=threshold,
         )
         # Keep whichever script produced the stronger evidence.
         if ar.hits and (not result.hits or max(h.score for h in ar.hits) > max(h.score for h in result.hits)):
@@ -257,6 +288,11 @@ def onboard(
         h.is_sanction for _, r in ubo_results for h in r.hits
     )
     pep_status = "domestic_pep" if any(h.is_pep for h in result.hits) else None
+
+    if all_nats:
+        jurisdiction_tier = jurisdiction_tier_for_nationalities(
+            conn, all_nats, baseline=jurisdiction_tier,
+        )
 
     risk = assess(
         CustomerProfile(
