@@ -37,6 +37,7 @@ from ..cases.manager import (
     add_case_note,
     add_ubo,
     close_relationship,
+    reactivate_customer,
     disposition_adverse_media_finding,
     disposition_transaction_alert,
     onboard,
@@ -1220,6 +1221,33 @@ def customer_close(request: Request, db: DB, customer_id: int,
         return back(f"/customers/{customer_id}", err=str(exc))
     until = close_relationship(db, customer_id, org_id=session.org_id, actor=session.operator_name)
     return back(f"/customers/{customer_id}", msg=f"Relationship closed. Records retained until {until}.")
+
+
+@app.post("/customers/{customer_id}/reactivate")
+def customer_reactivate(
+    request: Request, db: DB, customer_id: int,
+    reason: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    try:
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    try:
+        reactivate_customer(db, customer_id, org_id=session.org_id,
+                            reason=reason.strip() or "No reason provided",
+                            actor=session.operator_name)
+    except ValueError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    return back(f"/customers/{customer_id}", msg="Customer reactivated.")
 
 
 @app.post("/customers/{customer_id}/ubo")
