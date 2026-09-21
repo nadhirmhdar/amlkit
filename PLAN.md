@@ -90,6 +90,12 @@ Research and inspection only; no product changes except the two bug fixes alread
 | 1.11 | [NEW] Bug-report / feedback experience | `feedback-btn` modal: match AMLKit tokens, add page context (already sent), confirm delivery path and success/error states |
 | 1.12 | [#77] (low) Show organisation name in the UI | Partially done (sidebar + dropdown show it); verify every page, then close |
 | 1.13 | [DONE PR-ui] Self-host the Manrope font | CSP `font-src 'self'` blocked Google Fonts → production rendered in the fallback font. Variable woff2 (latin + latin-ext) now under `/static/fonts` with `@font-face`; smoke test in `test_static_assets.py` |
+| 1.15 | [DONE] MFA setup QR rendered as a broken image | segno `svg_inline()` omits the SVG namespace, which `<img>` decoders require; switched to `svg_data_uri()` |
+| 1.16 | [DONE] Freeze Obligations moved from the sidebar to the MLRO section of the user menu | Statutory emergency action on confirmed hits, not an everyday nav item; sidebar is Home / Dashboard / Screen a name / Customers (+ Console) |
+| 1.17 | [DONE] Quick-screen bar on Home under the greeting | Same `POST /screen` as the full page; fills the empty band below the cards without inventing content |
+| 1.18 | [DONE] Single-operator mode chip in the desktop header | Shown only when the mode is on; the footer sentence stays for phones. No "dual-control" badge when off: four-eyes covers sanctions/PF dismissals only, so a green badge would overstate it |
+| 1.19 | [NEW] Home "operational pulse" (recent screenings, dataset freshness) | Deferred to 4.3/4.4: every tile needs a query behind it; the stale-source banner already covers dataset freshness |
+| 1.20 | [NEW] One-click clearance slip PDF on `/screen` when there is no match | Depends on the WeasyPrint evidence-pack PDF in PR #240; reuse that pipeline (query, lists searched, timestamp, operator, verification hash) rather than a second PDF path |
 | 1.14 | [NEW] Tablet layout decision [HUMAN] | 681–960 px keeps the hamburger sidebar; phone chrome (tab bar) applies ≤ 680 px. Extend phone chrome to tablets, or keep? |
 
 ## Phase 2 — Security, Audit and Data Protection

@@ -653,10 +653,10 @@ def mfa_setup_form(request: Request, db: DB):
 
     # Rendered locally: the provisioning URI carries the TOTP secret, so it must
     # never be sent to a third-party QR service (and the CSP would block one).
-    import base64
+    # svg_data_uri() keeps the xmlns declaration; svg_inline() strips it, and an
+    # <img> decoder refuses a namespace-less SVG (broken-image icon).
     import segno
-    svg = segno.make(qr_uri, error="m").svg_inline(scale=5, border=2)
-    qr_data_uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+    qr_data_uri = segno.make(qr_uri, error="m").svg_data_uri(scale=5, border=2)
 
     return render(request, "mfa_setup.html", {
         "session": None,

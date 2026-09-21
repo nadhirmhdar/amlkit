@@ -63,7 +63,11 @@ def _enrol(client) -> tuple[str, list[str]]:
     secret = re.search(r"\b([A-Z2-7]{32})\b", page.text).group(1)
     assert not re.findall(r"<span>([0-9a-f]{8})</span>", page.text), "no backup codes before confirmation"
     assert "api.qrserver.com" not in page.text, "QR must be rendered locally"
-    assert 'src="data:image/svg+xml;base64,' in page.text
+    m = re.search(r'src="(data:image/svg\+xml[^"]+)"', page.text)
+    assert m, "QR must be an inline data: image"
+    from urllib.parse import unquote
+    assert 'xmlns="http://www.w3.org/2000/svg"' in unquote(m.group(1)).replace("'", '"'), \
+        "an <img> decoder needs the SVG namespace; segno's svg_inline() omits it"
     r = client.post("/mfa/setup", data={
         "code": pyotp.TOTP(secret).now(), "csrf_token": _csrf(client),
     }, follow_redirects=False)

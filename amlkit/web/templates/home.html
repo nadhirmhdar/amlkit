@@ -10,6 +10,13 @@
     Screen a name and onboard customer made easier for our users
   </p>
 
+  <form method="post" action="/screen" class="home-quick-screen" role="search" aria-label="Quick screen">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="home-quick-name" class="visually-hidden">Name to screen</label>
+    <input type="text" id="home-quick-name" name="name" dir="auto" required autocomplete="off"
+           placeholder="Quick screen a person or entity (Arabic or English)">
+    <button type="submit" class="small">Screen</button>
+  </form>
 </div>
 
 <div class="section-label mt-6">Start here</div>

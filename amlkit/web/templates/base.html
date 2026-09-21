@@ -31,9 +31,6 @@
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
       {% endif %}
-      {% if session.operator_role == 'mlro' %}
-        <a href="/freeze-obligations" class="{{ 'on' if nav=='freeze' }}">Freeze Obligations</a>
-      {% endif %}
     </nav>
   </aside>
 
@@ -46,6 +43,11 @@
      button top-right, same as the phone header; the dropdown carries the
      name, role and org. #}
   <div class="desktop-topnav no-print">
+    {% if single_operator %}
+      <span class="mode-chip mode-chip--warn" title="Dismissals of sanctions and proliferation matches are recorded as having had no independent review">
+        Single-operator mode
+      </span>
+    {% endif %}
     <div class="user-menu-wrap" id="desktop-user-menu-wrap">
       <button class="user-menu-btn" data-action="toggle-desktop-user-menu" aria-label="User menu" aria-expanded="false">
         <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
@@ -63,6 +65,7 @@
         <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
         {% if session.operator_role == 'mlro' %}
           <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
+          <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
         {% endif %}
         <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
         <div class="user-dropdown__divider"></div>
@@ -98,6 +101,7 @@
         <a href="/audit"   class="user-dropdown__item" role="menuitem">Audit trail</a>
         {% if session.operator_role == 'mlro' %}
           <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
+          <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
         {% endif %}
         <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
         <div class="user-dropdown__divider"></div>
