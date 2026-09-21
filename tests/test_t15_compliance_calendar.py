@@ -28,7 +28,7 @@ def web(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def _register(client, email="mlro@firm.ae", role="mlro"):
+def _register(client, email="mlro@firm.ae", role="mlro", org_name="Test Firm"):
     """Register and verify an operator, return session cookie."""
     import re
 
@@ -40,7 +40,7 @@ def _register(client, email="mlro@firm.ae", role="mlro"):
     r = client.post(
         "/register-organization",
         data={
-            "org_name": "Test Firm",
+            "org_name": org_name,
             "name": "Test MLRO",
             "email": email,
             "password": "SecurePass123!",
@@ -184,7 +184,7 @@ def test_delete_deadline(web):
     # Delete deadline
     r = web.delete(
         f"/compliance/deadlines/{deadline_id}",
-        data={"csrf_token": csrf},
+        headers={"X-CSRF-Token": csrf},
     )
     assert r.status_code == 204
 
@@ -201,7 +201,7 @@ def test_org_isolation(web, monkeypatch):
     from fastapi.testclient import TestClient
 
     # Register org 1
-    _register(web, "mlro@org1.ae")
+    _register(web, "mlro@org1.ae", org_name="Org One Firm")
     csrf1 = web.cookies.get("amlkit_csrf")
 
     # Create deadline for org 1
@@ -221,7 +221,7 @@ def test_org_isolation(web, monkeypatch):
     # Register org 2 (new client)
     from amlkit.api.app import app
     web2 = TestClient(app)
-    _register(web2, "mlro@org2.ae")
+    _register(web2, "mlro@org2.ae", org_name="Org Two Firm")
 
     # Try to access org 1's deadline from org 2
     r = web2.get("/compliance/deadlines")

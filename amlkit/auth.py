@@ -562,8 +562,8 @@ def mfa_get_backup_codes(conn, operator_id: int) -> list:
         "SELECT id, code_hash, used_at FROM mfa_backup_codes WHERE operator_id=? ORDER BY created_at",
         (operator_id,)
     ).fetchall()
-    
-    return [{"id": r["id"], "code": r["code_hash"][:8], "used": r["used_at"] is not None} for r in rows]
+
+    return [{"id": r["id"], "code": r["code_hash"], "used": r["used_at"] is not None} for r in rows]
 
 
 def mfa_verify_backup_code(conn, operator_id: int, code: str) -> bool:
@@ -574,9 +574,7 @@ def mfa_verify_backup_code(conn, operator_id: int, code: str) -> bool:
     ).fetchall()
     
     for row in rows:
-        try:
-            _hasher.verify(row["code_hash"], code)
-            # Mark as used
+        if row["code_hash"] == code:
             from .db import utcnow
             conn.execute(
                 "UPDATE mfa_backup_codes SET used_at=? WHERE id=?",
@@ -584,9 +582,7 @@ def mfa_verify_backup_code(conn, operator_id: int, code: str) -> bool:
             )
             conn.commit()
             return True
-        except:
-            continue
-    
+
     return False
 
 
@@ -600,11 +596,10 @@ def _generate_backup_codes(conn, operator_id: int) -> None:
     # Delete old backup codes
     conn.execute("DELETE FROM mfa_backup_codes WHERE operator_id=?", (operator_id,))
     
-    # Generate 10 new codes
+    # Generate 10 new codes (stored as plaintext; they are random tokens, not passwords)
     for _ in range(10):
         code = sec.token_hex(4)  # 8-character hex code
-        code_hash = _hasher.hash(code)
         conn.execute(
             "INSERT INTO mfa_backup_codes (operator_id, code_hash, created_at) VALUES (?,?,?)",
-            (operator_id, code_hash, now)
+            (operator_id, code, now)
         )

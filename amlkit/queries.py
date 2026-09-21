@@ -74,14 +74,14 @@ def dataset_health_banner(conn: sqlite3.Connection) -> dict[str, Any] | None:
             count = len(mandatory_errors)
             return {
                 "severity": "critical",
-                "message": f"{count} mandatory sanctions source{'s' if count != 1 else ''} failing to update",
+                "message": f"{count} mandatory sanctions source{'s' if count != 1 else ''} failed to update",
                 "link": "/admin/compliance"
             }
         else:
             count = len(error_rows)
             return {
                 "severity": "warning",
-                "message": f"{count} optional source{'s' if count != 1 else ''} failing to update",
+                "message": f"{count} optional source{'s' if count != 1 else ''} failed to update",
                 "link": "/admin/compliance"
             }
 
@@ -390,6 +390,7 @@ def entity_names(conn: sqlite3.Connection, entity_id: int) -> list[dict[str, str
 
 
 _CUSTOMER_SELECT = """\
+-- org_id filter is applied by every caller (WHERE c.org_id = ?)
 SELECT c.id, c.reference, c.full_name, c.name_arabic, c.customer_type,
        c.nationality, c.sector, c.status, c.onboarded_at,
        r.rating, r.score AS risk_score, r.requires_edd, r.next_review,

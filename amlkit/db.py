@@ -700,6 +700,25 @@ BEFORE DELETE ON audit_log
 BEGIN
     SELECT RAISE(ABORT, 'audit_log is append-only');
 END;
+
+-- ----------------------------------------------------------------- MFA/TOTP (p15)
+-- One row per operator; replaced on re-enrolment.
+CREATE TABLE IF NOT EXISTS mfa_secrets (
+    operator_id INTEGER PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
+    secret      TEXT NOT NULL,
+    enrolled_at TEXT NOT NULL
+);
+
+-- 10 single-use recovery codes per operator.  code_hash is argon2 so the raw
+-- token is never stored; used_at is stamped when consumed.
+CREATE TABLE IF NOT EXISTS mfa_backup_codes (
+    id          INTEGER PRIMARY KEY,
+    operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    code_hash   TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    used_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_mfa_backup_operator ON mfa_backup_codes(operator_id);
 """
 
 

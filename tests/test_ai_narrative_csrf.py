@@ -71,6 +71,21 @@ def web(tmp_path, monkeypatch):
     return c, customer_id
 
 
+@pytest.fixture()
+def _enable_limiter():
+    """Temporarily re-enable the rate limiter for tests that verify 429 behaviour.
+
+    The session-scoped _disable_rate_limiter fixture in conftest.py sets
+    limiter.enabled = False to prevent test-suite registrations from hitting
+    the 10/min ceiling.  test_rate_limited depends on the limiter being on,
+    so it opts in by declaring this fixture.
+    """
+    from amlkit.api.app import app
+    app.state.limiter.enabled = True
+    yield
+    app.state.limiter.enabled = False
+
+
 class TestAiNarrativeCsrf:
     def test_missing_csrf_token_rejected(self, web) -> None:
         """POST without csrf_token must fail (PermissionError → 401 or redirect)."""
@@ -93,7 +108,7 @@ class TestAiNarrativeCsrf:
             f"Expected 200 or 503 with valid CSRF, got {r.status_code}"
         )
 
-    def test_rate_limited(self, web) -> None:
+    def test_rate_limited(self, web, _enable_limiter) -> None:
         """Rapid requests must eventually receive 429."""
         client, customer_id = web
         statuses = []

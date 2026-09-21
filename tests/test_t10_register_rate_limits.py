@@ -19,7 +19,10 @@ def client(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
 
-    return TestClient(app)
+    app.state.limiter._storage.reset()
+    app.state.limiter.enabled = True
+    yield TestClient(app)
+    app.state.limiter.enabled = False
 
 
 def test_register_organization_rate_limit(client):
