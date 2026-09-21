@@ -60,6 +60,32 @@
   </div>
 </div>
 
+{% if session.operator_role == 'mlro' %}
+<details class="freeze-obligations-panel mb-6">
+  <summary class="freeze-obligations-summary">
+    <span class="freeze-obligations-title">TFS Freeze Obligations</span>
+    <span class="freeze-obligations-chevron">▼</span>
+  </summary>
+  <div class="freeze-obligations-content panel">
+    <div class="alert-box mb-4" style="background:var(--warn-soft); border-left:3px solid var(--warn); padding:14px 18px;">
+      <strong>Cabinet Resolution 134/2025:</strong> Freeze obligations must be executed immediately.
+      Personal liability applies to senior management for TFS compliance failures.
+    </div>
+
+    {% if d.freeze_stats %}
+    <div style="display:flex; gap:16px; margin-bottom:20px; flex-wrap:wrap;">
+      <div class="stat-chip">Pending: <strong>{{ d.freeze_stats.pending_execution }}</strong></div>
+      <div class="stat-chip">Executed: <strong>{{ d.freeze_stats.executed_pending_report }}</strong></div>
+      <div class="stat-chip">Reported: <strong>{{ d.freeze_stats.reported }}</strong></div>
+      <div class="stat-chip">Resolved: <strong>{{ d.freeze_stats.resolved }}</strong></div>
+    </div>
+    {% endif %}
+
+    <a href="/freeze-obligations" class="btn small">View all freeze obligations →</a>
+  </div>
+</details>
+{% endif %}
+
 {% if d.open_by_category %}
 <div class="mb-6">
   <div class="section-label">Open alerts by category</div>
@@ -86,10 +112,10 @@
   <div class="flat-list">
     {% for a in d.oldest_open %}
       <a href="/alerts" class="list-row">
-        <span class="tag {{ a.category }}" style="width:110px; flex-shrink:0;">{{ a.category }}</span>
+        <span class="tag {{ a.category }}" style="min-width:80px; flex-shrink:0;">{{ a.category }}</span>
         <div class="grow primary">{{ a.caption }}</div>
         <div class="num">{{ '%.3f'|format(a.score) }}</div>
-        <div class="side" style="width:120px; text-align:right;">{{ a.assigned_to or 'Unassigned' }}</div>
+        <div class="side nowrap">{{ a.assigned_to or 'Unassigned' }}</div>
       </a>
     {% endfor %}
   </div>
@@ -105,9 +131,9 @@
         <div class="grow">
           <div class="primary">{{ ta.customer_name }}</div>
         </div>
-        <span class="tag {{ ta.severity }}" style="width:130px; flex-shrink:0;">{{ ta.rule_key.replace('_',' ') }}</span>
-        <div class="num">AED {{ '{:,.2f}'.format(ta.amount_aed) }}</div>
-        <div class="side" style="width:120px; text-align:right;">{{ ta.created_at[:16].replace('T',' ') }}</div>
+        <span class="tag {{ ta.severity }}" style="flex-shrink:0;">{{ ta.rule_key.replace('_',' ') }}</span>
+        <div class="num nowrap">AED {{ '{:,.2f}'.format(ta.amount_aed) }}</div>
+        <div class="side nowrap">{{ ta.created_at[:16].replace('T',' ') }}</div>
       </a>
     {% endfor %}
   </div>
@@ -124,8 +150,8 @@
             <div class="primary">{{ c.full_name }}</div>
             <div class="secondary mono">{{ c.reference }}</div>
           </div>
-          <span class="tag {{ c.rating }}" style="width:80px; flex-shrink:0;">{{ c.rating }}</span>
-          <div class="side" style="width:110px; text-align:right; font-weight:600; color:var(--ink-2);">{{ c.next_review }}</div>
+          <span class="tag {{ c.rating }}" style="flex-shrink:0;">{{ c.rating }}</span>
+          <div class="side nowrap" style="font-weight:600; color:var(--ink-2);">{{ c.next_review }}</div>
         </a>
       {% endfor %}
     </div>
@@ -151,8 +177,8 @@
             <div class="primary">{{ c.full_name }}</div>
             <div class="secondary mono">{{ c.reference }}</div>
           </div>
-          <span class="tag {{ c.rating or 'low' }}" style="width:80px; flex-shrink:0;">{{ c.rating or '—' }}</span>
-          <div class="side" style="width:150px; text-align:right; font-weight:600; color:var(--ink-2);">
+          <span class="tag {{ c.rating or 'low' }}" style="flex-shrink:0;">{{ c.rating or '—' }}</span>
+          <div class="side nowrap" style="font-weight:600; color:var(--ink-2);">
             {% if c.reason == 'never' %}never checked{% else %}last {{ c.last_checked[:10] }}{% endif %}
           </div>
         </a>

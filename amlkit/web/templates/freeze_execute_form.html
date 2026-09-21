@@ -16,7 +16,7 @@
         <input type="number" name="asset_amount_1" placeholder="Amount (AED)" step="0.01">
       </div>
     </div>
-    <button type="button" onclick="addAssetRow()">+ Add Asset</button>
+    <button type="button" data-action="add-asset-row">+ Add Asset</button>
   </div>
   
   <div class="form-group">
@@ -28,16 +28,4 @@
   <a href="/freeze-obligations/{{ freeze_id }}" class="btn">Cancel</a>
 </form>
 
-<script>
-let assetCount = 1;
-function addAssetRow() {
-  assetCount++;
-  const container = document.getElementById('assets-container');
-  const row = container.children[0].cloneNode(true);
-  row.querySelectorAll('[name]').forEach(el => {
-    el.name = el.name.replace(/_\\d+$/, '_' + assetCount);
-    if (el.tagName === 'INPUT') el.value = '';
-  });
-  container.appendChild(row);
-}
-</script>
+<script src="/static/js/app.js"></script>

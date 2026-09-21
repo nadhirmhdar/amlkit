@@ -73,6 +73,16 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 /* ------------------------------------------------------------- shell/layout */
 .shell { display: flex; min-height: 100vh; }
 
+/* Wraps desktop-topnav + main so they form a vertical column to the right
+   of the sidebar.  Without this, desktop-topnav was a flex-row sibling of
+   sidebar/main and rendered as a narrow strip beside them. */
+.content-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .sidebar {
   width: 224px;
   flex-shrink: 0;
@@ -122,6 +132,67 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 #nav-toggle { display: none; }
 .nav-hamburger { display: none; }
 
+/* Desktop top navigation bar with avatar dropdown -- hidden on mobile (<= 680px) */
+.desktop-topnav {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.desktop-topnav .user-menu-wrap {
+  position: relative;
+}
+
+.desktop-topnav .user-menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: white;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  transition: background 120ms;
+}
+
+.desktop-topnav .user-menu-btn:hover {
+  background: var(--line-soft);
+}
+
+.desktop-topnav .user-menu-btn .avatar--sm {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.desktop-topnav .desktop-user-name {
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desktop-topnav .user-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+}
+
 /* Phone bottom tab bar -- hidden by default (desktop/tablet keep the
    sidebar); swapped in at the phone breakpoint below. */
 .mobile-tabbar { display: none; }
@@ -130,7 +201,7 @@ main {
   flex: 1;
   min-width: 0;
   max-width: 1180px;
-  padding: 48px 60px;
+  padding: 40px 60px 48px;
   margin: 0;
 }
 
@@ -350,7 +421,7 @@ tr:hover td { background: var(--line-soft); }
   padding: 26px;
   margin-bottom: 16px;
 }
-.alert-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 6px; }
+.alert-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
 .alert-head h3 { margin: 0; font-size: 18px; font-weight: 700; }
 
 /* Plain-text obligation line: dot marker + ink-2 text, no filled box */
@@ -538,6 +609,13 @@ details.evidence summary * { display: none; }
 .grid.two { grid-template-columns: 1fr 1fr; }
 .grid.tiles { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 
+/* --------------------------------------------------------- customers table */
+.customers-head, .customers-row {
+  display: grid;
+  grid-template-columns: 110px 1.6fr 1fr 0.8fr 70px 110px 90px;
+  align-items: center;
+}
+
 .mt-0 { margin-top: 0 !important; }
 .mt-1 { margin-top: 4px !important; }
 .mt-2 { margin-top: 8px !important; }
@@ -563,11 +641,26 @@ details.evidence summary * { display: none; }
     width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line);
     background: var(--surface); cursor: pointer; font-size: 16px;
   }
-  main { padding: 84px 20px 40px; max-width: 100%; }
+  /* desktop-topnav is now at the top of content-col, so main needs much
+     less top padding than the original 84px hamburger clearance. */
+  main { padding: 24px 20px 40px; max-width: 100%; }
   .grid.two { grid-template-columns: 1fr; }
   .dashboard-hero { grid-template-columns: 1fr; }
   .panel { padding: 18px; }
   .table-responsive { margin: 0 -16px; padding: 0 16px; }
+}
+
+/* tablet: customers grid — collapse Type/Evidence columns to save width */
+@media (max-width: 860px) {
+  .customers-head, .customers-row {
+    grid-template-columns: 100px 1fr 80px 60px 100px;
+  }
+  .cust-col-type, .cust-col-evidence { display: none; }
+  /* grid-tables with fixed pixel columns: allow horizontal scroll instead
+     of wrapping prematurely (phone breakpoint stacks them entirely) */
+  .grid-table { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .grid-table .list-head,
+  .grid-table .flat-list { min-width: 500px; }
 }
 
 /* ---------------------------------------------------------------- mobile header */
@@ -611,9 +704,20 @@ details.evidence summary * { display: none; }
    four-tab bottom bar plus a top header with user menu; same hairline/dot
    vocabulary as the rest of the app. */
 @media (max-width: 680px) {
-  .sidebar, .nav-hamburger { display: none !important; }
+  .sidebar, .nav-hamburger, .desktop-topnav { display: none !important; }
   :root { --tabbar-h: 62px; --mobile-header-h: 52px; }
   main { padding: calc(var(--mobile-header-h) + 16px) 18px calc(var(--tabbar-h) + 28px); }
+
+  /* Reduce headline sizes so long names/titles don't overflow on small screens */
+  .page-head h1, .page-head .title { font-size: 26px; }
+  .home-head h1 { font-size: 26px; }
+  .hero-stat .n { font-size: 48px; }
+
+  /* Remove tablet min-width so phone grid-table stacking works correctly.
+     The .grid-table .list-row { display: flex !important } rule below already
+     overrides the customers-row display:grid, so no extra rule is needed. */
+  .grid-table { overflow-x: visible; }
+  .grid-table .list-head, .grid-table .flat-list { min-width: 0; }
 
   .mobile-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -631,15 +735,15 @@ details.evidence summary * { display: none; }
   .mobile-header .user-dropdown { right: 0; top: calc(100% + 4px); }
   .user-menu-btn {
     background: none; border: 1px solid var(--line); border-radius: 50%;
-    width: 34px; height: 34px; padding: 0; cursor: pointer;
+    width: 44px; height: 44px; padding: 0; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     color: white; font-weight: 700; font-size: 13px;
   }
   .user-menu-btn .avatar--sm {
-    width: 34px; height: 34px; border-radius: 50%;
+    width: 44px; height: 44px; border-radius: 50%;
     background: var(--ink); color: white;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 13px;
+    font-weight: 700; font-size: 14px;
   }
 
   .mobile-tabbar {
@@ -746,6 +850,18 @@ form.is-submitting button[type="submit"] {
   border: 1px solid var(--line); border-radius: var(--radius-xs);
   font-family: inherit; font-size: 14px; resize: vertical;
 }
+
+/* ------------------------------------------------------------- accessibility */
+.skip-to-content {
+  position: absolute; left: -9999px; top: auto; width: 1px; height: 1px; overflow: hidden;
+  z-index: 9999; padding: 8px 16px; background: var(--accent); color: #fff; font-weight: 600;
+  text-decoration: none; border-radius: 4px;
+}
+.skip-to-content:focus {
+  position: fixed; left: 16px; top: 16px; width: auto; height: auto; overflow: visible;
+}
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ------------------------------------------------------------------- print */
 @media print {
