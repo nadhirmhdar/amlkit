@@ -189,10 +189,10 @@ Run the tests:
 
 ### Development
 
-Install pre-commit hooks to catch syntax errors before committing:
+Install pre-commit hooks to catch syntax errors and undefined names before committing:
 
 ```bash
-pip install pre-commit
+pip install pre-commit ruff
 pre-commit install
 ```
 
