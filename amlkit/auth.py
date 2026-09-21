@@ -508,36 +508,29 @@ def csrf_valid(cookie_value: str | None, form_value: str | None) -> bool:
 
 # --------------------------------------------------------------------- MFA/TOTP (p15)
 def mfa_enroll(conn, operator_id: int):
-    """Enroll operator in MFA. Returns (secret, qr_uri)."""
+    """Enroll operator in MFA. Returns (secret, qr_uri, backup_codes)."""
     import pyotp
-    import secrets as sec
-    
-    # Generate secret
+
     secret = pyotp.random_base32()
-    
-    # Get operator email for QR code
+
     row = conn.execute("SELECT email, name FROM operators WHERE id=?", (operator_id,)).fetchone()
     email = row["email"]
-    name = row["name"]
-    
-    # Store secret
+
     from .db import utcnow
     now = utcnow()
     conn.execute(
         "INSERT OR REPLACE INTO mfa_secrets (operator_id, secret, enrolled_at) VALUES (?,?,?)",
         (operator_id, secret, now)
     )
-    
-    # Generate backup codes
-    _generate_backup_codes(conn, operator_id)
-    
+
+    backup_codes = _generate_backup_codes(conn, operator_id)
+
     conn.commit()
-    
-    # Generate QR URI
+
     totp = pyotp.TOTP(secret)
     qr_uri = totp.provisioning_uri(name=email, issuer_name="amlkit")
-    
-    return secret, qr_uri
+
+    return secret, qr_uri, backup_codes
 
 
 def mfa_verify(conn, operator_id: int, code: str) -> bool:
@@ -557,13 +550,13 @@ def mfa_verify(conn, operator_id: int, code: str) -> bool:
 
 
 def mfa_get_backup_codes(conn, operator_id: int) -> list:
-    """Get backup codes for operator."""
+    """Get backup code metadata (never the codes themselves)."""
     rows = conn.execute(
-        "SELECT id, code_hash, used_at FROM mfa_backup_codes WHERE operator_id=? ORDER BY created_at",
+        "SELECT id, used_at FROM mfa_backup_codes WHERE operator_id=? ORDER BY created_at",
         (operator_id,)
     ).fetchall()
-    
-    return [{"id": r["id"], "code": r["code_hash"][:8], "used": r["used_at"] is not None} for r in rows]
+
+    return [{"id": r["id"], "used": r["used_at"] is not None} for r in rows]
 
 
 def mfa_verify_backup_code(conn, operator_id: int, code: str) -> bool:
@@ -572,39 +565,37 @@ def mfa_verify_backup_code(conn, operator_id: int, code: str) -> bool:
         "SELECT id, code_hash FROM mfa_backup_codes WHERE operator_id=? AND used_at IS NULL",
         (operator_id,)
     ).fetchall()
-    
+
     for row in rows:
         try:
             _hasher.verify(row["code_hash"], code)
-            # Mark as used
-            from .db import utcnow
-            conn.execute(
-                "UPDATE mfa_backup_codes SET used_at=? WHERE id=?",
-                (utcnow(), row["id"])
-            )
-            conn.commit()
-            return True
-        except:
+        except (VerifyMismatchError, Exception):
             continue
-    
+        from .db import utcnow
+        conn.execute(
+            "UPDATE mfa_backup_codes SET used_at=? WHERE id=?",
+            (utcnow(), row["id"])
+        )
+        conn.commit()
+        return True
+
     return False
 
 
-def _generate_backup_codes(conn, operator_id: int) -> None:
-    """Generate 10 backup codes for operator."""
+def _generate_backup_codes(conn, operator_id: int) -> list[str]:
+    """Generate 10 backup codes for operator. Returns plaintext codes (show once)."""
     import secrets as sec
     from .db import utcnow
-    
+
     now = utcnow()
-    
-    # Delete old backup codes
     conn.execute("DELETE FROM mfa_backup_codes WHERE operator_id=?", (operator_id,))
-    
-    # Generate 10 new codes
+
+    plaintext_codes = []
     for _ in range(10):
-        code = sec.token_hex(4)  # 8-character hex code
-        code_hash = _hasher.hash(code)
+        code = sec.token_hex(4)
         conn.execute(
             "INSERT INTO mfa_backup_codes (operator_id, code_hash, created_at) VALUES (?,?,?)",
-            (operator_id, code_hash, now)
+            (operator_id, _hasher.hash(code), now)
         )
+        plaintext_codes.append(code)
+    return plaintext_codes

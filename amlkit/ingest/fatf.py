@@ -162,6 +162,21 @@ def load_fatf_data(conn: sqlite3.Connection) -> None:
            WHERE d.key = 'fatf_country_risk'
              AND json_extract(e.raw, '$.country_code') IS NOT NULL"""
     )
+
+    # If entities table had no FATF data (e.g. no network in CI), use hardcoded fallback
+    count = conn.execute("SELECT COUNT(*) FROM fatf_countries").fetchone()[0]
+    if count == 0:
+        for code, name in BLACKLIST_FALLBACK.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO fatf_countries (country_code, country_name, list_type) VALUES (?, ?, ?)",
+                (code, name, "blacklist")
+            )
+        for code, name in GREYLIST_FALLBACK.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO fatf_countries (country_code, country_name, list_type) VALUES (?, ?, ?)",
+                (code, name, "greylist")
+            )
+
     conn.commit()
 
 

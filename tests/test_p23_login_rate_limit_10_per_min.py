@@ -9,6 +9,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient
@@ -16,10 +18,24 @@ from fastapi.testclient import TestClient
 from amlkit.api.app import app  # noqa: E402
 
 
+@pytest.fixture()
+def _enable_limiter():
+    """Re-enable slowapi for tests that verify 429 behaviour.
+
+    The session-scoped _disable_rate_limiter autouse fixture in conftest.py
+    sets limiter.enabled = False.  Tests that verify rate limiting opt in here.
+    Storage is reset so prior enabled-limiter tests don't pollute counters.
+    """
+    app.state.limiter._storage.reset()
+    app.state.limiter.enabled = True
+    yield
+    app.state.limiter.enabled = False
+
+
 class TestP23LoginRateLimit:
     """Test login endpoint has 10/min per-IP rate limit."""
 
-    def test_login_rate_limit_10_per_minute_per_ip(self) -> None:
+    def test_login_rate_limit_10_per_minute_per_ip(self, _enable_limiter) -> None:
         """POST /login should be limited to 10 requests/minute per IP."""
         fresh_client = TestClient(app)
 

@@ -12,8 +12,20 @@ from fastapi.testclient import TestClient
 from amlkit.api.app import app  # noqa: E402
 
 
+import pytest
+
+
+@pytest.fixture()
+def _enable_limiter():
+    """Enable rate limiter for tests that verify 429 behaviour."""
+    app.state.limiter._storage.reset()
+    app.state.limiter.enabled = True
+    yield
+    app.state.limiter.enabled = False
+
+
 class TestRateLimiting:
-    def test_login_rate_limit_blocks_same_account_after_3_attempts(self) -> None:
+    def test_login_rate_limit_blocks_same_account_after_3_attempts(self, _enable_limiter) -> None:
         """POST /login should be rate-limited to 3 attempts per account (IP:email)."""
         fresh_client = TestClient(app)
 
