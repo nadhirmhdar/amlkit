@@ -30,8 +30,14 @@ def _create_report(client):
         "customer_type": "natural",
         "csrf_token": _csrf(client),
     })
+    from amlkit.db import connect
+    conn = connect(os.environ["AMLKIT_DB"])
+    customer_id = conn.execute(
+        "SELECT id FROM customers WHERE reference=?", ("C-141",)
+    ).fetchone()["id"]
+    conn.close()
     client.post("/reports", data={
-        "customer_id": 1,
+        "customer_id": customer_id,
         "report_type": "STR",
         "reporting_entity_name": "Test Firm",
         "entity_reference": "LIC-141",
@@ -57,20 +63,70 @@ def _create_report(client):
     return row["id"]
 
 
+def _flash_text(resp) -> str:
+    """Decode the flash cookie set on a redirect response."""
+    import base64
+    import json
+    raw = resp.cookies.get("amlkit_flash")
+    assert raw, "expected a flash cookie"
+    return json.loads(base64.b64decode(raw))["text"]
+
+
 def test_web_submit_does_not_claim_fiu_transmission(client) -> None:
-    """Web submission must NOT claim report was submitted to UAE FIU."""
+    """Web finalize must NOT claim the report was submitted to UAE FIU."""
     report_id = _create_report(client)
     r = client.post(f"/reports/{report_id}/submit",
-                   data={"csrf_token": _csrf(client)},
-                   follow_redirects=True)
-    
-    assert r.status_code == 200
-    assert "UAE FIU successfully" not in r.text, \
-        "Must not claim successful UAE FIU submission"
-    assert "goAML portal" in r.text, \
-        "Must instruct user to upload to goAML portal manually"
-    assert "finalized" in r.text.lower() or "manual" in r.text.lower(), \
-        "Must clarify manual upload required"
+                    data={"csrf_token": _csrf(client)},
+                    follow_redirects=False)
+    assert r.status_code == 303
+
+    flash = _flash_text(r)
+    assert "<" not in flash and ">" not in flash, "flash must be plain text, no raw HTML"
+    assert "goAML portal" in flash
+    assert "finalized" in flash.lower()
+    assert "successfully" not in flash.lower()
+    assert len(r.headers.get("set-cookie", "")) < 1000  # keep flash cookie short
+
+    page = client.get(f"/reports/{report_id}")
+    assert page.status_code == 200
+    assert "Report finalized" in page.text
+    assert f"/reports/{report_id}/export" in page.text
+    assert "officially filed" not in page.text
+
+    from amlkit.db import connect
+    conn = connect(os.environ["AMLKIT_DB"])
+    row = conn.execute("SELECT status, submitted_at FROM reports WHERE id=?",
+                       (report_id,)).fetchone()
+    audits = conn.execute(
+        "SELECT action FROM audit_log WHERE object_type='report' AND object_id=?",
+        (str(report_id),)).fetchall()
+    conn.close()
+    assert row["status"] == "submitted"
+    actions = [a["action"] for a in audits]
+    assert "report.finalized" in actions
+    assert "report.submit" not in actions
 
 
-# Mobile API test coverage is in tests/test_mlro_report_submit.py::test_mlro_can_submit_report
+def test_web_double_finalize_rejected(client) -> None:
+    report_id = _create_report(client)
+    client.post(f"/reports/{report_id}/submit", data={"csrf_token": _csrf(client)})
+
+    from amlkit.db import connect
+    conn = connect(os.environ["AMLKIT_DB"])
+    first_ts = conn.execute("SELECT submitted_at FROM reports WHERE id=?",
+                            (report_id,)).fetchone()["submitted_at"]
+    conn.close()
+
+    r = client.post(f"/reports/{report_id}/submit",
+                    data={"csrf_token": _csrf(client)}, follow_redirects=False)
+    assert "already been finalized" in _flash_text(r)
+
+    conn = connect(os.environ["AMLKIT_DB"])
+    second_ts = conn.execute("SELECT submitted_at FROM reports WHERE id=?",
+                             (report_id,)).fetchone()["submitted_at"]
+    n = conn.execute(
+        "SELECT COUNT(*) c FROM audit_log WHERE action='report.finalized' AND object_id=?",
+        (str(report_id),)).fetchone()["c"]
+    conn.close()
+    assert second_ts == first_ts
+    assert n == 1
