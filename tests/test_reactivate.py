@@ -86,6 +86,7 @@ def _onboard_customer(client, name="Test Customer"):
 
 def _close_customer(client, customer_id):
     client.post(f"/customers/{customer_id}/close", data={
+        "exit_reason": "customer_request",
         "csrf_token": _csrf(client),
     }, follow_redirects=True)
 

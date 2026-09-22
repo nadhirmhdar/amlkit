@@ -1,4 +1,7 @@
-<form method="post" action="/freeze-obligations/{{ freeze_id }}/execute">
+{# Included by freeze_obligation_detail.html when the obligation is pending
+   execution; expects freeze_id and csrf_token in scope. #}
+<form method="post" action="/freeze-obligations/{{ freeze_id }}/execute" class="freeze-action">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <h2>Execute Asset Freeze</h2>
   
   <div class="form-group">
@@ -25,7 +28,4 @@
   </div>
   
   <button type="submit" class="btn btn-primary">Execute Freeze</button>
-  <a href="/freeze-obligations/{{ freeze_id }}" class="btn">Cancel</a>
 </form>
-
-<script src="/static/js/app.js"></script>

@@ -92,9 +92,7 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 /* ------------------------------------------------------------- shell/layout */
 .shell { display: flex; min-height: 100vh; }
 
-/* Wraps desktop-topnav + main so they form a vertical column to the right
-   of the sidebar.  Without this, desktop-topnav was a flex-row sibling of
-   sidebar/main and rendered as a narrow strip beside them. */
+/* The column to the right of the sidebar; main is centred inside it. */
 .content-col {
   flex: 1;
   min-width: 0;
@@ -151,26 +149,25 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 #nav-toggle { display: none; }
 .nav-hamburger { display: none; }
 
-/* Desktop top navigation bar with avatar dropdown -- hidden on mobile (<= 680px) */
-.desktop-topnav {
+/* Avatar menu in the top-right corner of the canvas (desktop and tablet).
+   Replaces the old full-width .desktop-topnav strip, which cost a 68px
+   band above every page. Phones use .mobile-header instead. */
+.canvas-corner {
+  position: absolute;
+  top: 32px;
+  right: 48px;
+  z-index: 10;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  gap: 14px;
 }
 
-.desktop-topnav .user-menu-wrap {
-  position: relative;
-}
-
-/* Compliance-state chip beside the avatar. Only rendered when there is
+/* Compliance-state chip beside the canvas avatar. Only rendered when there is
    something to say (single-operator mode); the four-eyes default is the
    norm and does not need a badge. */
 .mode-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  margin-right: 14px; padding: 5px 12px;
+  padding: 5px 12px; white-space: nowrap;
   border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
 }
 .mode-chip--warn {
@@ -178,7 +175,7 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 }
 .mode-chip--warn::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: oklch(70% 0.17 65); }
 
-.desktop-topnav .user-menu-btn {
+.canvas-corner .user-menu-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -192,11 +189,13 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
   transition: box-shadow 120ms;
 }
 
-.desktop-topnav .user-menu-btn:hover {
+.canvas-corner .user-menu-btn:hover,
+.canvas-corner .user-menu-btn:focus-visible,
+.canvas-corner .user-menu-wrap.open .user-menu-btn {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.desktop-topnav .user-menu-btn .avatar--sm {
+.canvas-corner .user-menu-btn .avatar--sm {
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -209,11 +208,20 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
   font-weight: 700;
 }
 
-.desktop-topnav .user-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
+.canvas-corner .user-dropdown {
+  top: calc(100% + 8px);
   right: 0;
-  min-width: 200px;
+  min-width: 220px;
+}
+
+/* Keep the first row of the canvas clear of the avatar. Phones hide the
+   avatar (the mobile header carries it), so they keep the full width. */
+@media (min-width: 681px) {
+  main > .page-head, main > .home-head { padding-right: 64px; }
+  .canvas-corner + .banner { margin-right: 64px; }
+  /* The single-operator chip widens the corner to roughly 240px. */
+  main:has(.mode-chip) > .page-head, main:has(.mode-chip) > .home-head { padding-right: 250px; }
+  .canvas-corner:has(.mode-chip) + .banner { margin-right: 250px; }
 }
 
 /* Phone bottom tab bar -- hidden by default (desktop/tablet keep the
@@ -225,7 +233,12 @@ main {
   min-width: 0;
   max-width: 1180px;
   padding: 40px 60px 48px;
-  margin: 0;
+  margin: 0 auto;
+  /* Auto margins stop a flex item stretching across the column, so without
+     an explicit width main shrinks to its content and short pages render
+     narrower (and further right) than long ones. */
+  width: 100%;
+  position: relative;
 }
 
 /* ------------------------------------------------------------- page header */
@@ -234,6 +247,29 @@ main {
   padding-bottom: 22px;
   margin-bottom: 36px;
 }
+/* Header with a right-aligned action (e.g. Freeze Obligations on the
+   dashboard). Wraps under the title on narrow screens. */
+.page-head--with-actions {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  gap: 16px; flex-wrap: wrap;
+}
+.page-head__actions { flex-shrink: 0; }
+.btn-outline {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; font-size: 14px; font-weight: 600;
+  color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px;
+  text-decoration: none; transition: box-shadow 120ms;
+}
+.btn-outline:hover, .btn-outline:focus-visible {
+  color: var(--ink); text-decoration: none; box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.count-badge {
+  display: inline-block; min-width: 20px; padding: 2px 6px;
+  border-radius: 999px; font-size: 11px; font-weight: 700; text-align: center;
+}
+.count-badge--warn { color: var(--warn); background: var(--warn-soft); }
+
 .page-head .eyebrow {
   font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em;
   color: var(--ink-3); text-transform: uppercase;
@@ -354,11 +390,6 @@ main {
 .action-card__body { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 .action-card__title { display: block; font-size: 16px; font-weight: 700; }
 .action-card__sub { display: block; font-size: 13px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
-.action-card__arrow {
-  grid-column: 2; grid-row: 1; align-self: start;
-  color: var(--ink-3); font-size: 17px; flex-shrink: 0; transition: transform 140ms ease;
-}
-.action-card:hover .action-card__arrow { transform: translateX(3px); color: var(--ink); }
 
 /* Floating alerts bar -- sticky (not fixed) so it clears the sidebar
    without a manual width/offset calc, and scrolls into a resting position
@@ -675,9 +706,10 @@ details.evidence summary * { display: none; }
     width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line);
     background: var(--surface); cursor: pointer; font-size: 16px;
   }
-  /* desktop-topnav is now at the top of content-col, so main needs much
-     less top padding than the original 84px hamburger clearance. */
-  main { padding: 24px 20px 40px; max-width: 100%; }
+  /* The fixed hamburger (top-left) and the canvas avatar (top-right) share
+     the first 68px; content starts below them. */
+  main { padding: 76px 20px 40px; max-width: 100%; }
+  .canvas-corner { top: 12px; right: 20px; }
   .grid.two { grid-template-columns: 1fr; }
   .dashboard-hero { grid-template-columns: 1fr; }
   .panel { padding: 18px; }
@@ -738,7 +770,7 @@ details.evidence summary * { display: none; }
    four-tab bottom bar plus a top header with user menu; same hairline/dot
    vocabulary as the rest of the app. */
 @media (max-width: 680px) {
-  .sidebar, .nav-hamburger, .desktop-topnav { display: none !important; }
+  .sidebar, .nav-hamburger, .canvas-corner { display: none !important; }
   :root { --tabbar-h: 62px; --mobile-header-h: 52px; }
   main { padding: calc(var(--mobile-header-h) + 16px) 18px calc(var(--tabbar-h) + 28px); }
 
