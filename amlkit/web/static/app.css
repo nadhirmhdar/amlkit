@@ -22,7 +22,7 @@
 :root {
   /* Tokens per the AMLKit redesign spec — cool-neutral base, single blue
      accent, muted semantic hues at similar chroma/lightness. */
-  --bg:          oklch(98.3% 0.003 250);
+  --bg:          oklch(96%   0.004 250);
   --surface:     oklch(99.4% 0.002 250);
   --line:        oklch(91%   0.005 250);
   --line-soft:   oklch(94.5% 0.004 250);
