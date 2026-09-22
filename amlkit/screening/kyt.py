@@ -17,6 +17,7 @@ burden. This is a stated scope choice, not an oversight.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -51,17 +52,67 @@ HIGH_RISK_COUNTRIES: frozenset[str] = frozenset({
     "AF", "YE", "SS", "SD",              # unstable / high AML risk
 })
 
-# Step 7: Per-org config cache. Invalidated on save_rule_config().
-_config_cache: dict[int, dict[str, Any]] = {}
+# Step 7: Per-connection, per-org config cache. Invalidated on save_rule_config().
+#
+# Keyed by (id(conn), org_id), NOT bare org_id. This app is single-tenant-
+# per-database (org_id is only unique within one database), so a bare
+# org_id key lets two different databases opened in the same process that
+# both happen to have an org 1 -- two independent test suites, two
+# in-memory sqlite connections, anything -- silently read each other's
+# cached config. That is not just a test hazard: deps.get_db() hands every
+# HTTP request its own fresh connection (closed at request end), so keying
+# on connection identity also means a request never sees another request's
+# -- or another worker process's -- cached read; each request re-reads the
+# DB once and caches only for the rest of that request (e.g. a batch import
+# screening many transactions in a loop against the same conn). That closes
+# the multi-instance drift risk this cache used to create: previously, an
+# operator changing large_cash_threshold_aed via /admin/rule-config only
+# invalidated the process that handled the save -- every other worker
+# instance kept screening against the stale threshold until it happened to
+# restart, a live compliance-control gap under Cabinet Resolution 134/2025's
+# risk-based approach, not merely a test artifact.
+#
+# _CACHE_TTL_SECONDS is a memory-hygiene bound, not the freshness mechanism:
+# without it, a long-lived connection (a batch script, scripts/refresh.py-
+# style tooling) that calls get_rule_config for many orgs over a long
+# session would accumulate cache entries forever. Expired entries are swept
+# opportunistically on a cache miss, which is the hot path for the per-
+# request pattern above anyway, so this adds no cost to the normal case.
+_CACHE_TTL_SECONDS = 300.0
+
+_config_cache: dict[tuple[int, int], tuple[dict[str, Any], float]] = {}
 
 
-def _clear_config_cache(org_id: int | None = None) -> None:
-    """Clear the rule config cache. If org_id is None, clear all."""
+def _cache_key(conn, org_id: int) -> tuple[int, int]:
+    return (id(conn), org_id)
+
+
+def _prune_expired_cache_entries(now: float) -> None:
+    expired = [k for k, (_, expires_at) in _config_cache.items() if expires_at <= now]
+    for k in expired:
+        del _config_cache[k]
+
+
+def _clear_config_cache(conn=None, org_id: int | None = None) -> None:
+    """Clear the rule config cache.
+
+    conn=None: clear every cached entry, for every database and org. This
+    is the coarse reset tests should use between runs -- it doesn't depend
+    on knowing the exact cache key, so it stays correct even if the caching
+    strategy above changes.
+    conn given, org_id=None: clear every org cached for that connection.
+    conn and org_id given: clear just that connection's entry for that org.
+    """
     global _config_cache
-    if org_id is None:
+    if conn is None:
         _config_cache.clear()
+        return
+    if org_id is None:
+        conn_id = id(conn)
+        for k in [k for k in _config_cache if k[0] == conn_id]:
+            del _config_cache[k]
     else:
-        _config_cache.pop(org_id, None)
+        _config_cache.pop(_cache_key(conn, org_id), None)
 
 
 @dataclass(slots=True)
@@ -225,8 +276,10 @@ def _get_high_risk_countries(conn, org_additional: list[str] | None) -> list[str
 def get_rule_config(conn, org_id: int) -> dict[str, Any]:
     """Load KYT rule configuration from DB, falling back to module defaults.
 
-    Cached per org to avoid repeated DB queries during batch transaction processing.
-    Invalidated on save_rule_config() for that org.
+    Cached per (connection, org) to avoid repeated DB queries during batch
+    transaction processing on one connection. Invalidated on
+    save_rule_config() for that connection and org; see the module-level
+    comment above _config_cache for why the key includes the connection.
 
     Returns:
         {
@@ -242,8 +295,12 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
     returns the STRUCTURING_MIN_COUNT module constant.
     """
     global _config_cache
-    if org_id in _config_cache:
-        return _config_cache[org_id]
+    key = _cache_key(conn, org_id)
+    cached = _config_cache.get(key)
+    if cached is not None:
+        config, expires_at = cached
+        if time.monotonic() < expires_at:
+            return config
 
     row = conn.execute(
         """SELECT kyt_large_cash_threshold, kyt_structuring_window_days,
@@ -275,7 +332,9 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
             "high_risk_countries": _get_high_risk_countries(conn, None),
         }
 
-    _config_cache[org_id] = config
+    now = time.monotonic()
+    _prune_expired_cache_entries(now)
+    _config_cache[key] = (config, now + _CACHE_TTL_SECONDS)
     return config
 
 
@@ -356,4 +415,4 @@ def save_rule_config(
 
     audit(conn, actor, "settings.kyt_rules_update", detail=config, org_id=org_id)
 
-    _clear_config_cache(org_id)
+    _clear_config_cache(conn, org_id)
