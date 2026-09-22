@@ -6,7 +6,7 @@ UAE AML/CFT compliance toolkit — sanctions screening, customer due diligence, 
 
 ```bash
 # Run tests (always use the venv Python)
-cd C:/Users/nizam/bedrock-project/amlkit && .venv/Scripts/python.exe -m pytest tests/ -x -q
+cd C:/Users/nizam/amlkit && .venv/Scripts/python.exe -m pytest tests/ -x -q
 
 # Run a single test file
 .venv/Scripts/python.exe -m pytest tests/test_api.py -x -q
@@ -69,7 +69,8 @@ amlkit/
 - **Test style**: Integration tests with real SQLite databases (no mocks for DB). `TestClient` from FastAPI for HTTP tests. Register + verify email flow via `_register()` helper in test_api.py.
 - **DB writes**: `busy_timeout=30000` PRAGMA + `retry_on_lock` decorator in db.py for long operations.
 - **CSRF**: Synchronizer token pattern — cookie + hidden form field, validated on every POST.
-- **No MFA yet**: Auth is email + password + session cookie only.
+- **MFA**: TOTP MFA is mandatory for MLRO-role operators (PR #244). Officer-role logins are not challenged. Backup codes are supported; five wrong codes lock the challenge and are audited. Mobile MLRO tokens stay locked until TOTP is satisfied.
+- **`api/app.py` size**: ~3,250 lines. The "thin routes" rule above is the target, not the current state — issue #73 tracks extracting business logic into `queries.py` and `cases/manager.py`.
 
 ## Database
 
