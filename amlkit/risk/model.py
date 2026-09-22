@@ -82,9 +82,53 @@ class CustomerProfile:
     sanctions_hit: bool = False
 
 
+def _validate_risk_factors(profile: CustomerProfile, factors: dict[str, Any]) -> None:
+    """Validate risk factors against allowlist. Raise ValueError for invalid values.
+
+    H13 fix: prevent unknown/misspelled values from silently scoring 0 points.
+    """
+    # Validate jurisdiction_tier
+    valid_tiers = factors["jurisdiction"]["points_by_tier"].keys()
+    if profile.jurisdiction_tier not in valid_tiers:
+        raise ValueError(
+            f"Invalid jurisdiction_tier: {profile.jurisdiction_tier!r}. "
+            f"Must be one of: {', '.join(valid_tiers)}"
+        )
+
+    # Validate delivery_channel
+    valid_channels = factors["delivery_channel"]["points_by_channel"].keys()
+    if profile.delivery_channel not in valid_channels:
+        raise ValueError(
+            f"Invalid delivery_channel: {profile.delivery_channel!r}. "
+            f"Must be one of: {', '.join(valid_channels)}"
+        )
+
+    # Validate cash_level
+    valid_levels = factors["cash_intensity"]["points_by_level"].keys()
+    if profile.cash_level not in valid_levels:
+        raise ValueError(
+            f"Invalid cash_level: {profile.cash_level!r}. "
+            f"Must be one of: {', '.join(valid_levels)}"
+        )
+
+    # Validate structure
+    valid_structures = factors["structure"]["points_by_type"].keys()
+    if profile.structure not in valid_structures:
+        raise ValueError(
+            f"Invalid structure: {profile.structure!r}. "
+            f"Must be one of: {', '.join(valid_structures)}"
+        )
+
+
 def assess(profile: CustomerProfile) -> RiskAssessment:
     """Compute a risk rating from a customer profile."""
     rs = ruleset()
+    f = rs["factors"]
+
+    # H13: Validate risk factors against allowlist before scoring
+    # Unknown values must not silently score as 0 points (lowest risk)
+    _validate_risk_factors(profile, f)
+
     factors: dict[str, Any] = {}
     total = 0.0
     force_high = False
@@ -95,8 +139,6 @@ def assess(profile: CustomerProfile) -> RiskAssessment:
         total += points
         if mandatory:
             force_high = True
-
-    f = rs["factors"]
 
     if profile.sanctions_hit:
         spec = f["sanctions_hit"]
