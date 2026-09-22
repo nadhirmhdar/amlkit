@@ -169,46 +169,47 @@ def evaluate_transaction(
             },
         ))
 
-    if method == "cash":
-        window_start = (
-            _parse(occurred_at) - timedelta(days=structuring_window_days)
-        ).isoformat()
-        rows = conn.execute(
-            """SELECT amount_aed, amount_units, amount_nanos, occurred_at
-               FROM transactions
-               WHERE customer_id=? AND org_id=? AND method='cash'
-                 AND occurred_at >= ? AND occurred_at <= ?
-                 AND id != ?""",
-            (customer_id, org_id, window_start, occurred_at, transaction_id),
-        ).fetchall()
+    # Structuring detection applies to ALL payment methods (cash, wire, virtual-asset)
+    # Issue #257: previously only monitored cash, blind to wire/virtual-asset structuring
+    window_start = (
+        _parse(occurred_at) - timedelta(days=structuring_window_days)
+    ).isoformat()
+    rows = conn.execute(
+        """SELECT amount_aed, amount_units, amount_nanos, occurred_at
+           FROM transactions
+           WHERE customer_id=? AND org_id=?
+             AND occurred_at >= ? AND occurred_at <= ?
+             AND id != ?""",
+        (customer_id, org_id, window_start, occurred_at, transaction_id),
+    ).fetchall()
 
-        def _row_to_money(r) -> Money:
-            if r["amount_units"] is not None:
-                return Money("AED", r["amount_units"], r["amount_nanos"] or 0)
-            return Money.from_float(r["amount_aed"], "AED")
+    def _row_to_money(r) -> Money:
+        if r["amount_units"] is not None:
+            return Money("AED", r["amount_units"], r["amount_nanos"] or 0)
+        return Money.from_float(r["amount_aed"], "AED")
 
-        recent_money = [current_money] + [_row_to_money(r) for r in rows]
-        under_threshold = [m for m in recent_money if m < threshold_money]
-        zero = Money("AED", 0, 0)
-        under_threshold_total = zero
-        for m in under_threshold:
-            under_threshold_total = under_threshold_total + m
-        under_threshold_count = len(under_threshold)
-        if (
-            under_threshold_total >= threshold_money
-            and current_money < threshold_money
-            and under_threshold_count >= structuring_min_count
-        ):
-            triggered.append(TriggeredRule(
-                rule_key="structuring",
-                severity="high",
-                detail={
-                    "window_days": structuring_window_days,
-                    "transaction_count": under_threshold_count,
-                    "total_aed": float(under_threshold_total.to_decimal()),
-                    "threshold_aed": large_cash_threshold,
-                },
-            ))
+    recent_money = [current_money] + [_row_to_money(r) for r in rows]
+    under_threshold = [m for m in recent_money if m < threshold_money]
+    zero = Money("AED", 0, 0)
+    under_threshold_total = zero
+    for m in under_threshold:
+        under_threshold_total = under_threshold_total + m
+    under_threshold_count = len(under_threshold)
+    if (
+        under_threshold_total >= threshold_money
+        and current_money < threshold_money
+        and under_threshold_count >= structuring_min_count
+    ):
+        triggered.append(TriggeredRule(
+            rule_key="structuring",
+            severity="high",
+            detail={
+                "window_days": structuring_window_days,
+                "transaction_count": under_threshold_count,
+                "total_aed": float(under_threshold_total.to_decimal()),
+                "threshold_aed": large_cash_threshold,
+            },
+        ))
 
     country = (counterparty_country or "").strip().upper()
     if country and country in high_risk_countries:
