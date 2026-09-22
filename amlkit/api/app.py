@@ -22,7 +22,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, Request, UploadFile
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
@@ -30,7 +30,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from .. import auth, queries
+from .. import auth, notifications, queries
 from .limits import limiter, login_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
@@ -1450,6 +1450,43 @@ def customer_scan_passport(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.post("/customers/scan-trade-licence")
+def customer_scan_trade_licence(
+    request: Request, db: DB,
+    licence_file: UploadFile,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Same contract as /customers/scan-passport, for the legal-person path.
+
+    Onboarding a company previously reused the passport scanner under a
+    relabelled button -- it read passports, never trade licences, so a
+    company's licence photo silently produced almost nothing. This is the
+    real extractor (see cases/ocr.py's extract_trade_licence_data).
+    """
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    import io
+    from ..cases.ocr import extract_trade_licence_data
+
+    try:
+        content = licence_file.file.read()
+        file_like = io.BytesIO(content)
+        data = extract_trade_licence_data(file_like)
+        return data
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/customers/{customer_id}", response_class=HTMLResponse)
 def customer_detail(request: Request, db: DB, customer_id: int):
     try:
@@ -2130,6 +2167,76 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
 # without an account (linked externally, or read by an examiner) than gated
 # behind login like every operational page. current_session (not
 # require_session) so a signed-in visitor still gets the sidebar shell.
+# --------------------------------------------------------------------------
+# In-app notifications (MLRO inbox). Written by notifications.py when a
+# screening finds a match; these routes only read them and mark them read.
+# --------------------------------------------------------------------------
+
+@app.get("/notifications", response_class=HTMLResponse)
+def notifications_page(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "notifications.html", {
+        "session": session,
+        "items": queries.notifications_for(db, session.org_id, session.operator_id, limit=100),
+    }, db)
+
+
+@app.get("/notifications/unread-count")
+def notifications_unread_count(request: Request, db: DB):
+    """Polled by the bell in the page header."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return {"count": queries.unread_notification_count(db, session.org_id, session.operator_id)}
+
+
+@app.post("/notifications/read-all")
+def notifications_read_all(
+    request: Request, db: DB, csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/notifications", err=str(exc))
+    n = notifications.mark_all_read(db, session.org_id, session.operator_id)
+    return back("/notifications", msg=f"{n} notification{'s' if n != 1 else ''} marked read.")
+
+
+@app.post("/notifications/{notification_id}/read")
+def notification_open(
+    request: Request, db: DB, notification_id: int, csrf_token: Annotated[str, Form()] = "",
+):
+    """Mark one notification read and go to what it points at."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/notifications", err=str(exc))
+    row = db.execute(
+        "SELECT link FROM notifications WHERE id=? AND org_id=? AND operator_id=?",
+        (notification_id, session.org_id, session.operator_id),
+    ).fetchone()
+    if row is None:
+        return back("/notifications", err="Notification not found.")
+    notifications.mark_read(db, session.org_id, session.operator_id, notification_id)
+    link = row["link"] or "/notifications"
+    # Links are written by notifications.py, but never redirect off-site regardless.
+    if not link.startswith("/") or link.startswith("//"):
+        link = "/notifications"
+    return RedirectResponse(link, status_code=303)
+
+
 @app.get("/about", response_class=HTMLResponse)
 def about_view(request: Request, db: DB):
     session = current_session(request, db)

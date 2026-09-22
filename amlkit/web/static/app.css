@@ -1098,3 +1098,14 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 
 /* Link-styled button (first-run guide) */
 .link-button{background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
+
+/* ---- Notification bell (header) and inbox ---- */
+.notif-bell{position:relative;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;
+  border-radius:50%;color:var(--ink);margin-right:8px}
+.notif-bell:hover{background:var(--line-soft)}
+.notif-badge{position:absolute;top:2px;right:0;min-width:18px;height:18px;padding:0 5px;border-radius:9px;
+  background:var(--danger);color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center}
+.notif-row{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.notif-row.is-unread{background:var(--accent-soft)}
+.notif-title{font-weight:700}
+.notif-dot{display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:var(--accent)}
