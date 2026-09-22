@@ -555,7 +555,28 @@ def purge_expired(
     Only purges customers with status='closed' AND retention_until < now.
     Audit entry is written BEFORE each deletion so the record of purging
     survives the customer row being gone.
+
+    P0: Gated behind AMLKIT_PURGE_ENABLED env flag. When unset or not 'true',
+    purge is disabled and logs a warning (pending p96).
     """
+    import os
+    import logging
+
+    # P0: Gate purge behind env flag - unset = disabled pending p96
+    if os.getenv("AMLKIT_PURGE_ENABLED") != "true":
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "purge_expired called but AMLKIT_PURGE_ENABLED is not set to 'true' - "
+            "purge disabled pending p96. Set AMLKIT_PURGE_ENABLED=true to enable."
+        )
+        with conn:
+            audit(
+                conn, actor, "retention.purge_disabled", "organization", str(org_id),
+                {"reason": "AMLKIT_PURGE_ENABLED not set to true"},
+                org_id=org_id
+            )
+        return {"purged": 0, "details": [], "disabled": True}
+
     from pathlib import Path
 
     now = date.today().isoformat()
