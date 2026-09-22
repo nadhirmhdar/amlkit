@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from ..db import audit, utcnow
+from ..db import audit, retry_on_lock, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, ScreeningResult, screen
 from ..names.arabic import canonical_key
 from ..risk.model import (
@@ -2291,6 +2291,17 @@ def check_adverse_media_status(conn: sqlite3.Connection, job_id: str) -> dict[st
         "new_findings": job.get("new_findings", 0),
         "error": job.get("error"),
     }
+
+
+@retry_on_lock()
+def mark_dashboard_reviewed(conn: sqlite3.Connection, org_id: int) -> None:
+    """Record first-run onboarding step 3 for an org (idempotent)."""
+    conn.execute(
+        "UPDATE organizations SET dashboard_visited_at = ? "
+        "WHERE id = ? AND dashboard_visited_at IS NULL",
+        (utcnow(), org_id),
+    )
+    conn.commit()
 
 
 REPORT_REQUIRED_FIELDS = ("reporting_entity_name",)

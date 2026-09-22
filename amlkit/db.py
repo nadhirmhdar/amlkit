@@ -913,6 +913,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "source_of_funds",   "ALTER TABLE customers ADD COLUMN source_of_funds   TEXT"),
     # Follow-up to #231/#142: per-org goAML entity reference (replaces hardcoded "AML-REF")
     ("organizations", "goaml_entity_reference", "ALTER TABLE organizations ADD COLUMN goaml_entity_reference TEXT"),
+    # p51: Track when org first visited dashboard for onboarding guide completion
+    ("organizations", "dashboard_visited_at", "ALTER TABLE organizations ADD COLUMN dashboard_visited_at TEXT"),
     # T-009: CLDR region codes, multi-nationality, subregion, establishment date
     ("customers", "subregion", "ALTER TABLE customers ADD COLUMN subregion TEXT"),
     ("customers", "nationalities", "ALTER TABLE customers ADD COLUMN nationalities TEXT"),

@@ -1080,3 +1080,25 @@ def customer_completeness(customer: dict[str, Any]) -> float:
 
     filled = sum(1 for field in required_fields if customer.get(field))
     return round((filled / len(required_fields)) * 100, 1)
+def has_screening_history(conn: sqlite3.Connection, org_id: int) -> bool:
+    """Check if org has performed any screenings (p51 onboarding step 1)."""
+    count = conn.execute(
+        "SELECT COUNT(*) as count FROM screenings WHERE org_id = ?",
+        (org_id,)
+    ).fetchone()["count"]
+    return count > 0
+
+
+def total_customer_count(conn: sqlite3.Connection, org_id: int) -> int:
+    """Customers of any status (active, archived, ...) for one org."""
+    return conn.execute(
+        "SELECT COUNT(*) AS c FROM customers WHERE org_id = ?", (org_id,)
+    ).fetchone()["c"]
+
+
+def dashboard_visited(conn: sqlite3.Connection, org_id: int) -> bool:
+    """Whether the org has completed onboarding step 3 (reviewed dashboard)."""
+    row = conn.execute(
+        "SELECT dashboard_visited_at FROM organizations WHERE id = ?", (org_id,)
+    ).fetchone()
+    return row is not None and row["dashboard_visited_at"] is not None

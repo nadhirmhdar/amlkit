@@ -1155,10 +1155,24 @@ def home(request: Request, db: DB):
     first_name = (session.operator_name or "").split()
     first_name = first_name[0] if first_name else session.operator_name
 
+    d = queries.dashboard(db, session.org_id)
+
+    # First-run guide (p51): each step is derived from real state and the
+    # guide stays until all three are done. Customer count is any-status so
+    # an org whose customers are all archived is not treated as brand new.
+    onboarding_state = {
+        "step1_complete": queries.has_screening_history(db, session.org_id),
+        "step2_complete": queries.total_customer_count(db, session.org_id) > 0,
+        "step3_complete": queries.dashboard_visited(db, session.org_id),
+    }
+    show_onboarding = not all(onboarding_state.values())
+
     return render(request, "home.html", {
         "session": session,
-        "d": queries.dashboard(db, session.org_id),
+        "d": d,
         "first_name": first_name,
+        "show_onboarding": show_onboarding,
+        "onboarding_state": onboarding_state,
     }, db)
 
 
@@ -1177,6 +1191,27 @@ def dashboard(request: Request, db: DB):
     if can_view_audit(session):
         ctx["recent_audit"] = queries.recent_audit(db, session.org_id)
     return render(request, "dashboard.html", ctx, db)
+
+
+@app.post("/onboarding/review-dashboard")
+def onboarding_review_dashboard(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Explicit step-3 action for the first-run guide. A POST (CSRF-checked)
+    rather than a side effect of GET /dashboard, so prefetchers and curl
+    cannot mark the step done."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return RedirectResponse("/", status_code=303)
+    from ..cases.manager import mark_dashboard_reviewed
+    mark_dashboard_reviewed(db, session.org_id)
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 # --------------------------------------------------------------------- screen

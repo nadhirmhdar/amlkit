@@ -1038,3 +1038,6 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   details.evidence[open] summary { display: none; }
   details.evidence { display: block; }
 }
+
+/* Link-styled button (first-run guide) */
+.link-button{background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}

@@ -21,6 +21,35 @@
   </form>
 </div>
 
+{% if show_onboarding %}
+<div class="section-label mt-6">Get started with amlkit</div>
+<div class="action-cards onboarding-cards">
+  <div class="action-card" data-step="1" data-complete="{{ 'true' if onboarding_state.step1_complete else 'false' }}">
+    <span class="action-card__body">
+      <span class="action-card__title">Step 1: Screen a name{% if onboarding_state.step1_complete %} <span aria-hidden="true">✓</span><span class="sr-only">(completed)</span>{% endif %}</span>
+      <span class="action-card__sub"><a href="/screen">Try a one-off screening</a></span>
+    </span>
+  </div>
+  <div class="action-card" data-step="2" data-complete="{{ 'true' if onboarding_state.step2_complete else 'false' }}">
+    <span class="action-card__body">
+      <span class="action-card__title">Step 2: Onboard your first customer{% if onboarding_state.step2_complete %} <span aria-hidden="true">✓</span><span class="sr-only">(completed)</span>{% endif %}</span>
+      <span class="action-card__sub"><a href="/customers/new">Create a customer file</a></span>
+    </span>
+  </div>
+  <div class="action-card" data-step="3" data-complete="{{ 'true' if onboarding_state.step3_complete else 'false' }}">
+    <span class="action-card__body">
+      <span class="action-card__title">Step 3: Review your dashboard{% if onboarding_state.step3_complete %} <span aria-hidden="true">✓</span><span class="sr-only">(completed)</span>{% endif %}</span>
+      <span class="action-card__sub">
+        <form method="post" action="/onboarding/review-dashboard" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="link-button">See compliance status</button>
+        </form>
+      </span>
+    </span>
+  </div>
+</div>
+{% endif %}
+
 <div class="section-label mt-6">Start here</div>
 <div class="action-cards">
   <a class="action-card" href="/screen">
