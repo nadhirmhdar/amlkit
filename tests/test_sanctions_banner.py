@@ -67,6 +67,11 @@ def client(tmp_path, monkeypatch):
 
     c = TestClient(app)
     _register(c, "Test Firm", "alice", "alice@testfirm.ae")
+    # The global data-source banner is shown only to the super-admin.
+    conn = _db_conn()
+    conn.execute("UPDATE operators SET super_admin=1 WHERE email='alice@testfirm.ae'")
+    conn.commit()
+    conn.close()
     return c
 
 
@@ -174,3 +179,34 @@ class TestSanctionsBanner:
         assert r.status_code == 200
         # Should have a link to compliance dashboard
         assert "/admin/compliance" in r.text or "/compliance" in r.text
+
+
+class TestBannerAudience:
+    """MLROs and officers don't get the global data-source banner; the
+    dashboard's 24-hour-rule breach banner covers stale mandatory lists."""
+
+    def _make_stale(self) -> None:
+        conn = _db_conn()
+        old_time = (datetime.now(timezone.utc) - timedelta(hours=50)).isoformat()
+        conn.execute(
+            "UPDATE datasets SET last_refresh=?, last_error='boom', error_at=? WHERE is_mandatory=1",
+            (old_time, old_time),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_mlro_without_super_admin_sees_no_global_banner(self, client) -> None:
+        conn = _db_conn()
+        conn.execute("UPDATE operators SET super_admin=0 WHERE email='alice@testfirm.ae'")
+        conn.commit()
+        conn.close()
+        self._make_stale()
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "View compliance dashboard" not in r.text
+        assert "failed to update" not in r.text.lower()
+
+    def test_super_admin_sees_global_banner(self, client) -> None:
+        self._make_stale()
+        r = client.get("/")
+        assert "View compliance dashboard" in r.text
