@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set nav = 'freeze' %}
+{% set nav = 'dash' %}
 
 {% block title %}Freeze Obligations{% endblock %}
 
@@ -34,6 +34,7 @@
   
   <!-- Table -->
   <table class="freeze-obligations-table">
+    <caption class="sr-only">Targeted financial sanctions freeze obligations listing by customer and status</caption>
     <thead>
       <tr>
         <th>Customer</th>
@@ -70,17 +71,24 @@
         <td>{{ ob.reported_at[:10] if ob.reported_at else '—' }}</td>
         <td><a href="/freeze-obligations/{{ ob.id }}" class="btn btn-sm">View</a></td>
       </tr>
+      {% else %}
+      <tr class="empty-row">
+        <td colspan="8">
+          <div class="empty-state">
+            <div class="empty-state__title">No freeze obligations</div>
+            <p class="empty-state__text">
+              {% if filter_status and filter_status != 'all' %}
+                Nothing matches this status filter.
+              {% else %}
+                Freeze obligations are created automatically when a screening hit
+                requires targeted financial sanctions action.
+              {% endif %}
+            </p>
+          </div>
+        </td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-
-<style>
-  .status-pending_execution { background-color: #fff3cd; }
-  .status-pending_execution.overdue { background-color: #f8d7da; font-weight: bold; }
-  .status-executed_pending_report { background-color: #d1ecf1; }
-  .status-reported { background-color: #d4edda; }
-  .status-resolved { background-color: #e2e3e5; }
-  .overdue { color: #721c24; }
-</style>
 {% endblock %}

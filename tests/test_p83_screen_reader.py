@@ -90,3 +90,36 @@ class TestKeyboardNavigation:
         js = JS_PATH.read_text(encoding="utf-8")
         assert "aria-expanded" in js, \
             "JS should toggle aria-expanded when opening/closing menus"
+
+
+class TestTableCaptions:
+    """All data tables have <caption> elements for screen reader context."""
+
+    def test_evidence_tables_have_captions(self) -> None:
+        content = (TEMPLATES_DIR / "evidence.html").read_text(encoding="utf-8")
+        tables = re.findall(r'<table[^>]*>', content)
+        captions = re.findall(r'<caption', content)
+        assert len(captions) == len(tables), \
+            f"evidence.html: {len(tables)} tables but only {len(captions)} captions"
+
+    def test_freeze_obligations_table_has_caption(self) -> None:
+        content = (TEMPLATES_DIR / "freeze_obligations.html").read_text(encoding="utf-8")
+        assert '<caption' in content, \
+            "freeze_obligations.html table needs caption"
+
+    def test_freeze_obligation_detail_table_has_caption(self) -> None:
+        content = (TEMPLATES_DIR / "freeze_obligation_detail.html").read_text(encoding="utf-8")
+        if '<table' in content:
+            assert '<caption' in content, \
+                "freeze_obligation_detail.html table needs caption"
+
+
+class TestImageAltText:
+    """All meaningful images have descriptive alt attributes."""
+
+    def test_qr_code_has_alt_text(self) -> None:
+        content = (TEMPLATES_DIR / "mfa_setup.html").read_text(encoding="utf-8")
+        qr_img = re.search(r'<img[^>]*qr[^>]*>', content, re.IGNORECASE)
+        if qr_img:
+            assert 'alt=' in qr_img.group(), \
+                "QR code image needs alt text for screen readers"

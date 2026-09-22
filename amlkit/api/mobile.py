@@ -36,12 +36,13 @@ from urllib.parse import quote as _urlquote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from .. import auth, mail, queries, storage
 from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
+    EXIT_REASONS,
     StaleDatasetsError,
     add_case_note,
     add_ubo,
@@ -564,6 +565,11 @@ class CustomerCreateRequest(BaseModel):
     jurisdiction_tier: str = "standard"
     structure: str = "natural_person"
     ubos: list[UboIn] = []
+    # T-009: CLDR region codes, multi-nationality
+    subregion: str = ""
+    nationalities: list[str] = []
+    tax_residencies: list[str] = []
+    establishment_date: str = ""
     # Contact fields
     email: str = ""
     phone: str = ""
@@ -574,6 +580,8 @@ class CustomerCreateRequest(BaseModel):
     contact_person: str = ""
     contact_phone: str = ""
     contact_email: str = ""
+    civil_status_code: str = ""
+    occupation: str = ""
 
 
 @router.post("/customers")
@@ -604,6 +612,12 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
             contact_person=body.contact_person.strip() or None,
             contact_phone=body.contact_phone.strip() or None,
             contact_email=body.contact_email.strip() or None,
+            subregion=body.subregion.strip() or None,
+            nationalities=body.nationalities or None,
+            tax_residencies=body.tax_residencies or None,
+            establishment_date=body.establishment_date.strip() or None,
+            civil_status_code=body.civil_status_code.strip() or None,
+            occupation=body.occupation.strip() or None,
         )
     except StaleDatasetsError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -707,10 +721,33 @@ def api_customer_evidence(customer_id: int, db: DB, session: Session):
     return data | {"generated_at": utcnow()}
 
 
+class CloseRelationshipRequest(BaseModel):
+    reason: str
+    note: str = Field(default="", max_length=1000)
+
+
+@router.get("/exit-reasons")
+def api_exit_reasons(session: Session):
+    return {"exit_reasons": [{"code": k, "label": v} for k, v in EXIT_REASONS.items()]}
+
+
 @router.post("/customers/{customer_id}/close")
-def api_customer_close(customer_id: int, db: DB, session: Session):
-    until = close_relationship(db, customer_id, org_id=session.org_id, actor=session.operator_name)
-    return {"retention_until": until}
+def api_customer_close(customer_id: int, body: CloseRelationshipRequest, db: DB, session: Session):
+    if db.execute("SELECT 1 FROM customers WHERE id=? AND org_id=?",
+                  (customer_id, session.org_id)).fetchone() is None:
+        raise HTTPException(status_code=404, detail=f"Customer {customer_id} not found.")
+    try:
+        until = close_relationship(db, customer_id, org_id=session.org_id,
+                                   reason=body.reason, note=body.note,
+                                   actor=session.operator_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    row = db.execute(
+        "SELECT exit_date, exit_reason FROM customers WHERE id=? AND org_id=?",
+        (customer_id, session.org_id),
+    ).fetchone()
+    return {"retention_until": until, "exit_date": row["exit_date"],
+            "exit_reason": row["exit_reason"]}
 
 
 # -------------------------------------------------------- risk rating endpoints
@@ -1558,6 +1595,11 @@ def api_report_submit(report_id: int, db: DB, session: Session):
     rep = queries.report(db, report_id, session.org_id)
     if not rep:
         raise HTTPException(status_code=404, detail="Report not found.")
+    from ..cases.manager import report_finalize_error
+    problem = report_finalize_error(rep)
+    if problem:
+        code = 409 if rep["status"] == "submitted" else 422
+        raise HTTPException(status_code=code, detail=problem)
     now = utcnow()
     from ..db import audit
 
@@ -1566,9 +1608,14 @@ def api_report_submit(report_id: int, db: DB, session: Session):
             "UPDATE reports SET status='submitted', submitted_at=? WHERE id=? AND org_id=?",
             (now, report_id, session.org_id),
         )
-        audit(db, session.operator_name, "report.submit", "report", report_id,
+        audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
-    return {"ok": True}
+    return {
+        "ok": True,
+        "finalized": True,
+        "fiu_transmission": "manual",
+        "message": "Report finalized. Download the goAML XML and upload it manually to the UAE FIU goAML portal.",
+    }
 
 
 @router.get("/reports/{report_id}/export")

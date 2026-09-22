@@ -152,7 +152,7 @@ def save_report(
         if existing["status"] != "draft":
             return ReportResult(
                 success=False,
-                error=f"Report {report_id} has been submitted and can no longer be edited.",
+                error=f"Report {report_id} has been finalized and can no longer be edited.",
             )
 
     with db:
