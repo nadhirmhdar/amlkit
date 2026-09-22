@@ -14,8 +14,11 @@ name: "CodeQL Advanced"
 on:
   push:
     branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+  # pull_request trigger removed until code scanning is enabled in repository settings:
+  #   github.com/nadhirmhdar/amlkit/settings/security_analysis
+  # Re-add the block below once enabled:
+  #   pull_request:
+  #     branches: [ "master" ]
   schedule:
     - cron: '40 14 * * 2'
 

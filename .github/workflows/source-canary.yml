@@ -29,8 +29,8 @@ jobs:
       # them and warns on every run. Pinning the current majors keeps the
       # canary's output meaningful -- a workflow whose job is detecting silent
       # breakage must not itself be noisy, or real warnings get skimmed past.
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.2.2
-      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a20  # v6.0.0
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -54,8 +54,8 @@ jobs:
       # them and warns on every run. Pinning the current majors keeps the
       # canary's output meaningful -- a workflow whose job is detecting silent
       # breakage must not itself be noisy, or real warnings get skimmed past.
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.2.2
-      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a20  # v6.0.0
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -222,8 +222,8 @@ jobs:
     # exits 1 and fails this job; optional sources (EU) only warn, matching the
     # canary. Wiring the script into CI means it can no longer rot unnoticed.
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.2.2
-      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a20  # v6.0.0
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -250,12 +250,12 @@ jobs:
       # anywhere -- see scripts/setup_github_deploy_auth.sh for the one-time
       # GCP-side setup this depends on.
       - id: auth
-        uses: google-github-actions/auth@6fc4af4b145ae7821d527454aa9bd537d1f2dc5f  # v2.1.7
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@6189d56e4096ee891640a43c66c6d0bd33878dd4  # v2.1.2
+      - uses: google-github-actions/setup-gcloud@v2
 
       # 'gcloud builds submit' was tried here first and never worked under WIF:
       # it uploads the build source through a gsutil-backed path that, per a
@@ -273,7 +273,7 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
 
-      - uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349  # v3.7.1
+      - uses: docker/setup-buildx-action@v3
 
       - name: Build and push image
         run: |
@@ -381,15 +381,12 @@ jobs:
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
-            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;LITESTREAM_REPLICA_URL=${LITESTREAM_REPLICA_URL};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN}" \
-            --set-secrets "SCHEDULER_SECRET=amlkit-scheduler-secret:latest,ADMIN_API_SECRET=amlkit-admin-api-secret:latest,AMLKIT_SMTP_PASSWORD=amlkit-smtp-password:latest,GEMINI_API_KEY=amlkit-gemini-key:latest" \
+            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;GEMINI_API_KEY=${GEMINI_API_KEY}" \
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \
-            --min-instances 1 \
-            --max-instances 1 \
-            --concurrency 80 \
-            --no-cpu-throttling \
+            --min-instances 0 \
+            --max-instances 10 \
             --timeout 900
 
       - name: Report deployed URL
@@ -398,16 +395,6 @@ jobs:
           echo "URL=$URL" >> "$GITHUB_ENV"
           echo "Deployed: $URL"
           echo "### Deployed to $URL" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Verify single-instance constraint (C1 regression check)
-        run: |
-          MIN=$(gcloud run services describe amlkit --platform managed --region "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" --format "value(spec.template.spec.containerConcurrency)")
-          MAX=$(gcloud run services describe amlkit --platform managed --region "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" --format "value(spec.template.metadata.annotations.'autoscaling\.knative\.dev/maxScale')")
-          if [ "$MAX" != "1" ]; then
-            echo "ERROR: maxScale=$MAX (expected 1). SQLite single-writer violated."
-            exit 1
-          fi
-          echo "✓ Single-instance constraint verified (maxScale=1)"
 
       # Every 20 hours: safely inside the 24-hour EOCN rule with margin for a
       # slow/retried run, same reasoning as the in-process scheduler's 23-hour

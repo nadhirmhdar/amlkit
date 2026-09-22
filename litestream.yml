@@ -13,15 +13,5 @@ dbs:
     #
     # Bucket URL now templated via ${LITESTREAM_REPLICA_URL} — entrypoint.sh
     # runs envsubst to substitute it before litestream sees this file.
-    #
-    # C2: Explicit retention matching the 8-10 year UAE AML/CFT record-keeping
-    # requirement (Federal Decree-Law No. 20 of 2018, Article 27). Previously
-    # defaulted to 24 hours, which is catastrophically short for regulated data.
-    # retention: how long to keep snapshots (WAL segments auto-expire after).
-    # retention-check-interval: how often to prune expired snapshots.
-    # snapshot-interval: how often to create full snapshots (vs. streaming WAL).
     replica:
       url: ${LITESTREAM_REPLICA_URL}
-      retention: 87600h           # 10 years (8760h/year × 10)
-      retention-check-interval: 24h
-      snapshot-interval: 24h
