@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+import re
 import sqlite3
+from html.parser import HTMLParser
 from typing import Iterator
 
 from .base import AdapterError, SourceEntity, fetch_with_retry
+
+log = logging.getLogger("amlkit.ingest.fatf")
 
 # FATF publishes high-risk and monitored jurisdictions
 URL = "https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html"
@@ -48,6 +53,188 @@ GREYLIST_FALLBACK = {
 _FATF_DATA_AS_OF = "2025-02-01T00:00:00+00:00"  # Update when fallback data changes
 _FATF_MAX_AGE_HOURS = 168  # 7 days — show staleness warning if not refreshed weekly
 
+# Country name → ISO 3166-1 alpha-2. Covers all countries that have appeared
+# on FATF black/grey lists since 2019, plus common alternate spellings.
+_COUNTRY_TO_ISO: dict[str, str] = {
+    "Afghanistan": "AF",
+    "Albania": "AL",
+    "Algeria": "DZ",
+    "Angola": "AO",
+    "Antigua and Barbuda": "AG",
+    "Barbados": "BB",
+    "Botswana": "BW",
+    "Bulgaria": "BG",
+    "Burkina Faso": "BF",
+    "Cambodia": "KH",
+    "Cameroon": "CM",
+    "Cayman Islands": "KY",
+    "Congo": "CD",
+    "Côte d'Ivoire": "CI",
+    "Cote d'Ivoire": "CI",
+    "Croatia": "HR",
+    "Cuba": "CU",
+    "Democratic People's Republic of Korea": "KP",
+    "Democratic Republic of the Congo": "CD",
+    "Ghana": "GH",
+    "Gibraltar": "GI",
+    "Haiti": "HT",
+    "Honduras": "HN",
+    "Iceland": "IS",
+    "Iran": "IR",
+    "Iraq": "IQ",
+    "Jamaica": "JM",
+    "Jordan": "JO",
+    "Kenya": "KE",
+    "Laos": "LA",
+    "Lao People's Democratic Republic": "LA",
+    "Lebanon": "LB",
+    "Libya": "LY",
+    "Madagascar": "MG",
+    "Mali": "ML",
+    "Malta": "MT",
+    "Mauritius": "MU",
+    "Monaco": "MC",
+    "Morocco": "MA",
+    "Mozambique": "MZ",
+    "Myanmar": "MM",
+    "Namibia": "NA",
+    "Nicaragua": "NI",
+    "Nigeria": "NG",
+    "North Korea": "KP",
+    "Pakistan": "PK",
+    "Palestine": "PS",
+    "Panama": "PA",
+    "Philippines": "PH",
+    "Senegal": "SN",
+    "Serbia": "RS",
+    "Somalia": "SO",
+    "South Africa": "ZA",
+    "South Sudan": "SS",
+    "Sri Lanka": "LK",
+    "Sudan": "SD",
+    "Syria": "SY",
+    "Syrian Arab Republic": "SY",
+    "Tanzania": "TZ",
+    "Trinidad and Tobago": "TT",
+    "Tunisia": "TN",
+    "Türkiye": "TR",
+    "Turkey": "TR",
+    "Uganda": "UG",
+    "United Arab Emirates": "AE",
+    "Vanuatu": "VU",
+    "Venezuela": "VE",
+    "Vietnam": "VN",
+    "Viet Nam": "VN",
+    "Yemen": "YE",
+    "Zimbabwe": "ZW",
+}
+
+# Section header patterns that identify the two FATF lists
+_BLACKLIST_PATTERNS = [
+    "high-risk jurisdictions subject to a call for action",
+    "high risk jurisdictions subject to a call for action",
+    "call for action",
+    "black list",
+    "blacklist",
+]
+_GREYLIST_PATTERNS = [
+    "jurisdictions under increased monitoring",
+    "increased monitoring",
+    "grey list",
+    "greylist",
+]
+
+
+class _FATFHTMLParser(HTMLParser):
+    """Extract country lists from the FATF black-and-grey-lists page.
+
+    Walks the DOM looking for heading elements (h2/h3/h4/strong) that match
+    known FATF section titles, then collects <li> text from the <ul> that
+    follows each heading.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._in_heading = False
+        self._in_li = False
+        self._current_text = ""
+        self._current_section: str | None = None  # "blacklist" | "greylist" | None
+        self._blacklist_names: list[str] = []
+        self._greylist_names: list[str] = []
+        self._heading_tags = {"h2", "h3", "h4", "strong"}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in self._heading_tags:
+            self._in_heading = True
+            self._current_text = ""
+        elif tag == "li" and self._current_section:
+            self._in_li = True
+            self._current_text = ""
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._heading_tags and self._in_heading:
+            self._in_heading = False
+            heading_lower = self._current_text.strip().lower()
+            if any(p in heading_lower for p in _BLACKLIST_PATTERNS):
+                self._current_section = "blacklist"
+            elif any(p in heading_lower for p in _GREYLIST_PATTERNS):
+                self._current_section = "greylist"
+            self._current_text = ""
+        elif tag == "li" and self._in_li:
+            self._in_li = False
+            name = self._current_text.strip()
+            if name and self._current_section == "blacklist":
+                self._blacklist_names.append(name)
+            elif name and self._current_section == "greylist":
+                self._greylist_names.append(name)
+            self._current_text = ""
+        elif tag == "ul":
+            pass  # section continues until next heading
+
+    def handle_data(self, data: str) -> None:
+        if self._in_heading or self._in_li:
+            self._current_text += data
+
+    @property
+    def blacklist_names(self) -> list[str]:
+        return self._blacklist_names
+
+    @property
+    def greylist_names(self) -> list[str]:
+        return self._greylist_names
+
+
+def _resolve_country(name: str) -> tuple[str, str] | None:
+    """Map a country name from the FATF page to (ISO code, display name).
+
+    Handles parenthetical abbreviations like "Democratic People's Republic
+    of Korea (DPRK)" and strips trailing whitespace/punctuation.
+    """
+    name = name.strip().rstrip(".")
+
+    # Direct match
+    if name in _COUNTRY_TO_ISO:
+        return _COUNTRY_TO_ISO[name], name
+
+    # Try without parenthetical: "Democratic People's Republic of Korea (DPRK)"
+    base = re.sub(r"\s*\(.*?\)\s*$", "", name).strip()
+    if base in _COUNTRY_TO_ISO:
+        return _COUNTRY_TO_ISO[base], name
+
+    # Case-insensitive search
+    name_lower = name.lower()
+    for country, code in _COUNTRY_TO_ISO.items():
+        if country.lower() == name_lower:
+            return code, name
+
+    base_lower = base.lower()
+    for country, code in _COUNTRY_TO_ISO.items():
+        if country.lower() == base_lower:
+            return code, name
+
+    log.warning(f"FATF country not mapped to ISO code: {name!r}")
+    return None
+
 
 class FATFAdapter:
     """Fetches FATF high-risk and monitored jurisdictions from live source."""
@@ -74,11 +261,8 @@ class FATFAdapter:
                 user_agent="amlkit/0.1 (UAE AML screening; compliance tooling)",
             )
         except AdapterError as exc:
-            # FATF website blocks automated access - use fallback data
-            import logging
-            log = logging.getLogger("amlkit.ingest.fatf")
             log.warning(f"FATF live fetch failed (will use fallback): {exc}")
-            return b""  # Empty payload triggers fallback in parse()
+            return b""
 
     def parse(self, payload: bytes) -> Iterator[SourceEntity]:
         """Parse FATF HTML page to extract blacklist and greylist jurisdictions.
@@ -89,9 +273,6 @@ class FATFAdapter:
             html = payload.decode("utf-8")
             blacklist, greylist = self._parse_html(html)
         except Exception as exc:
-            # Fall back to hardcoded data if live parsing fails
-            import logging
-            log = logging.getLogger("amlkit.ingest.fatf")
             log.warning(f"FATF live parse failed, using fallback data: {exc}")
             blacklist = BLACKLIST_FALLBACK
             greylist = GREYLIST_FALLBACK
@@ -125,11 +306,37 @@ class FATFAdapter:
     def _parse_html(self, html: str) -> tuple[dict[str, str], dict[str, str]]:
         """Extract blacklist and greylist from FATF HTML page.
 
-        Returns: (blacklist_dict, greylist_dict) where keys are ISO codes and values are names.
+        Returns (blacklist_dict, greylist_dict) where keys are ISO codes and
+        values are display names.  Falls back to hardcoded data when the page
+        cannot be parsed or yields no recognisable countries (Cloudflare
+        challenge pages, maintenance pages, restructured HTML).
         """
-        # For now, use fallback data - HTML parsing can be brittle
-        # TODO: Implement robust HTML parsing when FATF page structure is stable
-        return BLACKLIST_FALLBACK, GREYLIST_FALLBACK
+        if not html or not html.strip():
+            return BLACKLIST_FALLBACK, GREYLIST_FALLBACK
+
+        parser = _FATFHTMLParser()
+        try:
+            parser.feed(html)
+        except Exception:
+            return BLACKLIST_FALLBACK, GREYLIST_FALLBACK
+
+        blacklist: dict[str, str] = {}
+        for name in parser.blacklist_names:
+            resolved = _resolve_country(name)
+            if resolved:
+                blacklist[resolved[0]] = resolved[1]
+
+        greylist: dict[str, str] = {}
+        for name in parser.greylist_names:
+            resolved = _resolve_country(name)
+            if resolved:
+                greylist[resolved[0]] = resolved[1]
+
+        if not blacklist and not greylist:
+            log.warning("FATF HTML parsed but no countries found, using fallback")
+            return BLACKLIST_FALLBACK, GREYLIST_FALLBACK
+
+        return blacklist, greylist
 
 
 def load_fatf_data(conn: sqlite3.Connection) -> None:

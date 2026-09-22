@@ -20,6 +20,7 @@
 <div class="panel mt-4">
   <h2>Customer due diligence record</h2>
   <table>
+    <caption class="sr-only">Customer details including reference, name, type, sector, and status</caption>
     <tr><td class="muted">Reference</td><td class="mono">{{ c.reference }}</td></tr>
     <tr><td class="muted">Name</td><td>{{ name(c.full_name) }}</td></tr>
     {% if c.name_arabic %}<tr><td class="muted">Name (Arabic)</td><td>{{ name(c.name_arabic) }}</td></tr>{% endif %}
@@ -29,6 +30,8 @@
     {% if c.birth_date %}<tr><td class="muted">Date of birth</td><td>{{ c.birth_date }}</td></tr>{% endif %}
     <tr><td class="muted">Onboarded</td><td>{{ c.onboarded_at[:10] }}</td></tr>
     <tr><td class="muted">Status</td><td>{{ c.status }}</td></tr>
+    {% if c.exit_date %}
+      <tr><td class="muted">Relationship closed</td><td>{{ c.exit_date }} ({{ c.exit_reason }})</td></tr>{% endif %}
     {% if c.retention_until %}
       <tr><td class="muted">Retention until</td><td>{{ c.retention_until }}</td></tr>{% endif %}
   </table>
@@ -38,6 +41,7 @@
   <h2>Beneficial ownership</h2>
   {% if ubos %}
     <table>
+      <caption class="sr-only">Beneficial owners listing with ownership percentages and control basis</caption>
       <tr><th>Name</th><th>Ownership %</th><th>Basis of control</th><th>Treated as UBO</th></tr>
       {% for u in ubos %}
       <tr>
@@ -62,6 +66,7 @@
   <p><strong>{{ risk.rating|upper }}</strong> — score {{ risk.score|int }}
      {% if risk.requires_edd %}— Enhanced Due Diligence required{% endif %}</p>
   <table>
+    <caption class="sr-only">Risk scoring factors with values and points assigned</caption>
     <tr><th>Factor</th><th>Value</th><th class="right">Points</th></tr>
     {% for k, v in risk.factors.items() %}
       {% if v.points %}
@@ -81,6 +86,7 @@
 <div class="panel">
   <h2>Enhanced Due Diligence</h2>
   <table>
+    <caption class="sr-only">Enhanced due diligence information including source of wealth and funds</caption>
     {% if customer.source_of_wealth %}
     <tr><th>Source of Wealth</th><td>{{ customer.source_of_wealth }}</td></tr>
     {% endif %}
@@ -94,6 +100,7 @@
 <div class="panel">
   <h2>Screening record</h2>
   <table>
+    <caption class="sr-only">Historical screening runs showing dates, names screened, triggers, and results</caption>
     <tr><th>Date &amp; time (UTC)</th><th>Name screened</th><th>Trigger</th>
         <th>Lists</th><th class="right">Candidates</th><th>Result</th></tr>
     {% for s in screenings %}
@@ -135,6 +142,7 @@
       </div>
       {% if a.reviews %}
         <table class="mt-4">
+          <caption class="sr-only">Four-eyes review workflow showing steps, operators, and decisions</caption>
           <tr><th>Step</th><th>Operator</th><th>Reason</th><th>Narrative</th><th>When</th></tr>
           {% for r in a.reviews %}
           <tr>
@@ -175,6 +183,7 @@
   </p>
 
   <table>
+    <caption class="sr-only">Adverse media search runs showing dates, names, and article counts</caption>
     <tr><th>Date &amp; time (UTC)</th><th>Name searched</th><th>Trigger</th>
         <th class="right">Window</th><th class="right">Articles</th><th>Result</th></tr>
     {% for r in adverse_media_runs %}
@@ -235,6 +244,7 @@
 <div class="panel">
   <h2>Audit trail</h2>
   <table>
+    <caption class="sr-only">Append-only audit log of all actions taken on this customer record</caption>
     <tr><th>When (UTC)</th><th>Operator</th><th>Action</th><th>Detail</th></tr>
     {% for e in audit %}
     <tr>
