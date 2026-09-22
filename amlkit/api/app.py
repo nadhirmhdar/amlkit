@@ -421,6 +421,7 @@ async def security_headers(request: Request, call_next):
     - X-Content-Type-Options: Prevents MIME-sniffing attacks
     - X-Frame-Options: Prevents clickjacking
     - HSTS: Forces HTTPS in production (when AMLKIT_BEHIND_PROXY=1)
+    - Cache-Control: Prevents caching of sensitive data (H7)
     """
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
@@ -434,6 +435,8 @@ async def security_headers(request: Request, call_next):
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
     # HSTS only on HTTPS (production behind proxy)
     if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
         # 1 year HSTS, includeSubDomains
