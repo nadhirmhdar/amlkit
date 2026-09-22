@@ -28,3 +28,4 @@ google-cloud-discoveryengine>=0.20,<1.0
 # supports both the apikey and Vertex AI backends through one client class,
 # see amlkit/ai/gemini.py. Pinned against the installed 2.24.0.
 google-genai>=1.0,<3.0
+weasyprint==70.0  # evidence PDF; URLFetcher-class fetcher API (amlkit/reporting/evidence_pdf.py)

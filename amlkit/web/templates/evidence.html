@@ -8,6 +8,7 @@
 <div class="no-print mt-4">
   <div class="print-header muted small">Generated {{ generated_at[:19].replace('T', ' ') }} UTC</div>
   <button data-action="print">Print / save as PDF</button>
+  <a class="btn ghost" href="/customers/{{ c.id }}/evidence.pdf">Download PDF</a>
   <a class="btn ghost" href="/customers/{{ c.id }}">Back to case file</a>
   <p class="muted small">
     Everything below prints, including the reasoning behind each alert decision.
