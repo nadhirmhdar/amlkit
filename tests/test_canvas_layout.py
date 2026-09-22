@@ -111,3 +111,21 @@ def test_home_cards_have_no_arrows(client):
     cards = re.search(r'<div class="action-cards">(.*?)\n</div>', html, re.S).group(1)
     assert "action-card__arrow" not in cards
     assert "&rarr;" not in cards
+
+
+def test_home_has_no_date_line(client):
+    import datetime as _dt
+    html = client.get("/").text
+    head = html.split('<div class="home-head', 1)[1].split("</div>", 1)[0]
+    assert "eyebrow" not in head
+    assert _dt.date.today().strftime("%B") not in head
+
+
+def test_greeting_is_left_to_the_browser_clock(client):
+    html = client.get("/").text
+    # Neutral server fallback; app.js swaps in the time-of-day greeting.
+    assert "<h1><span data-greeting>Hello</span>," in html
+    for server_greeting in ("Good morning", "Good afternoon", "Good evening"):
+        assert server_greeting not in html
+    js = client.get("/static/js/app.js").text
+    assert "function greetingForHour" in js and "applyLocalGreeting()" in js

@@ -143,9 +143,7 @@
     {% if dataset_banner %}
       <div class="banner {{ 'err' if dataset_banner.severity == 'critical' else 'warning' }}">
         <strong>{{ dataset_banner.message }}</strong>
-        {% if session.operator_role == 'mlro' %}
-          <a href="{{ dataset_banner.link }}">View compliance dashboard</a>
-        {% endif %}
+        <a href="{{ dataset_banner.link }}">View compliance dashboard</a>
       </div>
     {% endif %}
     {% if mfa_banner %}

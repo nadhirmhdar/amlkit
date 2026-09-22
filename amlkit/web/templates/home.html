@@ -4,8 +4,10 @@
 {% block body %}
 
 <div class="home-head fade-in">
-  <div class="eyebrow">{{ today }}</div>
-  <h1>{{ greeting }}, {{ first_name }}</h1>
+  {# The greeting follows the viewer's own clock: the server renders a
+     neutral "Hello" and app.js swaps in morning/afternoon/evening from the
+     browser's local time. No location is collected. #}
+  <h1><span data-greeting>Hello</span>, {{ first_name }}</h1>
   <p class="sub">
     Screen a name and onboard customer made easier for our users
   </p>
