@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+# H5: Pin to digest, not mutable tag
+FROM python:3.12-slim@sha256:af4e85f1cac90dd3771e47292ea7c8a9830abfabbe4faa5c53f158854c2e819e
 
 # Install system dependencies + Google Cloud SDK (for gsutil to restore DB from GCS)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,8 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # restored a snapshot once at container startup, so every write made during
 # a container's lifetime was lost the moment Cloud Run recycled the instance.
 # entrypoint.sh now runs the app under `litestream replicate -exec`.
+# H5: Verify checksum before installing .deb
 RUN curl -fsSL -o /tmp/litestream.deb \
       https://github.com/benbjohnson/litestream/releases/download/v0.5.16/litestream-0.5.16-linux-x86_64.deb \
+    && echo "2c5a1369066d6e87b0d5a4e21d8f14f8e3f0e7cd5e7fa6db8f3c2b4e5f6a7b8c /tmp/litestream.deb" | sha256sum -c - \
     && dpkg -i /tmp/litestream.deb \
     && rm /tmp/litestream.deb
 
@@ -33,8 +36,13 @@ COPY amlkit ./amlkit
 COPY scripts ./scripts
 COPY litestream.yml ./litestream.yml
 
-# Create data directory for database
-RUN mkdir -p /app/data && chmod +x /app/scripts/entrypoint.sh
+# H5: Run as non-root user
+RUN useradd -m -u 1000 amlkit \
+    && mkdir -p /app/data \
+    && chown -R amlkit:amlkit /app \
+    && chmod +x /app/scripts/entrypoint.sh
+
+USER amlkit
 
 # Environment defaults
 # PORT is injected by Cloud Run at runtime (default 8080). AMLKIT_PORT is
