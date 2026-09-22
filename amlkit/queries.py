@@ -462,6 +462,73 @@ def customer_list(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]
     return _customer_rows_to_list(rows)
 
 
+def _like_escape(text: str) -> str:
+    """Escape LIKE wildcards so user input matches literally (ESCAPE '\\')."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+GLOBAL_SEARCH_LIMIT = 10
+_ALERT_SCAN_LIMIT = 1000
+
+
+def global_search(conn: sqlite3.Connection, org_id: int, query: str) -> dict[str, Any]:
+    """Palette search over customers and open alerts for one organization.
+
+    Returns {"results": [...], "truncated": bool}. Alerts match by exact
+    numeric id, or canonicalized name against the customer name and the
+    screened query name; they collapse to one row per customer.
+    """
+    from .names.arabic import canonical_tokens
+
+    query = query.strip()
+    if not query:
+        return {"results": [], "truncated": False}
+
+    results: list[dict[str, Any]] = []
+    for c in search_customers(conn, org_id, query)[:GLOBAL_SEARCH_LIMIT]:
+        results.append({
+            "type": "customer", "name": c["full_name"],
+            "detail": c["reference"], "url": f"/customers/{c['id']}",
+        })
+
+    truncated = False
+    if len(results) < GLOBAL_SEARCH_LIMIT:
+        alerts = alert_queue(conn, org_id, status="open", limit=_ALERT_SCAN_LIMIT)
+        truncated = len(alerts) >= _ALERT_SCAN_LIMIT
+        qtokens = canonical_tokens(query)
+        qlow = query.lower()
+        seen: set = set()
+        for a in alerts:
+            hit = query.isdigit() and int(query) == a["id"]
+            if not hit:
+                for n in (a.get("customer_name"), a.get("query_name")):
+                    if not n:
+                        continue
+                    ntoks = canonical_tokens(n)
+                    if qtokens and all(any(t in nt for nt in ntoks) for t in qtokens):
+                        hit = True
+                    elif qlow in n.lower():
+                        hit = True
+                    if hit:
+                        break
+            if not hit:
+                continue
+            cid = a.get("customer_id")
+            key = ("c", cid) if cid is not None else ("a", a["id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append({
+                "type": "alert",
+                "name": a.get("customer_name") or a.get("query_name") or a["caption"],
+                "detail": f"Alert #{a['id']} — {a['caption']}",
+                "url": f"/customers/{cid}" if cid is not None else "/alerts",
+            })
+            if len(results) >= GLOBAL_SEARCH_LIMIT:
+                break
+    return {"results": results[:GLOBAL_SEARCH_LIMIT], "truncated": truncated}
+
+
 def search_customers(
     conn: sqlite3.Connection, org_id: int, query: str
 ) -> list[dict[str, Any]]:
@@ -476,7 +543,7 @@ def search_customers(
 
     from .names.arabic import canonical_tokens, has_arabic_script, normalize_arabic
 
-    like = f"%{query}%"
+    like = f"%{_like_escape(query)}%"
     params: list = [org_id, like, like, like]
 
     canon_clause = ""
@@ -484,23 +551,23 @@ def search_customers(
     if tokens:
         canon_conditions = []
         for tok in tokens:
-            canon_conditions.append("c.canonical_key LIKE ?")
-            params.append(f"%{tok}%")
+            canon_conditions.append("c.canonical_key LIKE ? ESCAPE '\\'")
+            params.append(f"%{_like_escape(tok)}%")
         canon_clause = " OR (" + " AND ".join(canon_conditions) + ")"
 
     arabic_canon_clause = ""
     if has_arabic_script(query):
         normalized = normalize_arabic(query)
         if normalized:
-            arabic_canon_clause = " OR c.name_arabic LIKE ?"
-            params.append(f"%{normalized}%")
+            arabic_canon_clause = " OR c.name_arabic LIKE ? ESCAPE '\\'"
+            params.append(f"%{_like_escape(normalized)}%")
 
     sql = (
         _CUSTOMER_SELECT
         + "WHERE c.org_id = ? AND ("
-        + "c.full_name LIKE ? COLLATE NOCASE"
-        + " OR c.reference LIKE ? COLLATE NOCASE"
-        + " OR c.name_arabic LIKE ?"
+        + "c.full_name LIKE ? ESCAPE '\\' COLLATE NOCASE"
+        + " OR c.reference LIKE ? ESCAPE '\\' COLLATE NOCASE"
+        + " OR c.name_arabic LIKE ? ESCAPE '\\'"
         + canon_clause
         + arabic_canon_clause
         + ") ORDER BY c.created_at DESC"
@@ -684,6 +751,23 @@ def audit_trail(
     return [
         dict(r) | {"detail": json.loads(r["detail"]) if r["detail"] else None}
         for r in conn.execute(sql, params)
+    ]
+
+
+def recent_audit(conn: sqlite3.Connection, org_id: int, limit: int = 6) -> list[dict[str, Any]]:
+    """Last N audit entries for the dashboard widget.
+
+    Uses the same visibility predicate as audit_trail (the /audit view): this
+    org's rows plus shared/system rows (org_id IS NULL), so the widget never
+    disagrees with the full log.
+    """
+    return [
+        dict(r)
+        for r in conn.execute(
+            "SELECT ts, actor, action, object_type, object_id FROM audit_log"
+            " WHERE (org_id=? OR org_id IS NULL) ORDER BY id DESC LIMIT ?",
+            (org_id, limit),
+        )
     ]
 
 
@@ -996,78 +1080,3 @@ def customer_completeness(customer: dict[str, Any]) -> float:
 
     filled = sum(1 for field in required_fields if customer.get(field))
     return round((filled / len(required_fields)) * 100, 1)
-
-
-def contextual_home_card(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
-    """Determine which contextual card to show on the home page.
-
-    Priority order:
-    1. Open alerts > 0 → "Review N open alerts"
-    2. Customers due for adverse media check → "Check adverse media"
-    3. Datasets stale (> 20h) → "Refresh sanctions lists"
-    4. Fallback → "All clear"
-
-    Returns:
-        {
-            "type": "alerts" | "adverse_media" | "datasets" | "all_clear",
-            "title": str,
-            "description": str,
-            "link": str,
-            "count": int | None  # For alerts type
-        }
-    """
-    # Check for open alerts
-    open_alerts_count = conn.execute(
-        """SELECT COUNT(*) as count FROM alerts
-           WHERE org_id = ? AND status IN ('open', 'pending_review')""",
-        (org_id,)
-    ).fetchone()["count"]
-
-    if open_alerts_count > 0:
-        plural = "s" if open_alerts_count != 1 else ""
-        return {
-            "type": "alerts",
-            "title": f"Review {open_alerts_count} alert{plural}",
-            "description": f"{open_alerts_count} alert{plural} awaiting decision",
-            "link": "/dashboard",
-            "count": open_alerts_count,
-        }
-
-    # Check for customers due for adverse media check
-    am_due = adverse_media_due(conn, org_id)
-    if am_due:
-        count = len(am_due)
-        return {
-            "type": "adverse_media",
-            "title": "Check adverse media",
-            "description": f"{count} customer{'s' if count != 1 else ''} due for adverse media screening",
-            "link": "/dashboard",
-            "count": count,
-        }
-
-    # Check for stale datasets (> 20 hours)
-    from datetime import timedelta
-    twenty_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat()
-    stale_datasets = conn.execute(
-        """SELECT COUNT(*) as count FROM datasets
-           WHERE last_refresh IS NULL OR last_refresh < ?""",
-        (twenty_hours_ago,)
-    ).fetchone()["count"]
-
-    if stale_datasets > 0:
-        return {
-            "type": "datasets",
-            "title": "Refresh sanctions lists",
-            "description": "Sanctions datasets need refreshing",
-            "link": "/admin/compliance",
-            "count": stale_datasets,
-        }
-
-    # Fallback - all clear
-    return {
-        "type": "all_clear",
-        "title": "All clear",
-        "description": "Everything is up to date",
-        "link": "/dashboard",
-        "count": None,
-    }

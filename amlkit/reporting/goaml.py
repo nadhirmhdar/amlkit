@@ -237,7 +237,15 @@ def serialize_goaml_xml(report_data: dict) -> str:
         ET.SubElement(tx, "internal_ref_number").text = report_data.get("reference") or "TXN-REF-001"
         ET.SubElement(tx, "date_transaction").text = report_data.get("transaction_date") or now_str[:10]
         ET.SubElement(tx, "transmode_code").text = report_data.get("transaction_type") or "Wire Transfer"
-        ET.SubElement(tx, "amount_local").text = str(report_data.get("amount") or 0.0)
+        raw_amount = report_data.get("amount") or 0.0
+        amount_units = report_data.get("amount_units")
+        amount_nanos = report_data.get("amount_nanos")
+        if amount_units is not None:
+            from ..money import Money
+            m = Money("AED", amount_units, amount_nanos or 0)
+            ET.SubElement(tx, "amount_local").text = str(m.to_decimal())
+        else:
+            ET.SubElement(tx, "amount_local").text = str(raw_amount)
 
         # Source/Destination Accounts. A blank account number here is not a
         # harmless gap -- it silently exports as "N/A" in a regulator-facing

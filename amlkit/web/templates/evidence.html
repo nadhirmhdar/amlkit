@@ -28,6 +28,8 @@
     {% if c.birth_date %}<tr><td class="muted">Date of birth</td><td>{{ c.birth_date }}</td></tr>{% endif %}
     <tr><td class="muted">Onboarded</td><td>{{ c.onboarded_at[:10] }}</td></tr>
     <tr><td class="muted">Status</td><td>{{ c.status }}</td></tr>
+    {% if c.exit_date %}
+      <tr><td class="muted">Relationship closed</td><td>{{ c.exit_date }} ({{ c.exit_reason }})</td></tr>{% endif %}
     {% if c.retention_until %}
       <tr><td class="muted">Retention until</td><td>{{ c.retention_until }}</td></tr>{% endif %}
   </table>

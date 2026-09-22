@@ -34,6 +34,7 @@ from .. import auth, queries
 from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
+    EXIT_REASONS,
     StaleDatasetsError,
     add_case_note,
     add_ubo,
@@ -64,8 +65,10 @@ from ..risk.model import ruleset
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
 from .csv_utils import _escape_csv_formula
 from .deps import (
+    AUDIT_VIEW_ROLES,
     CSRF_COOKIE,
     SESSION_COOKIE,
+    can_view_audit,
     client_ip,
     current_session,
     db_path,
@@ -276,8 +279,11 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
 
     # Check dataset health for authenticated sessions
     if session and db is not None:
-        banner = queries.dataset_health_banner(db)
-        ctx.setdefault("dataset_banner", banner)
+        # Data-source health is the platform operator's concern: only the
+        # super-admin sees this global banner. MLROs still get the dashboard's
+        # own 24-hour-rule breach banner when a mandatory list is stale.
+        if session.super_admin:
+            ctx.setdefault("dataset_banner", queries.dataset_health_banner(db))
         # Check for MFA lockouts (show to admin/MLRO roles)
         if session.operator_role in ("mlro", "admin"):
             mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
@@ -1146,29 +1152,13 @@ def home(request: Request, db: DB):
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
 
-    from datetime import datetime, timedelta, timezone
-
-    # Gulf Standard Time, fixed UTC+4 (no DST) -- the app is UAE-only and
-    # this greeting is cosmetic, so a fixed offset avoids a per-operator
-    # timezone setting that nothing else in the schema has either.
-    gst_now = datetime.now(timezone.utc) + timedelta(hours=4)
-    if gst_now.hour < 12:
-        greeting = "Good morning"
-    elif gst_now.hour < 18:
-        greeting = "Good afternoon"
-    else:
-        greeting = "Good evening"
-
     first_name = (session.operator_name or "").split()
     first_name = first_name[0] if first_name else session.operator_name
 
     return render(request, "home.html", {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
-        "contextual_card": queries.contextual_home_card(db, session.org_id),
-        "greeting": greeting,
         "first_name": first_name,
-        "today": gst_now.strftime("%A, %d %B %Y"),
     }, db)
 
 
@@ -1179,11 +1169,14 @@ def dashboard(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    return render(request, "dashboard.html", {
+    ctx = {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
         "datasets": queries.datasets(db),
-    }, db)
+    }
+    if can_view_audit(session):
+        ctx["recent_audit"] = queries.recent_audit(db, session.org_id)
+    return render(request, "dashboard.html", ctx, db)
 
 
 # --------------------------------------------------------------------- screen
@@ -1246,6 +1239,17 @@ def screen_run(
     }, db)
 
 
+# --------------------------------------------------------------------- search
+@app.get("/search")
+def global_search(request: Request, db: DB, q: str = ""):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return JSONResponse(queries.global_search(db, session.org_id, q))
+
+
 # ------------------------------------------------------------------ customers
 @app.get("/customers", response_class=HTMLResponse)
 def customers(request: Request, db: DB, q: str = ""):
@@ -1305,6 +1309,8 @@ def customer_create(
     nationalities_csv: Annotated[str, Form()] = "",
     tax_residencies_csv: Annotated[str, Form()] = "",
     establishment_date: Annotated[str, Form()] = "",
+    civil_status_code: Annotated[str, Form()] = "",
+    occupation: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
 ):
     try:
@@ -1363,6 +1369,8 @@ def customer_create(
             nationalities=nats_list,
             tax_residencies=tax_list,
             establishment_date=establishment_date.strip() or None,
+            civil_status_code=civil_status_code.strip() or None,
+            occupation=occupation.strip() or None,
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         )
@@ -1427,7 +1435,7 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
                  data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
-                         "effective_risk": eff_risk})
+                         "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
@@ -1485,6 +1493,8 @@ def customer_kg_screen(request: Request, db: DB, customer_id: int):
 
 @app.post("/customers/{customer_id}/close")
 def customer_close(request: Request, db: DB, customer_id: int,
+                   exit_reason: Annotated[str, Form()] = "",
+                   exit_note: Annotated[str, Form()] = "",
                    csrf_token: Annotated[str, Form()] = ""):
     try:
         session = require_session(request, db)
@@ -1494,7 +1504,12 @@ def customer_close(request: Request, db: DB, customer_id: int,
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/customers/{customer_id}", err=str(exc))
-    until = close_relationship(db, customer_id, org_id=session.org_id, actor=session.operator_name)
+    try:
+        until = close_relationship(db, customer_id, org_id=session.org_id,
+                                   reason=exit_reason, note=exit_note[:1000],
+                                   actor=session.operator_name)
+    except ValueError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
     return back(f"/customers/{customer_id}", msg=f"Relationship closed. Records retained until {until}.")
 
 
@@ -1860,6 +1875,28 @@ def alerts_bulk_dismiss(
     return back(back_to, msg=f"Dismissed {count} alert(s).")
 
 
+@app.get("/alerts/{alert_id}/panel", response_class=HTMLResponse)
+def alert_panel(request: Request, db: DB, alert_id: int):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return HTMLResponse(
+            '<div class="muted small">Session expired. Please sign in again.</div>',
+            status_code=401,
+        )
+    rows = queries.alert_queue(db, session.org_id, status=None, alert_id=alert_id)
+    if not rows:
+        return HTMLResponse(
+            '<div class="muted small">Alert not found.</div>', status_code=404,
+        )
+    html = templates.get_template("_alert_panel.html").render(
+        a=rows[0], session=session,
+        csrf_token=request.cookies.get(CSRF_COOKIE, ""),
+        request=request,
+    )
+    return HTMLResponse(html)
+
+
 @app.post("/alerts/{alert_id}/disposition")
 def alert_disposition(
     request: Request, db: DB, alert_id: int,
@@ -1973,11 +2010,16 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
     import io
 
     from fastapi.responses import StreamingResponse
+    from ..pii import redact as _redact_pii
 
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([_escape_csv_formula(h) for h in header])
-    writer.writerows([[_escape_csv_formula(cell) for cell in row] for row in rows])
+    writer.writerows([
+        [_escape_csv_formula(_redact_pii(str(cell)) if isinstance(cell, str) else cell)
+         for cell in row]
+        for row in rows
+    ])
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]), media_type="text/csv",
@@ -2041,7 +2083,7 @@ def feedback_submit(
 def audit_view(request: Request, db: DB, page: int = 1):
     try:
         session = require_session(request, db)
-        require_role(session, "mlro")
+        require_role(session, *AUDIT_VIEW_ROLES)
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
@@ -2063,7 +2105,7 @@ def audit_export(request: Request, db: DB):
     """Export the full audit log for the org as a CSV file. MLRO only."""
     try:
         session = require_session(request, db)
-        require_role(session, "mlro")
+        require_role(session, *AUDIT_VIEW_ROLES)
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
@@ -2073,6 +2115,8 @@ def audit_export(request: Request, db: DB):
     import csv
     import io as _io
     from fastapi.responses import StreamingResponse
+
+    from ..pii import redact as _redact_pii
 
     entries = queries.audit_trail(db, session.org_id, limit=100000)
     buf = _io.StringIO()
@@ -2085,7 +2129,7 @@ def audit_export(request: Request, db: DB):
             e.get("actor", ""),
             e.get("object_type", ""),
             e.get("object_id", ""),
-            e.get("detail", ""),
+            _redact_pii(e.get("detail") or ""),
         ])
     buf.seek(0)
 

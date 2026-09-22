@@ -23,17 +23,32 @@
   </div>
 {% endif %}
 
-<div class="page-head">
-  <div class="eyebrow">Workspace</div>
-  <h1>Overview</h1>
-  <div class="status-line {{ 'bad' if not d.compliant }}">
-    <span class="dot"></span>
-    <span class="text">
-      {% if d.compliant %}Sanctions lists refreshed within the 24-hour window
-      {% else %}Sanctions list refresh is overdue{% endif %}
-      &middot; {{ d.generated_at[:10] }}
-    </span>
+<div class="page-head page-head--with-actions">
+  <div>
+    <div class="eyebrow">Workspace</div>
+    <h1>Overview</h1>
+    <div class="status-line {{ 'bad' if not d.compliant }}">
+      <span class="dot"></span>
+      <span class="text">
+        {% if d.compliant %}Sanctions lists refreshed within the 24-hour window
+        {% else %}Sanctions list refresh is overdue{% endif %}
+        &middot; {{ d.generated_at[:10] }}
+      </span>
+    </div>
   </div>
+  {% if session.operator_role == 'mlro' %}
+  <div class="page-head__actions">
+    <a href="/freeze-obligations" class="btn-outline">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      Freeze Obligations
+      {% if d.freeze_stats and d.freeze_stats.pending_execution %}
+        <span class="count-badge count-badge--warn"><span aria-hidden="true">{{ d.freeze_stats.pending_execution }}</span><span class="visually-hidden">, {{ d.freeze_stats.pending_execution }} pending execution</span></span>
+      {% endif %}
+    </a>
+  </div>
+  {% endif %}
 </div>
 
 <div class="dashboard-hero">
@@ -111,7 +126,7 @@
   <div class="section-label">Oldest open alerts</div>
   <div class="flat-list">
     {% for a in d.oldest_open %}
-      <a href="/alerts" class="list-row">
+      <a href="/alerts" data-alert-id="{{ a.id }}" class="list-row" style="cursor:pointer; text-decoration:none; color:inherit;">
         <span class="tag {{ a.category }}" style="min-width:80px; flex-shrink:0;">{{ a.category }}</span>
         <div class="grow primary">{{ a.caption }}</div>
         <div class="num">{{ '%.3f'|format(a.score) }}</div>
@@ -200,4 +215,23 @@
   {% endif %}
 </div>
 
+{% if recent_audit %}
+<div class="mt-6">
+  <div class="section-label">Recent activity</div>
+  <div class="flat-list">
+    {% for entry in recent_audit %}
+      <div class="list-row">
+        <div class="grow">
+          <div class="primary">{{ entry.action.replace('.', ' ').replace('_', ' ') }}</div>
+          <div class="secondary">{{ entry.actor }}{% if entry.object_type %} &middot; {{ entry.object_type }}{% endif %}</div>
+        </div>
+        <div class="side nowrap muted small">{{ ((entry.ts or '')|string)[:16].replace('T', ' ') }}</div>
+      </div>
+    {% endfor %}
+  </div>
+  <a href="/audit" class="btn small ghost mt-4">View all</a>
+</div>
+{% endif %}
+
+<script src="/static/js/alert-panel.js"></script>
 {% endblock %}
