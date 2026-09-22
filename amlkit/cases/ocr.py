@@ -60,6 +60,89 @@ _EMIRATES_ID_LABEL_WORDS = {
 }
 
 
+def _load_bytes(image_path_or_file) -> bytes:
+    """Read a path or a file-like object into memory once.
+
+    Existing code re-reads image_path_or_file twice in both public
+    functions below (once for MRZ, again for the OCR fallback) by passing
+    the SAME object to two different readers -- fragile even before this
+    change (a stream exhausted by the first reader silently starves the
+    second), and actively wrong once PDF rasterization is added, since the
+    rasterized bytes must be computed once and handed to both readers as
+    fresh streams, not the raw PDF bytes reused. Centralizing the read here
+    fixes both problems: everything downstream gets its own fresh
+    io.BytesIO(these_bytes).
+
+    Already-loaded `bytes` are returned as-is (checked before the path
+    branch below): `bytes` also satisfies a naive path-like check, which
+    would otherwise send raw content into `open(...)` as a filename.
+    """
+    import os
+    if isinstance(image_path_or_file, bytes):
+        return image_path_or_file
+    if isinstance(image_path_or_file, (str, os.PathLike)):
+        with open(image_path_or_file, "rb") as f:
+            return f.read()
+    if hasattr(image_path_or_file, "read"):
+        pos = image_path_or_file.tell() if hasattr(image_path_or_file, "tell") else None
+        data = image_path_or_file.read()
+        if pos is not None:
+            try:
+                image_path_or_file.seek(pos)
+            except Exception:
+                pass
+        return data
+    raise TypeError(f"Unsupported input type for OCR: {type(image_path_or_file)!r}")
+
+
+def _pdf_first_page_to_image_bytes(pdf_bytes: bytes, *, dpi: int = 300) -> bytes:
+    """Rasterize a PDF's first page to PNG bytes.
+
+    Documents scanned or saved as PDF (a phone scanner app, an all-in-one
+    printer) land here just as often in practice as a direct photo upload
+    -- validate_file_mime() already allow-lists application/pdf for exactly
+    this reason -- but MRZ reading and PIL-based OCR fallback both only
+    understand raster images. 300 DPI balances OCR/MRZ legibility against
+    memory: an A4 page at 300 DPI is roughly 2480x3508px, comfortably above
+    assess_image_quality()'s 600px-short-edge floor without being
+    excessive. Only the first page is used -- passport/Emirates ID scans
+    are single-document uploads, not multi-page packets.
+    """
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        if doc.page_count == 0:
+            raise ValueError("PDF has no pages")
+        page = doc[0]
+        zoom = dpi / 72
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        return pix.tobytes("png")
+    finally:
+        doc.close()
+
+
+def _prepare_image_bytes(image_path_or_file, *, dpi: int = 300) -> bytes:
+    """Load input bytes, transparently rasterizing a PDF's first page.
+
+    PDF is detected by the %PDF- magic header on the actual bytes, not by
+    filename or a caller-supplied content-type -- callers here only ever
+    have a file-like object or a path, no reliable extension. If PDF
+    rasterization itself fails (corrupt/encrypted PDF, no pages), this
+    falls back to returning the raw bytes unchanged rather than raising:
+    the raw bytes will then fail MRZ/OCR the same way any other unreadable
+    input already does (caught internally, all-null result) -- consistent
+    with this module's existing "swallow failures, surface nothing rather
+    than crash" behavior, not a new failure mode.
+    """
+    raw = _load_bytes(image_path_or_file)
+    if raw[:5] == b"%PDF-":
+        try:
+            return _pdf_first_page_to_image_bytes(raw, dpi=dpi)
+        except Exception:
+            pass
+    return raw
+
+
 def _resolve_two_digit_year(two_digit_year: str, month: str, day: str) -> str | None:
     """Disambiguate an MRZ two-digit year by picking whichever century
     lands closer to today.
@@ -144,10 +227,12 @@ def extract_passport_data(image_path_or_file) -> dict[str, str | None]:
         "authenticity": None,
     }
 
+    image_bytes = _prepare_image_bytes(image_path_or_file)
+
     # 1. Try reading MRZ using passporteye
     mrz = None
     try:
-        mrz = read_mrz(image_path_or_file)
+        mrz = read_mrz(io.BytesIO(image_bytes))
     except Exception:
         pass
         
@@ -209,7 +294,7 @@ def extract_passport_data(image_path_or_file) -> dict[str, str | None]:
     if not res["full_name"] or not res["id_number"]:
         try:
             import pytesseract
-            img = Image.open(image_path_or_file)
+            img = Image.open(io.BytesIO(image_bytes))
             # Run OCR on the image
             text = pytesseract.image_to_string(img)
             
@@ -366,7 +451,11 @@ def extract_emirates_id_data(image_path_or_file) -> dict[str, object]:
     """
     import pytesseract
 
-    img = image_path_or_file if isinstance(image_path_or_file, Image.Image) else Image.open(image_path_or_file)
+    if isinstance(image_path_or_file, Image.Image):
+        img = image_path_or_file
+    else:
+        image_bytes = _prepare_image_bytes(image_path_or_file)
+        img = Image.open(io.BytesIO(image_bytes))
     data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
 
     words_with_conf = [
@@ -437,7 +526,11 @@ def assess_image_quality(image_path_or_file) -> dict[str, object]:
       UAE-document samples before being trusted for anything but a
       human-review prompt.
     """
-    img = image_path_or_file if isinstance(image_path_or_file, Image.Image) else Image.open(image_path_or_file)
+    if isinstance(image_path_or_file, Image.Image):
+        img = image_path_or_file
+    else:
+        image_bytes = _prepare_image_bytes(image_path_or_file)
+        img = Image.open(io.BytesIO(image_bytes))
     img = img.convert("RGB")
     width, height = img.size
 
@@ -466,3 +559,174 @@ def assess_image_quality(image_path_or_file) -> dict[str, object]:
         "max_ela_error": max_error,
         "flags": flags,
     }
+
+
+# Issuing-authority display names, matched against a keyword found anywhere
+# in the OCR text. Order matters: more specific free-zone names are checked
+# before the generic "Department of Economy" (mainland) fallback so a free
+# zone licence that also happens to mention "Dubai" doesn't get mis-tagged.
+_TRADE_LICENCE_AUTHORITIES: tuple[tuple[str, str], ...] = (
+    ("dmcc", "Dubai Multi Commodities Centre (DMCC)"),
+    ("jafza", "Jebel Ali Free Zone (JAFZA)"),
+    ("dafza", "Dubai Airport Free Zone (DAFZA)"),
+    ("difc", "Dubai International Financial Centre (DIFC)"),
+    ("ifza", "International Free Zone Authority (IFZA)"),
+    ("rakez", "Ras Al Khaimah Economic Zone (RAKEZ)"),
+    ("shams", "Sharjah Media City (SHAMS)"),
+    ("adgm", "Abu Dhabi Global Market (ADGM)"),
+    ("meydan", "Meydan Free Zone"),
+    ("department of economy and tourism", "Dubai Department of Economy and Tourism"),
+    ("department of economic development", "Department of Economic Development"),
+)
+
+# Legal-structure suffixes/phrases a trade name or "Legal Type" field commonly
+# carries. Checked longest-first so "Free Zone Establishment" matches before
+# the bare "LLC" a shorter, unrelated substring could otherwise catch.
+_TRADE_LICENCE_LEGAL_TYPES: tuple[str, ...] = (
+    "Free Zone Establishment", "Free Zone Company", "Sole Establishment",
+    "Sole Proprietorship", "Civil Company", "Limited Liability Company",
+    "Branch of a Foreign Company", "Public Joint Stock Company",
+    "Private Joint Stock Company", "General Partnership", "FZCO", "FZE", "LLC",
+)
+
+_TRADE_LICENCE_NUMBER_LABEL = re.compile(
+    r"(?:Trade\s+)?Licen[cs]e\s+(?:No\.?|Number)|Registration\s+No\.?|Reg\.?\s*No\.?"
+    r"|CN\s*No\.?",
+    re.IGNORECASE,
+)
+_TRADE_LICENCE_NUMBER_VALUE = re.compile(r"[:\s]+([A-Z]{0,6}[\s\-]?\d{3,10})", re.IGNORECASE)
+
+_TRADE_LICENCE_NAME_LABEL = re.compile(
+    r"(?:Trade\s+Name|Company\s+Name|Licensee(?:\s+Name)?|Legal\s+Name)\s*[:\s]+"
+    r"([A-Z][A-Za-z0-9&' \-\.]{2,90})",
+    re.IGNORECASE,
+)
+
+_TRADE_LICENCE_TYPE_LABEL = re.compile(
+    r"(?:Legal\s+(?:Type|Form)|Company\s+Type)\s*[:\s]+([A-Za-z][A-Za-z \-]{2,50})",
+    re.IGNORECASE,
+)
+
+
+def _parse_trade_licence_text(text: str, mean_confidence: float | None = None) -> dict[str, object]:
+    """Pull identity fields out of raw OCR text from a UAE trade licence.
+
+    Unlike passport MRZ (one fixed ICAO format) or even Emirates ID (one
+    national format), a UAE trade licence has no fixed template at all: over
+    40 issuing authorities (mainland DED per emirate, dozens of free zones)
+    each print their own layout. So this is regex-against-free-text, and
+    weaker still than the Emirates ID path in one specific way -- the licence
+    number has no universal, safe pattern to fall back on (Emirates ID's
+    `784-...` prefix is unique enough to search for even unlabelled; a bare
+    5-10 digit trade licence number is not, and guessing wrong would misfile
+    the one field everything else on the customer record keys off). So
+    `id_number` is extracted ONLY next to an explicit label, never as a
+    bare-number guess.
+
+    `issuing_authority` is a best-effort keyword match, used to tag which
+    licence layout was likely being read -- not itself an extracted field
+    printed on the document.
+    """
+    res: dict[str, object] = {
+        "full_name": None,
+        "id_number": None,
+        "legal_type": None,
+        "issue_date": None,
+        "expiry_date": None,
+        "issuing_authority": None,
+        "id_type": "trade_licence",
+        "field_confidence": {},
+    }
+
+    num_label = _TRADE_LICENCE_NUMBER_LABEL.search(text)
+    if num_label:
+        value = _TRADE_LICENCE_NUMBER_VALUE.match(text[num_label.end():])
+        if value:
+            res["id_number"] = value.group(1).strip()
+            res["field_confidence"]["id_number"] = mean_confidence
+
+    name_match = _TRADE_LICENCE_NAME_LABEL.search(text)
+    if name_match:
+        res["full_name"] = name_match.group(1).strip().rstrip(".")
+        res["field_confidence"]["full_name"] = mean_confidence
+
+    type_match = _TRADE_LICENCE_TYPE_LABEL.search(text)
+    if type_match:
+        res["legal_type"] = type_match.group(1).strip()
+        res["field_confidence"]["legal_type"] = mean_confidence
+    else:
+        # No labelled "Legal Type" field on this layout -- the trade name
+        # itself often carries the suffix (e.g. "... TRADING LLC").
+        haystack = (res["full_name"] or "") + " " + text
+        for legal_type in _TRADE_LICENCE_LEGAL_TYPES:
+            if re.search(r"\b" + re.escape(legal_type) + r"\b", haystack, re.IGNORECASE):
+                res["legal_type"] = legal_type
+                break
+
+    # Dates: same DD/MM/YYYY-or-DD-MM-YYYY pattern as the Emirates ID path.
+    # A licence prints Issue and Expiry (never a third date), sorted
+    # ascending: issue is the older date, expiry the newer one.
+    date_matches = _DATE_DDMMYYYY_PATTERN.findall(text)
+    parsed_dates = []
+    for d, m, y in date_matches:
+        try:
+            parsed_dates.append(datetime.strptime(f"{y}-{m}-{d}", "%Y-%m-%d").date())
+        except ValueError:
+            continue
+    if parsed_dates:
+        parsed_dates.sort()
+        res["issue_date"] = parsed_dates[0].isoformat()
+        res["field_confidence"]["issue_date"] = mean_confidence
+        if len(parsed_dates) > 1:
+            res["expiry_date"] = parsed_dates[-1].isoformat()
+            res["field_confidence"]["expiry_date"] = mean_confidence
+
+    lowered = text.lower()
+    for keyword, display_name in _TRADE_LICENCE_AUTHORITIES:
+        if keyword in lowered:
+            res["issuing_authority"] = display_name
+            break
+
+    res["expiry_check"] = check_expiry(res["expiry_date"])
+    return res
+
+
+def extract_trade_licence_data(image_path_or_file) -> dict[str, object]:
+    """OCR a UAE trade licence image and extract company/licence fields.
+
+    Runs pytesseract in word-level mode so a mean OCR confidence is available
+    to attach to extracted fields, exactly like `extract_emirates_id_data` --
+    see that function and `_parse_trade_licence_text` for why this is a
+    page-level proxy rather than a true per-field score.
+
+    An image that fails to decode or OCR (corrupt upload, unsupported format,
+    a blurry phone photo pytesseract chokes on) degrades to an all-null
+    result rather than raising -- the same "never let a missing field crash
+    an otherwise-successful extraction" contract `extract_passport_data`
+    documents for its own OCR fallback path, so the caller always gets a
+    dict back and the person onboarding a company sees "nothing was read,
+    fill it in" instead of a raw server error.
+    """
+    text = ""
+    mean_confidence = None
+    try:
+        import pytesseract
+
+        img = image_path_or_file if isinstance(image_path_or_file, Image.Image) else Image.open(image_path_or_file)
+        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+
+        words_with_conf = [
+            (word, float(conf))
+            for word, conf in zip(data["text"], data["conf"])
+            if word.strip() and float(conf) >= 0
+        ]
+        text = " ".join(word for word, _ in words_with_conf)
+        mean_confidence = (
+            round(sum(conf for _, conf in words_with_conf) / len(words_with_conf), 1)
+            if words_with_conf
+            else None
+        )
+    except Exception:
+        pass  # degrade to the all-null result below; see docstring
+
+    return _parse_trade_licence_text(text, mean_confidence=mean_confidence)

@@ -265,3 +265,92 @@ class TestAssessImageQuality:
         result = assess_image_quality(img)
         assert isinstance(result["max_ela_error"], int)
         assert not any("re-compression" in f for f in result["flags"])
+
+
+# ---------------------------------------------------------------------------
+# Trade licence (legal-person onboarding) field parsing.
+#
+# UAE trade licences have no MRZ and no fixed template -- unlike Emirates ID
+# (a single national format), there are 40+ issuing authorities (mainland
+# DED per emirate, dozens of free zones) each with their own layout. So, like
+# the Emirates ID path, this is regex-against-free-text with a shared
+# `field_confidence`, and it is materially weaker than the passport MRZ path:
+# see `_parse_trade_licence_text`'s docstring.
+# ---------------------------------------------------------------------------
+
+from amlkit.cases.ocr import _parse_trade_licence_text  # noqa: E402
+
+
+def test_trade_licence_extracts_mainland_ded_fields():
+    text = (
+        "GOVERNMENT OF DUBAI\nDEPARTMENT OF ECONOMY AND TOURISM\nTRADE LICENSE\n"
+        "License Number : 749278\n"
+        "Trade Name : FALCON RIDGE TRADING FZE\n"
+        "Legal Type : Free Zone Establishment\n"
+        "Issue Date : 12/01/2023\n"
+        "Expiry Date : 11/01/2025\n"
+    )
+    r = _parse_trade_licence_text(text, mean_confidence=91.0)
+    assert r["id_number"] == "749278"
+    assert r["full_name"] == "FALCON RIDGE TRADING FZE"
+    assert r["legal_type"] == "Free Zone Establishment"
+    assert r["issue_date"] == "2023-01-12"
+    assert r["expiry_date"] == "2025-01-11"
+    assert r["issuing_authority"] == "Dubai Department of Economy and Tourism"
+    assert r["id_type"] == "trade_licence"
+    assert r["field_confidence"]["id_number"] == 91.0
+
+
+def test_trade_licence_extracts_free_zone_fields_and_authority():
+    text = (
+        "DMCC\nDUBAI MULTI COMMODITIES CENTRE\n"
+        "Licence No: DMCC123456\n"
+        "Company Name: SILVER PEAK COMMODITIES DMCC\n"
+        "Legal Form: Branch of a Foreign Company\n"
+        "Date of Issue: 05-03-2022\n"
+        "Date of Expiry: 04-03-2024\n"
+    )
+    r = _parse_trade_licence_text(text, mean_confidence=88.0)
+    assert r["id_number"] == "DMCC123456"
+    assert r["full_name"] == "SILVER PEAK COMMODITIES DMCC"
+    assert r["legal_type"] == "Branch of a Foreign Company"
+    assert r["issue_date"] == "2022-03-05"
+    assert r["expiry_date"] == "2024-03-04"
+    assert r["issuing_authority"] == "Dubai Multi Commodities Centre (DMCC)"
+
+
+def test_trade_licence_legal_type_falls_back_to_name_suffix_when_unlabelled():
+    text = "Trade Name : HARBOURVIEW BROKERS LLC\nLicense No : 55021\n"
+    r = _parse_trade_licence_text(text)
+    assert r["full_name"] == "HARBOURVIEW BROKERS LLC"
+    assert r["legal_type"] == "LLC"
+
+
+def test_trade_licence_never_guesses_an_unlabelled_number():
+    """No safe universal pattern exists (unlike Emirates ID's fixed prefix),
+    so a bare number never becomes id_number without an explicit label --
+    guessing wrong here would misfile a customer's licence number."""
+    text = "Some certificate mentions 749278 in passing, no label at all."
+    r = _parse_trade_licence_text(text)
+    assert r["id_number"] is None
+
+
+def test_trade_licence_missing_fields_degrade_to_none_not_crash():
+    r = _parse_trade_licence_text("completely illegible garbage !!! ###")
+    assert r["id_number"] is None
+    assert r["full_name"] is None
+    assert r["legal_type"] is None
+    assert r["issue_date"] is None
+    assert r["expiry_date"] is None
+    assert r["issuing_authority"] is None
+    assert r["expiry_check"]["expired"] is None  # check_expiry(None) contract
+
+
+def test_trade_licence_expiry_check_flags_an_expired_licence():
+    text = (
+        "License Number: 1\nTrade Name: OLD CO LLC\n"
+        "Issue Date: 01/01/2018\nExpiry Date: 01/01/2020\n"
+    )
+    r = _parse_trade_licence_text(text)
+    assert r["expiry_date"] == "2020-01-01"
+    assert r["expiry_check"]["expired"] is True

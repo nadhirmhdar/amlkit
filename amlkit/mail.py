@@ -280,3 +280,68 @@ def send_freeze_obligation_alert(
     except (OSError, smtplib.SMTPException):
         logger.exception("Failed to send freeze obligation alert to %s", to_email)
         return FAILED
+
+
+def send_screening_match_alert(
+    to_emails: list[str],
+    *,
+    query_name: str,
+    match_caption: str,
+    score: float,
+    alert_url: str,
+) -> str:
+    """Email every active MLRO that a screening just produced a new match.
+
+    Best-effort second channel next to the in-app notification, which is the
+    record of truth. Same three-valued outcome as the other senders and, like
+    them, never raises: a mail outage must not be able to break a screening.
+    """
+    recipients = [e for e in to_emails if e]
+    if not recipients:
+        return SENT  # nobody to notify
+
+    subject = f"[amlkit] New screening match: {match_caption}"
+    body = (
+        "A screening has just produced a new possible match.\n\n"
+        f"Searched:  {query_name}\n"
+        f"Matched:   {match_caption}\n"
+        f"Score:     {score:.2f}\n\n"
+        "Review it now (a decision needs a reason and a written narrative):\n"
+        f"  {alert_url}\n\n"
+        "Do not discuss this alert with the customer.\n"
+    )
+
+    if not is_configured():
+        print(
+            "\n" + "=" * 72 +
+            f"\namlkit: NEW SCREENING MATCH ALERT\nTo: {', '.join(recipients)}\n"
+            f"Searched: {query_name}\nMatched: {match_caption} ({score:.2f})\n\n"
+            "No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.\n\n"
+            f"  {alert_url}\n" + "=" * 72 + "\n"
+        )
+        return NOT_CONFIGURED
+
+    host = os.environ["AMLKIT_SMTP_HOST"]
+    port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
+    user = os.environ.get("AMLKIT_SMTP_USER", "")
+    password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
+    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@amlkit.local")
+    use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(recipients)
+    msg.set_content(body)
+    try:
+        with smtplib.SMTP(host, port, timeout=15) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if user:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+        logger.info("Screening match alert sent to %d MLRO(s)", len(recipients))
+        return SENT
+    except (OSError, smtplib.SMTPException):
+        logger.exception("Failed to send screening match alert")
+        return FAILED

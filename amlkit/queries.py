@@ -1096,9 +1096,107 @@ def total_customer_count(conn: sqlite3.Connection, org_id: int) -> int:
     ).fetchone()["c"]
 
 
+def contextual_home_card(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
+    """Determine which contextual card to show on the home page.
+
+    Priority order:
+    1. Open alerts > 0 → "Review N open alerts"
+    2. Customers due for adverse media check → "Check adverse media"
+    3. Datasets stale (> 20h) → "Refresh sanctions lists"
+    4. Fallback → "All clear"
+
+    Returns:
+        {
+            "type": "alerts" | "adverse_media" | "datasets" | "all_clear",
+            "title": str,
+            "description": str,
+            "link": str,
+            "count": int | None  # For alerts type
+        }
+    """
+    # Check for open alerts
+    open_alerts_count = conn.execute(
+        """SELECT COUNT(*) as count FROM alerts
+           WHERE org_id = ? AND status IN ('open', 'pending_review')""",
+        (org_id,)
+    ).fetchone()["count"]
+
+    if open_alerts_count > 0:
+        plural = "s" if open_alerts_count != 1 else ""
+        return {
+            "type": "alerts",
+            "title": f"Review {open_alerts_count} alert{plural}",
+            "description": f"{open_alerts_count} alert{plural} awaiting decision",
+            "link": "/dashboard",
+            "count": open_alerts_count,
+        }
+
+    # Check for customers due for adverse media check
+    am_due = adverse_media_due(conn, org_id)
+    if am_due:
+        count = len(am_due)
+        return {
+            "type": "adverse_media",
+            "title": "Check adverse media",
+            "description": f"{count} customer{'s' if count != 1 else ''} due for adverse media screening",
+            "link": "/dashboard",
+            "count": count,
+        }
+
+    # Check for stale datasets (> 20 hours)
+    from datetime import timedelta
+    twenty_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat()
+    stale_datasets = conn.execute(
+        """SELECT COUNT(*) as count FROM datasets
+           WHERE last_refresh IS NULL OR last_refresh < ?""",
+        (twenty_hours_ago,)
+    ).fetchone()["count"]
+
+    if stale_datasets > 0:
+        return {
+            "type": "datasets",
+            "title": "Refresh sanctions lists",
+            "description": "Sanctions datasets need refreshing",
+            "link": "/admin/compliance",
+            "count": stale_datasets,
+        }
+
+    # Fallback - all clear
+    return {
+        "type": "all_clear",
+        "title": "All clear",
+        "description": "Everything is up to date",
+        "link": "/dashboard",
+        "count": None,
+    }
+
+
 def dashboard_visited(conn: sqlite3.Connection, org_id: int) -> bool:
     """Whether the org has completed onboarding step 3 (reviewed dashboard)."""
     row = conn.execute(
         "SELECT dashboard_visited_at FROM organizations WHERE id = ?", (org_id,)
     ).fetchone()
     return row is not None and row["dashboard_visited_at"] is not None
+
+
+def notifications_for(
+    conn: sqlite3.Connection, org_id: int, operator_id: int,
+    limit: int = 50, unread_only: bool = False,
+) -> list[dict[str, Any]]:
+    """One operator's notifications, newest first. Scoped by org AND operator:
+    a notification is addressed to a person, not just to a firm."""
+    sql = (
+        "SELECT id, kind, title, body, link, created_at, read_at FROM notifications"
+        " WHERE org_id=? AND operator_id=?"
+    )
+    if unread_only:
+        sql += " AND read_at IS NULL"
+    sql += " ORDER BY id DESC LIMIT ?"
+    return [dict(r) for r in conn.execute(sql, (org_id, operator_id, limit))]
+
+
+def unread_notification_count(conn: sqlite3.Connection, org_id: int, operator_id: int) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM notifications WHERE org_id=? AND operator_id=? AND read_at IS NULL",
+        (org_id, operator_id),
+    ).fetchone()[0]

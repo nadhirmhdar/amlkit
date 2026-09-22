@@ -697,6 +697,23 @@ CREATE INDEX IF NOT EXISTS ix_freeze_org      ON freeze_obligations(org_id);
 CREATE INDEX IF NOT EXISTS ix_freeze_customer ON freeze_obligations(customer_id);
 CREATE INDEX IF NOT EXISTS ix_freeze_status   ON freeze_obligations(status);
 
+-- ------------------------------------------------------- In-app notifications
+-- One row per (operator, event). The bell, the inbox page and the mobile API
+-- all read from here; email is a second channel, never the only record.
+-- Tenant-scoped like everything else: every read and write carries org_id.
+CREATE TABLE IF NOT EXISTS notifications (
+    id          INTEGER PRIMARY KEY,
+    org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,          -- screening_match | rescreen_digest
+    title       TEXT NOT NULL,
+    body        TEXT NOT NULL DEFAULT '',
+    link        TEXT,                   -- app-relative deep link
+    created_at  TEXT NOT NULL,
+    read_at     TEXT                    -- NULL = unread
+);
+CREATE INDEX IF NOT EXISTS ix_notif_operator ON notifications(org_id, operator_id, read_at);
+
 -- -------------------------------------------------------- compliance calendar (Phase 4, Item 6)
 CREATE TABLE IF NOT EXISTS compliance_deadlines (
     id                 INTEGER PRIMARY KEY,

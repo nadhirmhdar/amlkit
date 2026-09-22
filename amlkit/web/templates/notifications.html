@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% set nav = 'notifications' %}
+{% block title %}Notifications — amlkit{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div class="eyebrow">Inbox</div>
+  <h1>Notifications</h1>
+  <p class="sub">
+    You are told here, and by email, the moment a screening finds a new match.
+    Open one to go straight to the alert.
+  </p>
+</div>
+
+{% if items %}
+<form method="post" action="/notifications/read-all" class="mb-4">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit" class="btn small ghost">Mark all as read</button>
+</form>
+
+<div class="flat-list">
+  {% for n in items %}
+  <form method="post" action="/notifications/{{ n.id }}/read" class="list-row notif-row {{ '' if n.read_at else 'is-unread' }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div>
+      <div class="notif-title">{% if not n.read_at %}<span class="notif-dot" aria-label="Unread"></span>{% endif %}{{ n.title }}</div>
+      <div class="muted small">{{ n.body }}</div>
+      <div class="muted small mono">{{ n.created_at[:19].replace('T',' ') }}</div>
+    </div>
+    <button type="submit" class="btn small">Open</button>
+  </form>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">No notifications.</p>
+{% endif %}
+
+{% endblock %}

@@ -190,14 +190,22 @@ function toggleCustomerFields() {
   const ocrDesc = document.querySelector('.ocr-upload-zone p');
   if (isLegal) {
     ocrTitle.textContent = 'Scan Trade Licence (OCR)';
-    ocrDesc.textContent = 'Upload trade licence image to auto-fill company details.';
+    ocrDesc.textContent = 'Upload trade licence image or PDF to auto-fill company details.';
   } else {
     ocrTitle.textContent = 'Scan Passport (MRZ / OCR)';
-    ocrDesc.textContent = 'Upload passport image to auto-fill name, DOB, nationality and gender.';
+    ocrDesc.textContent = 'Upload passport image or PDF scan to auto-fill name, DOB, nationality and gender.';
   }
 }
 
 async function performPassportOCR(input) {
+  // Legal-person onboarding relabels this button "Scan Trade Licence" --
+  // route to the matching extractor instead of always reading it as a
+  // passport (which found almost nothing on a trade licence photo).
+  var customerTypeEl = document.getElementById('customer_type');
+  if (customerTypeEl && customerTypeEl.value === 'legal') {
+    return performTradeLicenceOCR(input);
+  }
+
   if (!input.files || input.files.length === 0) return;
   const file = input.files[0];
   const statusEl = document.getElementById('scan-status');
@@ -260,6 +268,56 @@ async function performPassportOCR(input) {
       statusEl.textContent = data.authenticity
         ? 'Scan complete. MRZ checksums verified.'
         : 'Scan complete (MRZ not read — fields extracted via OCR fallback have no authenticity check).';
+    }
+  } catch (err) {
+    statusEl.textContent = 'Scan failed. Please enter manually.';
+  }
+}
+
+async function performTradeLicenceOCR(input) {
+  if (!input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  const statusEl = document.getElementById('scan-status');
+  statusEl.style.display = 'inline';
+  statusEl.textContent = 'Scanning…';
+
+  const formData = new FormData();
+  formData.append('licence_file', file);
+  formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+
+  try {
+    const res = await fetch('/customers/scan-trade-licence', {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) throw new Error('Scan failed');
+    const data = await res.json();
+
+    if (data.full_name) {
+      document.querySelector('input[name="full_name"]').value = data.full_name;
+    }
+    if (data.id_number) {
+      var licenceInput = document.querySelector('input[name="trade_licence"]');
+      if (licenceInput) licenceInput.value = data.id_number;
+    }
+
+    const warnEl = document.getElementById('scan-authenticity');
+    const flags = (data.expiry_check && data.expiry_check.flags) || [];
+    const missing = ['full_name', 'id_number'].filter(function (f) { return !data[f]; });
+    if (missing.length) {
+      flags.push('could not read ' + missing.join(' and ') + ' from this image -- enter manually');
+    }
+    if (flags.length > 0) {
+      warnEl.textContent = 'Document check: ' + flags.join('; ') + '.';
+      warnEl.style.display = 'block';
+      statusEl.textContent = 'Scan complete — see note below.';
+    } else {
+      warnEl.style.display = 'none';
+      var extra = [];
+      if (data.legal_type) extra.push(data.legal_type);
+      if (data.issuing_authority) extra.push(data.issuing_authority);
+      statusEl.textContent = 'Scan complete' + (extra.length ? ' (' + extra.join(', ') + ')' : '') + '.'
+        + ' No authenticity check exists for trade licences -- verify manually.';
     }
   } catch (err) {
     statusEl.textContent = 'Scan failed. Please enter manually.';
@@ -436,3 +494,23 @@ document.addEventListener('DOMContentLoaded', function() {
     desktopUserMenuBtn.addEventListener('click', window.toggleDesktopUserMenu);
   }
 });
+
+// Notification bell: show the operator's unread count, refreshed every 30 s.
+(function () {
+  var badges = document.querySelectorAll('[data-notif-badge]');
+  if (!badges.length) return;
+  function refresh() {
+    fetch('/notifications/unread-count', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        badges.forEach(function (b) {
+          b.textContent = d.count > 99 ? '99+' : String(d.count);
+          b.hidden = !d.count;
+        });
+      })
+      .catch(function () {});
+  }
+  refresh();
+  setInterval(refresh, 30000);
+})();
