@@ -344,6 +344,17 @@ main {
 .home-head .sub { font-size: 14.5px; color: var(--ink-2); margin-top: 12px; max-width: 620px; line-height: 1.6; }
 .home-head .status-line { margin-top: 18px; }
 
+.home-grid { display: flex; gap: 28px; align-items: stretch; margin-bottom: 40px; }
+.home-hero-art {
+  flex: 1 1 320px; min-width: 260px; border-radius: var(--radius-lg);
+  overflow: hidden; box-shadow: 0 1px 2px oklch(19% 0.012 250 / 0.04), 0 10px 26px -12px oklch(19% 0.012 250 / 0.18);
+}
+.home-hero-art img { width: 100%; height: 100%; display: block; object-fit: cover; }
+@media (max-width: 860px) {
+  .home-grid { flex-direction: column; }
+  .home-hero-art { order: -1; min-height: 220px; }
+}
+
 /* "3D floating" action cards -- layered shadow (not just a border) plus a
    hover lift, so these three read as tappable objects rather than more
    flat-list rows; deliberately distinct from .panel for that reason. */
@@ -364,11 +375,18 @@ main {
 @media (max-width: 860px) {
   .action-cards { grid-template-columns: 1fr; }
 }
+/* Inside the home-page hero layout, the "Start here" cards stack in a
+   narrow single column that shares the row with .home-hero-art, instead
+   of the 3-column grid. Scoped to .home-grid so the first-run onboarding
+   panel (shown above this section, full width) is unaffected. */
+.home-grid .action-cards {
+  display: flex; flex-direction: column; gap: 12px;
+  flex: 0 1 380px; margin-bottom: 0;
+}
 .action-card {
-  display: grid; grid-template-columns: 1fr auto; align-items: start;
-  row-gap: 16px; column-gap: 12px;
+  display: flex; align-items: center; gap: 16px;
   background: var(--surface); border: 1px solid var(--line-soft);
-  border-radius: var(--radius-lg); padding: 22px 24px;
+  border-radius: var(--radius-lg); padding: 18px 20px;
   box-shadow: 0 1px 2px oklch(19% 0.012 250 / 0.04), 0 10px 26px -12px oklch(19% 0.012 250 / 0.18);
   color: var(--ink); text-decoration: none;
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
@@ -380,16 +398,17 @@ main {
 }
 .action-card:active { transform: translateY(-1px); }
 .action-card__icon {
-  grid-column: 1; grid-row: 1;
   flex-shrink: 0; width: 44px; height: 44px; border-radius: var(--radius-sm);
-  background: var(--surface); border: 1.5px solid var(--line);
-  color: var(--ink);
+  background: var(--ink); color: white;
   display: flex; align-items: center; justify-content: center;
 }
 .action-card__icon svg { width: 21px; height: 21px; }
-.action-card__body { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+.action-card__body { flex: 1; min-width: 0; }
 .action-card__title { display: block; font-size: 16px; font-weight: 700; }
 .action-card__sub { display: block; font-size: 13px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
+/* Slightly tighter type for the narrow hero-layout column. */
+.home-grid .action-card__title { font-size: 15.5px; }
+.home-grid .action-card__sub { font-size: 12.5px; margin-top: 2px; line-height: 1.4; }
 
 /* Floating alerts bar. This was position:sticky, chosen (per the original
    comment here) specifically to avoid a manual sidebar width/offset calc.
