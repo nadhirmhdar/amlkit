@@ -67,13 +67,15 @@ class TestRequiredFields:
 
     def test_missing_source_account_is_rejected_when_transaction_present(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="", destination_account="AE1234")
+                                 source_account="", destination_account="AE1234",
+                                 source_institution_name="Test Bank", destination_institution_name="Other Bank")
         with pytest.raises(GoAMLValidationError):
             serialize_goaml_xml(payload)
 
     def test_missing_destination_account_is_rejected_when_transaction_present(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="AE1234", destination_account="")
+                                 source_account="AE1234", destination_account="",
+                                 source_institution_name="Test Bank", destination_institution_name="Other Bank")
         with pytest.raises(GoAMLValidationError):
             serialize_goaml_xml(payload)
 
@@ -86,7 +88,8 @@ class TestRequiredFields:
 class TestTransactionNumber:
     def test_transaction_number_is_unique_across_same_second_calls(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="AE1111", destination_account="AE2222")
+                                 source_account="AE1111", destination_account="AE2222",
+                                 source_institution_name="Test Bank", destination_institution_name="Other Bank")
         numbers = set()
         for _ in range(20):
             xml_content = serialize_goaml_xml(payload)
@@ -98,7 +101,8 @@ class TestTransactionNumber:
         from datetime import datetime, timezone
 
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="AE1111", destination_account="AE2222")
+                                 source_account="AE1111", destination_account="AE2222",
+                                 source_institution_name="Test Bank", destination_institution_name="Other Bank")
         xml_content = serialize_goaml_xml(payload)
         root = ET.fromstring(xml_content)
         txn_number = root.find("transaction/transactionnumber").text
@@ -109,7 +113,8 @@ class TestTransactionNumber:
 class TestValidPayload:
     def test_full_natural_person_str_serializes(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="AE1111", destination_account="AE2222")
+                                 source_account="AE1111", destination_account="AE2222",
+                                 source_institution_name="Test Bank", destination_institution_name="Other Bank")
         xml_content = serialize_goaml_xml(payload)
         root = ET.fromstring(xml_content)
         assert root.find("subject/person/first_name").text == "Ahmed"
