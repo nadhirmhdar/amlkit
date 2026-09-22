@@ -77,6 +77,21 @@ def file_ffr_report(
     if freeze["status"] != "executed_pending_report":
         raise ValueError("Freeze not ready for FFR filing")
 
+    # Guard against blank names (would raise IndexError on split()[0])
+    full_name = freeze["full_name"] or ""
+    if not full_name.strip():
+        raise ValueError(f"Cannot file FFR: customer full_name is blank (customer_id={freeze['customer_id']})")
+
+    # For legal entities, use full entity name (not split())
+    # goAML entity node uses first_name field for the entity's full name
+    if freeze["customer_type"] == "legal":
+        first_name_field = full_name
+        last_name_field = ""
+    else:
+        # Natural person: split into first/last
+        first_name_field = full_name.split()[0]
+        last_name_field = " ".join(full_name.split()[1:])
+
     report_payload = {
         "report_type": "FFR",
         "freeze_obligation_id": freeze_id,
@@ -88,8 +103,8 @@ def file_ffr_report(
         "authority_ref": freeze["authority_ref"],
         "reporter_name": reporter_name,
         "reporter_email": reporter_email,
-        "first_name": freeze["full_name"].split()[0],
-        "last_name": " ".join(freeze["full_name"].split()[1:]),
+        "first_name": first_name_field,
+        "last_name": last_name_field,
         "customer_type": freeze["customer_type"],
         "reference": freeze["reference"],
         "birth_date": freeze["birth_date"],
