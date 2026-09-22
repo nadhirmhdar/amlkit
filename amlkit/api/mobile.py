@@ -1371,6 +1371,7 @@ def _csv(filename: str, header: list[str], rows: list[list]) -> Response:
 # ---------------------------------------------------------------------- audit
 @router.get("/audit")
 def api_audit(db: DB, session: Session):
+    _require_mlro(session)
     return {"entries": queries.audit_trail(db, session.org_id, limit=300)}
 
 
