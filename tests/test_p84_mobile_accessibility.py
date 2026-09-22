@@ -102,3 +102,37 @@ class TestMobileButtonSizing:
         h = re.search(r'height\s*:\s*(\d+)', block)
         assert w and int(w.group(1)) >= 44, "user-menu-btn width should be >= 44px"
         assert h and int(h.group(1)) >= 44, "user-menu-btn height should be >= 44px"
+
+
+class TestFeedbackButtonClearsTabBar:
+    """The feedback button is position:fixed at every width. On phones it
+    must not land on top of the tab bar -- and specifically must not cover
+    the last tab (Customers), which z-index 999 made untappable."""
+
+    def test_mobile_override_comes_after_the_base_rule(self) -> None:
+        """CSS cascade tie-break is source order for equal specificity: an
+        earlier override is silently beaten by a later, unconditional base
+        rule at any viewport, mobile included. This is exactly the mistake
+        that shipped the bug -- assert the override is positioned so it
+        actually wins, not just that it exists somewhere in the file."""
+        css = CSS_PATH.read_text(encoding="utf-8")
+        blocks = list(re.finditer(r'\.feedback-btn\s*\{([^}]*)\}', css))
+        assert len(blocks) >= 2, "expected a base .feedback-btn rule plus a mobile override"
+        last = blocks[-1]
+        assert "--tabbar-h" in last.group(1), (
+            "the LAST .feedback-btn rule in the file (the one that wins the "
+            "cascade) must be the tab-bar-clearing override -- if the base "
+            "rule (bottom: 24px, no tabbar awareness) comes after it, the "
+            "button silently reverts to overlapping the tab bar on phones"
+        )
+
+    def test_mobile_override_is_scoped_to_the_680px_breakpoint(self) -> None:
+        css = CSS_PATH.read_text(encoding="utf-8")
+        blocks = list(re.finditer(r'\.feedback-btn\s*\{([^}]*)\}', css))
+        override_pos = [m for m in blocks if "--tabbar-h" in m.group(1)][0].start()
+        preceding = css[:override_pos]
+        last_open = preceding.rfind("@media")
+        last_close_before_media_body = preceding.rfind("}", 0, last_open) if last_open != -1 else -1
+        assert last_open != -1, "tab-bar override should be inside a @media block"
+        media_header = css[last_open:preceding.find("{", last_open) + 1]
+        assert "680px" in media_header, media_header
