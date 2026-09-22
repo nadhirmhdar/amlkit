@@ -131,43 +131,68 @@ def main() -> int:
     ).fetchall()
 
     total_screened = total_new_alerts = total_reassessed = 0
+    failed_orgs: list[tuple[int, str, str]] = []  # (id, name, error)
+
     for org in orgs:
-        # Note the timestamp so we can identify alerts created by THIS run.
-        run_ts = utcnow()
+        try:
+            # Note the timestamp so we can identify alerts created by THIS run.
+            run_ts = utcnow()
 
-        outcome = rescreen_all(conn, org["id"], actor="auto-rescreen")
-        new = outcome["alerts"]
-        print(
-            f"  {org['name']:38}  screened {outcome['screened']:>4}  "
-            f"new alerts {new}"
-        )
-        total_screened += outcome["screened"]
-        total_new_alerts += new
+            outcome = rescreen_all(conn, org["id"], actor="auto-rescreen")
+            new = outcome["alerts"]
+            print(
+                f"  {org['name']:38}  screened {outcome['screened']:>4}  "
+                f"new alerts {new}"
+            )
+            total_screened += outcome["screened"]
+            total_new_alerts += new
 
-        # Re-assess risk for any customer that just received a new alert.
-        # Without this, a customer hitting a sanctions list between two runs
-        # would have an open sanctions alert but still show the old rating.
-        if new:
-            query_ts = (datetime.fromisoformat(run_ts) - timedelta(seconds=1)).isoformat()
-            new_alert_customers = conn.execute(
-                """SELECT DISTINCT s.customer_id
-                   FROM alerts a
-                   JOIN screenings s ON s.id = a.screening_id
-                   WHERE a.org_id = ? AND a.created_at >= ?""",
-                (org["id"], query_ts),
-            ).fetchall()
-            for row in new_alert_customers:
-                updated = reassess_risk(
-                    conn, row["customer_id"], org["id"], actor="auto-rescreen"
-                )
-                if updated:
-                    total_reassessed += 1
+            # Re-assess risk for any customer that just received a new alert.
+            # Without this, a customer hitting a sanctions list between two runs
+            # would have an open sanctions alert but still show the old rating.
+            if new:
+                query_ts = (datetime.fromisoformat(run_ts) - timedelta(seconds=1)).isoformat()
+                new_alert_customers = conn.execute(
+                    """SELECT DISTINCT s.customer_id
+                       FROM alerts a
+                       JOIN screenings s ON s.id = a.screening_id
+                       WHERE a.org_id = ? AND a.created_at >= ?""",
+                    (org["id"], query_ts),
+                ).fetchall()
+                for row in new_alert_customers:
+                    updated = reassess_risk(
+                        conn, row["customer_id"], org["id"], actor="auto-rescreen"
+                    )
+                    if updated:
+                        total_reassessed += 1
+                conn.commit()
+        except Exception as exc:
+            # Issue #259: Isolate per-org exceptions so one failing org doesn't
+            # prevent others from rescreening.
+            error_msg = f"{type(exc).__name__}: {exc}"
+            print(
+                f"  {org['name']:38}  FAILED: {error_msg}",
+                file=sys.stderr
+            )
+            failed_orgs.append((org["id"], org["name"], error_msg))
+            # Log the failure and continue to next org
+            audit(
+                conn, "auto-rescreen", "rescreen.org_failed",
+                "organization", str(org["id"]),
+                {"org_name": org["name"], "error": error_msg},
+                org_id=org["id"]
+            )
             conn.commit()
 
     print(
         f"\n  total: {total_screened} screened, {total_new_alerts} new alert(s), "
         f"{total_reassessed} risk re-assessment(s) across {len(orgs)} org(s)"
     )
+
+    if failed_orgs:
+        print(f"\n  {len(failed_orgs)} org(s) failed:", file=sys.stderr)
+        for org_id, org_name, error in failed_orgs:
+            print(f"    - {org_name} (id={org_id}): {error}", file=sys.stderr)
 
     open_alerts = conn.execute(
         "SELECT COUNT(*) c FROM alerts WHERE status='open'"
@@ -176,12 +201,20 @@ def main() -> int:
 
     audit(
         conn, "auto-rescreen", "rescreen.completed", None, None,
-        {"orgs": len(orgs), "screened": total_screened, "new_alerts": total_new_alerts},
+        {
+            "orgs": len(orgs),
+            "screened": total_screened,
+            "new_alerts": total_new_alerts,
+            "failed_orgs": len(failed_orgs),
+        },
         org_id=None,
     )
     conn.commit()
 
     print()
+    if failed_orgs:
+        print(f"RESULT: FAILED -- {len(failed_orgs)} org(s) could not be rescreened.", file=sys.stderr)
+        return 1
     if total_new_alerts or open_alerts:
         print(f"RESULT: {open_alerts} open alert(s) require MLRO review.")
         return 2
