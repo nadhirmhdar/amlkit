@@ -78,3 +78,24 @@ class TestSecurityHeaders:
         assert "Content-Security-Policy" in r.headers
         assert "X-Content-Type-Options" in r.headers
         assert "X-Frame-Options" in r.headers
+
+
+class TestCacheControl:
+    """H7: All responses must set Cache-Control: no-store to prevent
+    disk-caching of sensitive data on shared machines."""
+
+    def test_all_responses_have_no_store(self, client) -> None:
+        """All responses must carry Cache-Control: no-store."""
+        public_paths = ["/login", "/about", "/privacy"]
+        for path in public_paths:
+            r = client.get(path)
+            assert r.status_code == 200, f"{path} -> {r.status_code}"
+            cc = r.headers.get("Cache-Control", "")
+            assert "no-store" in cc.lower(), f"{path}: Cache-Control={cc!r}"
+
+    def test_pragma_no_cache_present(self, client) -> None:
+        """All responses should also have Pragma: no-cache for older HTTP/1.0 clients."""
+        r = client.get("/login")
+        assert r.status_code == 200
+        pragma = r.headers.get("Pragma", "")
+        assert "no-cache" in pragma.lower(), f"Pragma={pragma!r}"
