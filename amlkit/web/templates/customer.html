@@ -150,6 +150,26 @@
     </div>
   </div>
   {% endif %}
+
+  {% if customer.civil_status_code or customer.occupation %}
+  <div>
+    <div class="section-label">Personal details</div>
+    <div class="flat-list">
+      {% if customer.civil_status_code %}
+      <div class="list-row">
+        <div class="grow">Civil status</div>
+        <div class="secondary">{{ customer.civil_status_code }}</div>
+      </div>
+      {% endif %}
+      {% if customer.occupation %}
+      <div class="list-row">
+        <div class="grow">Occupation</div>
+        <div class="secondary">{{ customer.occupation }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {% if ubo_diagram %}
@@ -280,6 +300,7 @@
         <option value="cash">Cash</option>
         <option value="wire">Wire</option>
         <option value="cheque">Cheque</option>
+        <option value="card">Card</option>
         <option value="crypto">Crypto</option>
         <option value="other">Other</option>
       </select></div>

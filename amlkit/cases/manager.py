@@ -150,6 +150,9 @@ def onboard(
     risk_level: str | None = None,
     source_of_wealth: str | None = None,
     source_of_funds: str | None = None,
+    # T-008: Google AML AI enum alignment
+    civil_status_code: str | None = None,
+    occupation: str | None = None,
 ) -> OnboardingResult:
     """Create a customer, screen them and their UBOs, and assign a risk rating.
 
@@ -178,6 +181,10 @@ def onboard(
                 f"Total UBO ownership is {round(total_ownership, 2)}% (cannot exceed 100%)"
             )
 
+    from ..datamodel import validate_civil_status, validate_occupation
+    validate_civil_status(civil_status_code)
+    validate_occupation(occupation)
+
     now = utcnow()
     ck = canonical_key(full_name)
 
@@ -197,8 +204,9 @@ def onboard(
                 contact_person, contact_phone, contact_email,
                 purpose_of_relationship, expected_activity,
                 risk_level, source_of_wealth, source_of_funds,
+                civil_status_code, occupation,
                 onboarded_at, retention_until, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, reference, customer_type, full_name, name_arabic, ck,
                 nationality, country, birth_date, gender, id_number, id_type,
@@ -208,6 +216,7 @@ def onboard(
                 contact_person, contact_phone, contact_email,
                 purpose_of_relationship, expected_activity,
                 risk_level, source_of_wealth, source_of_funds,
+                civil_status_code or None, occupation or None,
                 now, retention, now, now,
             ),
         )
@@ -615,10 +624,14 @@ def record_transaction(
     Same tenant-ownership check as add_case_note above, for the same reason:
     transactions.customer_id is a bare foreign key.
     """
+    from ..datamodel import VALID_METHODS
     from ..screening.kyt import evaluate_transaction
 
     if amount <= 0:
         raise ValueError("transaction amount must be positive")
+    method = method.strip().lower()
+    if method not in VALID_METHODS:
+        raise ValueError(f"Unknown method {method!r}; expected one of {sorted(VALID_METHODS)}")
     currency = (currency or "AED").strip().upper()
     if amount_aed is None:
         if currency != "AED":

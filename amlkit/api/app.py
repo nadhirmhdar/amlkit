@@ -1305,6 +1305,8 @@ def customer_create(
     risk_level: Annotated[str, Form()] = "",
     source_of_wealth: Annotated[str, Form()] = "",
     source_of_funds: Annotated[str, Form()] = "",
+    civil_status_code: Annotated[str, Form()] = "",
+    occupation: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
 ):
     try:
@@ -1357,6 +1359,8 @@ def customer_create(
             risk_level=risk_level.strip() or None,
             source_of_wealth=source_of_wealth.strip() or None,
             source_of_funds=source_of_funds.strip() or None,
+            civil_status_code=civil_status_code.strip() or None,
+            occupation=occupation.strip() or None,
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         )

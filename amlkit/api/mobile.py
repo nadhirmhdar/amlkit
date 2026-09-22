@@ -575,6 +575,8 @@ class CustomerCreateRequest(BaseModel):
     contact_person: str = ""
     contact_phone: str = ""
     contact_email: str = ""
+    civil_status_code: str = ""
+    occupation: str = ""
 
 
 @router.post("/customers")
@@ -605,6 +607,8 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
             contact_person=body.contact_person.strip() or None,
             contact_phone=body.contact_phone.strip() or None,
             contact_email=body.contact_email.strip() or None,
+            civil_status_code=body.civil_status_code.strip() or None,
+            occupation=body.occupation.strip() or None,
         )
     except StaleDatasetsError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
