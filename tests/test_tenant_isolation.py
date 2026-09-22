@@ -436,6 +436,7 @@ class TestCrossTenantRuntimeIsolation:
         cid = self._create_customer(client_a, "A-003", "Alpha Private")
 
         r = client_b.post(f"/customers/{cid}/close", data={
+            "exit_reason": "customer_request",
             "csrf_token": _csrf(client_b),
         }, follow_redirects=False)
         assert r.status_code == 303

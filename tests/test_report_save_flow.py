@@ -223,7 +223,7 @@ class TestReportSave:
             "customer_id": customer_id, "report_type": "STR", "report_id": report_id,
             "csrf_token": _csrf(client), **tampered,
         }, follow_redirects=True)
-        assert "submitted" in r2.text.lower() and "no longer" in r2.text.lower(), r2.text
+        assert "finalized" in r2.text.lower() and "no longer" in r2.text.lower(), r2.text
 
         conn = connect(os.environ["AMLKIT_DB"])
         row2 = conn.execute(

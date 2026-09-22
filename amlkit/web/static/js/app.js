@@ -287,8 +287,27 @@ function togglePassword() {
   }
 }
 
+// Home greeting from the viewer's own clock. new Date() reads the device's
+// system time in its own time zone, so someone in London at 22:00 gets
+// "Good evening" whatever the server's zone. Nothing is sent anywhere.
+function greetingForHour(hour) {
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  if (hour >= 17 && hour < 22) return 'Good evening';
+  return 'Hello';
+}
+
+function applyLocalGreeting() {
+  var nodes = document.querySelectorAll('[data-greeting]');
+  if (!nodes.length) return;
+  var text = greetingForHour(new Date().getHours());
+  for (var i = 0; i < nodes.length; i++) nodes[i].textContent = text;
+}
+
 // Wire up event handlers from data attributes
 document.addEventListener('DOMContentLoaded', function() {
+  applyLocalGreeting();
+
   // Password toggle button
   var passwordToggle = document.querySelector('[data-action="toggle-password"]');
   if (passwordToggle) {

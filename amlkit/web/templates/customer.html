@@ -16,10 +16,24 @@
       <a class="btn small" href="/customers/{{ c.id }}">Customer Profile</a>
       <a class="btn small ghost" href="/customers/{{ c.id }}/evidence">Evidence pack</a>
       {% if c.status == 'active' %}
-      <form method="post" action="/customers/{{ c.id }}/close" class="d-inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="small ghost" type="submit">Close relationship</button>
-      </form>
+      <details class="d-inline" id="close-relationship">
+        <summary class="btn small ghost">Close relationship</summary>
+        <form method="post" action="/customers/{{ c.id }}/close" class="mt-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label class="small">Exit reason
+            <select name="exit_reason" required>
+              <option value="" selected disabled>Select a reason…</option>
+              {% for code, label in exit_reasons.items() %}
+              <option value="{{ code }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="small">Note (optional)
+            <input type="text" name="exit_note" maxlength="1000">
+          </label>
+          <button class="small" type="submit">Confirm closure</button>
+        </form>
+      </details>
       {% elif c.status == 'closed' and session.operator_role == 'mlro' %}
       <form method="post" action="/customers/{{ c.id }}/reactivate" class="d-inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -28,6 +42,10 @@
       </form>
       {% endif %}
     </div>
+    {% if c.status == 'closed' and c.exit_date %}
+      <p class="small mt-4" id="exit-info">Relationship closed on <strong>{{ c.exit_date }}</strong>
+        &middot; Reason: <strong>{{ exit_reasons.get(c.exit_reason, c.exit_reason or 'unspecified') }}</strong></p>
+    {% endif %}
     {% if c.retention_until %}
       <p class="muted small mt-4">Records retained until <strong>{{ c.retention_until }}</strong>
         (ten years after the relationship ended).</p>
@@ -50,6 +68,18 @@
 
 {# ---- Tab: Overview ---- #}
 <div class="tab-panel" id="tab-overview">
+
+{% if c.nationalities or c.subregion or c.tax_residencies or c.establishment_date %}
+<div class="panel mb-4" style="padding:12px 16px;">
+  <div class="section-label">Identity details</div>
+  <div class="row" style="gap:24px; flex-wrap:wrap;">
+    {% if c.nationalities %}<div><span class="muted small">Nationalities</span><br>{{ c.nationalities }}</div>{% endif %}
+    {% if c.subregion %}<div><span class="muted small">Subregion</span><br>{{ c.subregion.replace('_',' ') }}</div>{% endif %}
+    {% if c.tax_residencies %}<div><span class="muted small">Tax residencies</span><br>{{ c.tax_residencies }}</div>{% endif %}
+    {% if c.establishment_date %}<div><span class="muted small">Establishment date</span><br>{{ c.establishment_date }}</div>{% endif %}
+  </div>
+</div>
+{% endif %}
 
 <div class="grid two mb-6">
   <div>
@@ -127,6 +157,26 @@
       <div class="list-row">
         <div class="grow">Source of Funds</div>
         <div class="secondary">{{ customer.source_of_funds }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if customer.civil_status_code or customer.occupation %}
+  <div>
+    <div class="section-label">Personal details</div>
+    <div class="flat-list">
+      {% if customer.civil_status_code %}
+      <div class="list-row">
+        <div class="grow">Civil status</div>
+        <div class="secondary">{{ customer.civil_status_code }}</div>
+      </div>
+      {% endif %}
+      {% if customer.occupation %}
+      <div class="list-row">
+        <div class="grow">Occupation</div>
+        <div class="secondary">{{ customer.occupation }}</div>
       </div>
       {% endif %}
     </div>
@@ -262,6 +312,7 @@
         <option value="cash">Cash</option>
         <option value="wire">Wire</option>
         <option value="cheque">Cheque</option>
+        <option value="card">Card</option>
         <option value="crypto">Crypto</option>
         <option value="other">Other</option>
       </select></div>

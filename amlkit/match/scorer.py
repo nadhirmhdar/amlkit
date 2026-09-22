@@ -151,6 +151,7 @@ def score_entity(
     candidate_names: list[str],
     *,
     query_country: str | None = None,
+    query_countries: list[str] | None = None,
     query_birth_date: str | None = None,
     query_gender: str | None = None,
     query_identifiers: list[tuple[str, str]] | None = None,
@@ -188,10 +189,11 @@ def score_entity(
     # --- contradicting features -------------------------------------------
     adjustments: dict[str, float] = {}
 
-    if query_country and cand_countries:
-        qc = query_country.strip().lower()
+    all_countries = query_countries or ([query_country] if query_country else [])
+    if all_countries and cand_countries:
+        qc_set = {c.strip().lower() for c in all_countries if c}
         cc = {c.strip().lower() for c in cand_countries if c}
-        if qc and cc and qc not in cc:
+        if qc_set and cc and not (qc_set & cc):
             adjustments["country_mismatch"] = P_COUNTRY_MISMATCH
 
     if query_birth_date and cand_birth_date:

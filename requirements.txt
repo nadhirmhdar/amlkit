@@ -21,4 +21,10 @@ pyotp>=2.9
 segno>=1.6
 google-cloud-storage>=2.18,<3.0
 google-cloud-bigquery>=3.0
-google-generativeai>=0.8
+google-cloud-dlp>=3.21,<4.0
+google-cloud-language>=2.21,<3.0
+google-cloud-discoveryengine>=0.20,<1.0
+# Replaces google-generativeai (deprecated, no longer in requirements):
+# supports both the apikey and Vertex AI backends through one client class,
+# see amlkit/ai/gemini.py. Pinned against the installed 2.24.0.
+google-genai>=1.0,<3.0
