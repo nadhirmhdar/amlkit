@@ -1168,7 +1168,6 @@ def home(request: Request, db: DB):
     return render(request, "home.html", {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
-        "contextual_card": queries.contextual_home_card(db, session.org_id),
         "greeting": greeting,
         "first_name": first_name,
         "today": gst_now.strftime("%A, %d %B %Y"),

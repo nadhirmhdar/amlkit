@@ -23,17 +23,32 @@
   </div>
 {% endif %}
 
-<div class="page-head">
-  <div class="eyebrow">Workspace</div>
-  <h1>Overview</h1>
-  <div class="status-line {{ 'bad' if not d.compliant }}">
-    <span class="dot"></span>
-    <span class="text">
-      {% if d.compliant %}Sanctions lists refreshed within the 24-hour window
-      {% else %}Sanctions list refresh is overdue{% endif %}
-      &middot; {{ d.generated_at[:10] }}
-    </span>
+<div class="page-head page-head--with-actions">
+  <div>
+    <div class="eyebrow">Workspace</div>
+    <h1>Overview</h1>
+    <div class="status-line {{ 'bad' if not d.compliant }}">
+      <span class="dot"></span>
+      <span class="text">
+        {% if d.compliant %}Sanctions lists refreshed within the 24-hour window
+        {% else %}Sanctions list refresh is overdue{% endif %}
+        &middot; {{ d.generated_at[:10] }}
+      </span>
+    </div>
   </div>
+  {% if session.operator_role == 'mlro' %}
+  <div class="page-head__actions">
+    <a href="/freeze-obligations" class="btn-outline">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      Freeze Obligations
+      {% if d.freeze_stats and d.freeze_stats.pending_execution %}
+        <span class="count-badge count-badge--warn"><span aria-hidden="true">{{ d.freeze_stats.pending_execution }}</span><span class="visually-hidden">, {{ d.freeze_stats.pending_execution }} pending execution</span></span>
+      {% endif %}
+    </a>
+  </div>
+  {% endif %}
 </div>
 
 <div class="dashboard-hero">
