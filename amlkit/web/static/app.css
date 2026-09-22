@@ -1022,6 +1022,12 @@ form.is-submitting button[type="submit"] {
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* Screen reader only content */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0;
+}
+
 /* ------------------------------------------------------------------- print */
 @media print {
   body { background: #fff; color: #000; }
