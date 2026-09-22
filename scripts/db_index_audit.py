@@ -148,7 +148,9 @@ def audit(conn):
             for tbl in LARGE_TABLES
             if line.startswith("SCAN " + tbl) and "USING" not in line
         ]
-        findings.append({"label": label, "plan": plan_lines, "full_scans": scans})
+        # H20: Also flag TEMP B-TREE (missing composite index for ORDER BY)
+        temp_btree = [line for line in plan_lines if "TEMP B-TREE" in line]
+        findings.append({"label": label, "plan": plan_lines, "full_scans": scans, "temp_btree": temp_btree})
     return findings
 
 
@@ -166,9 +168,9 @@ def main():
     print("amlkit DB index audit -- EXPLAIN QUERY PLAN of hot query paths")
     print("=" * 72)
     for f in findings:
-        flagged = bool(f["full_scans"])
-        problems += len(f["full_scans"])
-        marker = "!! FULL SCAN" if flagged else "ok"
+        flagged = bool(f["full_scans"]) or bool(f.get("temp_btree", []))
+        problems += len(f["full_scans"]) + len(f.get("temp_btree", []))
+        marker = "!! FULL SCAN/TEMP" if flagged else "ok"
         print("\n[" + marker + "] " + f["label"])
         for line in f["plan"]:
             print("    " + line)
