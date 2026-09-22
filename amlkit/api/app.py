@@ -1928,13 +1928,20 @@ def alerts_bulk_dismiss(
         return RedirectResponse("/login", status_code=303)
     try:
         require_csrf(request, csrf_token)
-        count = bulk_dismiss_alerts(
+        outcome = bulk_dismiss_alerts(
             db, session.org_id, customer_id=customer_id,
             reason_code=reason_code, operator=session.operator_name,
         )
     except (PermissionError, ReviewError) as exc:
         return back(back_to, err=str(exc))
-    return back(back_to, msg=f"Dismissed {count} alert(s).")
+    if outcome.pending_review:
+        msg = (
+            f"Dismissed {outcome.dismissed} alert(s). {outcome.pending_review} sanctions/PF "
+            "match(es) staged for independent review - a second operator must confirm."
+        )
+    else:
+        msg = f"Dismissed {outcome.dismissed} alert(s)."
+    return back(back_to, msg=msg)
 
 
 @app.get("/alerts/{alert_id}/panel", response_class=HTMLResponse)

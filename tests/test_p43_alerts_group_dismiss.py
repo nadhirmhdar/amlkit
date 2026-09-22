@@ -11,7 +11,7 @@ import sqlite3
 import pytest
 
 from amlkit import db, queries
-from amlkit.cases.review import propose_disposition, bulk_dismiss_alerts
+from amlkit.cases.review import confirm_disposition, propose_disposition, bulk_dismiss_alerts
 
 
 def _seed(conn: sqlite3.Connection) -> dict:
@@ -145,16 +145,23 @@ class TestGroupByCustomer:
 
 
 class TestBulkDismiss:
-    """Tests for dismiss-all alerts for a customer."""
+    """Tests for dismiss-all alerts for a customer.
+
+    The seeded alerts (see _seed()) match entities with topics=["sanction"],
+    so -- outside single-operator mode -- bulk-dismissing them must be held
+    for independent review just like dismissing one at a time would be
+    (finding #6, 2026-09-21 deployed-site review: bulk_dismiss_alerts used
+    to write status='false_positive' directly, bypassing that gate).
+    """
 
     def test_bulk_dismiss_by_customer(self, conn: sqlite3.Connection) -> None:
-        """bulk_dismiss dismisses all open alerts for a given customer."""
+        """bulk_dismiss processes all open alerts for a given customer."""
         seed = _seed(conn)
-        dismissed = bulk_dismiss_alerts(
+        outcome = bulk_dismiss_alerts(
             conn, seed["org_id"], customer_id=seed["c1_id"],
             reason_code="name_coincidence", operator="Operator",
         )
-        assert dismissed == 2
+        assert outcome.total == 2
 
         remaining = queries.alert_queue(conn, seed["org_id"], status="open")
         customer_ids = {a["customer_id"] for a in remaining if a["customer_id"]}
@@ -170,20 +177,20 @@ class TestBulkDismiss:
         )
         conn.commit()
 
-        dismissed = bulk_dismiss_alerts(
+        outcome = bulk_dismiss_alerts(
             conn, seed["org_id"], customer_id=seed["c1_id"],
             reason_code="name_coincidence", operator="Operator",
         )
-        assert dismissed == 1  # only the open one
+        assert outcome.total == 1  # only the open one
 
     def test_bulk_dismiss_respects_org_isolation(self, conn: sqlite3.Connection) -> None:
         """bulk_dismiss cannot dismiss alerts from another org."""
         seed = _seed(conn)
-        dismissed = bulk_dismiss_alerts(
+        outcome = bulk_dismiss_alerts(
             conn, 99999, customer_id=seed["c1_id"],
             reason_code="name_coincidence", operator="Operator",
         )
-        assert dismissed == 0
+        assert outcome.total == 0
 
     def test_bulk_dismiss_creates_audit_trail(self, conn: sqlite3.Connection) -> None:
         """Each dismissed alert gets an audit log entry."""
@@ -197,3 +204,69 @@ class TestBulkDismiss:
             (seed["org_id"],),
         ).fetchall()
         assert len(rows) == 2
+
+    def test_bulk_dismiss_of_sanctions_alerts_requires_second_operator(
+        self, conn: sqlite3.Connection, monkeypatch
+    ) -> None:
+        """Regression test for finding #6: bulk-dismissing a customer's
+        sanctions-match alerts must stage them for independent review, not
+        clear them outright -- exactly like dismissing one at a time. One
+        operator must not be able to single-handedly clear every open
+        sanctions match on a customer just by using the bulk action."""
+        monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
+        seed = _seed(conn)
+
+        outcome = bulk_dismiss_alerts(
+            conn, seed["org_id"], customer_id=seed["c1_id"],
+            reason_code="name_coincidence", operator="Alice",
+        )
+        assert outcome.dismissed == 0
+        assert outcome.pending_review == 2
+
+        for alert_id in seed["alert_ids"][:2]:
+            row = conn.execute(
+                "SELECT status, independent_review FROM alerts WHERE id=?", (alert_id,)
+            ).fetchone()
+            assert row["status"] == "pending_review"
+            assert row["independent_review"] == "pending"
+
+        # A second operator (not Alice) must confirm before it actually clears.
+        confirm_disposition(
+            conn, seed["alert_ids"][0], org_id=seed["org_id"],
+            operator="Bob", agree=True,
+        )
+        row = conn.execute(
+            "SELECT status FROM alerts WHERE id=?", (seed["alert_ids"][0],)
+        ).fetchone()
+        assert row["status"] == "false_positive"
+
+        # The other one is still awaiting review -- bulk dismiss did not
+        # let Alice clear it unilaterally.
+        row2 = conn.execute(
+            "SELECT status FROM alerts WHERE id=?", (seed["alert_ids"][1],)
+        ).fetchone()
+        assert row2["status"] == "pending_review"
+
+    def test_bulk_dismiss_in_single_operator_mode_still_applies_immediately(
+        self, conn: sqlite3.Connection, monkeypatch
+    ) -> None:
+        """single_operator_mode is the documented, explicit escape hatch: a
+        firm with one MLRO can still bulk-dismiss immediately, with the
+        absence of review recorded on the alert rather than silently
+        pretending four-eyes happened."""
+        monkeypatch.setenv("AMLKIT_SINGLE_OPERATOR_MODE", "1")
+        seed = _seed(conn)
+
+        outcome = bulk_dismiss_alerts(
+            conn, seed["org_id"], customer_id=seed["c1_id"],
+            reason_code="name_coincidence", operator="Operator",
+        )
+        assert outcome.dismissed == 2
+        assert outcome.pending_review == 0
+
+        for alert_id in seed["alert_ids"][:2]:
+            row = conn.execute(
+                "SELECT status, independent_review FROM alerts WHERE id=?", (alert_id,)
+            ).fetchone()
+            assert row["status"] == "false_positive"
+            assert row["independent_review"] == "single_operator"
