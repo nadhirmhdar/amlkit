@@ -917,6 +917,99 @@ form.is-submitting button[type="submit"] {
   font-family: inherit; font-size: 14px; resize: vertical;
 }
 
+/* ------------------------------------------- freeze obligations (TFS, CR 134/2025) */
+/* Dashboard <details> panel. The <summary> renders its own chevron span, so the
+   browser's native disclosure marker is suppressed -- otherwise the row shows
+   both a native triangle and the chevron. The chevron rotates on [open]. */
+.freeze-obligations-panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.freeze-obligations-summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 16px 22px; cursor: pointer; user-select: none; list-style: none;
+}
+.freeze-obligations-summary::-webkit-details-marker { display: none; }
+.freeze-obligations-summary::marker { content: ''; }
+.freeze-obligations-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--radius); }
+.freeze-obligations-title {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); font-weight: 700;
+}
+.freeze-obligations-chevron { font-size: 11px; color: var(--ink-3); transition: transform 0.15s ease; }
+.freeze-obligations-panel[open] .freeze-obligations-chevron { transform: rotate(180deg); }
+.freeze-obligations-panel .freeze-obligations-content.panel {
+  border: none; border-top: 1px solid var(--line-soft); border-radius: 0 0 var(--radius) var(--radius);
+  margin-bottom: 0;
+}
+
+/* Count chips: dashboard panel (.stat-chip) and list page (.stats-bar .stat). */
+.stat-chip, .stats-bar .stat {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--bg);
+  font-size: 13px; color: var(--ink-2); white-space: nowrap;
+}
+.stat-chip strong, .stats-bar .stat strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.stats-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+
+/* Freeze list page */
+.alert.alert-info {
+  background: var(--accent-soft); border-left: 3px solid var(--accent); border-radius: var(--radius-sm);
+  padding: 14px 18px; margin-bottom: 20px; color: var(--ink-2);
+}
+.alert.alert-info strong { color: var(--ink); }
+.filter-form { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.filter-form label { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0; }
+.filter-form select { width: auto; }
+.freeze-obligations-table th {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3);
+}
+.freeze-obligations-table tr.status-pending_execution td       { background: var(--warn-soft); }
+.freeze-obligations-table tr.status-pending_execution.overdue td { background: var(--danger-soft); font-weight: 700; }
+.freeze-obligations-table tr.status-executed_pending_report td { background: var(--accent-soft); }
+.freeze-obligations-table tr.status-reported td                { background: var(--good-soft); }
+.freeze-obligations-table tr.status-resolved td                { background: var(--line-soft); color: var(--ink-2); }
+.freeze-obligations-table .empty-row td { background: none; padding: 0; }
+.overdue { color: var(--danger); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap;
+}
+.badge-critical { background: var(--danger-soft); color: var(--danger); }
+.badge-high     { background: var(--warn-soft);   color: oklch(40% 0.12 70); }
+
+/* Button variants spelled the Bootstrap way by the freeze templates; they map
+   onto the existing .btn.small / .btn.secondary looks plus an accent primary. */
+.btn.btn-sm { padding: 6px 13px; font-size: 12.5px; }
+.btn.btn-primary { background: var(--accent); border-color: var(--accent); color: white; }
+.btn.btn-primary:hover { background: oklch(45% 0.16 250); border-color: oklch(45% 0.16 250); color: white; }
+.btn.btn-secondary { background: none; color: var(--ink); border-color: var(--line); }
+.btn.btn-secondary:hover { background: var(--line-soft); color: var(--ink); }
+
+/* Freeze detail page */
+.obligation-header {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px 24px;
+  padding: 20px 24px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); margin-bottom: 24px;
+}
+.obligation-header .field { margin: 0; }
+.obligation-header .field label {
+  display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-3); font-weight: 700; margin-bottom: 4px;
+}
+.timeline {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px;
+}
+.timeline-item {
+  padding: 14px 16px; background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--line); border-radius: var(--radius-sm);
+  font-size: 13px; color: var(--ink-2); line-height: 1.55;
+}
+.timeline-item strong { color: var(--ink); }
+.timeline-item.completed { border-left-color: var(--good); }
+.timeline-item.pending   { border-left-color: var(--warn); color: var(--ink-3); }
+.section { margin-bottom: 24px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+
 /* ------------------------------------------------------------- accessibility */
 .skip-to-content {
   position: absolute; left: -9999px; top: auto; width: 1px; height: 1px; overflow: hidden;
