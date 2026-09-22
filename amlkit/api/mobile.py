@@ -1679,12 +1679,21 @@ def api_audit_export(
     query += " ORDER BY ts DESC"
     rows = db.execute(query, params).fetchall()
 
+    from .csv_utils import _escape_csv_formula
+    from ..pii import redact as _redact_pii
+
     buf = StringIO()
     writer = _csv.writer(buf)
     writer.writerow(["ts", "actor", "action", "object_type", "object_id", "detail"])
     for row in rows:
-        writer.writerow([row["ts"], row["actor"], row["action"],
-                         row["object_type"], row["object_id"], row["detail"]])
+        writer.writerow([
+            _escape_csv_formula(row["ts"]),
+            _escape_csv_formula(row["actor"]),
+            _escape_csv_formula(row["action"]),
+            _escape_csv_formula(row["object_type"]),
+            _escape_csv_formula(row["object_id"]),
+            _escape_csv_formula(_redact_pii(row["detail"] or "")),
+        ])
 
     return Response(
         content=buf.getvalue(),

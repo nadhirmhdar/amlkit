@@ -2221,6 +2221,7 @@ def audit_export(request: Request, db: DB):
     from fastapi.responses import StreamingResponse
 
     from ..pii import redact as _redact_pii
+    from .csv_utils import _escape_csv_formula
 
     entries = queries.audit_trail(db, session.org_id, limit=100000)
     buf = _io.StringIO()
@@ -2228,12 +2229,12 @@ def audit_export(request: Request, db: DB):
     writer.writerow(["timestamp", "action", "user", "object_type", "object_id", "detail"])
     for e in entries:
         writer.writerow([
-            e.get("ts", ""),
-            e.get("action", ""),
-            e.get("actor", ""),
-            e.get("object_type", ""),
-            e.get("object_id", ""),
-            _redact_pii(e.get("detail") or ""),
+            _escape_csv_formula(e.get("ts", "")),
+            _escape_csv_formula(e.get("action", "")),
+            _escape_csv_formula(e.get("actor", "")),
+            _escape_csv_formula(e.get("object_type", "")),
+            _escape_csv_formula(e.get("object_id", "")),
+            _escape_csv_formula(_redact_pii(e.get("detail") or "")),
         ])
     buf.seek(0)
 
