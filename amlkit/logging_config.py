@@ -19,28 +19,35 @@ request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 
 
 class StructuredFormatter(logging.Formatter):
-    """JSON formatter that includes request_id when present."""
+    """JSON formatter that includes request_id when present.
+
+    Applies PII redaction to message and extra fields so that Emirates
+    IDs, emails, and passport numbers never appear in log output.
+    """
 
     def format(self, record: logging.LogRecord) -> str:
+        from .pii import redact
+
         log_data: dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": redact(record.getMessage()),
         }
 
-        # Add request_id if present in context
         request_id = request_id_var.get()
         if request_id:
             log_data["request_id"] = request_id
 
-        # Add exception info if present
         if record.exc_info:
-            log_data["exception"] = self.formatException(record.exc_info)
+            log_data["exception"] = redact(self.formatException(record.exc_info))
 
-        # Add any extra fields from the log record
         if hasattr(record, "extra_fields"):
-            log_data.update(record.extra_fields)
+            extras = record.extra_fields
+            log_data.update(
+                {k: redact(str(v)) if isinstance(v, str) else v
+                 for k, v in extras.items()}
+            )
 
         return json.dumps(log_data, ensure_ascii=False)
 
