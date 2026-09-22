@@ -773,7 +773,7 @@ def recent_audit(conn: sqlite3.Connection, org_id: int, limit: int = 6) -> list[
 
 def operators(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in conn.execute(
-        "SELECT id, name, email, role, is_active FROM operators WHERE org_id=? ORDER BY name",
+        "SELECT id, name, email, role, is_active, super_admin FROM operators WHERE org_id=? ORDER BY name",
         (org_id,))]
 
 

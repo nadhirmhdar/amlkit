@@ -496,7 +496,10 @@ def login_submit(
     # p15: an MLRO session is issued locked; enrolled operators must pass the
     # TOTP challenge, un-enrolled ones are sent straight to enrolment.
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
-    target = auth.mfa_lock_session(db, token, info.operator_id, info.operator_role) or "/"
+    target = auth.mfa_lock_session(
+        db, token, info.operator_id, info.operator_role,
+        trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
+    ) or "/"
 
     resp = RedirectResponse(target, status_code=303)
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
@@ -575,6 +578,29 @@ def password_change_submit(
     return back("/", msg="Password changed successfully. All other sessions have been signed out.")
 
 
+@app.post("/account/forget-devices")
+def forget_devices_submit(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Revoke every remembered ('skip MFA for 30 days') device for the
+    current operator. Next login anywhere will ask for a TOTP code again."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    auth.revoke_trusted_devices_for(db, session.operator_id)
+    from ..db import audit
+    audit(db, session.operator_name, "mfa.devices_forgotten", "operator", session.operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+
+    return back("/account/password", msg="All remembered devices have been forgotten. "
+                                          "They will be asked for a code on next sign-in.")
+
+
 @app.get("/mfa/verify", response_class=HTMLResponse)
 def mfa_verify_form(request: Request, db: DB):
     """Render TOTP code entry form for MFA challenge (p15)."""
@@ -598,6 +624,7 @@ def mfa_verify_submit(
     request: Request, db: DB,
     code: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()] = "",
+    remember_device: Annotated[str, Form()] = "",
 ):
     """Verify TOTP code and upgrade session to mfa_verified=1 (p15)."""
     try:
@@ -619,7 +646,19 @@ def mfa_verify_submit(
                                   actor=session_row["name"], org_id=session_row["org_id"])
     if outcome == "ok":
         auth.set_session_mfa_verified(db, token, True)
-        return RedirectResponse("/", status_code=303)
+        resp = RedirectResponse("/", status_code=303)
+        if remember_device:
+            raw_device_token = auth.create_trusted_device(db, operator_id)
+            _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+            resp.set_cookie(
+                auth.TRUSTED_DEVICE_COOKIE, raw_device_token, httponly=True, samesite="strict",
+                secure=_behind_proxy, max_age=int(auth.TRUSTED_DEVICE_LIFETIME.total_seconds()),
+            )
+            from ..db import audit
+            audit(db, session_row["name"], "mfa.device_trusted", "operator", operator_id,
+                  None, org_id=session_row["org_id"])
+            db.commit()
+        return resp
     if outcome == "locked":
         return back("/mfa/verify", err=_MFA_LOCKED_MESSAGE)
     return back("/mfa/verify", err="Invalid verification code. Please try again.")
@@ -825,7 +864,10 @@ def setup_submit(
 
     session_token, info = auth.login(db, result["email"], password, ip=client_ip(request))
     # p15: the first operator is the MLRO, so this session starts locked too.
-    target = auth.mfa_lock_session(db, session_token, info.operator_id, info.operator_role) or "/"
+    target = auth.mfa_lock_session(
+        db, session_token, info.operator_id, info.operator_role,
+        trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
+    ) or "/"
     resp = RedirectResponse(target, status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
@@ -923,7 +965,10 @@ def verify_email(request: Request, db: DB, token: str = ""):
           None, org_id=operator["org_id"])
     db.commit()
     # p15: a brand-new MLRO must enrol now, not whenever they next log out.
-    target = auth.mfa_lock_session(db, session_token, operator["id"], operator["role"])
+    target = auth.mfa_lock_session(
+        db, session_token, operator["id"], operator["role"],
+        trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
+    )
     resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to amlkit."),
                             status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
@@ -2980,6 +3025,51 @@ async def system_create_operator(request: Request):
         })
     except ValueError as exc:
         status = 404 if "no matching" in str(exc) else 409 if "already exists" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status)
+    finally:
+        conn.close()
+
+
+@app.post("/system/super-admin")
+async def system_super_admin(request: Request):
+    """Grant or revoke super_admin on an existing operator without a browser
+    session.
+
+    Out-of-band by design, same as /system/create-operator: this is the only
+    way to set the flag anywhere in the app. No authenticated in-app route
+    grants super_admin to anyone, including the caller themselves.
+    """
+    secret = os.environ.get("ADMIN_API_SECRET", "").strip()
+    if not secret:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "endpoint disabled — set ADMIN_API_SECRET"}, status_code=403)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    from fastapi.responses import JSONResponse
+    from ..db import connect
+    from ..cases.operators import set_super_admin
+
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    grant = body.get("grant", True)
+
+    conn = connect(db_path())
+    try:
+        result = set_super_admin(conn, email, bool(grant), actor="system")
+        return JSONResponse({
+            "status": "updated",
+            "operator_id": result["operator_id"],
+            "organization": result["organization"],
+            "email": result["email"],
+            "role": result["role"],
+            "super_admin": result["super_admin"],
+        })
+    except ValueError as exc:
+        status = 404 if "no matching" in str(exc) else 400
         return JSONResponse({"error": str(exc)}, status_code=status)
     finally:
         conn.close()

@@ -796,6 +796,26 @@ CREATE TABLE IF NOT EXISTS mfa_backup_codes (
     used_at     TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_mfa_backup_operator ON mfa_backup_codes(operator_id);
+
+-- "Remember this device" for MFA: a long-lived (30-day) token bound to one
+-- operator's browser, letting a recognised device skip the TOTP challenge on
+-- future logins. token_hash is sha256 (not argon2 -- this is a bearer token
+-- with full entropy from secrets.token_urlsafe, not a low-entropy secret an
+-- attacker could offline-guess, so the fast-hash/timing tradeoff argon2
+-- exists for doesn't apply here; sessions.token_hash uses the same sha256
+-- choice for the same reason). Any device not in this table, or past its
+-- expiry, or explicitly revoked, gets the normal MFA challenge -- this is a
+-- convenience for recognised browsers only, never a way to disable MFA.
+CREATE TABLE IF NOT EXISTS trusted_devices (
+    id           INTEGER PRIMARY KEY,
+    operator_id  INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    token_hash   TEXT NOT NULL UNIQUE,
+    created_at   TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_trusted_devices_operator ON trusted_devices(operator_id);
 """
 
 
