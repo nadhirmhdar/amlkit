@@ -3151,6 +3151,8 @@ def report_save(
     transaction_date: Annotated[str, Form()] = "",
     source_account: Annotated[str, Form()] = "",
     destination_account: Annotated[str, Form()] = "",
+    source_institution_name: Annotated[str, Form()] = "",
+    destination_institution_name: Annotated[str, Form()] = "",
     reason_description: Annotated[str, Form()] = "",
     action_taken: Annotated[str, Form()] = "",
     evidence_pack_attached: Annotated[str, Form()] = "",
@@ -3170,6 +3172,7 @@ def report_save(
         reporter_name, reporter_email, first_name, last_name, nationality,
         birth_date, gender, id_type, id_number, amount, transaction_type,
         transaction_date, source_account, destination_account,
+        source_institution_name, destination_institution_name,
         reason_description, action_taken, evidence_pack_attached, report_id
     )
 

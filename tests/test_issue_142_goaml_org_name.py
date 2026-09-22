@@ -53,6 +53,8 @@ def _create_customer_and_report(client):
         "transaction_type": "Wire Transfer",
         "source_account": "AE070331234567890123456",
         "destination_account": "AE070339876543210987654",
+        "source_institution_name": "First Abu Dhabi Bank",
+        "destination_institution_name": "Emirates NBD",
         "reason_description": "Suspicious wire.",
         "csrf_token": _csrf(client),
     })
@@ -110,6 +112,8 @@ class TestGoAMLOrgName:
             "transaction_type": "Wire Transfer",
             "source_account": "AE070331234567890123456",
             "destination_account": "AE070339876543210987654",
+            "source_institution_name": "First Abu Dhabi Bank",
+            "destination_institution_name": "Emirates NBD",
             "reason_description": "Suspicious.",
             "csrf_token": _csrf(client),
         })

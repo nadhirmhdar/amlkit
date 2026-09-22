@@ -247,17 +247,17 @@ def serialize_goaml_xml(report_data: dict) -> str:
         else:
             ET.SubElement(tx, "amount_local").text = str(raw_amount)
 
-        # Source/Destination Accounts. A blank account number here is not a
-        # harmless gap -- it silently exports as "N/A" in a regulator-facing
-        # filing, so require the real value instead.
+        # Source/Destination Accounts. A blank account number or institution name
+        # here is not a harmless gap -- it silently exports as "N/A" in a
+        # regulator-facing filing, so require the real values instead.
         t_from = ET.SubElement(tx, "t_from")
         from_acc = ET.SubElement(t_from, "account")
-        ET.SubElement(from_acc, "institution_name").text = "Originating Bank"
+        ET.SubElement(from_acc, "institution_name").text = _require(report_data, "source_institution_name", "source institution name")
         ET.SubElement(from_acc, "account_number").text = _require(report_data, "source_account", "source account number")
 
         t_to = ET.SubElement(tx, "t_to")
         to_acc = ET.SubElement(t_to, "account")
-        ET.SubElement(to_acc, "institution_name").text = "Beneficiary Bank"
+        ET.SubElement(to_acc, "institution_name").text = _require(report_data, "destination_institution_name", "destination institution name")
         ET.SubElement(to_acc, "account_number").text = _require(report_data, "destination_account", "destination account number")
     else:
         # Non-financial reports still need an activity block
