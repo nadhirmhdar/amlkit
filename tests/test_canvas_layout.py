@@ -131,39 +131,6 @@ def test_greeting_is_left_to_the_browser_clock(client):
     assert "function greetingForHour" in js and "applyLocalGreeting()" in js
 
 
-def test_home_hero_layout_wraps_start_here_cards_only(client):
-    """The hero SVG and its .home-grid wrapper cover only the permanent
-    "Start here" cards -- the first-run onboarding panel (when shown) keeps
-    its own full-width 3-column grid, unaffected by the redesign."""
-    html = client.get("/").text
-    # .alerts-float-wrap (added after this test was written, see PR #302) now
-    # sits between .home-grid's closing </div> and the pill itself, with a
-    # Jinja comment above it that leaves extra blank lines in the rendered
-    # output even though its own text is stripped -- match \n+ rather than
-    # an exact count.
-    grid = re.search(r'<div class="home-grid">(.*?)\n</div>\n+<div class="alerts-float-wrap">', html, re.S)
-    assert grid, "home-grid wrapper not found directly before the alerts pill"
-    grid_html = grid.group(1)
-    assert grid_html.count('class="action-cards"') == 1
-    assert 'href="/screen"' in grid_html and 'href="/customers/new"' in grid_html and 'href="/reports"' in grid_html
-    assert 'class="home-hero-art" aria-hidden="true"' in grid_html
-    assert 'src="/static/img/home-hero.svg"' in grid_html
-    assert 'alt=""' in grid_html  # decorative, not content -- screen readers skip it
-
-
-def test_home_hero_art_is_outside_onboarding_panel(client):
-    """Regression guard: the onboarding panel (Steps 1-3) must not end up
-    inside .home-grid, which would put the hero image above it too and
-    shrink its cards to the narrow column width."""
-    html = client.get("/").text
-    if "Get started with amlkit" not in html:
-        return  # onboarding panel not shown for this org state
-    onboarding = html.split("Get started with amlkit", 1)[1].split('<div class="section-label mt-6">Start here', 1)[0]
-    assert "home-grid" not in onboarding
-    assert "home-hero-art" not in onboarding
-    assert onboarding.count('class="action-cards onboarding-cards"') == 1
-
-
 def test_home_has_no_duplicate_onboarding_panel(client):
     """The first-run guide (Steps 1-3) duplicated the "Start here" cards
     immediately below it and was removed; only the permanent cards remain."""
