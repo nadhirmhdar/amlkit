@@ -363,16 +363,49 @@ def _set_csrf_cookie(resp, request: Request) -> None:
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    """Generate a unique request ID for correlation and attach it to the response."""
+    """Generate a unique request ID for correlation and attach it to the response.
+
+    Also parses Cloud Trace context headers (X-Cloud-Trace-Context and W3C traceparent).
+    """
     request_id = str(uuid.uuid4())
-    from ..logging_config import set_request_id, clear_request_id
+    from ..logging_config import (
+        set_request_id, clear_request_id,
+        set_trace_id, set_span_id,
+        set_org_id
+    )
+
     set_request_id(request_id)
+
+    # Parse trace context from headers
+    # X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE
+    cloud_trace = request.headers.get("X-Cloud-Trace-Context")
+    if cloud_trace:
+        parts = cloud_trace.split("/")
+        if len(parts) >= 2:
+            trace_id = parts[0]
+            span_part = parts[1].split(";")[0]  # Remove ;o=1 suffix
+            set_trace_id(trace_id)
+            set_span_id(span_part)
+
+    # W3C traceparent: 00-TRACE_ID-SPAN_ID-01
+    traceparent = request.headers.get("traceparent")
+    if traceparent and not cloud_trace:  # Only use if X-Cloud-Trace-Context not present
+        parts = traceparent.split("-")
+        if len(parts) >= 4:
+            trace_id = parts[1]
+            span_id = parts[2]
+            set_trace_id(trace_id)
+            set_span_id(span_id)
+
     try:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
     finally:
         clear_request_id()
+        set_trace_id(None)
+        set_span_id(None)
+        set_org_id(None)
 
 
 @app.middleware("http")
