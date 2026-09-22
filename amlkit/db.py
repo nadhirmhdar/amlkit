@@ -545,6 +545,80 @@ CREATE INDEX IF NOT EXISTS ix_am_find_org    ON adverse_media_findings(org_id);
 CREATE INDEX IF NOT EXISTS ix_am_find_cust   ON adverse_media_findings(customer_id);
 CREATE INDEX IF NOT EXISTS ix_am_find_status ON adverse_media_findings(status);
 
+-- ------------------------------------------------------ Google Cloud media pipeline
+-- The "Audit Vault" for screening/media_pipeline.py: a 4-stage pipeline
+-- (BigQuery GKG + GDELT DOC + Vertex AI Search acquisition -> Knowledge Graph
+-- + Natural Language entity resolution -> Gemini triage) that is a richer,
+-- optional *implementation* of adverse-media screening, gated by
+-- AMLKIT_MEDIA_PIPELINE. It is not a replacement for the tables above: every
+-- pipeline-sourced finding an operator should be able to disposition is ALSO
+-- written into adverse_media_findings (see cases/manager.py) so the existing
+-- disposition/four-eyes/risk-reassessment flow needs no changes at all. These
+-- two tables exist purely so the *evidence for a triage decision* -- which
+-- sources were queried, what salience/sentiment/KG-match/model produced a
+-- given finding -- is never lost, even though only a handful of that detail
+-- fits in adverse_media_findings' existing columns.
+CREATE TABLE IF NOT EXISTS media_pipeline_runs (
+    id                 INTEGER PRIMARY KEY,
+    org_id             INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id        INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    trigger            TEXT NOT NULL,   -- onboarding | periodic | adhoc | review
+    status             TEXT NOT NULL,   -- ok | partial | unavailable
+    query_name         TEXT NOT NULL,
+    query_arabic       TEXT,
+    -- json: {"gdelt_doc": n, "gdelt_bq": n, "vertex_search": n} -- how many
+    -- candidate articles each acquisition source contributed, even ones later
+    -- dropped at entity-resolution or triage. Lets a reviewer tell "Vertex AI
+    -- Search found nothing" apart from "Vertex AI Search was never queried".
+    sources_queried    TEXT NOT NULL,
+    articles_considered INTEGER NOT NULL DEFAULT 0,
+    articles_relevant   INTEGER NOT NULL DEFAULT 0,
+    -- json array of adapter-level error strings (never article text or PII --
+    -- see amlkit/pii.py and screening/media_pipeline.py's logging discipline).
+    errors             TEXT,
+    started_at         TEXT NOT NULL,
+    finished_at        TEXT,
+    created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_mp_run_org  ON media_pipeline_runs(org_id);
+CREATE INDEX IF NOT EXISTS ix_mp_run_cust ON media_pipeline_runs(customer_id);
+
+-- One row per article the pipeline scored, whether or not it was ultimately
+-- judged relevant -- a triage run that found "nothing adverse" needs the same
+-- kind of evidence trail as one that found something, per the reasoning
+-- already established for adverse_media_screenings above.
+CREATE TABLE IF NOT EXISTS media_pipeline_articles (
+    id             INTEGER PRIMARY KEY,
+    org_id         INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    run_id         INTEGER NOT NULL REFERENCES media_pipeline_runs(id) ON DELETE CASCADE,
+    customer_id    INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    url            TEXT NOT NULL,
+    source         TEXT NOT NULL,   -- gdelt_doc | gdelt_bq | vertex_search
+    title          TEXT,
+    domain         TEXT,
+    language       TEXT,
+    published_at   TEXT,
+    -- Entity resolution (stage 2). NULL when AMLKIT_NL_ENABLED=0 and the
+    -- keyword/name-evidence fallback was used instead -- a NULL salience is a
+    -- different fact from a NL call that scored the entity at 0.0.
+    salience          REAL,
+    sentiment_score   REAL,
+    sentiment_magnitude REAL,
+    kg_match          INTEGER NOT NULL DEFAULT 0,
+    -- Triage (stage 3).
+    relevant          INTEGER NOT NULL DEFAULT 0,
+    categories        TEXT,   -- json array, FATF predicate-offence categories
+    severity          TEXT NOT NULL DEFAULT 'none',
+    rationale         TEXT,
+    english_headline  TEXT,
+    model_id          TEXT,   -- e.g. gemini-2.5-flash, or NULL for the keyword fallback
+    prompt_version    TEXT,   -- e.g. media-triage-v1:ab12cd34
+    created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_mp_art_org  ON media_pipeline_articles(org_id);
+CREATE INDEX IF NOT EXISTS ix_mp_art_run  ON media_pipeline_articles(run_id);
+CREATE INDEX IF NOT EXISTS ix_mp_art_cust ON media_pipeline_articles(customer_id);
+
 -- ------------------------------------------------------------ electronic signatures
 -- content_hash is computed by the caller over the exact acknowledgment text
 -- shown to the signer at signing time (see cases/manager.py:record_signature).
@@ -843,6 +917,12 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # NULL while the relationship is open; cleared again on reactivation.
     ("customers", "exit_date",   "ALTER TABLE customers ADD COLUMN exit_date   TEXT"),
     ("customers", "exit_reason", "ALTER TABLE customers ADD COLUMN exit_reason TEXT"),
+    # Google Cloud media pipeline (screening/media_pipeline.py): links a
+    # legacy adverse_media_findings row back to the richer media_pipeline_runs
+    # / media_pipeline_articles audit trail it was surfaced from. NULL for
+    # every finding from the pre-pipeline GDELT-only path.
+    ("adverse_media_findings", "pipeline_run_id",
+     "ALTER TABLE adverse_media_findings ADD COLUMN pipeline_run_id INTEGER REFERENCES media_pipeline_runs(id) ON DELETE SET NULL"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)

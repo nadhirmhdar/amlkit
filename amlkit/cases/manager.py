@@ -19,6 +19,7 @@ an inspection. Three obligations drive the design:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import uuid
@@ -39,6 +40,8 @@ from ..risk.model import (
 from ..screening.adverse_media import (
     DEFAULT_WINDOW_MONTHS,
     AdverseMediaResult,
+    Article,
+    Finding,
     search,
     worst_severity,
 )
@@ -801,37 +804,35 @@ def add_case_note(
 
 
 # ---------------------------------------------------------------- adverse media
-def run_adverse_media(
+def _persist_adverse_media(
     conn: sqlite3.Connection,
     *,
     org_id: int,
-    name: str,
-    name_arabic: str | None = None,
-    customer_id: int | None = None,
-    ubo_id: int | None = None,
-    trigger: str = "adhoc",
-    client: Any | None = None,
-    window_months: int = DEFAULT_WINDOW_MONTHS,
-    actor: str = "system",
-) -> tuple[int, AdverseMediaResult, int]:
-    """Search adverse coverage for one name and record the run.
+    customer_id: int | None,
+    ubo_id: int | None,
+    query_name: str,
+    query_arabic: str | None,
+    trigger: str,
+    provider: str,
+    window_months: int,
+    status: str,
+    error: str | None,
+    articles_considered: int,
+    findings: list[Finding],
+    actor: str,
+    pipeline_run_id: int | None = None,
+) -> tuple[int, int]:
+    """Write one adverse_media_screenings row plus its findings. Shared by the
+    legacy GDELT-only path and the media pipeline (screening/media_pipeline.py)
+    so both feed the SAME disposition/four-eyes/risk-reassessment flow --
+    see run_adverse_media's docstring and media_pipeline.py's module
+    docstring for why that matters.
 
-    Returns `(screening_id, result, new_findings)`. `new_findings` counts rows
-    actually written, which is lower than `len(result.findings)` whenever an
-    article has been seen for this customer before -- see the dedup note below.
-
-    The run row is written whether or not the provider answered. A record
-    saying "adverse media was checked on this date and the provider was
-    unreachable" is evidence of an attempted control; silently writing nothing
-    leaves a file that looks identical to one where nobody ever ran the check.
+    Returns `(screening_id, new_findings)`. `new_findings` counts rows
+    actually written, which is lower than `len(findings)` whenever an article
+    has been seen for this customer before -- see the dedup note below.
     """
-    result = search(
-        name,
-        name_arabic=name_arabic,
-        client=client,
-        window_months=window_months,
-    )
-
+    severity = worst_severity(f.severity for f in findings)
     now = utcnow()
     new_findings = 0
     with conn:
@@ -842,15 +843,14 @@ def run_adverse_media(
                 findings, severity, run_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                org_id, customer_id, ubo_id, result.query, result.query_arabic,
-                trigger, result.provider, result.window_months, result.status,
-                result.error, result.articles_considered, len(result.findings),
-                result.severity, now,
+                org_id, customer_id, ubo_id, query_name, query_arabic,
+                trigger, provider, window_months, status, error,
+                articles_considered, len(findings), severity, now,
             ),
         )
         screening_id = cur.lastrowid
 
-        for f in result.findings:
+        for f in findings:
             # An article is immutable: the same URL is the same article, and
             # re-surfacing one an operator has already ruled on turns a
             # periodic re-run into a queue of decisions they have already
@@ -869,14 +869,14 @@ def run_adverse_media(
                 """INSERT INTO adverse_media_findings
                    (org_id, screening_id, customer_id, url, title, domain, language,
                     source_country, published_at, severity, matched_terms,
-                    name_evidence, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    name_evidence, pipeline_run_id, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     org_id, screening_id, customer_id, f.article.url, f.article.title,
                     f.article.domain, f.article.language, f.article.source_country,
                     f.article.published_at, f.severity,
                     json.dumps(f.matched_terms, ensure_ascii=False),
-                    f.name_evidence, now,
+                    f.name_evidence, pipeline_run_id, now,
                 ),
             )
             new_findings += 1
@@ -887,18 +887,139 @@ def run_adverse_media(
             customer_id or screening_id,
             {
                 "screening_id": screening_id,
-                "query": result.query,
                 "trigger": trigger,
-                "provider": result.provider,
-                "status": result.status,
-                "articles_considered": result.articles_considered,
-                "findings": len(result.findings),
+                "provider": provider,
+                "status": status,
+                "articles_considered": articles_considered,
+                "findings": len(findings),
                 "new_findings": new_findings,
-                "severity": result.severity,
-                "error": result.error,
+                "severity": severity,
+                "error": error,
+                "pipeline_run_id": pipeline_run_id,
             },
             org_id=org_id,
         )
+    return screening_id, new_findings
+
+
+def run_adverse_media(
+    conn: sqlite3.Connection,
+    *,
+    org_id: int,
+    name: str,
+    name_arabic: str | None = None,
+    customer_id: int | None = None,
+    ubo_id: int | None = None,
+    trigger: str = "adhoc",
+    client: Any | None = None,
+    window_months: int = DEFAULT_WINDOW_MONTHS,
+    actor: str = "system",
+) -> tuple[int, AdverseMediaResult, int]:
+    """Search adverse coverage for one name and record the run.
+
+    Returns `(screening_id, result, new_findings)`.
+
+    The run row is written whether or not the provider answered. A record
+    saying "adverse media was checked on this date and the provider was
+    unreachable" is evidence of an attempted control; silently writing nothing
+    leaves a file that looks identical to one where nobody ever ran the check.
+
+    When AMLKIT_MEDIA_PIPELINE=1 and this is a real customer (not an ad-hoc
+    name search), this delegates to the 4-stage Google Cloud pipeline in
+    screening/media_pipeline.py instead of the plain GDELT search below --
+    same return shape, same tables, so every existing caller (the web route,
+    the async job in this module) gets the richer pipeline with no changes
+    of their own. `client`, if given, must then be a
+    `media_pipeline.PipelineClients` instance rather than a `MediaClient`;
+    routes never pass one, so this only matters for tests exercising the
+    dispatch directly.
+    """
+    if os.environ.get("AMLKIT_MEDIA_PIPELINE", "0") == "1" and customer_id is not None:
+        return _run_adverse_media_via_pipeline(
+            conn, org_id=org_id, customer_id=customer_id, ubo_id=ubo_id,
+            trigger=trigger, window_months=window_months, actor=actor,
+            clients=client,
+        )
+
+    result = search(
+        name,
+        name_arabic=name_arabic,
+        client=client,
+        window_months=window_months,
+    )
+    screening_id, new_findings = _persist_adverse_media(
+        conn, org_id=org_id, customer_id=customer_id, ubo_id=ubo_id,
+        query_name=result.query, query_arabic=result.query_arabic,
+        trigger=trigger, provider=result.provider, window_months=result.window_months,
+        status=result.status, error=result.error,
+        articles_considered=result.articles_considered, findings=result.findings,
+        actor=actor,
+    )
+    return screening_id, result, new_findings
+
+
+def _run_adverse_media_via_pipeline(
+    conn: sqlite3.Connection,
+    *,
+    org_id: int,
+    customer_id: int,
+    ubo_id: int | None,
+    trigger: str,
+    window_months: int,
+    actor: str,
+    clients: Any | None = None,
+) -> tuple[int, AdverseMediaResult, int]:
+    """AMLKIT_MEDIA_PIPELINE=1 implementation of run_adverse_media().
+
+    Runs the 4-stage pipeline (screening/media_pipeline.py), which persists
+    its own richer audit-vault rows (media_pipeline_runs /
+    media_pipeline_articles), then converts its relevant articles into the
+    SAME Finding/AdverseMediaResult shape run_adverse_media() has always
+    returned and writes them through `_persist_adverse_media` -- the exact
+    function the legacy path uses -- so the existing disposition route,
+    four-eyes review, risk reassessment, and evidence page all work
+    unchanged. See media_pipeline.py's module docstring.
+    """
+    from ..screening.media_pipeline import PipelineClients, run_pipeline
+
+    pipeline_clients = clients if isinstance(clients, PipelineClients) else None
+    run_result = run_pipeline(
+        conn, org_id, customer_id, actor,
+        clients=pipeline_clients, trigger=trigger, window_months=window_months,
+    )
+
+    findings = [
+        Finding(
+            article=Article(
+                url=a.url, title=a.title, domain=a.domain,
+                language=a.language, source_country="", published_at=a.published_at,
+            ),
+            severity=a.severity,
+            matched_terms=list(a.categories) if a.categories else (
+                [a.rationale] if a.rationale else []
+            ),
+            name_evidence=a.name_evidence,
+        )
+        for a in run_result.relevant_articles
+    ]
+    result = AdverseMediaResult(
+        query=run_result.query_name,
+        query_arabic=run_result.query_arabic,
+        findings=findings,
+        articles_considered=run_result.articles_considered,
+        window_months=window_months,
+        status=run_result.status,
+        error="; ".join(run_result.errors) or None,
+        provider="media_pipeline",
+    )
+    screening_id, new_findings = _persist_adverse_media(
+        conn, org_id=org_id, customer_id=customer_id, ubo_id=ubo_id,
+        query_name=result.query, query_arabic=result.query_arabic,
+        trigger=trigger, provider="media_pipeline", window_months=window_months,
+        status=result.status, error=result.error,
+        articles_considered=result.articles_considered, findings=findings,
+        actor=actor, pipeline_run_id=run_result.run_id,
+    )
     return screening_id, result, new_findings
 
 
