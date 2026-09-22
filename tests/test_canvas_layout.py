@@ -136,7 +136,12 @@ def test_home_hero_layout_wraps_start_here_cards_only(client):
     "Start here" cards -- the first-run onboarding panel (when shown) keeps
     its own full-width 3-column grid, unaffected by the redesign."""
     html = client.get("/").text
-    grid = re.search(r'<div class="home-grid">(.*?)\n</div>\n\n<a class="alerts-float', html, re.S)
+    # .alerts-float-wrap (added after this test was written, see PR #302) now
+    # sits between .home-grid's closing </div> and the pill itself, with a
+    # Jinja comment above it that leaves extra blank lines in the rendered
+    # output even though its own text is stripped -- match \n+ rather than
+    # an exact count.
+    grid = re.search(r'<div class="home-grid">(.*?)\n</div>\n+<div class="alerts-float-wrap">', html, re.S)
     assert grid, "home-grid wrapper not found directly before the alerts pill"
     grid_html = grid.group(1)
     assert grid_html.count('class="action-cards"') == 1
