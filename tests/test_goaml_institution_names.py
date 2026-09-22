@@ -81,19 +81,74 @@ class TestGoAMLInstitutionNames:
         assert to_institution.text == "Emirates NBD", \
             f"Expected 'Emirates NBD', got '{to_institution.text}'"
 
-    def test_missing_source_institution_name_is_rejected(self) -> None:
-        """Missing source_institution_name must raise GoAMLValidationError."""
+    def test_missing_source_institution_name_exports_without_element(self) -> None:
+        """Missing source_institution_name should omit the element, not fail.
+
+        Institution names are preferred but optional - older reports or those
+        without recorded counterparty institutions can still export."""
         payload = _base_payload(source_institution_name="")
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
 
-        with pytest.raises(GoAMLValidationError, match="source institution"):
-            serialize_goaml_xml(payload)
+        # Should export successfully without institution_name element
+        from_institution = root.find("transaction/t_from/account/institution_name")
+        assert from_institution is None, "institution_name element should be omitted when empty"
 
-    def test_missing_destination_institution_name_is_rejected(self) -> None:
-        """Missing destination_institution_name must raise GoAMLValidationError."""
+        # But account number should still be present
+        from_account = root.find("transaction/t_from/account/account_number")
+        assert from_account is not None and from_account.text
+
+    def test_missing_destination_institution_name_exports_without_element(self) -> None:
+        """Missing destination_institution_name should omit the element, not fail."""
         payload = _base_payload(destination_institution_name="")
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
 
-        with pytest.raises(GoAMLValidationError, match="destination institution"):
-            serialize_goaml_xml(payload)
+        # Should export successfully without institution_name element
+        to_institution = root.find("transaction/t_to/account/institution_name")
+        assert to_institution is None, "institution_name element should be omitted when empty"
+
+        # But account number should still be present
+        to_account = root.find("transaction/t_to/account/account_number")
+        assert to_account is not None and to_account.text
+
+    def test_transaction_with_no_counterparty_institutions_exports(self) -> None:
+        """Transactions with account numbers but no institution data should export successfully.
+
+        This is the regression that caused CI failure: existing reports created before
+        institution fields were added had transactions but no counterparty institution data."""
+        payload = {
+            "report_type": "STR",
+            "customer_type": "natural",
+            "reporting_entity_name": "Test Firm",
+            "reporter_name": "Jane Officer",
+            "reporter_email": "jane@grovisor.test",
+            "first_name": "Ahmed",
+            "last_name": "Al Mansoori",
+            "nationality": "AE",
+            "amount": 75000.0,
+            "transaction_type": "Wire Transfer",
+            "source_account": "AE070331234567890123456",
+            "destination_account": "AE070339876543210987654",
+            # NO source_institution_name or destination_institution_name
+        }
+
+        # Should not raise - exports with account numbers, no institution elements
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+
+        # Verify transaction block exists
+        assert root.find("transaction") is not None
+
+        # Verify no institution_name elements present
+        assert root.find("transaction/t_from/account/institution_name") is None
+        assert root.find("transaction/t_to/account/institution_name") is None
+
+        # Verify account numbers are present
+        from_acct = root.find("transaction/t_from/account/account_number")
+        to_acct = root.find("transaction/t_to/account/account_number")
+        assert from_acct is not None and from_acct.text == "AE070331234567890123456"
+        assert to_acct is not None and to_acct.text == "AE070339876543210987654"
 
     def test_institution_names_not_required_when_no_transaction(self) -> None:
         """If there's no transaction (no amount), institution names are not required."""

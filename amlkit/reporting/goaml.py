@@ -247,17 +247,24 @@ def serialize_goaml_xml(report_data: dict) -> str:
         else:
             ET.SubElement(tx, "amount_local").text = str(raw_amount)
 
-        # Source/Destination Accounts. A blank account number or institution name
-        # here is not a harmless gap -- it silently exports as "N/A" in a
-        # regulator-facing filing, so require the real values instead.
+        # Source/Destination Accounts. A blank account number is not a harmless
+        # gap -- it silently exports as "N/A" in a regulator-facing filing,
+        # so require the real value. Institution names are preferred but optional:
+        # older reports or those without recorded counterparty institutions can
+        # still export with account numbers alone (issue #261 fix allows graceful
+        # omission rather than hard-failing on missing counterparty data).
         t_from = ET.SubElement(tx, "t_from")
         from_acc = ET.SubElement(t_from, "account")
-        ET.SubElement(from_acc, "institution_name").text = _require(report_data, "source_institution_name", "source institution name")
+        source_inst = (report_data.get("source_institution_name") or "").strip()
+        if source_inst:
+            ET.SubElement(from_acc, "institution_name").text = source_inst
         ET.SubElement(from_acc, "account_number").text = _require(report_data, "source_account", "source account number")
 
         t_to = ET.SubElement(tx, "t_to")
         to_acc = ET.SubElement(t_to, "account")
-        ET.SubElement(to_acc, "institution_name").text = _require(report_data, "destination_institution_name", "destination institution name")
+        dest_inst = (report_data.get("destination_institution_name") or "").strip()
+        if dest_inst:
+            ET.SubElement(to_acc, "institution_name").text = dest_inst
         ET.SubElement(to_acc, "account_number").text = _require(report_data, "destination_account", "destination account number")
     else:
         # Non-financial reports still need an activity block
