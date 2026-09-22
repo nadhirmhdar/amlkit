@@ -17,6 +17,7 @@ pytest>=9.1
 graphviz>=0.20
 passporteye>=2.2.0
 pytesseract>=0.3
+pymupdf>=1.24
 pyotp>=2.9
 segno>=1.6
 google-cloud-storage>=2.18,<3.0

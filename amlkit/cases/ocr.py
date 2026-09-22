@@ -60,6 +60,89 @@ _EMIRATES_ID_LABEL_WORDS = {
 }
 
 
+def _load_bytes(image_path_or_file) -> bytes:
+    """Read a path or a file-like object into memory once.
+
+    Existing code re-reads image_path_or_file twice in both public
+    functions below (once for MRZ, again for the OCR fallback) by passing
+    the SAME object to two different readers -- fragile even before this
+    change (a stream exhausted by the first reader silently starves the
+    second), and actively wrong once PDF rasterization is added, since the
+    rasterized bytes must be computed once and handed to both readers as
+    fresh streams, not the raw PDF bytes reused. Centralizing the read here
+    fixes both problems: everything downstream gets its own fresh
+    io.BytesIO(these_bytes).
+
+    Already-loaded `bytes` are returned as-is (checked before the path
+    branch below): `bytes` also satisfies a naive path-like check, which
+    would otherwise send raw content into `open(...)` as a filename.
+    """
+    import os
+    if isinstance(image_path_or_file, bytes):
+        return image_path_or_file
+    if isinstance(image_path_or_file, (str, os.PathLike)):
+        with open(image_path_or_file, "rb") as f:
+            return f.read()
+    if hasattr(image_path_or_file, "read"):
+        pos = image_path_or_file.tell() if hasattr(image_path_or_file, "tell") else None
+        data = image_path_or_file.read()
+        if pos is not None:
+            try:
+                image_path_or_file.seek(pos)
+            except Exception:
+                pass
+        return data
+    raise TypeError(f"Unsupported input type for OCR: {type(image_path_or_file)!r}")
+
+
+def _pdf_first_page_to_image_bytes(pdf_bytes: bytes, *, dpi: int = 300) -> bytes:
+    """Rasterize a PDF's first page to PNG bytes.
+
+    Documents scanned or saved as PDF (a phone scanner app, an all-in-one
+    printer) land here just as often in practice as a direct photo upload
+    -- validate_file_mime() already allow-lists application/pdf for exactly
+    this reason -- but MRZ reading and PIL-based OCR fallback both only
+    understand raster images. 300 DPI balances OCR/MRZ legibility against
+    memory: an A4 page at 300 DPI is roughly 2480x3508px, comfortably above
+    assess_image_quality()'s 600px-short-edge floor without being
+    excessive. Only the first page is used -- passport/Emirates ID scans
+    are single-document uploads, not multi-page packets.
+    """
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        if doc.page_count == 0:
+            raise ValueError("PDF has no pages")
+        page = doc[0]
+        zoom = dpi / 72
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        return pix.tobytes("png")
+    finally:
+        doc.close()
+
+
+def _prepare_image_bytes(image_path_or_file, *, dpi: int = 300) -> bytes:
+    """Load input bytes, transparently rasterizing a PDF's first page.
+
+    PDF is detected by the %PDF- magic header on the actual bytes, not by
+    filename or a caller-supplied content-type -- callers here only ever
+    have a file-like object or a path, no reliable extension. If PDF
+    rasterization itself fails (corrupt/encrypted PDF, no pages), this
+    falls back to returning the raw bytes unchanged rather than raising:
+    the raw bytes will then fail MRZ/OCR the same way any other unreadable
+    input already does (caught internally, all-null result) -- consistent
+    with this module's existing "swallow failures, surface nothing rather
+    than crash" behavior, not a new failure mode.
+    """
+    raw = _load_bytes(image_path_or_file)
+    if raw[:5] == b"%PDF-":
+        try:
+            return _pdf_first_page_to_image_bytes(raw, dpi=dpi)
+        except Exception:
+            pass
+    return raw
+
+
 def _resolve_two_digit_year(two_digit_year: str, month: str, day: str) -> str | None:
     """Disambiguate an MRZ two-digit year by picking whichever century
     lands closer to today.
@@ -144,10 +227,12 @@ def extract_passport_data(image_path_or_file) -> dict[str, str | None]:
         "authenticity": None,
     }
 
+    image_bytes = _prepare_image_bytes(image_path_or_file)
+
     # 1. Try reading MRZ using passporteye
     mrz = None
     try:
-        mrz = read_mrz(image_path_or_file)
+        mrz = read_mrz(io.BytesIO(image_bytes))
     except Exception:
         pass
         
@@ -209,7 +294,7 @@ def extract_passport_data(image_path_or_file) -> dict[str, str | None]:
     if not res["full_name"] or not res["id_number"]:
         try:
             import pytesseract
-            img = Image.open(image_path_or_file)
+            img = Image.open(io.BytesIO(image_bytes))
             # Run OCR on the image
             text = pytesseract.image_to_string(img)
             
@@ -366,7 +451,11 @@ def extract_emirates_id_data(image_path_or_file) -> dict[str, object]:
     """
     import pytesseract
 
-    img = image_path_or_file if isinstance(image_path_or_file, Image.Image) else Image.open(image_path_or_file)
+    if isinstance(image_path_or_file, Image.Image):
+        img = image_path_or_file
+    else:
+        image_bytes = _prepare_image_bytes(image_path_or_file)
+        img = Image.open(io.BytesIO(image_bytes))
     data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
 
     words_with_conf = [
@@ -437,7 +526,11 @@ def assess_image_quality(image_path_or_file) -> dict[str, object]:
       UAE-document samples before being trusted for anything but a
       human-review prompt.
     """
-    img = image_path_or_file if isinstance(image_path_or_file, Image.Image) else Image.open(image_path_or_file)
+    if isinstance(image_path_or_file, Image.Image):
+        img = image_path_or_file
+    else:
+        image_bytes = _prepare_image_bytes(image_path_or_file)
+        img = Image.open(io.BytesIO(image_bytes))
     img = img.convert("RGB")
     width, height = img.size
 
