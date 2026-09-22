@@ -2280,6 +2280,16 @@ def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "ope
     if org is None:
         return back("/console", err="Organization not found.")
 
+    # A-02-5: Audit cross-tenant access by super-admin
+    from ..db import audit
+    import json
+    audit(
+        db, session.email, "console.org_alerts.view", "organization", str(org_id),
+        json.dumps({"super_admin_org_id": session.org_id, "status_filter": status}),
+        org_id=org_id
+    )
+    db.commit()
+
     from ..cases.review import review_history, REASON_CODES
     alert_list = queries.org_alerts(db, org_id, status=status if status != "all" else None)
     from ..cases.review import review_history
@@ -2311,6 +2321,16 @@ def console_org_customers(request: Request, db: DB, org_id: int):
     org = db.execute("SELECT name FROM organizations WHERE id=?", (org_id,)).fetchone()
     if org is None:
         return back("/console", err="Organization not found.")
+
+    # A-02-5: Audit cross-tenant access by super-admin
+    from ..db import audit
+    import json
+    audit(
+        db, session.email, "console.org_customers.view", "organization", str(org_id),
+        json.dumps({"super_admin_org_id": session.org_id}),
+        org_id=org_id
+    )
+    db.commit()
 
     customer_list = queries.org_customers(db, org_id)
     return render(request, "customers.html", {
