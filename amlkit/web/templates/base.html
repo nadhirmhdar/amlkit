@@ -29,8 +29,6 @@
       <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
       <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
       <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
-      <a href="/policies"  class="{{ 'on' if nav=='policies' }}">Policies</a>
-      <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
       {% endif %}
@@ -64,6 +62,7 @@
         </div>
         <a href="/reports" class="user-dropdown__item" role="menuitem">Reports</a>
         <a href="/audit"   class="user-dropdown__item" role="menuitem">Audit trail</a>
+        <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
         {% if session.operator_role == 'mlro' %}
           <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
           <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>

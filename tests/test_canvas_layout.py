@@ -89,3 +89,25 @@ def test_single_operator_chip_sits_in_the_canvas_corner(tmp_path, monkeypatch):
 
 def test_no_chip_when_four_eyes_is_on(client):
     assert "mode-chip" not in _canvas_menu(client.get("/").text)
+
+
+def test_sidebar_is_the_five_core_links(client):
+    """Audit and Policies live in the avatar menus, not the sidebar."""
+    nav = _sidebar(client.get("/").text)
+    assert re.findall(r'<a href="([^"]+)"', nav) == ["/", "/dashboard", "/screen", "/customers", "/reports"]
+
+
+def test_audit_and_policies_are_in_both_avatar_menus(client):
+    html = client.get("/").text
+    desktop = _canvas_menu(html)
+    phone = html.split('id="user-menu-wrap"', 1)[1].split("</form>", 1)[0]
+    for menu in (desktop, phone):
+        assert 'href="/audit"' in menu
+        assert 'href="/policies"' in menu
+
+
+def test_home_cards_have_no_arrows(client):
+    html = client.get("/").text
+    cards = re.search(r'<div class="action-cards">(.*?)\n</div>', html, re.S).group(1)
+    assert "action-card__arrow" not in cards
+    assert "&rarr;" not in cards

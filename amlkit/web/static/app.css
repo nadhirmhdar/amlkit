@@ -390,11 +390,6 @@ main {
 .action-card__body { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 .action-card__title { display: block; font-size: 16px; font-weight: 700; }
 .action-card__sub { display: block; font-size: 13px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
-.action-card__arrow {
-  grid-column: 2; grid-row: 1; align-self: start;
-  color: var(--ink-3); font-size: 17px; flex-shrink: 0; transition: transform 140ms ease;
-}
-.action-card:hover .action-card__arrow { transform: translateX(3px); color: var(--ink); }
 
 /* Floating alerts bar -- sticky (not fixed) so it clears the sidebar
    without a manual width/offset calc, and scrolls into a resting position
