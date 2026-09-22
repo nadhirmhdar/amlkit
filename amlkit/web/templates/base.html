@@ -29,59 +29,16 @@
       <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
       <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
       <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
-      <a href="/policies"  class="{{ 'on' if nav=='policies' }}">Policies</a>
-      <a href="/audit"     class="{{ 'on' if nav=='audit' }}">Audit</a>
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
-      {% endif %}
-      {% if session.operator_role == 'mlro' %}
-        <a href="/freeze-obligations" class="{{ 'on' if nav=='freeze' }}">Freeze Obligations</a>
       {% endif %}
     </nav>
   </aside>
 
-  {# Content column: wraps the topnav bar and main so they stack vertically.
-     Without this, desktop-topnav was a flex sibling of sidebar and main in a
-     row, appearing as a narrow strip rather than a full-width header. #}
+  {# Content column: sidebar sits beside it; the phone header, tab bar and
+     main stack inside. There is no desktop header strip: the avatar menu
+     lives in the top-right corner of the canvas (see .canvas-corner). #}
   <div class="content-col">
-
-  {# Desktop top nav — visible on tablets/desktop (>680px). Avatar-only
-     button top-right, same as the phone header; the dropdown carries the
-     name, role and org. #}
-  <div class="desktop-topnav no-print">
-    {% if single_operator %}
-      <span class="mode-chip mode-chip--warn" title="Dismissals of sanctions and proliferation matches are recorded as having had no independent review">
-        Single-operator mode
-      </span>
-    {% endif %}
-    <div class="user-menu-wrap" id="desktop-user-menu-wrap">
-      <button class="user-menu-btn" data-action="toggle-desktop-user-menu" aria-label="User menu" aria-expanded="false">
-        <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
-      </button>
-      <div class="user-dropdown" role="menu">
-        <div class="user-dropdown__header">
-          <strong>{{ session.operator_name }}</strong>
-          <span class="user-dropdown__role">{{ session.operator_role }}</span>
-          {% if org_name %}
-            <span class="user-dropdown__role muted">{{ org_name }}</span>
-          {% endif %}
-        </div>
-        <a href="/reports" class="user-dropdown__item" role="menuitem">Reports</a>
-        <a href="/audit" class="user-dropdown__item" role="menuitem">Audit Trails</a>
-        <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
-        {% if session.operator_role == 'mlro' %}
-          <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
-          <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
-        {% endif %}
-        <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
-        <div class="user-dropdown__divider"></div>
-        <form method="post" action="/logout">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button type="submit" class="user-dropdown__item user-dropdown__logout">Log out</button>
-        </form>
-      </div>
-    </div>
-  </div>
 
   {# Mobile top header — visible only on phones (≤680px). Has app logo on
      left (tap = go home) and user menu button on right. The user menu
@@ -105,6 +62,7 @@
         </div>
         <a href="/reports" class="user-dropdown__item" role="menuitem">Reports</a>
         <a href="/audit"   class="user-dropdown__item" role="menuitem">Audit trail</a>
+        <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
         {% if session.operator_role == 'mlro' %}
           <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
           <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
@@ -141,6 +99,42 @@
   </nav>
 
   <main id="main-content">
+    {# Top-right corner of the canvas (desktop and tablet): the single-operator
+       chip when that mode is on, then the avatar menu. Phones use the mobile
+       header above instead (and the footer sentence for the mode). #}
+    <div class="canvas-corner no-print">
+    {% if single_operator %}
+      <span class="mode-chip mode-chip--warn" title="Dismissals of sanctions and proliferation matches are recorded as having had no independent review">
+        Single-operator mode
+      </span>
+    {% endif %}
+    <div class="user-menu-wrap" id="desktop-user-menu-wrap">
+      <button class="user-menu-btn" data-action="toggle-desktop-user-menu" aria-label="User menu" aria-expanded="false">
+        <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
+      </button>
+      <div class="user-dropdown" role="menu">
+        <div class="user-dropdown__header">
+          <strong>{{ session.operator_name }}</strong>
+          <span class="user-dropdown__role">{{ session.operator_role }}</span>
+          {% if org_name %}
+            <span class="user-dropdown__role muted">{{ org_name }}</span>
+          {% endif %}
+        </div>
+        <a href="/audit" class="user-dropdown__item" role="menuitem">Audit Trails</a>
+        <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
+        {% if session.operator_role == 'mlro' %}
+          <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
+          <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
+        {% endif %}
+        <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
+        <div class="user-dropdown__divider"></div>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="user-dropdown__item user-dropdown__logout">Log out</button>
+        </form>
+      </div>
+    </div>
+    </div>
     {% if security_warning %}
       <div class="banner err"><strong>{{ security_warning }}</strong></div>
     {% endif %}
@@ -237,5 +231,6 @@
 
 <script src="/static/js/countries.js"></script>
 <script src="/static/js/app.js"></script>
+{% if session %}<script src="/static/js/search-palette.js"></script>{% endif %}
 </body>
 </html>

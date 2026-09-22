@@ -31,7 +31,6 @@
       <span class="action-card__title">Screen a name</span>
       <span class="action-card__sub">One-off check, Arabic or Latin</span>
     </span>
-    <span class="action-card__arrow">&rarr;</span>
   </a>
 
   <a class="action-card" href="/customers/new">
@@ -44,34 +43,22 @@
       <span class="action-card__title">Onboard a customer</span>
       <span class="action-card__sub">CDD file, owners, risk rating</span>
     </span>
-    <span class="action-card__arrow">&rarr;</span>
   </a>
 
-  <a class="action-card" href="{{ contextual_card.link }}">
+  <a class="action-card" href="/reports">
     <span class="action-card__icon">
-      {% if contextual_card.type == 'alerts' %}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
       </svg>
-      {% elif contextual_card.type == 'adverse_media' %}
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-      </svg>
-      {% elif contextual_card.type == 'datasets' %}
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
-      </svg>
-      {% else %}
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-      </svg>
-      {% endif %}
     </span>
     <span class="action-card__body">
-      <span class="action-card__title">{{ contextual_card.title }}</span>
-      <span class="action-card__sub">{{ contextual_card.description }}</span>
+      <span class="action-card__title">Reports &amp; Filings</span>
+      <span class="action-card__sub">goAML XML, STR/SAR, evidence packs</span>
     </span>
-    <span class="action-card__arrow">&rarr;</span>
   </a>
 </div>
 
