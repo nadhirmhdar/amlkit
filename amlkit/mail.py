@@ -120,7 +120,7 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
         # submitted the form has not proved they control the mailbox, and the
         # link on the console is for the deployment's own operator to use or
         # ignore -- not for the browser that just posted the form.
-        logger.exception("Failed to send verification email to %s", to_email)
+        logger.exception("Failed to send verification email")
         print(
             "\n" + "=" * 72 +
             f"\namlkit: SMTP send FAILED for {to_email} -- mail IS configured, so\n"
@@ -182,7 +182,7 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
             if user:
                 smtp.login(user, password)
             smtp.send_message(msg)
-        logger.info("Staleness alert sent to %d recipients", len(to_emails))
+        logger.info("Staleness alert sent to %d MLRO recipients", len(to_emails))
         return SENT
     except (OSError, smtplib.SMTPException):
         logger.exception("Failed to send staleness alert email")
@@ -274,9 +274,10 @@ def send_freeze_obligation_alert(
             if user:
                 smtp.login(user, password)
             smtp.send_message(msg)
-        logger.info("Freeze obligation alert sent to %s for obligation %d",
-                    to_email, freeze_obligation_id)
+        logger.info("Freeze obligation alert sent for obligation %d",
+                    freeze_obligation_id)
         return SENT
     except (OSError, smtplib.SMTPException):
-        logger.exception("Failed to send freeze obligation alert to %s", to_email)
+        logger.exception("Failed to send freeze obligation alert for obligation %d",
+                         freeze_obligation_id)
         return FAILED

@@ -99,7 +99,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             total_alerts += outcome["alerts"]
             screened_orgs += 1
         except Exception as exc:
-            log.exception("rescreen_all failed for org %s (%s): %s", org["id"], org["name"], exc)
+            log.exception("rescreen_all failed for org %s: %s", org["id"], exc)
             rescreen_failures.append(f"{org['name']}: {exc}")
     conn.commit()
 
