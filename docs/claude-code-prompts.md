@@ -47,7 +47,7 @@ Verified against the tree. These are on the board as open but should not be work
 
 ---
 
-# Part 1 — Implementation specs (26)
+# Part 1 — Implementation specs (27)
 
 ## Critical
 
@@ -186,29 +186,41 @@ gh pr create referencing "Closes #259".
 
 ---
 
-### p2 — Confirm the statutory retention period, then align the code
-`#78` · High · Question, blocking
+### p2 — Settle the statutory retention period
+`#78` · **Critical** · Blocks p3 · **Not a Claude Code task**
 
-**This one is not really a coding task and should not be handed to Claude Code cold.**
-Issue #78 is open and labelled `question`. It asks whether the legally required
-retention period is 8 or 10 years. PR #86 already implemented 10 years, and
-`cases/manager.py:52` defines `RETENTION_YEARS`. So the code moved but the legal
-question was never formally answered and closed.
+**This changed after a regulatory check on 23 Sep 2026.** `cases/manager.py:85` now reads
+`RETENTION_YEARS = 10`, set by PR #86 on the stated basis that Cabinet Resolution
+134/2025 "extended the period from five years to ten". That basis is not corroborated:
 
-You are the tax and compliance specialist here — this needs your determination against
-Cabinet Resolution 134/2025, not an agent's reading. Once you have decided, this
-becomes a two-minute change:
+- **Al Tamimi** cites **Art. 25(2)** as a **five-year minimum**, running from the *latest*
+  of relationship termination, account closure, completion of inspection, investigation,
+  or final judgment.
+- **amluae.com's** CR 134 guide: "The mandatory record retention period of 5 (five) years
+  remains the same."
+
+So #78's original options — 8 or 10 — may both be wrong, and the prior `8` never had a
+stated source either. Ten years is not an AML breach (it exceeds a minimum) but it *is* a
+PDPL storage-limitation exposure: passport and Emirates ID data held for double the
+required period. Note also that #165 / PR #182 "fixed" five-year UI copy to match ten — if
+five is correct, that change made correct copy wrong.
+
+This needs your reading of the official Arabic text of Art. 25, not an agent's reading of
+secondary sources. See board item **l19**. Once settled:
 
 ```
-Issue #78 is resolved: the statutory retention period for amlkit is <N> years,
-per <cite the article of Cabinet Resolution 134/2025 you relied on>.
+Issue #78 is resolved: the statutory retention period for amlkit is <N> years, running
+from <state the trigger rule you confirmed>, per Article <...> of Cabinet Resolution
+134/2025.
 
-Confirm amlkit/cases/manager.py:52 RETENTION_YEARS matches <N>. Check every other
-place the retention period appears - code, templates, docs and tests - and make them
-agree. Add the citation as a comment next to RETENTION_YEARS so the next person does
-not have to re-derive it.
+Set amlkit/cases/manager.py:85 RETENTION_YEARS to <N>. Then find EVERY other place the
+retention period appears - code, templates, docstrings, tests, db.py comments and the
+customer details page copy that PR #182 changed - and make them all agree. PR #86 and
+PR #182 are the two commits that moved these values; read both to find every site.
 
-Branch chore/78-confirm-retention-period. Run the full suite, then open a PR with
+Add the article citation as a comment next to RETENTION_YEARS so nobody re-derives it.
+
+Branch fix/78-settle-retention-period. Run the full suite, then open a PR with
 gh pr create referencing "Closes #78".
 ```
 
@@ -220,8 +232,10 @@ gh pr create referencing "Closes #78".
 **Verified anchors:** `cases/manager.py:52` (`RETENTION_YEARS`), `:169`, `:171`,
 `purge_expired` at `:440`.
 
-Depends on p2. Do not run this until the period is confirmed — a migration that writes
-the wrong date is worse than no migration.
+**Blocked by p2 and l19.** This migration rewrites every stored `retention_until` across
+the entire customer book. Running it against an unverified constant propagates the error
+everywhere at once — a migration that writes the wrong date is far worse than no migration.
+Do not start it until the period *and* the trigger rule are settled.
 
 ```
 Fix issue #79 in amlkit.
@@ -458,6 +472,45 @@ billing module issues no queries against AML tables.
 
 Branch feat/stripe-subscriptions. Run the full suite, then open a PR with
 gh pr create.
+```
+
+---
+
+### p96 — Retention model is single-trigger; the regulation is latest-of
+High · Compliance · `amlkit/cases/manager.py:490`
+
+Surfaced by the same regulatory check as p2. This is the harder half of the retention
+problem, and arguably matters more than the number.
+
+```
+Add a retention-hold concept to amlkit.
+
+amlkit/cases/manager.py:490 computes retention_until from the customer exit date alone.
+Cabinet Resolution 134/2025 Art. 25(2) reportedly runs the clock from the MOST RECENT of
+several triggers: relationship termination, account closure, completion of a supervisory
+inspection, an investigation, or a final judicial judgment. A customer under open
+investigation is therefore purged on schedule today, destroying records that are still
+legally required.
+
+Do NOT change RETENTION_YEARS in this task - the period is being settled separately in
+#78. Build the trigger model, which is independent of whatever number it lands on.
+
+Implement:
+1. A retention hold on a customer: who set it, why, when, and the trigger type
+   (inspection / investigation / judgment / other).
+2. purge_expired() (manager.py:440) must skip any customer with an active hold,
+   regardless of retention_until.
+3. Releasing a hold recomputes retention_until from the release date, and must never
+   shorten an existing date.
+4. Audit setting and releasing a hold - db.audit() with org_id explicitly.
+5. Surface holds in the UI so an operator can see why a record is being kept.
+6. Additive migration; safe on a fresh database; org-scoped.
+
+Tests (real SQLite, no DB mocks): a held customer survives purge_expired past its
+retention_until; releasing recomputes from the release date; release never shortens;
+holds are org-scoped; set and release both write audit rows.
+
+Branch feat/retention-holds. Run the full suite, then open a PR with gh pr create.
 ```
 
 ---
@@ -1282,10 +1335,10 @@ money saved.
 
 | | Count |
 |---|---|
-| Implementation specs | 26 |
+| Implementation specs | 27 |
 | External-tool runbooks | 12 |
 | Items to close without work | 4 (p12, t9, t19 done; t18 obsolete) |
-| **Total open items reconciled** | **42** |
+| **Total open items reconciled** | **43** (42 + p96, added by the regulatory review) |
 
 **Suggested order.** p91 (#258) and p93 (#257) first — both are controls that do not
 work, and both are small. Then p92 (#259) and p94 (#260). p1 is not code at all and
