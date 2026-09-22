@@ -39,7 +39,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 from .. import auth, mail, queries, storage
-from .limits import limiter
+from .limits import limiter, login_rate_limit_key
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     EXIT_REASONS,
@@ -176,7 +176,9 @@ def _login_json(db, token: str, info: auth.SessionInfo) -> dict[str, Any]:
 
 
 @router.post("/auth/login")
-def api_login(body: LoginRequest, db: DB):
+@limiter.limit("10/minute")  # IP ceiling, mirrors web /login
+@limiter.limit("3/minute", key_func=login_rate_limit_key)  # per-account, mirrors web /login
+def api_login(request: Request, body: LoginRequest, db: DB):
     try:
         token, info = auth.login(db, body.email, body.password)
     except auth.AuthError as exc:

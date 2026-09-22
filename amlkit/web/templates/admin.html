@@ -69,6 +69,9 @@
       <div class="grow primary">{{ op.name }}</div>
       <div class="side" style="flex:1;">{{ op.email or '—' }}</div>
       <span class="tag {{ 'high' if op.role == 'mlro' else 'other' }}" style="width:60px;">{{ op.role }}</span>
+      {% if op.super_admin %}
+      <span class="tag high" title="Full cross-organization platform access, granted outside this org's admin panel">Super admin</span>
+      {% endif %}
       <span class="tag {{ 'low' if op.is_active else 'other' }}" style="width:90px;">{{ 'active' if op.is_active else 'deactivated' }}</span>
       <div style="width:200px; text-align:right;">
         {% if op.is_active %}
@@ -86,6 +89,14 @@
           <button class="small ghost" type="submit"
                   data-confirm="Deactivate {{ op.name }}? They will be signed out of every session immediately.">
             Deactivate
+          </button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/operators/{{ op.id }}/reactivate" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="small ghost" type="submit"
+                  data-confirm="Reactivate {{ op.name }}?">
+            Reactivate
           </button>
         </form>
         {% endif %}

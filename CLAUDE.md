@@ -77,6 +77,30 @@ SQLite with WAL mode. Schema is in `db.py:SCHEMA`. Migrations are additive colum
 
 `connect()` handles schema creation + all migrations on every open — safe for fresh installs and upgrades alike.
 
+## Automated routines
+
+Recurring triggers registered in the claude.ai Routines UI (Settings → Routines). All fire in fresh sessions.
+
+| ID | Name | Schedule (UTC) | Environment | Purpose |
+|----|------|----------------|-------------|---------|
+| `trig_01ETKZRFYHGqii6o5K8WH9wR` | Issue triage | `50 */6 * * *` | Default (trusted network) | CI health check, GitHub issue triage, Monday improvement log |
+| `trig_01JHC5b92KEvfhgnk5yVdbkM` | amlkit GitHub Issues Sync | `55 */6 * * *` | Full access to internet | Syncs open GitHub issues → artifact DB task tracker (`LvtQxP7THXZEvM1zS8f34p`) |
+
+**Sequence every 6 hours (UTC):**
+```
+HH:50  Issue triage
+HH:55  GitHub Issues Sync  →  updates My Tasks artifact DB
+```
+
+**Task dispatch (Desktop, file-based):** As of 2026-09-21 the dreamon workflow uses file-based channels (QUEUE.md / STATUS.md) instead of a scheduled cron trigger. Desktop appends tasks to QUEUE.md; Bedrock workers (lonappan, thankappan, kunjappan) claim and report via those files. No scheduled `/dreamon` trigger exists.
+
+**Task status fields** used in the artifact DB (`tasks` collection):
+- `done: true` — completed
+- `in_progress: true` — PR opened / work underway
+- `blocked: true` — blocked mid-task
+- `awaiting_input: true` — waiting on owner input
+- (absent / false) — actionable
+
 ## Environment variables
 
 - `AMLKIT_DB` — path to SQLite database (default: `data/aml.db`)

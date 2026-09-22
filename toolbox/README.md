@@ -39,7 +39,12 @@ AMLKIT_DB_PATH=/path/to/your.db toolbox --tools_file=toolbox/tools.yaml
 
 | Tool | Description |
 |------|-------------|
-| `search_customers` | Search customers by name (LIKE match) |
-| `get_alerts` | Get screening alerts for a customer |
-| `get_screenings` | Get screening history for a customer |
-| `list_datasets` | List all sanctions datasets with refresh status |
+| `search_customers` | Search customers by name (LIKE match), scoped to one `org_id` |
+| `get_alerts` | Get screening alerts for a customer, scoped to one `org_id` |
+| `get_screenings` | Get screening history for a customer, scoped to one `org_id` |
+| `list_datasets` | List all sanctions datasets with refresh status (shared reference data, not org-scoped) |
+
+`search_customers`, `get_alerts` and `get_screenings` all require an
+`org_id` argument -- every row they touch belongs to exactly one
+organization, so a caller must always state which one it is asking about.
+There is no default or "all organizations" mode.

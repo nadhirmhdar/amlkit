@@ -231,3 +231,114 @@ class TestAdminRBAC:
         assert r.status_code == 200
         assert "Transaction Monitoring Rules" in r.text
         assert "large_cash_threshold_aed" in r.text
+
+
+class TestMlroLockout:
+    """Regression tests for finding #8 (2026-09-21 deployed-site review):
+    an org's only active MLRO could deactivate themselves (or the last
+    other active MLRO) with no reactivate route or UI, losing policy
+    upload, operator management, resets and refresh until someone edited
+    the database directly."""
+
+    def test_solo_mlro_cannot_deactivate_self(self, client) -> None:
+        """The `client` fixture registers alice as the org's only MLRO."""
+        alice_id = _db().execute(
+            "SELECT id FROM operators WHERE email='alice@testfirm.ae'"
+        ).fetchone()["id"]
+
+        r = client.post(f"/admin/operators/{alice_id}/deactivate", data={
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+        assert r.status_code == 303
+
+        row = _db().execute("SELECT is_active FROM operators WHERE id=?", (alice_id,)).fetchone()
+        assert row["is_active"] == 1, "the org's only active MLRO must not be deactivated"
+
+    def test_deactivating_last_active_mlro_is_blocked_even_by_another_mlro(self, client) -> None:
+        """Two MLROs: deactivating the second-to-last is fine, but the org
+        must never be left with zero active MLROs."""
+        _add_operator(client, "bob8", "bob8@testfirm.ae", role="mlro")
+        conn = _db()
+        alice_id = conn.execute("SELECT id FROM operators WHERE email='alice@testfirm.ae'").fetchone()["id"]
+        bob_id = conn.execute("SELECT id FROM operators WHERE email='bob8@testfirm.ae'").fetchone()["id"]
+
+        # Alice deactivates Bob: one MLRO (Alice) remains active -- allowed.
+        r1 = client.post(f"/admin/operators/{bob_id}/deactivate", data={
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+        assert r1.status_code == 303
+        assert _db().execute("SELECT is_active FROM operators WHERE id=?", (bob_id,)).fetchone()["is_active"] == 0
+
+        # Alice tries to deactivate herself: she is now the last active MLRO -- blocked.
+        r2 = client.post(f"/admin/operators/{alice_id}/deactivate", data={
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+        assert r2.status_code == 303
+        assert _db().execute("SELECT is_active FROM operators WHERE id=?", (alice_id,)).fetchone()["is_active"] == 1
+
+    def test_deactivating_an_officer_is_unaffected(self, client) -> None:
+        """The last-MLRO guard must not block deactivating a non-MLRO."""
+        _add_operator(client, "charlie8", "charlie8@testfirm.ae", role="officer")
+        charlie_id = _db().execute(
+            "SELECT id FROM operators WHERE email='charlie8@testfirm.ae'"
+        ).fetchone()["id"]
+
+        r = client.post(f"/admin/operators/{charlie_id}/deactivate", data={
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+        assert r.status_code == 303
+        assert _db().execute(
+            "SELECT is_active FROM operators WHERE id=?", (charlie_id,)
+        ).fetchone()["is_active"] == 0
+
+    def test_officer_cannot_reactivate_operator(self, client) -> None:
+        """POST /admin/operators/{id}/reactivate is MLRO-only, like deactivate."""
+        _add_operator(client, "dave8", "dave8@testfirm.ae", role="officer")
+        client.cookies.delete("amlkit_session")
+        client.post("/login", data={
+            "email": "dave8@testfirm.ae", "password": "a-strong-password-2",
+            "csrf_token": _csrf(client),
+        })
+        from conftest import settle_mfa  # p15: MLRO sessions start locked
+        settle_mfa(client)
+
+        r = client.post("/admin/operators/1/reactivate", data={
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+        assert r.status_code == 403
+
+    def test_mlro_can_reactivate_a_deactivated_operator(self, client) -> None:
+        """A deactivated operator can be brought back via the new reactivate
+        route, and can log in again afterwards."""
+        _add_operator(client, "erin8", "erin8@testfirm.ae", role="officer")
+        erin_id = _db().execute(
+            "SELECT id FROM operators WHERE email='erin8@testfirm.ae'"
+        ).fetchone()["id"]
+
+        client.post(f"/admin/operators/{erin_id}/deactivate", data={
+            "csrf_token": _csrf(client),
+        })
+        assert _db().execute(
+            "SELECT is_active FROM operators WHERE id=?", (erin_id,)
+        ).fetchone()["is_active"] == 0
+
+        r = client.post(f"/admin/operators/{erin_id}/reactivate", data={
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+        assert r.status_code == 303
+        assert _db().execute(
+            "SELECT is_active FROM operators WHERE id=?", (erin_id,)
+        ).fetchone()["is_active"] == 1
+
+        # Erin can log in again now.
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+
+        fresh = TestClient(app)
+        fresh.get("/login")
+        login_r = fresh.post("/login", data={
+            "email": "erin8@testfirm.ae", "password": "a-strong-password-2",
+            "csrf_token": _csrf(fresh),
+        }, follow_redirects=True)
+        assert login_r.status_code == 200
+        assert "Invalid" not in login_r.text

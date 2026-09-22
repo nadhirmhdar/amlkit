@@ -31,7 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, queries
-from .limits import limiter
+from .limits import limiter, login_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     EXIT_REASONS,
@@ -182,34 +182,10 @@ app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openap
 # Uses the same signing mechanism as CSRF tokens
 _FLASH_COOKIE = "amlkit_flash"
 
-# Rate limiting to prevent brute-force attacks and DoS
-
-
-def rate_limit_key_func(request: Request) -> str:
-    """Rate limiter key: real client IP, respecting X-Forwarded-For behind proxy.
-
-    Without this, Cloud Run / nginx proxies cause all requests to share one
-    link-local IP, so every tenant lands in the same rate-limit bucket.
-    Only trusts X-Forwarded-For when AMLKIT_BEHIND_PROXY=1.
-    """
-    from .deps import client_ip
-    return client_ip(request) or "unknown"
-
-
-def login_rate_limit_key(request: Request) -> str:
-    """Composite rate limit key for login: IP + email.
-
-    Allows multiple operators from the same office IP/NAT to log in concurrently
-    (each account gets its own 3/minute budget) while still protecting each
-    account from credential-stuffing attempts.
-
-    Reads the email from request.state.login_email, which is set by middleware.
-    """
-    ip = rate_limit_key_func(request)
-    email = getattr(request.state, 'login_email', None)
-    if email:
-        return f"{ip}:{email.lower().strip()}"
-    return ip
+# Rate limiting to prevent brute-force attacks and DoS.
+# rate_limit_key_func / login_rate_limit_key live in .limits (imported above)
+# so mobile.py's /api/v1/auth/login can share the same per-account key
+# function without importing this module and creating a circular import.
 
 
 app.state.limiter = limiter
@@ -407,17 +383,25 @@ async def extract_login_email(request: Request, call_next):
     access the email synchronously via request.state.login_email.
 
     We read the raw body and manually parse the email without consuming the
-    stream, ensuring the route handler can still access the form data.
+    stream, ensuring the route handler can still access the form data. Covers
+    both the web form POST (/login) and the mobile JSON POST
+    (/api/v1/auth/login) -- without this, mobile login shares web login's
+    decorators but never actually gets a per-account key, silently falling
+    back to IP-only limiting.
     """
-    if request.method == "POST" and request.url.path == "/login":
+    if request.method == "POST" and request.url.path in ("/login", "/api/v1/auth/login"):
         try:
             # Read the raw body first (this caches it in request._body)
             body = await request.body()
-            # Parse email manually without consuming the form stream
-            from urllib.parse import parse_qs
             body_str = body.decode('utf-8') if isinstance(body, bytes) else str(body)
-            parsed = parse_qs(body_str)
-            email = parsed.get('email', [''])[0]
+            if request.url.path == "/login":
+                # Parse email manually without consuming the form stream
+                from urllib.parse import parse_qs
+                parsed = parse_qs(body_str)
+                email = parsed.get('email', [''])[0]
+            else:
+                import json
+                email = json.loads(body_str).get('email', '')
             if email:
                 request.state.login_email = email.strip()
         except Exception:
@@ -512,7 +496,10 @@ def login_submit(
     # p15: an MLRO session is issued locked; enrolled operators must pass the
     # TOTP challenge, un-enrolled ones are sent straight to enrolment.
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
-    target = auth.mfa_lock_session(db, token, info.operator_id, info.operator_role) or "/"
+    target = auth.mfa_lock_session(
+        db, token, info.operator_id, info.operator_role,
+        trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
+    ) or "/"
 
     resp = RedirectResponse(target, status_code=303)
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
@@ -591,6 +578,29 @@ def password_change_submit(
     return back("/", msg="Password changed successfully. All other sessions have been signed out.")
 
 
+@app.post("/account/forget-devices")
+def forget_devices_submit(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Revoke every remembered ('skip MFA for 30 days') device for the
+    current operator. Next login anywhere will ask for a TOTP code again."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+
+    auth.revoke_trusted_devices_for(db, session.operator_id)
+    from ..db import audit
+    audit(db, session.operator_name, "mfa.devices_forgotten", "operator", session.operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+
+    return back("/account/password", msg="All remembered devices have been forgotten. "
+                                          "They will be asked for a code on next sign-in.")
+
+
 @app.get("/mfa/verify", response_class=HTMLResponse)
 def mfa_verify_form(request: Request, db: DB):
     """Render TOTP code entry form for MFA challenge (p15)."""
@@ -614,6 +624,7 @@ def mfa_verify_submit(
     request: Request, db: DB,
     code: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()] = "",
+    remember_device: Annotated[str, Form()] = "",
 ):
     """Verify TOTP code and upgrade session to mfa_verified=1 (p15)."""
     try:
@@ -635,7 +646,19 @@ def mfa_verify_submit(
                                   actor=session_row["name"], org_id=session_row["org_id"])
     if outcome == "ok":
         auth.set_session_mfa_verified(db, token, True)
-        return RedirectResponse("/", status_code=303)
+        resp = RedirectResponse("/", status_code=303)
+        if remember_device:
+            raw_device_token = auth.create_trusted_device(db, operator_id)
+            _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+            resp.set_cookie(
+                auth.TRUSTED_DEVICE_COOKIE, raw_device_token, httponly=True, samesite="strict",
+                secure=_behind_proxy, max_age=int(auth.TRUSTED_DEVICE_LIFETIME.total_seconds()),
+            )
+            from ..db import audit
+            audit(db, session_row["name"], "mfa.device_trusted", "operator", operator_id,
+                  None, org_id=session_row["org_id"])
+            db.commit()
+        return resp
     if outcome == "locked":
         return back("/mfa/verify", err=_MFA_LOCKED_MESSAGE)
     return back("/mfa/verify", err="Invalid verification code. Please try again.")
@@ -841,7 +864,10 @@ def setup_submit(
 
     session_token, info = auth.login(db, result["email"], password, ip=client_ip(request))
     # p15: the first operator is the MLRO, so this session starts locked too.
-    target = auth.mfa_lock_session(db, session_token, info.operator_id, info.operator_role) or "/"
+    target = auth.mfa_lock_session(
+        db, session_token, info.operator_id, info.operator_role,
+        trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
+    ) or "/"
     resp = RedirectResponse(target, status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
@@ -939,7 +965,10 @@ def verify_email(request: Request, db: DB, token: str = ""):
           None, org_id=operator["org_id"])
     db.commit()
     # p15: a brand-new MLRO must enrol now, not whenever they next log out.
-    target = auth.mfa_lock_session(db, session_token, operator["id"], operator["role"])
+    target = auth.mfa_lock_session(
+        db, session_token, operator["id"], operator["role"],
+        trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
+    )
     resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to amlkit."),
                             status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
@@ -1928,13 +1957,20 @@ def alerts_bulk_dismiss(
         return RedirectResponse("/login", status_code=303)
     try:
         require_csrf(request, csrf_token)
-        count = bulk_dismiss_alerts(
+        outcome = bulk_dismiss_alerts(
             db, session.org_id, customer_id=customer_id,
             reason_code=reason_code, operator=session.operator_name,
         )
     except (PermissionError, ReviewError) as exc:
         return back(back_to, err=str(exc))
-    return back(back_to, msg=f"Dismissed {count} alert(s).")
+    if outcome.pending_review:
+        msg = (
+            f"Dismissed {outcome.dismissed} alert(s). {outcome.pending_review} sanctions/PF "
+            "match(es) staged for independent review - a second operator must confirm."
+        )
+    else:
+        msg = f"Dismissed {outcome.dismissed} alert(s)."
+    return back(back_to, msg=msg)
 
 
 @app.get("/alerts/{alert_id}/panel", response_class=HTMLResponse)
@@ -2565,10 +2601,23 @@ def admin_deactivate_operator(
         return JSONResponse({"error": str(exc)}, status_code=403)
 
     row = db.execute(
-        "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
+        "SELECT id, role, is_active FROM operators WHERE id=? AND org_id=?",
+        (operator_id, session.org_id),
     ).fetchone()
     if row is None:
         return back("/admin", err="Operator not found.")
+    if row["role"] == "mlro" and row["is_active"]:
+        other_active_mlros = db.execute(
+            "SELECT COUNT(*) c FROM operators WHERE org_id=? AND role='mlro' "
+            "AND is_active=1 AND id != ?",
+            (session.org_id, operator_id),
+        ).fetchone()["c"]
+        if other_active_mlros == 0:
+            return back(
+                "/admin",
+                err="Cannot deactivate the last active MLRO. Promote another "
+                    "operator to MLRO first.",
+            )
     db.execute("UPDATE operators SET is_active=0 WHERE id=?", (operator_id,))
     auth.revoke_sessions_for(db, operator_id)
     from ..db import audit
@@ -2576,6 +2625,33 @@ def admin_deactivate_operator(
           None, org_id=session.org_id)
     db.commit()
     return back("/admin", msg="Operator deactivated and signed out of every session.")
+
+
+@app.post("/admin/operators/{operator_id}/reactivate")
+def admin_reactivate_operator(
+    request: Request, db: DB, operator_id: int, csrf_token: Annotated[str, Form()] = ""
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    row = db.execute(
+        "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
+    ).fetchone()
+    if row is None:
+        return back("/admin", err="Operator not found.")
+    db.execute("UPDATE operators SET is_active=1 WHERE id=? AND org_id=?", (operator_id, session.org_id))
+    from ..db import audit
+    audit(db, session.operator_name, "operator.reactivate", "operator", operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+    return back("/admin", msg="Operator reactivated.")
 
 
 # ---------------------------------------------------------------------- sanctions refresh
@@ -2949,6 +3025,51 @@ async def system_create_operator(request: Request):
         })
     except ValueError as exc:
         status = 404 if "no matching" in str(exc) else 409 if "already exists" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status)
+    finally:
+        conn.close()
+
+
+@app.post("/system/super-admin")
+async def system_super_admin(request: Request):
+    """Grant or revoke super_admin on an existing operator without a browser
+    session.
+
+    Out-of-band by design, same as /system/create-operator: this is the only
+    way to set the flag anywhere in the app. No authenticated in-app route
+    grants super_admin to anyone, including the caller themselves.
+    """
+    secret = os.environ.get("ADMIN_API_SECRET", "").strip()
+    if not secret:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "endpoint disabled — set ADMIN_API_SECRET"}, status_code=403)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    from fastapi.responses import JSONResponse
+    from ..db import connect
+    from ..cases.operators import set_super_admin
+
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    grant = body.get("grant", True)
+
+    conn = connect(db_path())
+    try:
+        result = set_super_admin(conn, email, bool(grant), actor="system")
+        return JSONResponse({
+            "status": "updated",
+            "operator_id": result["operator_id"],
+            "organization": result["organization"],
+            "email": result["email"],
+            "role": result["role"],
+            "super_admin": result["super_admin"],
+        })
+    except ValueError as exc:
+        status = 404 if "no matching" in str(exc) else 400
         return JSONResponse({"error": str(exc)}, status_code=status)
     finally:
         conn.close()

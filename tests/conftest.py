@@ -38,6 +38,26 @@ def _invite_code_and_limiter_reset(monkeypatch):
     limiter.reset()
 
 
+@pytest.fixture(autouse=True)
+def _kyt_config_cache_reset():
+    """Every test starts and ends with an empty KYT rule-config cache.
+
+    That cache is keyed by (connection identity, org_id), not bare org_id
+    (see amlkit/screening/kyt.py), so it is safe by construction across
+    tests using different connections/databases -- but this is a second,
+    independent guarantee that doesn't depend on that cache key being right:
+    even if a future change to the caching strategy reintroduces a way for
+    two tests' org_id values to collide, clearing here means one test's
+    save_rule_config() (e.g. test_admin_rule_config_post_saves_valid_config)
+    can never leak a cached threshold into a test that runs after it,
+    whatever order the suite runs in.
+    """
+    from amlkit.screening.kyt import _clear_config_cache
+    _clear_config_cache()
+    yield
+    _clear_config_cache()
+
+
 LISTED = "AHMED ABD AL-JALEEL AL-HASNAWI"
 
 

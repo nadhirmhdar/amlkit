@@ -22,7 +22,7 @@
 :root {
   /* Tokens per the AMLKit redesign spec — cool-neutral base, single blue
      accent, muted semantic hues at similar chroma/lightness. */
-  --bg:          oklch(98.3% 0.003 250);
+  --bg:          oklch(96%   0.004 250);
   --surface:     oklch(99.4% 0.002 250);
   --line:        oklch(91%   0.005 250);
   --line-soft:   oklch(94.5% 0.004 250);
@@ -410,11 +410,32 @@ main {
 .home-grid .action-card__title { font-size: 15.5px; }
 .home-grid .action-card__sub { font-size: 12.5px; margin-top: 2px; line-height: 1.4; }
 
-/* Floating alerts bar -- sticky (not fixed) so it clears the sidebar
-   without a manual width/offset calc, and scrolls into a resting position
-   at the bottom of the viewport rather than covering content underneath. */
+/* Floating alerts bar. This was position:sticky, chosen (per the original
+   comment here) specifically to avoid a manual sidebar width/offset calc.
+   In practice, sticky's "stuck" position is a fixed viewport-relative
+   coordinate the instant the element's natural static position exceeds it
+   -- which happens on page LOAD, not only after scrolling, on any page
+   whose content is taller than the viewport (true on every phone almost
+   always, given the footer text below this pill). It then renders pinned
+   there regardless of how much content precedes it, permanently
+   overlapping whatever sits at that coordinate. Confirmed empirically:
+   adding margin/padding before a sticky element already past its
+   threshold does not move its rendered position at all.
+   Fixed instead, with .alerts-float-wrap doing the sidebar-offset math the
+   original comment wanted to avoid -- it mirrors main's own box model
+   (max-width, centering margin, horizontal padding) exactly, offset by the
+   sidebar's width, so the pill lines up with the cards above it. This
+   keeps the "always reachable without scrolling" intent sticky was going
+   for, without the overlap. */
+.alerts-float-wrap {
+  position: fixed;
+  left: 224px; right: 0; bottom: 20px; z-index: 5;
+  max-width: 1180px; margin: 0 auto; padding: 0 60px;
+  pointer-events: none; /* positioning box only; let clicks through to
+    whatever's underneath except where the pill itself actually is */
+}
+.alerts-float-wrap > .alerts-float { pointer-events: auto; }
 .alerts-float {
-  position: sticky; bottom: 20px; z-index: 5;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   border-radius: 999px; padding: 16px 24px; margin-top: 8px;
   text-decoration: none;
@@ -728,6 +749,9 @@ details.evidence summary * { display: none; }
      the first 68px; content starts below them. */
   main { padding: 76px 20px 40px; max-width: 100%; }
   .canvas-corner { top: 12px; right: 20px; }
+  /* Sidebar is off-canvas here, not a persistent column -- mirror main's
+     own left offset (none) and horizontal padding (20px) at this width. */
+  .alerts-float-wrap { left: 0; padding: 0 20px; }
   .grid.two { grid-template-columns: 1fr; }
   .dashboard-hero { grid-template-columns: 1fr; }
   .panel { padding: 18px; }
@@ -854,8 +878,13 @@ details.evidence summary * { display: none; }
   .mobile-tab.on .mobile-tab__label { font-weight: 700; }
   .mobile-tab.on .mobile-tab__icon { background: var(--ink); border-color: var(--ink); }
 
-  /* Keep the floating alerts pill above the tab bar instead of under it. */
-  .alerts-float { bottom: calc(var(--tabbar-h) + 20px); }
+  /* Keep the floating alerts pill above the tab bar instead of under it,
+     and mirror main's own left offset (none) and horizontal padding (18px)
+     at this width. Right padding is wider than the left: the feedback
+     button (.feedback-btn, also fixed at tabbar-h+20px here) sits in that
+     same bottom-right corner, so the pill's own right edge has to stop
+     clear of the button's 56px circle instead of running full-width. */
+  .alerts-float-wrap { left: 0; padding: 0 84px 0 18px; bottom: calc(var(--tabbar-h) + 20px); }
 
   /* Multi-field rows (screen-a-name, add-owner, transaction entry, etc.)
      stack one field per line instead of squeezing side by side. */

@@ -47,6 +47,11 @@ IDLE_TIMEOUT_HOURS = 8  # Configurable via AMLKIT_IDLE_TIMEOUT_HOURS env var
 SESSION_COOKIE = "amlkit_session"
 CSRF_COOKIE = "amlkit_csrf"
 
+# "Remember this device" for MFA (p-trusted-device): a recognised browser can
+# skip the TOTP challenge for this long before it needs re-verifying.
+TRUSTED_DEVICE_COOKIE = "amlkit_trusted_device"
+TRUSTED_DEVICE_LIFETIME = timedelta(days=30)
+
 # After this many consecutive failures, the account locks for LOCKOUT_MINUTES.
 # Applied per-account (not per-IP): a LAN deployment has few enough operators
 # that per-account lockout is both sufficient and simpler than tracking IPs.
@@ -237,6 +242,74 @@ def revoke_sessions_for(conn: sqlite3.Connection, operator_id: int) -> None:
     conn.commit()
 
 
+# ------------------------------------------------------- trusted devices
+def create_trusted_device(conn: sqlite3.Connection, operator_id: int) -> str:
+    """Mint a 30-day 'remember this device' token and return the raw value.
+
+    Only the hash is stored (see trusted_devices' schema comment for why
+    sha256, not argon2, is the right choice here).
+    """
+    raw = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    conn.execute(
+        """INSERT INTO trusted_devices (operator_id, token_hash, created_at, expires_at)
+           VALUES (?,?,?,?)""",
+        (operator_id, _token_hash(raw), utcnow(),
+         (now + TRUSTED_DEVICE_LIFETIME).isoformat(timespec="seconds")),
+    )
+    conn.commit()
+    return raw
+
+
+def is_trusted_device_valid(conn: sqlite3.Connection, operator_id: int, raw_token: str | None) -> bool:
+    """True if raw_token is a live, unexpired, unrevoked device token for
+    exactly this operator. Touches last_used_at on a valid hit.
+
+    The operator_id check matters as much as the hash lookup: a token must
+    belong to the operator presenting it, not merely exist somewhere in the
+    table, or a stolen cookie from one account could skip MFA on another.
+    """
+    if not raw_token:
+        return False
+    row = conn.execute(
+        """SELECT id, expires_at, revoked_at FROM trusted_devices
+           WHERE token_hash=? AND operator_id=?""",
+        (_token_hash(raw_token), operator_id),
+    ).fetchone()
+    if row is None or row["revoked_at"] is not None:
+        return False
+    if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        return False
+    conn.execute(
+        "UPDATE trusted_devices SET last_used_at=? WHERE id=?",
+        (utcnow(), row["id"]),
+    )
+    conn.commit()
+    return True
+
+
+def revoke_trusted_device(conn: sqlite3.Connection, raw_token: str) -> None:
+    conn.execute(
+        "UPDATE trusted_devices SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL",
+        (utcnow(), _token_hash(raw_token)),
+    )
+    conn.commit()
+
+
+def revoke_trusted_devices_for(conn: sqlite3.Connection, operator_id: int) -> None:
+    """Kill every remembered device for an operator.
+
+    Called on password change (same reasoning as revoke_sessions_for: a
+    password change should not leave a standing MFA bypass behind) and from
+    the explicit "forget all devices" account action.
+    """
+    conn.execute(
+        "UPDATE trusted_devices SET revoked_at=? WHERE operator_id=? AND revoked_at IS NULL",
+        (utcnow(), operator_id),
+    )
+    conn.commit()
+
+
 # ------------------------------------------------------------------- login
 def _log_auth_event(
     conn: sqlite3.Connection, event: str, email: str | None, detail: dict | None = None, *, ip: str | None = None,
@@ -370,6 +443,7 @@ def set_password(conn: sqlite3.Connection, operator_id: int, new_password: str) 
     )
     conn.commit()
     revoke_sessions_for(conn, operator_id)
+    revoke_trusted_devices_for(conn, operator_id)
 
 
 # ------------------------------------------------------- email verification
@@ -638,7 +712,9 @@ def mfa_challenge_path(conn, operator_id: int) -> str:
     return "/mfa/verify" if mfa_is_enrolled(conn, operator_id) else "/mfa/setup"
 
 
-def mfa_lock_session(conn, raw_token: str, operator_id: int, role: str) -> str | None:
+def mfa_lock_session(
+    conn, raw_token: str, operator_id: int, role: str, *, trusted_device_token: str | None = None
+) -> str | None:
     """Lock a freshly issued session behind MFA when the operator is an MLRO.
 
     Every path that mints a session for a human (form login, verify-email
@@ -646,8 +722,17 @@ def mfa_lock_session(conn, raw_token: str, operator_id: int, role: str) -> str |
     right after create_session()/login(), so no entry point hands an MLRO an
     unlocked session. Returns the challenge path to send them to, or None
     when the role is not challenged.
+
+    trusted_device_token: the browser's "remember this device" cookie value,
+    if any. When it validates for this exact operator, the session is left
+    as-is (mfa_verified=True from create_session()'s default) instead of
+    being locked -- a recognised device skips the challenge, but only ever
+    via this explicit, time-bounded, per-operator token, never a blanket
+    exemption.
     """
     if role != "mlro":
+        return None
+    if trusted_device_token and is_trusted_device_valid(conn, operator_id, trusted_device_token):
         return None
     set_session_mfa_verified(conn, raw_token, False)
     return mfa_challenge_path(conn, operator_id)

@@ -224,3 +224,50 @@ def provision_operator(
         "email": clean_email,
         "role": role,
     }
+
+
+def set_super_admin(
+    conn: sqlite3.Connection,
+    email: str,
+    grant: bool,
+    actor: str = "system",
+) -> dict[str, Any]:
+    """Grant or revoke the super_admin flag on an existing operator.
+
+    Out-of-band only: this is called from /system/super-admin (gated behind
+    ADMIN_API_SECRET), never from any authenticated in-app route -- no MLRO
+    or officer can reach this through their own session, by design. The
+    resulting flag is not hidden, though: queries.operators() selects it and
+    admin.html renders a badge for it to every operator in the org.
+
+    Raises:
+        ValueError: No operator with that email.
+    """
+    clean_email = (email or "").strip().lower()
+    row = conn.execute(
+        "SELECT id, org_id, name, role FROM operators WHERE lower(email)=?",
+        (clean_email,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("no matching operator")
+
+    conn.execute(
+        "UPDATE operators SET super_admin=? WHERE id=?",
+        (1 if grant else 0, row["id"]),
+    )
+    audit(
+        conn, actor,
+        "operator.super_admin_granted" if grant else "operator.super_admin_revoked",
+        "operator", row["id"], {"email": clean_email}, org_id=row["org_id"],
+    )
+    conn.commit()
+
+    return {
+        "operator_id": row["id"],
+        "organization": conn.execute(
+            "SELECT name FROM organizations WHERE id=?", (row["org_id"],)
+        ).fetchone()["name"],
+        "email": clean_email,
+        "role": row["role"],
+        "super_admin": bool(grant),
+    }

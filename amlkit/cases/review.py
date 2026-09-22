@@ -434,6 +434,18 @@ def assign_alert(
               {"assigned_to": operator}, org_id=org_id)
 
 
+@dataclass
+class BulkDismissOutcome:
+    """Aggregate result of bulk_dismiss_alerts, split by whether the
+    four-eyes gate held each alert for independent review."""
+    dismissed: int
+    pending_review: int
+
+    @property
+    def total(self) -> int:
+        return self.dismissed + self.pending_review
+
+
 def bulk_dismiss_alerts(
     conn: sqlite3.Connection,
     org_id: int,
@@ -441,24 +453,37 @@ def bulk_dismiss_alerts(
     customer_id: int,
     reason_code: str,
     operator: str,
-) -> int:
-    """Dismiss all open alerts for a given customer in one operation."""
-    now = utcnow()
+    narrative: str = "",
+) -> BulkDismissOutcome:
+    """Dismiss all open alerts for a given customer in one operation.
+
+    Routes each alert through propose_disposition() -- the same four-eyes
+    gate a single dismissal goes through -- rather than writing
+    status='false_positive' directly. A sanctions/PF match still can't be
+    cleared by one operator just because it was dismissed in bulk: it moves
+    to pending_review and awaits a second operator, same as dismissing it
+    one at a time would.
+    """
     rows = conn.execute(
         """SELECT a.id FROM alerts a
            JOIN screenings s ON s.id = a.screening_id
            WHERE a.org_id = ? AND s.customer_id = ? AND a.status = 'open'""",
         (org_id, customer_id),
     ).fetchall()
+    dismissed = 0
+    pending = 0
     for row in rows:
-        conn.execute(
-            "UPDATE alerts SET status='false_positive', disposition=?, "
-            "reason_code=?, dispositioned_by=?, dispositioned_at=? "
-            "WHERE id=? AND org_id=?",
-            (reason_code, reason_code, operator, now, row["id"], org_id),
+        outcome = propose_disposition(
+            conn, row["id"], org_id=org_id, status="false_positive",
+            reason_code=reason_code, operator=operator, narrative=narrative,
         )
+        if outcome.awaiting_second_review:
+            pending += 1
+        else:
+            dismissed += 1
         audit(conn, operator, "alert.bulk_dismiss", "alert", row["id"],
-              {"reason_code": reason_code, "customer_id": customer_id},
+              {"reason_code": reason_code, "customer_id": customer_id,
+               "awaiting_second_review": outcome.awaiting_second_review},
               org_id=org_id)
     conn.commit()
-    return len(rows)
+    return BulkDismissOutcome(dismissed=dismissed, pending_review=pending)
