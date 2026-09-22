@@ -92,19 +92,23 @@ def evaluate_transaction(
     the one place that history is assembled, so a future rule can be added
     here without every call site having to learn what data it now needs.
     """
+    from ..money import Money
+
     # Load org-specific configuration (falls back to module defaults)
     config = get_rule_config(conn, org_id)
     large_cash_threshold = config["large_cash_threshold_aed"]
     structuring_window_days = config["structuring_window_days"]
+    structuring_min_count = config["structuring_min_count"]
     velocity_window_hours = config["velocity_window_hours"]
     velocity_max_count = config["velocity_max_count"]
     high_risk_countries = set(config["high_risk_countries"])
-    # structuring_min_count is not org-configurable yet, use module constant
-    structuring_min_count = STRUCTURING_MIN_COUNT
+
+    threshold_money = Money.from_float(large_cash_threshold, "AED")
+    current_money = Money.from_float(amount_aed, "AED")
 
     triggered: list[TriggeredRule] = []
 
-    if method == "cash" and amount_aed >= large_cash_threshold:
+    if method == "cash" and current_money >= threshold_money:
         triggered.append(TriggeredRule(
             rule_key="large_cash",
             severity="high",
@@ -119,19 +123,29 @@ def evaluate_transaction(
             _parse(occurred_at) - timedelta(days=structuring_window_days)
         ).isoformat()
         rows = conn.execute(
-            """SELECT amount_aed, occurred_at FROM transactions
+            """SELECT amount_aed, amount_units, amount_nanos, occurred_at
+               FROM transactions
                WHERE customer_id=? AND org_id=? AND method='cash'
                  AND occurred_at >= ? AND occurred_at <= ?
                  AND id != ?""",
             (customer_id, org_id, window_start, occurred_at, transaction_id),
         ).fetchall()
-        recent_amounts = [amount_aed] + [r["amount_aed"] for r in rows]
-        under_threshold_amounts = [a for a in recent_amounts if a < large_cash_threshold]
-        under_threshold_total = sum(under_threshold_amounts)
-        under_threshold_count = len(under_threshold_amounts)
+
+        def _row_to_money(r) -> Money:
+            if r["amount_units"] is not None:
+                return Money("AED", r["amount_units"], r["amount_nanos"] or 0)
+            return Money.from_float(r["amount_aed"], "AED")
+
+        recent_money = [current_money] + [_row_to_money(r) for r in rows]
+        under_threshold = [m for m in recent_money if m < threshold_money]
+        zero = Money("AED", 0, 0)
+        under_threshold_total = zero
+        for m in under_threshold:
+            under_threshold_total = under_threshold_total + m
+        under_threshold_count = len(under_threshold)
         if (
-            under_threshold_total >= large_cash_threshold
-            and amount_aed < large_cash_threshold
+            under_threshold_total >= threshold_money
+            and current_money < threshold_money
             and under_threshold_count >= structuring_min_count
         ):
             triggered.append(TriggeredRule(
@@ -140,7 +154,7 @@ def evaluate_transaction(
                 detail={
                     "window_days": structuring_window_days,
                     "transaction_count": under_threshold_count,
-                    "total_aed": under_threshold_total,
+                    "total_aed": float(under_threshold_total.to_decimal()),
                     "threshold_aed": large_cash_threshold,
                 },
             ))
@@ -218,13 +232,14 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
         {
             "large_cash_threshold_aed": 55000.0,
             "structuring_window_days": 7,
+            "structuring_min_count": 2,
             "velocity_window_hours": 24,
             "velocity_max_count": 5,
             "high_risk_countries": ["KP", "IR", "MM", "SY", "AF", "YE", "SS", "SD"],
         }
 
-    Note: structuring_min_count is not configurable yet and is not included in the
-    returned dict. Code using it should reference STRUCTURING_MIN_COUNT directly.
+    Note: structuring_min_count is not yet org-configurable; it always
+    returns the STRUCTURING_MIN_COUNT module constant.
     """
     global _config_cache
     if org_id in _config_cache:
@@ -245,6 +260,7 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
         config = {
             "large_cash_threshold_aed": row["kyt_large_cash_threshold"] if row["kyt_large_cash_threshold"] is not None else LARGE_CASH_THRESHOLD_AED,
             "structuring_window_days": row["kyt_structuring_window_days"] if row["kyt_structuring_window_days"] is not None else STRUCTURING_WINDOW_DAYS,
+            "structuring_min_count": STRUCTURING_MIN_COUNT,  # Not configurable yet
             "velocity_window_hours": row["kyt_velocity_window_hours"] if row["kyt_velocity_window_hours"] is not None else VELOCITY_WINDOW_HOURS,
             "velocity_max_count": row["kyt_velocity_max_count"] if row["kyt_velocity_max_count"] is not None else VELOCITY_MAX_COUNT,
             "high_risk_countries": _get_high_risk_countries(conn, org_additional),
@@ -253,6 +269,7 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
         config = {
             "large_cash_threshold_aed": LARGE_CASH_THRESHOLD_AED,
             "structuring_window_days": STRUCTURING_WINDOW_DAYS,
+            "structuring_min_count": STRUCTURING_MIN_COUNT,
             "velocity_window_hours": VELOCITY_WINDOW_HOURS,
             "velocity_max_count": VELOCITY_MAX_COUNT,
             "high_risk_countries": _get_high_risk_countries(conn, None),

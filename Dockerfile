@@ -4,6 +4,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates sqlite3 gnupg apt-transport-https gettext-base \
     graphviz tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara \
+    libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core \
     && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
        | tee /etc/apt/sources.list.d/google-cloud-sdk.list \
     && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \

@@ -545,6 +545,80 @@ CREATE INDEX IF NOT EXISTS ix_am_find_org    ON adverse_media_findings(org_id);
 CREATE INDEX IF NOT EXISTS ix_am_find_cust   ON adverse_media_findings(customer_id);
 CREATE INDEX IF NOT EXISTS ix_am_find_status ON adverse_media_findings(status);
 
+-- ------------------------------------------------------ Google Cloud media pipeline
+-- The "Audit Vault" for screening/media_pipeline.py: a 4-stage pipeline
+-- (BigQuery GKG + GDELT DOC + Vertex AI Search acquisition -> Knowledge Graph
+-- + Natural Language entity resolution -> Gemini triage) that is a richer,
+-- optional *implementation* of adverse-media screening, gated by
+-- AMLKIT_MEDIA_PIPELINE. It is not a replacement for the tables above: every
+-- pipeline-sourced finding an operator should be able to disposition is ALSO
+-- written into adverse_media_findings (see cases/manager.py) so the existing
+-- disposition/four-eyes/risk-reassessment flow needs no changes at all. These
+-- two tables exist purely so the *evidence for a triage decision* -- which
+-- sources were queried, what salience/sentiment/KG-match/model produced a
+-- given finding -- is never lost, even though only a handful of that detail
+-- fits in adverse_media_findings' existing columns.
+CREATE TABLE IF NOT EXISTS media_pipeline_runs (
+    id                 INTEGER PRIMARY KEY,
+    org_id             INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id        INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    trigger            TEXT NOT NULL,   -- onboarding | periodic | adhoc | review
+    status             TEXT NOT NULL,   -- ok | partial | unavailable
+    query_name         TEXT NOT NULL,
+    query_arabic       TEXT,
+    -- json: {"gdelt_doc": n, "gdelt_bq": n, "vertex_search": n} -- how many
+    -- candidate articles each acquisition source contributed, even ones later
+    -- dropped at entity-resolution or triage. Lets a reviewer tell "Vertex AI
+    -- Search found nothing" apart from "Vertex AI Search was never queried".
+    sources_queried    TEXT NOT NULL,
+    articles_considered INTEGER NOT NULL DEFAULT 0,
+    articles_relevant   INTEGER NOT NULL DEFAULT 0,
+    -- json array of adapter-level error strings (never article text or PII --
+    -- see amlkit/pii.py and screening/media_pipeline.py's logging discipline).
+    errors             TEXT,
+    started_at         TEXT NOT NULL,
+    finished_at        TEXT,
+    created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_mp_run_org  ON media_pipeline_runs(org_id);
+CREATE INDEX IF NOT EXISTS ix_mp_run_cust ON media_pipeline_runs(customer_id);
+
+-- One row per article the pipeline scored, whether or not it was ultimately
+-- judged relevant -- a triage run that found "nothing adverse" needs the same
+-- kind of evidence trail as one that found something, per the reasoning
+-- already established for adverse_media_screenings above.
+CREATE TABLE IF NOT EXISTS media_pipeline_articles (
+    id             INTEGER PRIMARY KEY,
+    org_id         INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    run_id         INTEGER NOT NULL REFERENCES media_pipeline_runs(id) ON DELETE CASCADE,
+    customer_id    INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    url            TEXT NOT NULL,
+    source         TEXT NOT NULL,   -- gdelt_doc | gdelt_bq | vertex_search
+    title          TEXT,
+    domain         TEXT,
+    language       TEXT,
+    published_at   TEXT,
+    -- Entity resolution (stage 2). NULL when AMLKIT_NL_ENABLED=0 and the
+    -- keyword/name-evidence fallback was used instead -- a NULL salience is a
+    -- different fact from a NL call that scored the entity at 0.0.
+    salience          REAL,
+    sentiment_score   REAL,
+    sentiment_magnitude REAL,
+    kg_match          INTEGER NOT NULL DEFAULT 0,
+    -- Triage (stage 3).
+    relevant          INTEGER NOT NULL DEFAULT 0,
+    categories        TEXT,   -- json array, FATF predicate-offence categories
+    severity          TEXT NOT NULL DEFAULT 'none',
+    rationale         TEXT,
+    english_headline  TEXT,
+    model_id          TEXT,   -- e.g. gemini-2.5-flash, or NULL for the keyword fallback
+    prompt_version    TEXT,   -- e.g. media-triage-v1:ab12cd34
+    created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_mp_art_org  ON media_pipeline_articles(org_id);
+CREATE INDEX IF NOT EXISTS ix_mp_art_run  ON media_pipeline_articles(run_id);
+CREATE INDEX IF NOT EXISTS ix_mp_art_cust ON media_pipeline_articles(customer_id);
+
 -- ------------------------------------------------------------ electronic signatures
 -- content_hash is computed by the caller over the exact acknowledgment text
 -- shown to the signer at signing time (see cases/manager.py:record_signature).
@@ -837,6 +911,33 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("customers", "risk_level",        "ALTER TABLE customers ADD COLUMN risk_level        TEXT"),
     ("customers", "source_of_wealth",  "ALTER TABLE customers ADD COLUMN source_of_wealth  TEXT"),
     ("customers", "source_of_funds",   "ALTER TABLE customers ADD COLUMN source_of_funds   TEXT"),
+    # Follow-up to #231/#142: per-org goAML entity reference (replaces hardcoded "AML-REF")
+    ("organizations", "goaml_entity_reference", "ALTER TABLE organizations ADD COLUMN goaml_entity_reference TEXT"),
+    # p51: Track when org first visited dashboard for onboarding guide completion
+    ("organizations", "dashboard_visited_at", "ALTER TABLE organizations ADD COLUMN dashboard_visited_at TEXT"),
+    # T-009: CLDR region codes, multi-nationality, subregion, establishment date
+    ("customers", "subregion", "ALTER TABLE customers ADD COLUMN subregion TEXT"),
+    ("customers", "nationalities", "ALTER TABLE customers ADD COLUMN nationalities TEXT"),
+    ("customers", "tax_residencies", "ALTER TABLE customers ADD COLUMN tax_residencies TEXT"),
+    ("customers", "establishment_date", "ALTER TABLE customers ADD COLUMN establishment_date TEXT"),
+    ("transactions", "counterparty_subregion", "ALTER TABLE transactions ADD COLUMN counterparty_subregion TEXT"),
+    # T-008: Google AML AI enum alignment — civil status (ISO 20022) and occupation
+    ("customers", "civil_status_code", "ALTER TABLE customers ADD COLUMN civil_status_code TEXT"),
+    ("customers", "occupation", "ALTER TABLE customers ADD COLUMN occupation TEXT"),
+    # T-007: Exact money amounts — Google Money type (units + nanos).
+    # Nullable: backfilled by _backfill_money_columns(); NULL means pre-migration row.
+    ("transactions", "amount_units", "ALTER TABLE transactions ADD COLUMN amount_units INTEGER"),
+    ("transactions", "amount_nanos", "ALTER TABLE transactions ADD COLUMN amount_nanos INTEGER"),
+    # Relationship exit: ISO date + fixed reason code (cases.manager.EXIT_REASONS).
+    # NULL while the relationship is open; cleared again on reactivation.
+    ("customers", "exit_date",   "ALTER TABLE customers ADD COLUMN exit_date   TEXT"),
+    ("customers", "exit_reason", "ALTER TABLE customers ADD COLUMN exit_reason TEXT"),
+    # Google Cloud media pipeline (screening/media_pipeline.py): links a
+    # legacy adverse_media_findings row back to the richer media_pipeline_runs
+    # / media_pipeline_articles audit trail it was surfaced from. NULL for
+    # every finding from the pre-pipeline GDELT-only path.
+    ("adverse_media_findings", "pipeline_run_id",
+     "ALTER TABLE adverse_media_findings ADD COLUMN pipeline_run_id INTEGER REFERENCES media_pipeline_runs(id) ON DELETE SET NULL"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
@@ -877,6 +978,16 @@ def _backfill_retention_until(conn: sqlite3.Connection) -> None:
     )
 
 
+def _backfill_exit_date(conn: sqlite3.Connection) -> None:
+    """Closed customers from before exit_date existed: their last update is
+    the best available proxy for the closure date. The real reason is unknown."""
+    conn.execute(
+        "UPDATE customers SET exit_date = date(substr(updated_at, 1, 10)),"
+        " exit_reason = COALESCE(exit_reason, 'unspecified')"
+        " WHERE status = 'closed' AND exit_date IS NULL"
+    )
+
+
 def _backfill_email_verified(conn: sqlite3.Connection) -> None:
     """One-time grandfathering, run only in the same connect() call that adds
     the email_verified_at column to an existing (pre-verification) database.
@@ -894,6 +1005,44 @@ def _backfill_email_verified(conn: sqlite3.Connection) -> None:
         "UPDATE operators SET email_verified_at=created_at "
         "WHERE password_hash IS NOT NULL AND email_verified_at IS NULL"
     )
+
+
+def _backfill_nationalities(conn: sqlite3.Connection) -> None:
+    """Backfill nationalities JSON list from the single nationality column."""
+    rows = conn.execute(
+        "SELECT id, nationality FROM customers WHERE nationalities IS NULL"
+    ).fetchall()
+    for row in rows:
+        nat = row["nationality"]
+        lst = json.dumps([nat] if nat else [])
+        conn.execute(
+            "UPDATE customers SET nationalities=? WHERE id=?",
+            (lst, row["id"]),
+        )
+
+
+def _backfill_money_columns(conn: sqlite3.Connection) -> None:
+    """Backfill amount_units/amount_nanos from amount_aed for pre-migration rows.
+
+    amount_aed is REAL (IEEE 754 double). We convert via str() -> Decimal to
+    avoid float arithmetic drift, then split into integer units and nanos.
+    Only touches rows where amount_units IS NULL (idempotent).
+    """
+    rows = conn.execute(
+        "SELECT id, amount_aed FROM transactions WHERE amount_units IS NULL"
+    ).fetchall()
+    if not rows:
+        return
+    from decimal import Decimal
+    _NANOS = 1_000_000_000
+    for row in rows:
+        d = Decimal(str(row["amount_aed"]))
+        units = int(d)
+        nanos = int((d - units) * _NANOS)
+        conn.execute(
+            "UPDATE transactions SET amount_units=?, amount_nanos=? WHERE id=?",
+            (units, nanos, row["id"]),
+        )
 
 
 def _migrate_operators_table(conn: sqlite3.Connection) -> None:
@@ -1119,7 +1268,14 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     """
     target = Path(path) if path else DB_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target, timeout=30)
+    # check_same_thread=False: FastAPI runs sync dependencies through
+    # contextmanager_in_threadpool, which can open the connection on one
+    # threadpool worker and run the request body (and the teardown close())
+    # on another. That cross-thread use trips sqlite3's default thread guard
+    # and surfaced as intermittent HTTP 500s under parallel load (QA-04,
+    # 2026-09-21 review). Safe here: deps.get_db() hands each request its own
+    # connection and never shares one between concurrent requests.
+    conn = sqlite3.connect(target, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
@@ -1133,6 +1289,9 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     if "email_verified_at" not in _operators_cols_before_migrate:
         _backfill_email_verified(conn)
     _backfill_retention_until(conn)
+    _backfill_nationalities(conn)
+    _backfill_money_columns(conn)
+    _backfill_exit_date(conn)
     _create_org_indexes(conn)
     from .ingest.fatf import load_fatf_data
     load_fatf_data(conn)

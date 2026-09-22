@@ -34,6 +34,7 @@ from .. import auth, queries
 from .limits import limiter
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
+    EXIT_REASONS,
     StaleDatasetsError,
     add_case_note,
     add_ubo,
@@ -64,8 +65,10 @@ from ..risk.model import ruleset
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
 from .csv_utils import _escape_csv_formula
 from .deps import (
+    AUDIT_VIEW_ROLES,
     CSRF_COOKIE,
     SESSION_COOKIE,
+    can_view_audit,
     client_ip,
     current_session,
     db_path,
@@ -276,8 +279,15 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
 
     # Check dataset health for authenticated sessions
     if session and db is not None:
-        banner = queries.dataset_health_banner(db)
-        ctx.setdefault("dataset_banner", banner)
+        # Data-source health is the platform operator's concern: only the
+        # super-admin sees this global banner. MLROs still get the dashboard's
+        # own 24-hour-rule breach banner when a mandatory list is stale.
+        if session.super_admin:
+            ctx.setdefault("dataset_banner", queries.dataset_health_banner(db))
+        # Check for MFA lockouts (show to admin/MLRO roles)
+        if session.operator_role in ("mlro", "admin"):
+            mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
+            ctx.setdefault("mfa_banner", mfa_banner)
 
     # Inject organization name for authenticated sessions
     if session:
@@ -653,10 +663,10 @@ def mfa_setup_form(request: Request, db: DB):
 
     # Rendered locally: the provisioning URI carries the TOTP secret, so it must
     # never be sent to a third-party QR service (and the CSP would block one).
-    import base64
+    # svg_data_uri() keeps the xmlns declaration; svg_inline() strips it, and an
+    # <img> decoder refuses a namespace-less SVG (broken-image icon).
     import segno
-    svg = segno.make(qr_uri, error="m").svg_inline(scale=5, border=2)
-    qr_data_uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+    qr_data_uri = segno.make(qr_uri, error="m").svg_data_uri(scale=5, border=2)
 
     return render(request, "mfa_setup.html", {
         "session": None,
@@ -723,7 +733,15 @@ def mfa_disable_submit(
         return back("/account", err=str(exc))
 
     # Require TOTP code only (password alone is insufficient - prevents MFA removal via password compromise)
-    if not totp_code or not auth.mfa_verify(db, session.operator_id, totp_code):
+    # Use mfa_check_code with stage="verify" to apply lockout and failed-attempt audit logging
+    if not totp_code:
+        return back("/account", err="Enter a valid TOTP code to disable MFA.")
+
+    outcome = auth.mfa_check_code(db, session.operator_id, totp_code, stage="verify",
+                                  actor=session.operator_name, org_id=session.org_id)
+    if outcome == "locked":
+        return back("/account", err="Too many failed attempts. Try again in 15 minutes.")
+    if outcome != "ok":
         return back("/account", err="Enter a valid TOTP code to disable MFA.")
 
     # Disable MFA
@@ -1074,7 +1092,17 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         )
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
+    except Exception as exc:
+        # Catch GoAMLValidationError for missing entity_reference
+        if "goAML entity reference" in str(exc):
+            return back(
+                f"/freeze-obligations/{freeze_id}",
+                err='Set your goAML entity reference under Admin → Organisation profile before filing. '
+                    '<a href="/admin">Go to Admin</a>'
+            )
+        raise
 
+    db.commit()
     return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 @app.post("/freeze-obligations/{freeze_id}/resolve")
@@ -1124,29 +1152,27 @@ def home(request: Request, db: DB):
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
 
-    from datetime import datetime, timedelta, timezone
-
-    # Gulf Standard Time, fixed UTC+4 (no DST) -- the app is UAE-only and
-    # this greeting is cosmetic, so a fixed offset avoids a per-operator
-    # timezone setting that nothing else in the schema has either.
-    gst_now = datetime.now(timezone.utc) + timedelta(hours=4)
-    if gst_now.hour < 12:
-        greeting = "Good morning"
-    elif gst_now.hour < 18:
-        greeting = "Good afternoon"
-    else:
-        greeting = "Good evening"
-
     first_name = (session.operator_name or "").split()
     first_name = first_name[0] if first_name else session.operator_name
 
+    d = queries.dashboard(db, session.org_id)
+
+    # First-run guide (p51): each step is derived from real state and the
+    # guide stays until all three are done. Customer count is any-status so
+    # an org whose customers are all archived is not treated as brand new.
+    onboarding_state = {
+        "step1_complete": queries.has_screening_history(db, session.org_id),
+        "step2_complete": queries.total_customer_count(db, session.org_id) > 0,
+        "step3_complete": queries.dashboard_visited(db, session.org_id),
+    }
+    show_onboarding = not all(onboarding_state.values())
+
     return render(request, "home.html", {
         "session": session,
-        "d": queries.dashboard(db, session.org_id),
-        "contextual_card": queries.contextual_home_card(db, session.org_id),
-        "greeting": greeting,
+        "d": d,
         "first_name": first_name,
-        "today": gst_now.strftime("%A, %d %B %Y"),
+        "show_onboarding": show_onboarding,
+        "onboarding_state": onboarding_state,
     }, db)
 
 
@@ -1157,11 +1183,35 @@ def dashboard(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    return render(request, "dashboard.html", {
+    ctx = {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
         "datasets": queries.datasets(db),
-    }, db)
+    }
+    if can_view_audit(session):
+        ctx["recent_audit"] = queries.recent_audit(db, session.org_id)
+    return render(request, "dashboard.html", ctx, db)
+
+
+@app.post("/onboarding/review-dashboard")
+def onboarding_review_dashboard(
+    request: Request, db: DB,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Explicit step-3 action for the first-run guide. A POST (CSRF-checked)
+    rather than a side effect of GET /dashboard, so prefetchers and curl
+    cannot mark the step done."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return RedirectResponse("/", status_code=303)
+    from ..cases.manager import mark_dashboard_reviewed
+    mark_dashboard_reviewed(db, session.org_id)
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 # --------------------------------------------------------------------- screen
@@ -1224,6 +1274,17 @@ def screen_run(
     }, db)
 
 
+# --------------------------------------------------------------------- search
+@app.get("/search")
+def global_search(request: Request, db: DB, q: str = ""):
+    from fastapi.responses import JSONResponse
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return JSONResponse(queries.global_search(db, session.org_id, q))
+
+
 # ------------------------------------------------------------------ customers
 @app.get("/customers", response_class=HTMLResponse)
 def customers(request: Request, db: DB, q: str = ""):
@@ -1279,6 +1340,12 @@ def customer_create(
     risk_level: Annotated[str, Form()] = "",
     source_of_wealth: Annotated[str, Form()] = "",
     source_of_funds: Annotated[str, Form()] = "",
+    subregion: Annotated[str, Form()] = "",
+    nationalities_csv: Annotated[str, Form()] = "",
+    tax_residencies_csv: Annotated[str, Form()] = "",
+    establishment_date: Annotated[str, Form()] = "",
+    civil_status_code: Annotated[str, Form()] = "",
+    occupation: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
 ):
     try:
@@ -1318,6 +1385,8 @@ def customer_create(
             "control_type": (ubo_controls[i] if i < len(ubo_controls) else "ownership") or "ownership",
         })
 
+    nats_list = [c.strip().upper() for c in nationalities_csv.split(",") if c.strip()] or None
+    tax_list = [c.strip().upper() for c in tax_residencies_csv.split(",") if c.strip()] or None
     try:
         result = onboard(
             db, org_id=session.org_id, reference=reference.strip(), full_name=full_name.strip(),
@@ -1331,6 +1400,12 @@ def customer_create(
             risk_level=risk_level.strip() or None,
             source_of_wealth=source_of_wealth.strip() or None,
             source_of_funds=source_of_funds.strip() or None,
+            subregion=subregion.strip() or None,
+            nationalities=nats_list,
+            tax_residencies=tax_list,
+            establishment_date=establishment_date.strip() or None,
+            civil_status_code=civil_status_code.strip() or None,
+            occupation=occupation.strip() or None,
             ubos=ubos, actor=session.operator_name,
             threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
         )
@@ -1395,7 +1470,7 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
                  data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
-                         "effective_risk": eff_risk})
+                         "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
@@ -1428,7 +1503,7 @@ def customer_gdelt_bq(request: Request, db: DB, customer_id: int):
 
     from ..screening.gdelt_bq import GdeltBqScreener
     screener = GdeltBqScreener()
-    result = screener.screen(cust["full_name"])
+    result = screener.screen(cust["customer"]["full_name"])
 
     from dataclasses import asdict
     return JSONResponse(asdict(result))
@@ -1451,8 +1526,70 @@ def customer_kg_screen(request: Request, db: DB, customer_id: int):
     return JSONResponse(asdict(result))
 
 
+@app.get("/customers/{customer_id}/evidence.pdf")
+def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    data = queries.customer(db, customer_id, session.org_id)
+    if data is None:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "not found"}, status_code=404)
+    for alert in data["alerts"]:
+        alert["reviews"] = review_history(db, alert["id"], session.org_id)
+
+    from ..risk.model import ruleset as load_ruleset
+    rs = load_ruleset()
+    generated_at = utcnow()
+    eff_risk = queries.effective_risk(db, customer_id, session.org_id)
+    ctx = data | {"session": session, "generated_at": generated_at,
+                  "effective_risk": eff_risk}
+    ctx.setdefault("security_warning", startup_warning())
+    ctx.setdefault("single_operator", single_operator_mode())
+    ctx["csrf_token"] = ""
+    ctx["request"] = request
+
+    html_str = templates.get_template("evidence.html").render(ctx)
+    footer_html = (
+        f'<div style="text-align:center; font-size:9px; color:#888; padding:4px;">'
+        f'Generated {generated_at[:19].replace("T", " ")} UTC'
+        f' &middot; amlkit &middot; ruleset {rs.get("version", "unknown")}'
+        f'</div>'
+    )
+    html_str = html_str.replace("</body>", footer_html + "</body>")
+
+    try:
+        from ..reporting.evidence_pdf import render_pdf
+        pdf_bytes = render_pdf(html_str)
+    except (ImportError, OSError):
+        return back(f"/customers/{customer_id}/evidence",
+                    err="PDF generation unavailable — WeasyPrint system libraries not installed.")
+
+    from fastapi.responses import Response
+    # Header values must be latin-1: give an ASCII fallback filename plus the
+    # full (possibly Arabic) name via RFC 6266 filename*.
+    import re as _re
+    from urllib.parse import quote as _quote
+    full_name = data["customer"]["full_name"]
+    ascii_name = _re.sub(r"[^A-Za-z0-9._-]+", "_", full_name).strip("_") or "customer"
+    utf8_name = _quote(f"evidence-{customer_id}-{full_name}.pdf", safe="")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="evidence-{customer_id}-{ascii_name}.pdf"; '
+                f"filename*=UTF-8''{utf8_name}"
+            ),
+        },
+    )
+
+
 @app.post("/customers/{customer_id}/close")
 def customer_close(request: Request, db: DB, customer_id: int,
+                   exit_reason: Annotated[str, Form()] = "",
+                   exit_note: Annotated[str, Form()] = "",
                    csrf_token: Annotated[str, Form()] = ""):
     try:
         session = require_session(request, db)
@@ -1462,7 +1599,12 @@ def customer_close(request: Request, db: DB, customer_id: int,
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/customers/{customer_id}", err=str(exc))
-    until = close_relationship(db, customer_id, org_id=session.org_id, actor=session.operator_name)
+    try:
+        until = close_relationship(db, customer_id, org_id=session.org_id,
+                                   reason=exit_reason, note=exit_note[:1000],
+                                   actor=session.operator_name)
+    except ValueError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
     return back(f"/customers/{customer_id}", msg=f"Relationship closed. Records retained until {until}.")
 
 
@@ -1828,6 +1970,28 @@ def alerts_bulk_dismiss(
     return back(back_to, msg=f"Dismissed {count} alert(s).")
 
 
+@app.get("/alerts/{alert_id}/panel", response_class=HTMLResponse)
+def alert_panel(request: Request, db: DB, alert_id: int):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return HTMLResponse(
+            '<div class="muted small">Session expired. Please sign in again.</div>',
+            status_code=401,
+        )
+    rows = queries.alert_queue(db, session.org_id, status=None, alert_id=alert_id)
+    if not rows:
+        return HTMLResponse(
+            '<div class="muted small">Alert not found.</div>', status_code=404,
+        )
+    html = templates.get_template("_alert_panel.html").render(
+        a=rows[0], session=session,
+        csrf_token=request.cookies.get(CSRF_COOKIE, ""),
+        request=request,
+    )
+    return HTMLResponse(html)
+
+
 @app.post("/alerts/{alert_id}/disposition")
 def alert_disposition(
     request: Request, db: DB, alert_id: int,
@@ -1941,11 +2105,16 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
     import io
 
     from fastapi.responses import StreamingResponse
+    from ..pii import redact as _redact_pii
 
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([_escape_csv_formula(h) for h in header])
-    writer.writerows([[_escape_csv_formula(cell) for cell in row] for row in rows])
+    writer.writerows([
+        [_escape_csv_formula(_redact_pii(str(cell)) if isinstance(cell, str) else cell)
+         for cell in row]
+        for row in rows
+    ])
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]), media_type="text/csv",
@@ -2009,7 +2178,7 @@ def feedback_submit(
 def audit_view(request: Request, db: DB, page: int = 1):
     try:
         session = require_session(request, db)
-        require_role(session, "mlro")
+        require_role(session, *AUDIT_VIEW_ROLES)
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
@@ -2031,7 +2200,7 @@ def audit_export(request: Request, db: DB):
     """Export the full audit log for the org as a CSV file. MLRO only."""
     try:
         session = require_session(request, db)
-        require_role(session, "mlro")
+        require_role(session, *AUDIT_VIEW_ROLES)
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
@@ -2041,6 +2210,8 @@ def audit_export(request: Request, db: DB):
     import csv
     import io as _io
     from fastapi.responses import StreamingResponse
+
+    from ..pii import redact as _redact_pii
 
     entries = queries.audit_trail(db, session.org_id, limit=100000)
     buf = _io.StringIO()
@@ -2053,7 +2224,7 @@ def audit_export(request: Request, db: DB):
             e.get("actor", ""),
             e.get("object_type", ""),
             e.get("object_id", ""),
-            e.get("detail", ""),
+            _redact_pii(e.get("detail") or ""),
         ])
     buf.seek(0)
 
@@ -2208,6 +2379,7 @@ def admin_save_org_profile(
     reporting_person_name: Annotated[str, Form()] = "",
     reporting_person_title: Annotated[str, Form()] = "",
     reporting_person_phone: Annotated[str, Form()] = "",
+    goaml_entity_reference: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = ""
 ):
     """Save organization reporting entity profile for goAML exports (p46)."""
@@ -2225,13 +2397,15 @@ def admin_save_org_profile(
         SET org_address = ?,
             reporting_person_name = ?,
             reporting_person_title = ?,
-            reporting_person_phone = ?
+            reporting_person_phone = ?,
+            goaml_entity_reference = ?
         WHERE id = ?
     """, (
         org_address.strip() or None,
         reporting_person_name.strip() or None,
         reporting_person_title.strip() or None,
         reporting_person_phone.strip() or None,
+        goaml_entity_reference.strip() or None,
         session.org_id
     ))
 
@@ -2242,6 +2416,7 @@ def admin_save_org_profile(
         "reporting_person_name": reporting_person_name.strip() or None,
         "reporting_person_title": reporting_person_title.strip() or None,
         "reporting_person_phone": reporting_person_phone.strip() or None,
+        "goaml_entity_reference": goaml_entity_reference.strip() or None,
     }, org_id=session.org_id)
 
     db.commit()
@@ -2696,11 +2871,12 @@ def policies_download(request: Request, db: DB, policy_id: int):
             }
         )
     except ValueError as e:
-        return templates.TemplateResponse(
-            "error.html",
-            {"request": request, "error": str(e)},
-            status_code=404
-        )
+        # get_policy() raises ValueError for a missing policy (or an
+        # unreadable file). There is no error.html template and no HTML
+        # exception handler, so render a proper 404 the same way the report
+        # and customer download routes do, rather than a 500.
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # ---------------------------------------------------------------------- system/refresh (Cloud Scheduler endpoint)
@@ -2942,24 +3118,11 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
     if not rep:
         return back("/reports", err="Report not found")
 
-    # Check if already submitted (t2)
-    if rep["status"] == "submitted":
-        return back(f"/reports/{report_id}", err="Report has already been submitted to UAE FIU.")
-
-    # Validate required fields before submission (p17)
-    import json
-    try:
-        payload = json.loads(rep["payload"])
-    except (json.JSONDecodeError, TypeError):
-        return back(f"/reports/{report_id}", err="Report data is invalid. Cannot submit.")
-    
-    # Check for required fields
-    required_fields = ["reporting_entity_name"]
-    missing = [f for f in required_fields if not payload.get(f)]
-
-    if missing:
-        return back(f"/reports/{report_id}",
-                   err=f"Cannot submit report. Missing required fields: {', '.join(missing)}")
+    # Already-finalized / invalid payload / missing required fields (t2, p17)
+    from ..cases.manager import report_finalize_error
+    problem = report_finalize_error(rep)
+    if problem:
+        return back(f"/reports/{report_id}", err=problem)
 
     now = utcnow()
     with db:
@@ -2968,10 +3131,11 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
             (now, report_id, session.org_id)
         )
         from ..db import audit
-        audit(db, session.operator_name, "report.submit", "report", report_id,
+        audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
-    return back(f"/reports/{report_id}", msg="Report submitted to UAE FIU successfully.")
+    return back(f"/reports/{report_id}",
+               msg="Report finalized in amlkit. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
 
 
 @app.get("/reports/{report_id}/export")
@@ -2988,19 +3152,22 @@ def report_export_xml(request: Request, db: DB, report_id: int):
         raise HTTPException(status_code=404, detail="Report not found")
 
     import json
-    from ..reporting.goaml import GoAMLValidationError, serialize_goaml_xml
+    from ..reporting.goaml import GoAMLValidationError, inject_reporting_entity, serialize_goaml_xml
 
     payload = json.loads(rep["payload"] or "{}")
 
-    if not payload.get("reporting_entity_name"):
-        org = db.execute(
-            "SELECT name, org_address FROM organizations WHERE id = ?",
-            (session.org_id,),
-        ).fetchone()
-        if org:
-            payload["reporting_entity_name"] = org["name"]
-            if org["org_address"] and not payload.get("reporting_entity_branch"):
-                payload["reporting_entity_branch"] = org["org_address"]
+    # Inject org details into payload (follow-up to #231/#142)
+    try:
+        inject_reporting_entity(payload, db, session.org_id)
+    except GoAMLValidationError as exc:
+        if "goAML entity reference" in str(exc):
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail='Set your goAML entity reference under Admin → Organisation profile before exporting. '
+                       '<a href="/admin">Go to Admin</a>'
+            )
+        raise
 
     try:
         xml_content = serialize_goaml_xml(payload)

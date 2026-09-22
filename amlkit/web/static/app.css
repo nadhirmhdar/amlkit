@@ -92,9 +92,7 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 /* ------------------------------------------------------------- shell/layout */
 .shell { display: flex; min-height: 100vh; }
 
-/* Wraps desktop-topnav + main so they form a vertical column to the right
-   of the sidebar.  Without this, desktop-topnav was a flex-row sibling of
-   sidebar/main and rendered as a narrow strip beside them. */
+/* The column to the right of the sidebar; main is centred inside it. */
 .content-col {
   flex: 1;
   min-width: 0;
@@ -151,21 +149,33 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 #nav-toggle { display: none; }
 .nav-hamburger { display: none; }
 
-/* Desktop top navigation bar with avatar dropdown -- hidden on mobile (<= 680px) */
-.desktop-topnav {
+/* Avatar menu in the top-right corner of the canvas (desktop and tablet).
+   Replaces the old full-width .desktop-topnav strip, which cost a 68px
+   band above every page. Phones use .mobile-header instead. */
+.canvas-corner {
+  position: absolute;
+  top: 32px;
+  right: 48px;
+  z-index: 10;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  gap: 14px;
 }
 
-.desktop-topnav .user-menu-wrap {
-  position: relative;
+/* Compliance-state chip beside the canvas avatar. Only rendered when there is
+   something to say (single-operator mode); the four-eyes default is the
+   norm and does not need a badge. */
+.mode-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; white-space: nowrap;
+  border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
 }
+.mode-chip--warn {
+  color: oklch(42% 0.12 65); background: oklch(96% 0.05 85); border: 1px solid oklch(85% 0.1 85);
+}
+.mode-chip--warn::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: oklch(70% 0.17 65); }
 
-.desktop-topnav .user-menu-btn {
+.canvas-corner .user-menu-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -179,11 +189,13 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
   transition: box-shadow 120ms;
 }
 
-.desktop-topnav .user-menu-btn:hover {
+.canvas-corner .user-menu-btn:hover,
+.canvas-corner .user-menu-btn:focus-visible,
+.canvas-corner .user-menu-wrap.open .user-menu-btn {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.desktop-topnav .user-menu-btn .avatar--sm {
+.canvas-corner .user-menu-btn .avatar--sm {
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -196,11 +208,20 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
   font-weight: 700;
 }
 
-.desktop-topnav .user-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
+.canvas-corner .user-dropdown {
+  top: calc(100% + 8px);
   right: 0;
-  min-width: 200px;
+  min-width: 220px;
+}
+
+/* Keep the first row of the canvas clear of the avatar. Phones hide the
+   avatar (the mobile header carries it), so they keep the full width. */
+@media (min-width: 681px) {
+  main > .page-head, main > .home-head { padding-right: 64px; }
+  .canvas-corner + .banner { margin-right: 64px; }
+  /* The single-operator chip widens the corner to roughly 240px. */
+  main:has(.mode-chip) > .page-head, main:has(.mode-chip) > .home-head { padding-right: 250px; }
+  .canvas-corner:has(.mode-chip) + .banner { margin-right: 250px; }
 }
 
 /* Phone bottom tab bar -- hidden by default (desktop/tablet keep the
@@ -212,7 +233,12 @@ main {
   min-width: 0;
   max-width: 1180px;
   padding: 40px 60px 48px;
-  margin: 0;
+  margin: 0 auto;
+  /* Auto margins stop a flex item stretching across the column, so without
+     an explicit width main shrinks to its content and short pages render
+     narrower (and further right) than long ones. */
+  width: 100%;
+  position: relative;
 }
 
 /* ------------------------------------------------------------- page header */
@@ -221,6 +247,29 @@ main {
   padding-bottom: 22px;
   margin-bottom: 36px;
 }
+/* Header with a right-aligned action (e.g. Freeze Obligations on the
+   dashboard). Wraps under the title on narrow screens. */
+.page-head--with-actions {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  gap: 16px; flex-wrap: wrap;
+}
+.page-head__actions { flex-shrink: 0; }
+.btn-outline {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; font-size: 14px; font-weight: 600;
+  color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px;
+  text-decoration: none; transition: box-shadow 120ms;
+}
+.btn-outline:hover, .btn-outline:focus-visible {
+  color: var(--ink); text-decoration: none; box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.count-badge {
+  display: inline-block; min-width: 20px; padding: 2px 6px;
+  border-radius: 999px; font-size: 11px; font-weight: 700; text-align: center;
+}
+.count-badge--warn { color: var(--warn); background: var(--warn-soft); }
+
 .page-head .eyebrow {
   font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em;
   color: var(--ink-3); text-transform: uppercase;
@@ -309,7 +358,31 @@ main {
 /* "3D floating" action cards -- layered shadow (not just a border) plus a
    hover lift, so these three read as tappable objects rather than more
    flat-list rows; deliberately distinct from .panel for that reason. */
-.action-cards { display: flex; flex-direction: column; gap: 12px; flex: 0 1 380px; }
+.home-quick-screen {
+  display: flex; align-items: center; gap: 8px;
+  max-width: 580px; margin: 20px 0 4px;
+  padding: 6px 6px 6px 16px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+}
+.home-quick-screen:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
+.home-quick-screen input[type="text"] {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  font: inherit; font-size: 15px; color: var(--ink); padding: 6px 0;
+}
+.home-quick-screen button { border-radius: 999px; flex-shrink: 0; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.action-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 40px; }
+@media (max-width: 860px) {
+  .action-cards { grid-template-columns: 1fr; }
+}
+/* Inside the home-page hero layout, the "Start here" cards stack in a
+   narrow single column that shares the row with .home-hero-art, instead
+   of the 3-column grid. Scoped to .home-grid so the first-run onboarding
+   panel (shown above this section, full width) is unaffected. */
+.home-grid .action-cards {
+  display: flex; flex-direction: column; gap: 12px;
+  flex: 0 1 380px; margin-bottom: 0;
+}
 .action-card {
   display: flex; align-items: center; gap: 16px;
   background: var(--surface); border: 1px solid var(--line-soft);
@@ -331,10 +404,11 @@ main {
 }
 .action-card__icon svg { width: 21px; height: 21px; }
 .action-card__body { flex: 1; min-width: 0; }
-.action-card__title { display: block; font-size: 15.5px; font-weight: 700; }
-.action-card__sub { display: block; font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
-.action-card__arrow { color: var(--ink-3); font-size: 17px; flex-shrink: 0; transition: transform 140ms ease; }
-.action-card:hover .action-card__arrow { transform: translateX(3px); color: var(--ink); }
+.action-card__title { display: block; font-size: 16px; font-weight: 700; }
+.action-card__sub { display: block; font-size: 13px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
+/* Slightly tighter type for the narrow hero-layout column. */
+.home-grid .action-card__title { font-size: 15.5px; }
+.home-grid .action-card__sub { font-size: 12.5px; margin-top: 2px; line-height: 1.4; }
 
 /* Floating alerts bar -- sticky (not fixed) so it clears the sidebar
    without a manual width/offset calc, and scrolls into a resting position
@@ -651,9 +725,10 @@ details.evidence summary * { display: none; }
     width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line);
     background: var(--surface); cursor: pointer; font-size: 16px;
   }
-  /* desktop-topnav is now at the top of content-col, so main needs much
-     less top padding than the original 84px hamburger clearance. */
-  main { padding: 24px 20px 40px; max-width: 100%; }
+  /* The fixed hamburger (top-left) and the canvas avatar (top-right) share
+     the first 68px; content starts below them. */
+  main { padding: 76px 20px 40px; max-width: 100%; }
+  .canvas-corner { top: 12px; right: 20px; }
   .grid.two { grid-template-columns: 1fr; }
   .dashboard-hero { grid-template-columns: 1fr; }
   .panel { padding: 18px; }
@@ -714,7 +789,7 @@ details.evidence summary * { display: none; }
    four-tab bottom bar plus a top header with user menu; same hairline/dot
    vocabulary as the rest of the app. */
 @media (max-width: 680px) {
-  .sidebar, .nav-hamburger, .desktop-topnav { display: none !important; }
+  .sidebar, .nav-hamburger, .canvas-corner { display: none !important; }
   :root { --tabbar-h: 62px; --mobile-header-h: 52px; }
   main { padding: calc(var(--mobile-header-h) + 16px) 18px calc(var(--tabbar-h) + 28px); }
 
@@ -861,6 +936,99 @@ form.is-submitting button[type="submit"] {
   font-family: inherit; font-size: 14px; resize: vertical;
 }
 
+/* ------------------------------------------- freeze obligations (TFS, CR 134/2025) */
+/* Dashboard <details> panel. The <summary> renders its own chevron span, so the
+   browser's native disclosure marker is suppressed -- otherwise the row shows
+   both a native triangle and the chevron. The chevron rotates on [open]. */
+.freeze-obligations-panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.freeze-obligations-summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 16px 22px; cursor: pointer; user-select: none; list-style: none;
+}
+.freeze-obligations-summary::-webkit-details-marker { display: none; }
+.freeze-obligations-summary::marker { content: ''; }
+.freeze-obligations-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--radius); }
+.freeze-obligations-title {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); font-weight: 700;
+}
+.freeze-obligations-chevron { font-size: 11px; color: var(--ink-3); transition: transform 0.15s ease; }
+.freeze-obligations-panel[open] .freeze-obligations-chevron { transform: rotate(180deg); }
+.freeze-obligations-panel .freeze-obligations-content.panel {
+  border: none; border-top: 1px solid var(--line-soft); border-radius: 0 0 var(--radius) var(--radius);
+  margin-bottom: 0;
+}
+
+/* Count chips: dashboard panel (.stat-chip) and list page (.stats-bar .stat). */
+.stat-chip, .stats-bar .stat {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--bg);
+  font-size: 13px; color: var(--ink-2); white-space: nowrap;
+}
+.stat-chip strong, .stats-bar .stat strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.stats-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+
+/* Freeze list page */
+.alert.alert-info {
+  background: var(--accent-soft); border-left: 3px solid var(--accent); border-radius: var(--radius-sm);
+  padding: 14px 18px; margin-bottom: 20px; color: var(--ink-2);
+}
+.alert.alert-info strong { color: var(--ink); }
+.filter-form { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.filter-form label { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0; }
+.filter-form select { width: auto; }
+.freeze-obligations-table th {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3);
+}
+.freeze-obligations-table tr.status-pending_execution td       { background: var(--warn-soft); }
+.freeze-obligations-table tr.status-pending_execution.overdue td { background: var(--danger-soft); font-weight: 700; }
+.freeze-obligations-table tr.status-executed_pending_report td { background: var(--accent-soft); }
+.freeze-obligations-table tr.status-reported td                { background: var(--good-soft); }
+.freeze-obligations-table tr.status-resolved td                { background: var(--line-soft); color: var(--ink-2); }
+.freeze-obligations-table .empty-row td { background: none; padding: 0; }
+.overdue { color: var(--danger); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap;
+}
+.badge-critical { background: var(--danger-soft); color: var(--danger); }
+.badge-high     { background: var(--warn-soft);   color: oklch(40% 0.12 70); }
+
+/* Button variants spelled the Bootstrap way by the freeze templates; they map
+   onto the existing .btn.small / .btn.secondary looks plus an accent primary. */
+.btn.btn-sm { padding: 6px 13px; font-size: 12.5px; }
+.btn.btn-primary { background: var(--accent); border-color: var(--accent); color: white; }
+.btn.btn-primary:hover { background: oklch(45% 0.16 250); border-color: oklch(45% 0.16 250); color: white; }
+.btn.btn-secondary { background: none; color: var(--ink); border-color: var(--line); }
+.btn.btn-secondary:hover { background: var(--line-soft); color: var(--ink); }
+
+/* Freeze detail page */
+.obligation-header {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px 24px;
+  padding: 20px 24px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); margin-bottom: 24px;
+}
+.obligation-header .field { margin: 0; }
+.obligation-header .field label {
+  display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-3); font-weight: 700; margin-bottom: 4px;
+}
+.timeline {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px;
+}
+.timeline-item {
+  padding: 14px 16px; background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--line); border-radius: var(--radius-sm);
+  font-size: 13px; color: var(--ink-2); line-height: 1.55;
+}
+.timeline-item strong { color: var(--ink); }
+.timeline-item.completed { border-left-color: var(--good); }
+.timeline-item.pending   { border-left-color: var(--warn); color: var(--ink-3); }
+.section { margin-bottom: 24px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+
 /* ------------------------------------------------------------- accessibility */
 .skip-to-content {
   position: absolute; left: -9999px; top: auto; width: 1px; height: 1px; overflow: hidden;
@@ -873,6 +1041,12 @@ form.is-submitting button[type="submit"] {
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* Screen reader only content */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0;
+}
+
 /* ------------------------------------------------------------------- print */
 @media print {
   body { background: #fff; color: #000; }
@@ -883,3 +1057,6 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   details.evidence[open] summary { display: none; }
   details.evidence { display: block; }
 }
+
+/* Link-styled button (first-run guide) */
+.link-button{background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
