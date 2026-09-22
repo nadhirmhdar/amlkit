@@ -279,8 +279,11 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
 
     # Check dataset health for authenticated sessions
     if session and db is not None:
-        banner = queries.dataset_health_banner(db)
-        ctx.setdefault("dataset_banner", banner)
+        # Data-source health is the platform operator's concern: only the
+        # super-admin sees this global banner. MLROs still get the dashboard's
+        # own 24-hour-rule breach banner when a mandatory list is stale.
+        if session.super_admin:
+            ctx.setdefault("dataset_banner", queries.dataset_health_banner(db))
         # Check for MFA lockouts (show to admin/MLRO roles)
         if session.operator_role in ("mlro", "admin"):
             mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
@@ -1149,28 +1152,13 @@ def home(request: Request, db: DB):
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
 
-    from datetime import datetime, timedelta, timezone
-
-    # Gulf Standard Time, fixed UTC+4 (no DST) -- the app is UAE-only and
-    # this greeting is cosmetic, so a fixed offset avoids a per-operator
-    # timezone setting that nothing else in the schema has either.
-    gst_now = datetime.now(timezone.utc) + timedelta(hours=4)
-    if gst_now.hour < 12:
-        greeting = "Good morning"
-    elif gst_now.hour < 18:
-        greeting = "Good afternoon"
-    else:
-        greeting = "Good evening"
-
     first_name = (session.operator_name or "").split()
     first_name = first_name[0] if first_name else session.operator_name
 
     return render(request, "home.html", {
         "session": session,
         "d": queries.dashboard(db, session.org_id),
-        "greeting": greeting,
         "first_name": first_name,
-        "today": gst_now.strftime("%A, %d %B %Y"),
     }, db)
 
 

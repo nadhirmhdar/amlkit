@@ -842,6 +842,10 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # T-008: Google AML AI enum alignment — civil status (ISO 20022) and occupation
     ("customers", "civil_status_code", "ALTER TABLE customers ADD COLUMN civil_status_code TEXT"),
     ("customers", "occupation", "ALTER TABLE customers ADD COLUMN occupation TEXT"),
+    # T-007: Exact money amounts — Google Money type (units + nanos).
+    # Nullable: backfilled by _backfill_money_columns(); NULL means pre-migration row.
+    ("transactions", "amount_units", "ALTER TABLE transactions ADD COLUMN amount_units INTEGER"),
+    ("transactions", "amount_nanos", "ALTER TABLE transactions ADD COLUMN amount_nanos INTEGER"),
     # Relationship exit: ISO date + fixed reason code (cases.manager.EXIT_REASONS).
     # NULL while the relationship is open; cleared again on reactivation.
     ("customers", "exit_date",   "ALTER TABLE customers ADD COLUMN exit_date   TEXT"),
@@ -913,6 +917,30 @@ def _backfill_email_verified(conn: sqlite3.Connection) -> None:
         "UPDATE operators SET email_verified_at=created_at "
         "WHERE password_hash IS NOT NULL AND email_verified_at IS NULL"
     )
+
+
+def _backfill_money_columns(conn: sqlite3.Connection) -> None:
+    """Backfill amount_units/amount_nanos from amount_aed for pre-migration rows.
+
+    amount_aed is REAL (IEEE 754 double). We convert via str() -> Decimal to
+    avoid float arithmetic drift, then split into integer units and nanos.
+    Only touches rows where amount_units IS NULL (idempotent).
+    """
+    rows = conn.execute(
+        "SELECT id, amount_aed FROM transactions WHERE amount_units IS NULL"
+    ).fetchall()
+    if not rows:
+        return
+    from decimal import Decimal
+    _NANOS = 1_000_000_000
+    for row in rows:
+        d = Decimal(str(row["amount_aed"]))
+        units = int(d)
+        nanos = int((d - units) * _NANOS)
+        conn.execute(
+            "UPDATE transactions SET amount_units=?, amount_nanos=? WHERE id=?",
+            (units, nanos, row["id"]),
+        )
 
 
 def _migrate_operators_table(conn: sqlite3.Connection) -> None:
@@ -1159,6 +1187,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     if "email_verified_at" not in _operators_cols_before_migrate:
         _backfill_email_verified(conn)
     _backfill_retention_until(conn)
+    _backfill_money_columns(conn)
     _backfill_exit_date(conn)
     _create_org_indexes(conn)
     from .ingest.fatf import load_fatf_data

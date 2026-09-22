@@ -647,15 +647,20 @@ def record_transaction(
         if owned is None:
             raise ValueError(f"customer {customer_id} not found")
 
+        from ..money import Money
+        money = Money.from_float(amount_aed, "AED")
+
         cur = conn.execute(
             """INSERT INTO transactions
                (org_id, customer_id, reference, direction, method, amount, currency,
-                amount_aed, counterparty_name, counterparty_country, occurred_at,
+                amount_aed, amount_units, amount_nanos,
+                counterparty_name, counterparty_country, occurred_at,
                 recorded_by, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, customer_id, None, direction, method, amount, currency,
-                amount_aed, counterparty_name,
+                amount_aed, money.units, money.nanos,
+                counterparty_name,
                 (counterparty_country or "").strip().upper() or None,
                 occurred_at, actor, now,
             ),
