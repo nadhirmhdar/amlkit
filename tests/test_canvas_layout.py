@@ -157,3 +157,64 @@ def test_home_hero_art_is_outside_onboarding_panel(client):
     assert "home-grid" not in onboarding
     assert "home-hero-art" not in onboarding
     assert onboarding.count('class="action-cards onboarding-cards"') == 1
+
+
+def test_home_has_no_duplicate_onboarding_panel(client):
+    """The first-run guide (Steps 1-3) duplicated the "Start here" cards
+    immediately below it and was removed; only the permanent cards remain."""
+    html = client.get("/").text
+    assert "Get started with amlkit" not in html
+    assert "onboarding-cards" not in html
+    assert html.count('class="action-cards"') == 1
+    assert '/onboarding/review-dashboard' not in html
+
+
+def test_alerts_float_pill_has_no_arrow(client):
+    html = client.get("/").text
+    pill = html.split('class="alerts-float', 1)[1].split("</a>", 1)[0]
+    assert "alerts-float__arrow" not in pill
+    assert "&rarr;" not in pill
+
+
+def test_privacy_page_is_accurate_and_reachable(client):
+    """/privacy must describe amlkit's actual cookies, not generic
+    ad-network boilerplate -- it never runs ads or third-party tracking."""
+    r = client.get("/privacy")
+    assert r.status_code == 200
+    for cookie in ("amlkit_session", "amlkit_csrf", "amlkit_flash"):
+        assert cookie in r.text
+    lowered = r.text.lower()
+    # The page must not carry the false-claim boilerplate this replaces
+    # (it never runs ads), but "no advertising" is exactly the honest
+    # statement we want, so check for the false CLAIM, not the word.
+    for phrase in ("adchoices", "display ads to your interest", "interest-based advertis"):
+        assert phrase not in lowered, phrase
+    assert "no advertis" in lowered or "not run advertis" in lowered or "does not run advertis" in lowered
+
+    from fastapi.testclient import TestClient
+    from amlkit.api.app import app
+    anon = TestClient(app)
+    r2 = anon.get("/privacy")
+    assert r2.status_code == 200
+    assert "amlkit_session" in r2.text
+
+
+def test_privacy_link_in_both_avatar_menus(client):
+    html = client.get("/").text
+    desktop = _canvas_menu(html)
+    phone = html.split('id="user-menu-wrap"', 1)[1].split("</form>", 1)[0]
+    for menu in (desktop, phone):
+        assert 'href="/privacy"' in menu
+
+
+def test_cookie_notice_present_and_accurate(client):
+    html = client.get("/").text
+    assert 'id="cookie-notice"' in html
+    banner = html.split('id="cookie-notice"', 1)[1].split("</div>", 1)[0]
+    lowered = banner.lower()
+    assert "no advertising" in lowered
+    assert "adchoices" not in lowered
+    assert 'href="/privacy"' in banner
+    js = client.get("/static/js/app.js").text
+    assert "showCookieNoticeIfNeeded" in js and "dismissCookieNotice" in js
+    assert "localStorage" in js
