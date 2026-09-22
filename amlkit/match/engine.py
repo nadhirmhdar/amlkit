@@ -204,6 +204,7 @@ def screen(
     trigger: str = "adhoc",
     threshold: float = DEFAULT_THRESHOLD,
     country: str | None = None,
+    countries: list[str] | None = None,
     birth_date: str | None = None,
     gender: str | None = None,
     identifiers: list[tuple[str, str]] | None = None,
@@ -239,11 +240,12 @@ def screen(
     rows = _candidates(conn, name)
     hits: list[Hit] = []
 
+    all_countries = countries or ([country] if country else None)
     for row in rows:
         result: ScoreResult = score_entity(
             name,
             _names_for(conn, row["id"]),
-            query_country=country,
+            query_countries=all_countries,
             query_birth_date=birth_date,
             query_gender=gender,
             query_identifiers=identifiers,

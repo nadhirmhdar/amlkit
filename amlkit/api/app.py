@@ -1305,6 +1305,10 @@ def customer_create(
     risk_level: Annotated[str, Form()] = "",
     source_of_wealth: Annotated[str, Form()] = "",
     source_of_funds: Annotated[str, Form()] = "",
+    subregion: Annotated[str, Form()] = "",
+    nationalities_csv: Annotated[str, Form()] = "",
+    tax_residencies_csv: Annotated[str, Form()] = "",
+    establishment_date: Annotated[str, Form()] = "",
     civil_status_code: Annotated[str, Form()] = "",
     occupation: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
@@ -1346,6 +1350,8 @@ def customer_create(
             "control_type": (ubo_controls[i] if i < len(ubo_controls) else "ownership") or "ownership",
         })
 
+    nats_list = [c.strip().upper() for c in nationalities_csv.split(",") if c.strip()] or None
+    tax_list = [c.strip().upper() for c in tax_residencies_csv.split(",") if c.strip()] or None
     try:
         result = onboard(
             db, org_id=session.org_id, reference=reference.strip(), full_name=full_name.strip(),
@@ -1359,6 +1365,10 @@ def customer_create(
             risk_level=risk_level.strip() or None,
             source_of_wealth=source_of_wealth.strip() or None,
             source_of_funds=source_of_funds.strip() or None,
+            subregion=subregion.strip() or None,
+            nationalities=nats_list,
+            tax_residencies=tax_list,
+            establishment_date=establishment_date.strip() or None,
             civil_status_code=civil_status_code.strip() or None,
             occupation=occupation.strip() or None,
             ubos=ubos, actor=session.operator_name,

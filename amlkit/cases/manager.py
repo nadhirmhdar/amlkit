@@ -51,6 +51,36 @@ class StaleDatasetsError(Exception):
     """Raised when onboarding is attempted with stale or empty sanctions data."""
 
 
+_FATF_TIER_RANK = {"fatf_blacklist": 3, "fatf_greylist": 2, "high_risk_other": 1, "standard": 0}
+
+
+def jurisdiction_tier_for_nationalities(
+    conn: sqlite3.Connection,
+    nationalities: list[str],
+    baseline: str = "standard",
+) -> str:
+    """Return the highest-risk jurisdiction tier across all nationalities.
+
+    Queries the fatf_countries table (populated by the FATF ingest adapter).
+    The result only elevates; it never lowers a tier the caller already set.
+    """
+    best_tier = baseline
+    best_rank = _FATF_TIER_RANK.get(baseline, 0)
+    for code in nationalities:
+        if not code:
+            continue
+        row = conn.execute(
+            "SELECT list_type FROM fatf_countries WHERE country_code = ?",
+            (code.strip().upper(),),
+        ).fetchone()
+        if row:
+            tier = "fatf_blacklist" if row[0] == "blacklist" else "fatf_greylist"
+            rank = _FATF_TIER_RANK.get(tier, 0)
+            if rank > best_rank:
+                best_tier, best_rank = tier, rank
+    return best_tier
+
+
 UBO_THRESHOLD_PCT = 25.0
 RETENTION_YEARS = 10
 
@@ -153,6 +183,11 @@ def onboard(
     risk_level: str | None = None,
     source_of_wealth: str | None = None,
     source_of_funds: str | None = None,
+    # T-009: CLDR region codes, multi-nationality
+    subregion: str | None = None,
+    nationalities: list[str] | None = None,
+    tax_residencies: list[str] | None = None,
+    establishment_date: str | None = None,
     # T-008: Google AML AI enum alignment
     civil_status_code: str | None = None,
     occupation: str | None = None,
@@ -163,6 +198,7 @@ def onboard(
     rating to high regardless of every other factor -- the two are not
     independent inputs.
     """
+    from ..datamodel import validate_country_code, validate_emirate
     from ..ingest.loader import datasets_fresh
 
     if not datasets_fresh(conn):
@@ -183,6 +219,24 @@ def onboard(
             raise ValueError(
                 f"Total UBO ownership is {round(total_ownership, 2)}% (cannot exceed 100%)"
             )
+
+    validate_country_code(nationality)
+    validate_country_code(country)
+    if nationalities:
+        for nc in nationalities:
+            validate_country_code(nc)
+    if tax_residencies:
+        for tc in tax_residencies:
+            validate_country_code(tc)
+    if country and country.strip().upper() == "AE" and subregion:
+        validate_emirate(subregion)
+    if establishment_date and customer_type != "legal":
+        raise ValueError("establishment_date is only valid for legal persons")
+
+    nationalities_json = json.dumps(
+        nationalities if nationalities else ([nationality] if nationality else [])
+    )
+    tax_residencies_json = json.dumps(tax_residencies or [])
 
     from ..datamodel import validate_civil_status, validate_occupation
     validate_civil_status(civil_status_code)
@@ -207,9 +261,10 @@ def onboard(
                 contact_person, contact_phone, contact_email,
                 purpose_of_relationship, expected_activity,
                 risk_level, source_of_wealth, source_of_funds,
+                subregion, nationalities, tax_residencies, establishment_date,
                 civil_status_code, occupation,
                 onboarded_at, retention_until, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, reference, customer_type, full_name, name_arabic, ck,
                 nationality, country, birth_date, gender, id_number, id_type,
@@ -219,6 +274,8 @@ def onboard(
                 contact_person, contact_phone, contact_email,
                 purpose_of_relationship, expected_activity,
                 risk_level, source_of_wealth, source_of_funds,
+                subregion or None, nationalities_json, tax_residencies_json,
+                establishment_date or None,
                 civil_status_code or None, occupation or None,
                 now, retention, now, now,
             ),
@@ -228,16 +285,17 @@ def onboard(
               {"reference": reference, "name": full_name}, org_id=org_id)
 
     # --- screen the customer, in both scripts where available --------------
+    all_nats = nationalities or ([nationality] if nationality else None)
     result = screen(
-        conn, full_name, org_id=org_id, trigger="onboarding", country=nationality,
-        birth_date=birth_date, gender=gender, customer_id=customer_id, actor=actor,
-        threshold=threshold,
+        conn, full_name, org_id=org_id, trigger="onboarding",
+        countries=all_nats, birth_date=birth_date, gender=gender,
+        customer_id=customer_id, actor=actor, threshold=threshold,
     )
     if name_arabic:
         ar = screen(
-            conn, name_arabic, org_id=org_id, trigger="onboarding", country=nationality,
-            birth_date=birth_date, gender=gender, customer_id=customer_id, actor=actor,
-            threshold=threshold,
+            conn, name_arabic, org_id=org_id, trigger="onboarding",
+            countries=all_nats, birth_date=birth_date, gender=gender,
+            customer_id=customer_id, actor=actor, threshold=threshold,
         )
         # Keep whichever script produced the stronger evidence.
         if ar.hits and (not result.hits or max(h.score for h in ar.hits) > max(h.score for h in result.hits)):
@@ -259,6 +317,11 @@ def onboard(
         h.is_sanction for _, r in ubo_results for h in r.hits
     )
     pep_status = "domestic_pep" if any(h.is_pep for h in result.hits) else None
+
+    if all_nats:
+        jurisdiction_tier = jurisdiction_tier_for_nationalities(
+            conn, all_nats, baseline=jurisdiction_tier,
+        )
 
     risk = assess(
         CustomerProfile(

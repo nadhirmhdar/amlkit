@@ -565,6 +565,11 @@ class CustomerCreateRequest(BaseModel):
     jurisdiction_tier: str = "standard"
     structure: str = "natural_person"
     ubos: list[UboIn] = []
+    # T-009: CLDR region codes, multi-nationality
+    subregion: str = ""
+    nationalities: list[str] = []
+    tax_residencies: list[str] = []
+    establishment_date: str = ""
     # Contact fields
     email: str = ""
     phone: str = ""
@@ -607,6 +612,10 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
             contact_person=body.contact_person.strip() or None,
             contact_phone=body.contact_phone.strip() or None,
             contact_email=body.contact_email.strip() or None,
+            subregion=body.subregion.strip() or None,
+            nationalities=body.nationalities or None,
+            tax_residencies=body.tax_residencies or None,
+            establishment_date=body.establishment_date.strip() or None,
             civil_status_code=body.civil_status_code.strip() or None,
             occupation=body.occupation.strip() or None,
         )

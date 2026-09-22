@@ -47,6 +47,23 @@
         <option value="male">Male</option><option value="female">Female</option></select></div>
     <div id="field-trade-licence" style="display:none;"><label>Trade Licence</label><input type="text" name="trade_licence"></div>
   </div>
+  <div class="row">
+    <div><label>Additional nationalities (ISO, comma-separated)</label>
+      <input type="text" name="nationalities_csv" pattern="[A-Za-z, ]*" placeholder="e.g. US, GB"></div>
+    <div><label>Tax residencies (ISO, comma-separated)</label>
+      <input type="text" name="tax_residencies_csv" pattern="[A-Za-z, ]*" placeholder="e.g. AE, US"></div>
+  </div>
+  <div class="row">
+    <div id="field-subregion"><label>Emirate / subregion</label>
+      <select name="subregion"><option value="">—</option>
+        <option value="ABU_DHABI">Abu Dhabi</option><option value="DUBAI">Dubai</option>
+        <option value="SHARJAH">Sharjah</option><option value="AJMAN">Ajman</option>
+        <option value="UMM_AL_QUWAIN">Umm Al Quwain</option>
+        <option value="RAS_AL_KHAIMAH">Ras Al Khaimah</option>
+        <option value="FUJAIRAH">Fujairah</option></select></div>
+    <div id="field-establishment-date" style="display:none;"><label>Establishment date</label>
+      <input type="date" name="establishment_date"></div>
+  </div>
 </div>
 
 <div class="panel">
