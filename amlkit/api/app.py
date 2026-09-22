@@ -2572,10 +2572,23 @@ def admin_deactivate_operator(
         return JSONResponse({"error": str(exc)}, status_code=403)
 
     row = db.execute(
-        "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
+        "SELECT id, role, is_active FROM operators WHERE id=? AND org_id=?",
+        (operator_id, session.org_id),
     ).fetchone()
     if row is None:
         return back("/admin", err="Operator not found.")
+    if row["role"] == "mlro" and row["is_active"]:
+        other_active_mlros = db.execute(
+            "SELECT COUNT(*) c FROM operators WHERE org_id=? AND role='mlro' "
+            "AND is_active=1 AND id != ?",
+            (session.org_id, operator_id),
+        ).fetchone()["c"]
+        if other_active_mlros == 0:
+            return back(
+                "/admin",
+                err="Cannot deactivate the last active MLRO. Promote another "
+                    "operator to MLRO first.",
+            )
     db.execute("UPDATE operators SET is_active=0 WHERE id=?", (operator_id,))
     auth.revoke_sessions_for(db, operator_id)
     from ..db import audit
@@ -2583,6 +2596,33 @@ def admin_deactivate_operator(
           None, org_id=session.org_id)
     db.commit()
     return back("/admin", msg="Operator deactivated and signed out of every session.")
+
+
+@app.post("/admin/operators/{operator_id}/reactivate")
+def admin_reactivate_operator(
+    request: Request, db: DB, operator_id: int, csrf_token: Annotated[str, Form()] = ""
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    row = db.execute(
+        "SELECT id FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
+    ).fetchone()
+    if row is None:
+        return back("/admin", err="Operator not found.")
+    db.execute("UPDATE operators SET is_active=1 WHERE id=? AND org_id=?", (operator_id, session.org_id))
+    from ..db import audit
+    audit(db, session.operator_name, "operator.reactivate", "operator", operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+    return back("/admin", msg="Operator reactivated.")
 
 
 # ---------------------------------------------------------------------- sanctions refresh

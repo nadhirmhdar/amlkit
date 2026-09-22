@@ -88,6 +88,14 @@
             Deactivate
           </button>
         </form>
+        {% else %}
+        <form method="post" action="/admin/operators/{{ op.id }}/reactivate" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="small ghost" type="submit"
+                  data-confirm="Reactivate {{ op.name }}?">
+            Reactivate
+          </button>
+        </form>
         {% endif %}
       </div>
     </div>
