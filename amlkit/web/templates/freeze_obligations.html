@@ -32,7 +32,10 @@
     </select>
   </form>
   
-  <!-- Table -->
+  <!-- Table: 8 columns overflowed the viewport on narrow screens with no
+       way to reach the cut-off ones. .table-responsive (already defined in
+       app.css, just never wired to a template) makes it scroll instead. -->
+  <div class="table-responsive">
   <table class="freeze-obligations-table">
     <caption class="sr-only">Targeted financial sanctions freeze obligations listing by customer and status</caption>
     <thead>
@@ -90,5 +93,6 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endblock %}

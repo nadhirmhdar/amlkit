@@ -893,6 +893,14 @@ form.is-submitting button[type="submit"] {
 .feedback-btn:hover {
   transform: scale(1.05); box-shadow: 0 6px 16px rgba(0,0,0,0.2);
 }
+@media (max-width: 680px) {
+  /* Fixed at bottom-right at every width, this landed directly on top of
+     the tab bar's last tab (Customers) -- z-index 999 put it above the
+     bar, blocking that tab entirely. Measured clearance: the tab bar is
+     ~61px tall (--tabbar-h: 62px is the app's own estimate), so lift the
+     button's own 56px box clear of it with a visible gap above. */
+  .feedback-btn { bottom: calc(var(--tabbar-h) + 20px); right: 16px; }
+}
 
 .feedback-modal {
   display: none; position: fixed; z-index: 1000;
