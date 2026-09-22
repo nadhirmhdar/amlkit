@@ -424,7 +424,6 @@ main {
 .alerts-float__text { display: flex; flex-direction: column; gap: 2px; }
 .alerts-float__text strong { font-size: 14.5px; font-weight: 700; }
 .alerts-float__text span { font-size: 12.5px; opacity: 0.8; }
-.alerts-float__arrow { font-size: 19px; flex-shrink: 0; }
 
 /* ------------------------------------------------------------- flat lists */
 /* A scannable list row, divided by hairlines -- used for alerts-on-dashboard,
@@ -879,6 +878,27 @@ details.evidence summary * { display: none; }
 
 form.is-submitting button[type="submit"] {
   pointer-events: none; opacity: 0.6;
+}
+
+/* ------------------------------------------------------------------ cookie notice */
+/* Informational only -- every cookie amlkit sets is strictly necessary
+   (see /privacy), so this is a one-time notice, not a consent gate. */
+.cookie-notice {
+  position: fixed; left: 20px; right: 20px; bottom: 20px; z-index: 998;
+  max-width: 640px; margin: 0 auto;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--ink); color: white;
+  border-radius: var(--radius, 14px); padding: 14px 20px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+}
+.cookie-notice p { flex: 1 1 320px; min-width: 0; font-size: 13px; line-height: 1.55; margin: 0; opacity: 0.92; }
+.cookie-notice a { color: white; text-decoration: underline; }
+.cookie-notice button {
+  flex-shrink: 0; background: white; color: var(--ink); border: none;
+  border-radius: 999px; padding: 8px 18px; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+@media (max-width: 680px) {
+  .cookie-notice { bottom: calc(var(--tabbar-h, 0px) + 20px); }
 }
 
 /* ------------------------------------------------------------------- feedback */

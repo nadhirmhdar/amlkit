@@ -297,6 +297,26 @@ function greetingForHour(hour) {
   return 'Hello';
 }
 
+// Cookie notice: shown once, dismissal remembered client-side only (never
+// sent to the server, never affects any other viewer). Wrapped in try/catch
+// -- localStorage can throw in private browsing or with blocked site data,
+// and the notice should still work (just reappear) rather than break the page.
+var COOKIE_NOTICE_KEY = 'amlkit_cookie_notice_dismissed';
+
+function showCookieNoticeIfNeeded() {
+  var el = document.getElementById('cookie-notice');
+  if (!el) return;
+  var dismissed = false;
+  try { dismissed = localStorage.getItem(COOKIE_NOTICE_KEY) === '1'; } catch (e) { /* ignore */ }
+  if (!dismissed) el.style.display = 'flex';
+}
+
+function dismissCookieNotice() {
+  var el = document.getElementById('cookie-notice');
+  if (el) el.style.display = 'none';
+  try { localStorage.setItem(COOKIE_NOTICE_KEY, '1'); } catch (e) { /* ignore */ }
+}
+
 function applyLocalGreeting() {
   var nodes = document.querySelectorAll('[data-greeting]');
   if (!nodes.length) return;
@@ -307,6 +327,12 @@ function applyLocalGreeting() {
 // Wire up event handlers from data attributes
 document.addEventListener('DOMContentLoaded', function() {
   applyLocalGreeting();
+  showCookieNoticeIfNeeded();
+
+  var cookieNoticeDismiss = document.querySelector('[data-action="dismiss-cookie-notice"]');
+  if (cookieNoticeDismiss) {
+    cookieNoticeDismiss.addEventListener('click', dismissCookieNotice);
+  }
 
   // Password toggle button
   var passwordToggle = document.querySelector('[data-action="toggle-password"]');
