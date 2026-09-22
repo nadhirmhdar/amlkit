@@ -64,16 +64,23 @@
   </a>
 </div>
 
-<a class="alerts-float {{ 'is-pending' if d.open_alerts|length else 'is-clear' }}" href="/dashboard">
-  <span class="alerts-float__text">
-    {% if d.open_alerts|length %}
-      <strong>{{ d.open_alerts|length }} alert{{ 's' if d.open_alerts|length != 1 }} need{{ '' if d.open_alerts|length != 1 else 's' }} your action.</strong>
-      <span>Tap to review the queue</span>
-    {% else %}
-      <strong>No alerts pending.</strong>
-      <span>Tap to open the dashboard</span>
-    {% endif %}
-  </span>
-</a>
+{# .alerts-float-wrap does the fixed-position placement (mirrors main's own
+   max-width/margin/padding box so the pill lines up with the cards above
+   it at every breakpoint, sidebar included/excluded as appropriate); the
+   pill itself keeps its existing look untouched. See the CSS comment on
+   .alerts-float-wrap for why this replaced position:sticky. #}
+<div class="alerts-float-wrap">
+  <a class="alerts-float {{ 'is-pending' if d.open_alerts|length else 'is-clear' }}" href="/dashboard">
+    <span class="alerts-float__text">
+      {% if d.open_alerts|length %}
+        <strong>{{ d.open_alerts|length }} alert{{ 's' if d.open_alerts|length != 1 }} need{{ '' if d.open_alerts|length != 1 else 's' }} your action.</strong>
+        <span>Tap to review the queue</span>
+      {% else %}
+        <strong>No alerts pending.</strong>
+        <span>Tap to open the dashboard</span>
+      {% endif %}
+    </span>
+  </a>
+</div>
 
 {% endblock %}

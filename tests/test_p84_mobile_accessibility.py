@@ -136,3 +136,54 @@ class TestFeedbackButtonClearsTabBar:
         assert last_open != -1, "tab-bar override should be inside a @media block"
         media_header = css[last_open:preceding.find("{", last_open) + 1]
         assert "680px" in media_header, media_header
+
+
+class TestAlertsPillDoesNotOverlap:
+    """The home-page floating alerts pill (.alerts-float-wrap) used to be
+    position:sticky, which renders "stuck" at a fixed viewport coordinate
+    from the very first paint on any page taller than the viewport --
+    independent of scroll position -- permanently overlapping whatever sits
+    at that coordinate (sidebar, tab bar, cards). It is now position:fixed
+    with the wrapper doing explicit offset math per breakpoint."""
+
+    def test_wrap_is_position_fixed_not_sticky(self) -> None:
+        css = CSS_PATH.read_text(encoding="utf-8")
+        wrap_block = re.search(r'\.alerts-float-wrap\s*\{([^}]*)\}', css)
+        assert wrap_block, ".alerts-float-wrap base rule not found"
+        assert "position: fixed" in wrap_block.group(1)
+
+        pill_block = re.search(r'(?<!-)\.alerts-float\s*\{([^}]*)\}', css)
+        assert pill_block, ".alerts-float base rule not found"
+        assert "sticky" not in pill_block.group(1), (
+            ".alerts-float itself must not carry position:sticky any more -- "
+            "positioning belongs entirely to .alerts-float-wrap"
+        )
+
+    def test_mobile_breakpoint_clears_the_feedback_button(self) -> None:
+        """The feedback button (.feedback-btn) is also fixed at
+        bottom: tabbar-h+20px on phones, in the same bottom-right corner.
+        The pill's mobile override must pad its right side wide enough to
+        clear the button's circle instead of running full-width under it."""
+        css = CSS_PATH.read_text(encoding="utf-8")
+        blocks = list(re.finditer(r'\.alerts-float-wrap\s*\{([^}]*)\}', css))
+        mobile = [m for m in blocks if "--tabbar-h" in m.group(1)]
+        assert mobile, "expected a tabbar-aware .alerts-float-wrap override"
+        rule = mobile[-1].group(1)
+        m = re.search(r'padding:\s*0\s+(\d+)px\s+0\s+(\d+)px', rule)
+        assert m, f"expected an asymmetric 'padding: 0 <right>px 0 <left>px' shorthand, got: {rule}"
+        right_padding, left_padding = int(m.group(1)), int(m.group(2))
+        assert right_padding > left_padding + 40, (
+            "right padding must clear the feedback button's ~56px circle plus "
+            "its own inset -- a right padding close to the left padding means "
+            "the pill runs back under the button"
+        )
+
+    def test_mobile_override_is_scoped_to_the_680px_breakpoint(self) -> None:
+        css = CSS_PATH.read_text(encoding="utf-8")
+        blocks = list(re.finditer(r'\.alerts-float-wrap\s*\{([^}]*)\}', css))
+        override_pos = [m for m in blocks if "--tabbar-h" in m.group(1)][0].start()
+        preceding = css[:override_pos]
+        last_open = preceding.rfind("@media")
+        assert last_open != -1, "tab-bar-aware override should be inside a @media block"
+        media_header = css[last_open:preceding.find("{", last_open) + 1]
+        assert "680px" in media_header, media_header
