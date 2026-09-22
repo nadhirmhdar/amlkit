@@ -68,6 +68,7 @@
           <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
         {% endif %}
         <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
+        <a href="/privacy" class="user-dropdown__item" role="menuitem">Privacy &amp; Cookies</a>
         <div class="user-dropdown__divider"></div>
         <form method="post" action="/logout">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -127,6 +128,7 @@
           <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
         {% endif %}
         <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
+        <a href="/privacy" class="user-dropdown__item" role="menuitem">Privacy &amp; Cookies</a>
         <div class="user-dropdown__divider"></div>
         <form method="post" action="/logout">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -226,6 +228,20 @@
 {% else %}
 </div>
 {% endif %}
+
+{# Cookie notice: informational only (all cookies are strictly necessary --
+   see /privacy), so no consent choice is needed, just a one-time
+   acknowledgement remembered client-side. Sits outside the session split so
+   it also covers first-time visitors on /login and /register-organization. #}
+<div id="cookie-notice" class="cookie-notice no-print" style="display:none;" role="status">
+  <p>
+    amlkit uses a small number of strictly necessary cookies (sign-in, security,
+    and one-time messages). No advertising or tracking cookies, and nothing is
+    shared with third parties.
+    <a href="/privacy">Learn more</a>
+  </p>
+  <button type="button" data-action="dismiss-cookie-notice">Got it</button>
+</div>
 
 <script src="/static/js/countries.js"></script>
 <script src="/static/js/app.js"></script>

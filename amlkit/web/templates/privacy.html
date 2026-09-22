@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% set nav = 'privacy' %}
+{% block title %}Privacy & Cookies — amlkit{% endblock %}
+{% block body %}
+
+<div style="max-width:680px;">
+  <div class="page-head">
+    <div class="eyebrow">Privacy &amp; Cookies</div>
+    <h1>How amlkit uses cookies and data</h1>
+    <p class="sub">
+      This page describes amlkit's actual practices. There is nothing here
+      that does not happen, and nothing that happens is left out.
+    </p>
+  </div>
+
+  <div class="mb-6">
+    <div class="section-label">Cookies we set</div>
+    <p style="font-size:14px; color:var(--ink-2); line-height:1.7; margin-bottom:14px;">
+      amlkit sets three cookies, all strictly necessary for the site to
+      function. None are used for advertising, analytics, or tracking across
+      other sites, and none are shared with third parties.
+    </p>
+    <div class="flat-list">
+      <div class="list-row" style="align-items:flex-start;">
+        <div class="grow">
+          <div class="primary" style="font-size:14.5px;">amlkit_session</div>
+          <div class="secondary" style="font-size:13px; color:var(--ink-2); margin-top:4px; line-height:1.5;">
+            Keeps you signed in. HttpOnly (not readable by page scripts) and
+            SameSite=Strict. Expires when you log out or your session times out.
+          </div>
+        </div>
+      </div>
+      <div class="list-row" style="align-items:flex-start;">
+        <div class="grow">
+          <div class="primary" style="font-size:14.5px;">amlkit_csrf</div>
+          <div class="secondary" style="font-size:13px; color:var(--ink-2); margin-top:4px; line-height:1.5;">
+            Protects forms and actions from cross-site request forgery.
+            HttpOnly. Present even before you sign in, since the login and
+            registration forms need it too.
+          </div>
+        </div>
+      </div>
+      <div class="list-row" style="align-items:flex-start;">
+        <div class="grow">
+          <div class="primary" style="font-size:14.5px;">amlkit_flash</div>
+          <div class="secondary" style="font-size:13px; color:var(--ink-2); margin-top:4px; line-height:1.5;">
+            Carries a one-time success or error message across a redirect
+            (for example, after saving a form). HttpOnly, expires after 60
+            seconds or as soon as the message is shown.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mb-6">
+    <div class="section-label">What we don't do</div>
+    <p style="font-size:14px; color:var(--ink-2); line-height:1.7;">
+      amlkit does not run advertising or ad-tracking cookies, does not use
+      Google Analytics or similar third-party analytics scripts, does not
+      sell or share data with advertisers, and does not participate in any
+      ad-industry opt-out program (there is nothing to opt out of). The only
+      outbound network calls a page makes are to amlkit's own servers and,
+      where a firm has explicitly enabled a specific optional feature (such
+      as AI-assisted screening or drafting), to the named third-party API
+      that powers it — never to an ad network.
+    </p>
+  </div>
+
+  <div class="mb-6">
+    <div class="section-label">Compliance data</div>
+    <p style="font-size:14px; color:var(--ink-2); line-height:1.7;">
+      Beyond cookies, amlkit processes the customer due diligence, screening,
+      and transaction data your organisation enters, strictly to provide the
+      AML/CFT compliance functions you use it for: sanctions and PEP
+      screening, risk assessment, transaction monitoring, and regulatory
+      reporting. That data is kept separate per organisation, is retained for
+      the period required by UAE AML law, and is never used for advertising
+      or shared with unrelated third parties.
+    </p>
+  </div>
+
+  <div>
+    <div class="section-label">Questions</div>
+    <p style="font-size:14px; color:var(--ink-2); line-height:1.8;">
+      <strong style="color:var(--ink);">Grovisor Business Consultants LLC</strong><br>
+      Dubai, United Arab Emirates<br>
+      +971 50 771 4369<br>
+      info@grovisor.ae
+    </p>
+  </div>
+</div>
+
+{% endblock %}
