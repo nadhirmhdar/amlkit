@@ -565,3 +565,115 @@ class TestGetRuleConfigCache:
         assert config1 is not config2
         assert threshold_1 != threshold_2
         assert threshold_2 == 200_000
+
+    def test_get_rule_config_cache_isolated_across_databases_sharing_org_id(self) -> None:
+        """Two independent databases that both happen to have an org_id=1
+        must never see each other's cached config.
+
+        Regression test for the bug where the cache was keyed on bare
+        org_id: this app is single-tenant-per-database, so org_id is only
+        unique within one database, not globally. A bare-org_id cache key
+        let save_rule_config() on one database's org 1 silently poison
+        get_rule_config() reads for a completely unrelated database's org 1
+        -- exactly the shape of the order-dependent failures this caused in
+        test_api.py / test_new_features_e2e.py / test_mobile_api.py, where
+        an unrelated test's admin-rule-config save leaked its threshold into
+        the transaction-monitoring tests. See the module comment on
+        _config_cache in amlkit/screening/kyt.py.
+        """
+        from amlkit.screening.kyt import get_rule_config, save_rule_config, _clear_config_cache
+
+        _clear_config_cache()
+
+        conn_a = connect(":memory:")
+        conn_b = connect(":memory:")
+        try:
+            org_a = conn_a.execute(
+                "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+                " RETURNING id",
+                ("Firm A", "firm-a", "active", utcnow()),
+            ).fetchone()["id"]
+            conn_a.commit()
+            org_b = conn_b.execute(
+                "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+                " RETURNING id",
+                ("Firm B", "firm-b", "active", utcnow()),
+            ).fetchone()["id"]
+            conn_b.commit()
+            # Both databases independently assign the same numeric org_id --
+            # each is the first (and only) org in its own database.
+            assert org_a == org_b == 1
+
+            # DB A's operator lowers its threshold and caches the new value.
+            save_rule_config(conn_a, org_a, {"large_cash_threshold_aed": 12_345.0}, actor="mlro-a")
+            conn_a.commit()
+            config_a = get_rule_config(conn_a, org_a)
+            assert config_a["large_cash_threshold_aed"] == 12_345.0
+
+            # DB B was never touched: it must still see the true default,
+            # not DB A's cached value for "org 1".
+            config_b = get_rule_config(conn_b, org_b)
+            assert config_b["large_cash_threshold_aed"] == LARGE_CASH_THRESHOLD_AED
+        finally:
+            conn_a.close()
+            conn_b.close()
+            _clear_config_cache()
+
+    def test_stale_cache_on_another_connection_does_not_survive_past_ttl(self, tmp_path, monkeypatch) -> None:
+        """Simulates two worker processes/instances sharing one real database
+        file, each holding its own process-local cache -- this module's
+        cache is one dict per Python process, so two Cloud Run instances
+        never see each other's writes directly.
+
+        Worker A saves a new threshold and sees it immediately, because
+        save_rule_config() invalidates its own connection's cache entry.
+        Worker B's already-warm read of the old value lives in a different
+        connection's cache entry, so worker A's save can't reach it -- but
+        unlike before this fix, it does not stay stale until the process
+        restarts: it expires on the TTL, and worker B's next read goes back
+        to the database and picks up the change.
+        """
+        import amlkit.screening.kyt as kyt_module
+        from amlkit.screening.kyt import get_rule_config, save_rule_config, _clear_config_cache
+
+        _clear_config_cache()
+        db_path = tmp_path / "shared.db"
+
+        conn_a = connect(db_path)  # "worker A"
+        conn_b = connect(db_path)  # "worker B", same underlying database file
+        try:
+            org_id = conn_a.execute(
+                "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)"
+                " RETURNING id",
+                ("Shared Firm", "shared-firm", "active", utcnow()),
+            ).fetchone()["id"]
+            conn_a.commit()
+
+            fake_time = [1_000.0]
+            monkeypatch.setattr(kyt_module.time, "monotonic", lambda: fake_time[0])
+
+            # Both workers warm their own cache with the default.
+            assert get_rule_config(conn_a, org_id)["large_cash_threshold_aed"] == LARGE_CASH_THRESHOLD_AED
+            assert get_rule_config(conn_b, org_id)["large_cash_threshold_aed"] == LARGE_CASH_THRESHOLD_AED
+
+            # Worker A's operator changes the threshold.
+            save_rule_config(conn_a, org_id, {"large_cash_threshold_aed": 90_000.0}, actor="mlro-a")
+            conn_a.commit()
+
+            # Worker A sees it immediately (its own cache entry was cleared).
+            assert get_rule_config(conn_a, org_id)["large_cash_threshold_aed"] == 90_000.0
+
+            # Worker B is still within the TTL window: it reads its own
+            # cache entry from before the save, since worker A's save
+            # cannot reach a different connection's cache entry.
+            assert get_rule_config(conn_b, org_id)["large_cash_threshold_aed"] == LARGE_CASH_THRESHOLD_AED
+
+            # Time passes the TTL: worker B's stale entry expires, and its
+            # next read goes back to the database and picks up the change --
+            # bounded staleness, not "until the next restart".
+            fake_time[0] += kyt_module._CACHE_TTL_SECONDS + 1
+            assert get_rule_config(conn_b, org_id)["large_cash_threshold_aed"] == 90_000.0
+        finally:
+            conn_a.close()
+            conn_b.close()
+            _clear_config_cache()
