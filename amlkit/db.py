@@ -920,6 +920,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("sessions", "last_active", "ALTER TABLE sessions ADD COLUMN last_active TEXT"),
     # p38: UBO periodic re-verification tracking
     ("ubo_links", "last_verified_at",  "ALTER TABLE ubo_links ADD COLUMN last_verified_at  TEXT"),
+    # Issue #258: per-org single_operator_mode config
+    ("org_settings", "single_operator_mode", "ALTER TABLE org_settings ADD COLUMN single_operator_mode INTEGER"),
     # p46: Organization goAML reporting entity profile fields
     ("organizations", "org_address",            "ALTER TABLE organizations ADD COLUMN org_address            TEXT"),
     ("organizations", "reporting_person_name",  "ALTER TABLE organizations ADD COLUMN reporting_person_name  TEXT"),

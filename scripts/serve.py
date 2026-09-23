@@ -67,10 +67,11 @@ def main() -> int:
         if any(r["breach"] for r in rows):
             print("\n  Mandatory lists are stale. Run:  python scripts/refresh.py\n")
 
-    if single_operator_mode():
-        print("\n  Single-operator mode ON: dismissals of sanctions and")
-        print("  proliferation matches are recorded as having had no")
-        print("  independent review.\n")
+    # Issue #258: single_operator_mode is now per-org, not process-wide
+    # Startup message removed; check per-org setting in admin UI instead
+    if os.environ.get("AMLKIT_SINGLE_OPERATOR_MODE", "").strip().lower() in ("1", "true", "yes", "on"):
+        print("\n  AMLKIT_SINGLE_OPERATOR_MODE env var set (instance default).")
+        print("  Per-org config in DB takes precedence.\n")
 
     uvicorn.run(
         "amlkit.api.app:app", host=BIND_HOST, port=BIND_PORT, log_level="warning",

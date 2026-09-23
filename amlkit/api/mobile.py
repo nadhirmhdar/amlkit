@@ -489,8 +489,8 @@ def api_datasets(db: DB, session: Session):
 
 
 @router.get("/reason-codes")
-def api_reason_codes(session: Session):
-    return {"reason_codes": REASON_CODES, "single_operator_mode": single_operator_mode()}
+def api_reason_codes(db: DB, session: Session):
+    return {"reason_codes": REASON_CODES, "single_operator_mode": single_operator_mode(db, session.org_id)}
 
 
 # --------------------------------------------------------------------- screen
