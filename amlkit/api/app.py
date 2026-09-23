@@ -234,7 +234,11 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         session = current_session(request, db)
     ctx.setdefault("session", session)
     ctx.setdefault("security_warning", startup_warning())
-    ctx.setdefault("single_operator", single_operator_mode())
+    # single_operator_mode requires db + org_id; only set if both available
+    if db and session:
+        ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
+    else:
+        ctx.setdefault("single_operator", False)  # default to stricter control when context unavailable
     # Read flash message from cookie (Issue #102) with URL param fallback.
     # Cookie value is base64-encoded JSON to avoid HTTP quoting of {/"/} chars.
     import json as _json
@@ -1542,7 +1546,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     ctx = data | {"session": session, "generated_at": generated_at,
                   "effective_risk": eff_risk}
     ctx.setdefault("security_warning", startup_warning())
-    ctx.setdefault("single_operator", single_operator_mode())
+    ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
     ctx["csrf_token"] = ""
     ctx["request"] = request
 

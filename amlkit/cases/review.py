@@ -71,13 +71,28 @@ class ReviewOutcome:
     message: str
 
 
-def single_operator_mode() -> bool:
-    """Whether the firm runs with one compliance officer.
+def single_operator_mode(conn: sqlite3.Connection, org_id: int) -> bool:
+    """Whether the org runs with one compliance officer.
+
+    Reads per-org config from org_settings.single_operator_mode. Falls back to
+    env var AMLKIT_SINGLE_OPERATOR_MODE as instance-wide default only for orgs
+    without an explicit DB setting.
 
     Defaults to False -- the stronger control. A firm that genuinely has one
     officer hits a clear error telling them how to enable this, which is better
     than silently weakening four-eyes for everyone.
     """
+    # Check per-org DB config first
+    row = conn.execute(
+        "SELECT single_operator_mode FROM org_settings WHERE org_id = ?",
+        (org_id,)
+    ).fetchone()
+
+    if row and row["single_operator_mode"] is not None:
+        # Explicit per-org setting takes precedence
+        return bool(row["single_operator_mode"])
+
+    # Fall back to env var (instance-wide default for orgs without DB config)
     return os.environ.get("AMLKIT_SINGLE_OPERATOR_MODE", "").strip().lower() in (
         "1", "true", "yes", "on",
     )
@@ -270,7 +285,7 @@ def propose_disposition(
     # A cross-tenant alert_id ends up indistinguishable from a nonexistent
     # one either way, which is the property that matters.
     second_review = needs_independent_review(conn, alert_id, org_id, status)
-    solo = single_operator_mode()
+    solo = single_operator_mode(conn, org_id)
 
     if second_review and not solo:
         applied_status = PENDING
