@@ -340,8 +340,16 @@ main {
 @media (max-width: 860px) { .dashboard-hero { grid-template-columns: 1fr; } }
 
 /* --------------------------------------------------------------- home page */
+/* Vertical rhythm: distribute space naturally across viewport height */
+main:has(.home-head) {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding-bottom: 110px; /* Clear fixed alerts pill (bottom: 20px + ~70px height + margin) */
+}
+
 .home-head h1 { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin: 6px 0 0; }
-.home-head .sub { font-size: 14.5px; color: var(--ink-2); margin-top: 12px; max-width: 620px; line-height: 1.6; }
+.home-head .sub { font-size: 14.5px; color: var(--ink-2); margin-top: 12px; margin-bottom: 32px; max-width: 620px; line-height: 1.6; }
 .home-head .status-line { margin-top: 18px; }
 
 /* "3D floating" action cards -- layered shadow (not just a border) plus a
@@ -349,7 +357,7 @@ main {
    flat-list rows; deliberately distinct from .panel for that reason. */
 .home-quick-screen {
   display: flex; align-items: center; gap: 8px;
-  max-width: 580px; margin: 20px 0 4px;
+  max-width: 580px; margin: 0 0 36px;
   padding: 6px 6px 6px 16px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
 }
@@ -360,6 +368,12 @@ main {
 }
 .home-quick-screen button { border-radius: 999px; flex-shrink: 0; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Push "Start here" section toward bottom, absorbing vertical slack */
+main:has(.home-head) > .section-label {
+  margin-top: auto;
+}
+
 .action-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 40px; }
 @media (max-width: 860px) {
   .action-cards { grid-template-columns: 1fr; }
@@ -796,6 +810,15 @@ details.evidence summary * { display: none; }
   .sidebar, .nav-hamburger, .canvas-corner { display: none !important; }
   :root { --tabbar-h: 62px; --mobile-header-h: 52px; }
   main { padding: calc(var(--mobile-header-h) + 16px) 18px calc(var(--tabbar-h) + 28px); }
+
+  /* Home page: disable flex stretching on phone, use natural flow */
+  main:has(.home-head) {
+    min-height: auto;
+    padding-bottom: calc(var(--tabbar-h) + 90px);
+  }
+  main:has(.home-head) > .section-label {
+    margin-top: 24px;
+  }
 
   /* Reduce headline sizes so long names/titles don't overflow on small screens */
   .page-head h1, .page-head .title { font-size: 26px; }
