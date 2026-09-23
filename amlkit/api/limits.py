@@ -1,9 +1,6 @@
 """Rate limiting configuration for API routes."""
 from fastapi import Request
 from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 
 def rate_limit_key_func(request: Request) -> str:
@@ -15,6 +12,9 @@ def rate_limit_key_func(request: Request) -> str:
     """
     from .deps import client_ip
     return client_ip(request) or "unknown"
+
+
+limiter = Limiter(key_func=rate_limit_key_func, default_limits=["100/minute"])
 
 
 def login_rate_limit_key(request: Request) -> str:
