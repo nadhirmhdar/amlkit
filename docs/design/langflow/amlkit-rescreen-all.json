@@ -1,0 +1,593 @@
+{
+  "id": "amlkit-rescreen-all",
+  "name": "AMLKit — Batch Rescreen All",
+  "description": "Loops over all active customers and rescreens each against the current sanctions/PEP/PF lists. Triggered by Cloud Scheduler (replaces POST /system/refresh for the rescreen leg). Based on C.3 step 9 of the 2026-09-21 amlkit infrastructure review.",
+  "data": {
+    "nodes": [
+      {
+        "id": "Webhook-RESCREEN",
+        "type": "genericNode",
+        "position": { "x": 80, "y": 300 },
+        "data": {
+          "id": "Webhook-RESCREEN",
+          "display_name": "Cloud Scheduler Trigger",
+          "description": "POST from Cloud Scheduler (amlkit-sanctions-refresh, cron 0 */20 * * *). Replaces /system/refresh for the rescreen leg. Payload can be empty {}.",
+          "type": "Webhook",
+          "node": {
+            "display_name": "Webhook",
+            "description": "Receives a payload from external systems via HTTP POST.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "output_data", "display_name": "JSON", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "endpoint": {
+                "_input_type": "MultilineInput",
+                "name": "endpoint",
+                "display_name": "Endpoint",
+                "value": "BACKEND_URL",
+                "advanced": false,
+                "show": true,
+                "copy_field": true
+              },
+              "data": {
+                "_input_type": "MultilineInput",
+                "name": "data",
+                "display_name": "Payload",
+                "value": "{}",
+                "advanced": true,
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.input_output.webhook.WebhookComponent" },
+            "lf_version": "1.9.0",
+            "icon": "webhook",
+            "field_order": ["data", "curl", "endpoint"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "APIRequest-CUSTOMERS",
+        "type": "genericNode",
+        "position": { "x": 380, "y": 300 },
+        "data": {
+          "id": "APIRequest-CUSTOMERS",
+          "display_name": "Fetch Active Customers",
+          "description": "GET /customers?status=active&page={page} — returns paginated list of customers for the org. Feeds the Loop component.",
+          "type": "APIRequest",
+          "node": {
+            "display_name": "API Request",
+            "description": "Make HTTP requests to any API endpoint.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "data", "display_name": "Data", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "mode": {
+                "_input_type": "DropdownInput",
+                "name": "mode",
+                "display_name": "Mode",
+                "value": "URL",
+                "options": ["URL", "cURL"],
+                "show": true
+              },
+              "url_input": {
+                "_input_type": "MessageTextInput",
+                "name": "url_input",
+                "display_name": "URL",
+                "value": "https://your-amlkit-instance/customers?status=active",
+                "show": true
+              },
+              "method": {
+                "_input_type": "DropdownInput",
+                "name": "method",
+                "display_name": "Method",
+                "value": "GET",
+                "options": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+                "show": true
+              },
+              "headers": {
+                "_input_type": "TableInput",
+                "name": "headers",
+                "display_name": "Headers",
+                "value": [{"key": "Authorization", "value": "Bearer {SCHEDULER_SECRET}"}],
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.data_source.api_request.APIRequestComponent" },
+            "lf_version": "1.9.0",
+            "icon": "Globe",
+            "field_order": ["mode", "url_input", "method", "headers"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "ParseJSONData-CLIST",
+        "type": "genericNode",
+        "position": { "x": 680, "y": 300 },
+        "data": {
+          "id": "ParseJSONData-CLIST",
+          "display_name": "Extract Customer List",
+          "description": "Uses jq to extract the customers array from the paginated response: .customers[]",
+          "type": "ParseJSONData",
+          "node": {
+            "display_name": "Parse JSON",
+            "description": "Parse JSON data using a jq query.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "filtered_data", "display_name": "Filtered Data", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "input": {
+                "_input_type": "DataInput",
+                "name": "input",
+                "display_name": "Input",
+                "value": "",
+                "input_types": ["Data"],
+                "show": true
+              },
+              "query": {
+                "_input_type": "MessageTextInput",
+                "name": "query",
+                "display_name": "JQ Query",
+                "value": "[.customers[] | {id: .id, full_name: .full_name, name_arabic: .name_arabic, nationality: .nationality, dob: .dob, org_id: .org_id}]",
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.processing.parse_json_data.ParseJSONDataComponent" },
+            "lf_version": "1.9.0",
+            "icon": "braces",
+            "field_order": ["input", "query"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "Loop-CUSTOMERS",
+        "type": "genericNode",
+        "position": { "x": 980, "y": 300 },
+        "data": {
+          "id": "Loop-CUSTOMERS",
+          "display_name": "Loop: Each Customer",
+          "description": "Iterates over the customer list. 'Item' output feeds the screen call per customer. 'Done' output fires when all customers processed.",
+          "type": "Loop",
+          "node": {
+            "display_name": "Loop",
+            "description": "Iterate over a list, processing each item.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "item", "display_name": "Item", "types": ["Data"], "group_outputs": true },
+              { "name": "done", "display_name": "Done", "types": ["Data"], "group_outputs": true }
+            ],
+            "template": {
+              "_type": "Component",
+              "data": {
+                "_input_type": "DataInput",
+                "name": "data",
+                "display_name": "Inputs",
+                "value": "",
+                "input_types": ["Data"],
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.flow_controls.loop.LoopComponent" },
+            "lf_version": "1.9.0",
+            "icon": "repeat",
+            "field_order": ["data"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "APIRequest-SCREENONE",
+        "type": "genericNode",
+        "position": { "x": 1280, "y": 180 },
+        "data": {
+          "id": "APIRequest-SCREENONE",
+          "display_name": "Screen Customer",
+          "description": "POST to /screen for each individual customer. Calls match/engine.py:rescreen_all() equivalent per entity. Returns {hits, matches[]} same as the onboarding flow.",
+          "type": "APIRequest",
+          "node": {
+            "display_name": "API Request",
+            "description": "Make HTTP requests to any API endpoint.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "data", "display_name": "Data", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "mode": {
+                "_input_type": "DropdownInput",
+                "name": "mode",
+                "display_name": "Mode",
+                "value": "URL",
+                "options": ["URL", "cURL"],
+                "show": true
+              },
+              "url_input": {
+                "_input_type": "MessageTextInput",
+                "name": "url_input",
+                "display_name": "URL",
+                "value": "https://your-amlkit-instance/screen",
+                "show": true
+              },
+              "method": {
+                "_input_type": "DropdownInput",
+                "name": "method",
+                "display_name": "Method",
+                "value": "POST",
+                "options": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+                "show": true
+              },
+              "body": {
+                "_input_type": "MessageTextInput",
+                "name": "body",
+                "display_name": "Body",
+                "value": "",
+                "info": "Connected from Loop Item output (one customer at a time)",
+                "show": true,
+                "input_types": ["Data", "Message"]
+              },
+              "headers": {
+                "_input_type": "TableInput",
+                "name": "headers",
+                "display_name": "Headers",
+                "value": [{"key": "Content-Type", "value": "application/json"}, {"key": "Authorization", "value": "Bearer {SCHEDULER_SECRET}"}],
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.data_source.api_request.APIRequestComponent" },
+            "lf_version": "1.9.0",
+            "icon": "Globe",
+            "field_order": ["mode", "url_input", "method", "headers", "body"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "ConditionalRouter-NEWHITS",
+        "type": "genericNode",
+        "position": { "x": 1580, "y": 180 },
+        "data": {
+          "id": "ConditionalRouter-NEWHITS",
+          "display_name": "New Hit?",
+          "description": "Routes True (new hits found) to alert-creation API call. Routes False (no new hits, or previously known) back to Loop for the next customer.",
+          "type": "ConditionalRouter",
+          "node": {
+            "display_name": "If-Else",
+            "description": "Routes flow based on a text comparison condition.",
+            "base_classes": ["Message"],
+            "outputs": [
+              { "name": "true_result", "display_name": "New Match (create alert)", "types": ["Message"], "group_outputs": true },
+              { "name": "false_result", "display_name": "No new hit (continue loop)", "types": ["Message"], "group_outputs": true }
+            ],
+            "template": {
+              "_type": "Component",
+              "input_text": {
+                "_input_type": "MessageTextInput",
+                "name": "input_text",
+                "display_name": "Text Input",
+                "value": "",
+                "info": "jq '.hits | tostring' from screen response",
+                "show": true,
+                "input_types": ["Message"]
+              },
+              "operator": {
+                "_input_type": "DropdownInput",
+                "name": "operator",
+                "display_name": "Operator",
+                "value": "!=",
+                "options": ["equals", "not equals", "contains", "!="],
+                "show": true
+              },
+              "match_text": {
+                "_input_type": "MessageTextInput",
+                "name": "match_text",
+                "display_name": "Match Text",
+                "value": "0",
+                "show": true
+              }
+            },
+            "conditional_paths": ["true_result", "false_result"],
+            "metadata": { "module": "lfx.components.flow_controls.conditional_router.ConditionalRouterComponent" },
+            "lf_version": "1.9.0",
+            "icon": "split",
+            "field_order": ["input_text", "operator", "match_text"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "APIRequest-ALERT",
+        "type": "genericNode",
+        "position": { "x": 1880, "y": 100 },
+        "data": {
+          "id": "APIRequest-ALERT",
+          "display_name": "Create Alert",
+          "description": "POST to /alerts to create a new screening alert for the matched customer. Handled by cases/manager.py:create_alert().",
+          "type": "APIRequest",
+          "node": {
+            "display_name": "API Request",
+            "description": "Make HTTP requests to any API endpoint.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "data", "display_name": "Data", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "mode": {
+                "_input_type": "DropdownInput",
+                "name": "mode",
+                "display_name": "Mode",
+                "value": "URL",
+                "options": ["URL", "cURL"],
+                "show": true
+              },
+              "url_input": {
+                "_input_type": "MessageTextInput",
+                "name": "url_input",
+                "display_name": "URL",
+                "value": "https://your-amlkit-instance/alerts",
+                "show": true
+              },
+              "method": {
+                "_input_type": "DropdownInput",
+                "name": "method",
+                "display_name": "Method",
+                "value": "POST",
+                "options": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+                "show": true
+              },
+              "body": {
+                "_input_type": "MessageTextInput",
+                "name": "body",
+                "display_name": "Body",
+                "value": "",
+                "info": "Screen response passed here — entity_id, matches, score",
+                "show": true,
+                "input_types": ["Data", "Message"]
+              },
+              "headers": {
+                "_input_type": "TableInput",
+                "name": "headers",
+                "display_name": "Headers",
+                "value": [{"key": "Content-Type", "value": "application/json"}, {"key": "Authorization", "value": "Bearer {SCHEDULER_SECRET}"}],
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.data_source.api_request.APIRequestComponent" },
+            "lf_version": "1.9.0",
+            "icon": "Globe",
+            "field_order": ["mode", "url_input", "method", "headers", "body"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "ChatOutput-DONE",
+        "type": "genericNode",
+        "position": { "x": 1280, "y": 500 },
+        "data": {
+          "id": "ChatOutput-DONE",
+          "display_name": "Rescreen Complete",
+          "description": "Terminal output when the Loop has processed all customers. Returns a summary {processed: N, alerts_created: M}.",
+          "type": "ChatOutput",
+          "node": {
+            "display_name": "Chat Output",
+            "description": "Display a chat message in the Playground.",
+            "base_classes": ["Message"],
+            "outputs": [
+              { "name": "message", "display_name": "Message", "types": ["Message"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "input_value": {
+                "_input_type": "MessageTextInput",
+                "name": "input_value",
+                "display_name": "Text",
+                "value": "✅ Rescreen complete.",
+                "input_types": ["Data", "JSON", "DataFrame", "Table", "Message"],
+                "show": true
+              },
+              "sender": {
+                "_input_type": "DropdownInput",
+                "name": "sender",
+                "display_name": "Sender Type",
+                "value": "Machine",
+                "options": ["Machine", "User"],
+                "show": true,
+                "advanced": true
+              }
+            },
+            "metadata": { "module": "lfx.components.input_output.chat_output.ChatOutputComponent" },
+            "lf_version": "1.9.0",
+            "icon": "MessageSquare",
+            "field_order": ["input_value", "sender"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-Webhook-RESCREEN-APIRequest-CUSTOMERS",
+        "source": "Webhook-RESCREEN",
+        "sourceHandle": "{\"dataType\":\"Webhook\",\"id\":\"Webhook-RESCREEN\",\"name\":\"output_data\",\"output_types\":[\"Data\"]}",
+        "target": "APIRequest-CUSTOMERS",
+        "targetHandle": "{\"fieldName\":\"body\",\"id\":\"APIRequest-CUSTOMERS\",\"inputTypes\":[\"Data\",\"Message\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "Webhook", "id": "Webhook-RESCREEN", "name": "output_data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "body", "id": "APIRequest-CUSTOMERS", "inputTypes": ["Data", "Message"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-APIRequest-CUSTOMERS-ParseJSONData-CLIST",
+        "source": "APIRequest-CUSTOMERS",
+        "sourceHandle": "{\"dataType\":\"APIRequest\",\"id\":\"APIRequest-CUSTOMERS\",\"name\":\"data\",\"output_types\":[\"Data\"]}",
+        "target": "ParseJSONData-CLIST",
+        "targetHandle": "{\"fieldName\":\"input\",\"id\":\"ParseJSONData-CLIST\",\"inputTypes\":[\"Data\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "APIRequest", "id": "APIRequest-CUSTOMERS", "name": "data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "input", "id": "ParseJSONData-CLIST", "inputTypes": ["Data"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-ParseJSONData-CLIST-Loop-CUSTOMERS",
+        "source": "ParseJSONData-CLIST",
+        "sourceHandle": "{\"dataType\":\"ParseJSONData\",\"id\":\"ParseJSONData-CLIST\",\"name\":\"filtered_data\",\"output_types\":[\"Data\"]}",
+        "target": "Loop-CUSTOMERS",
+        "targetHandle": "{\"fieldName\":\"data\",\"id\":\"Loop-CUSTOMERS\",\"inputTypes\":[\"Data\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ParseJSONData", "id": "ParseJSONData-CLIST", "name": "filtered_data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "data", "id": "Loop-CUSTOMERS", "inputTypes": ["Data"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-Loop-CUSTOMERS-item-APIRequest-SCREENONE",
+        "source": "Loop-CUSTOMERS",
+        "sourceHandle": "{\"dataType\":\"Loop\",\"id\":\"Loop-CUSTOMERS\",\"name\":\"item\",\"output_types\":[\"Data\"]}",
+        "target": "APIRequest-SCREENONE",
+        "targetHandle": "{\"fieldName\":\"body\",\"id\":\"APIRequest-SCREENONE\",\"inputTypes\":[\"Data\",\"Message\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "Loop", "id": "Loop-CUSTOMERS", "name": "item", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "body", "id": "APIRequest-SCREENONE", "inputTypes": ["Data", "Message"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-Loop-CUSTOMERS-done-ChatOutput-DONE",
+        "source": "Loop-CUSTOMERS",
+        "sourceHandle": "{\"dataType\":\"Loop\",\"id\":\"Loop-CUSTOMERS\",\"name\":\"done\",\"output_types\":[\"Data\"]}",
+        "target": "ChatOutput-DONE",
+        "targetHandle": "{\"fieldName\":\"input_value\",\"id\":\"ChatOutput-DONE\",\"inputTypes\":[\"Data\",\"JSON\",\"DataFrame\",\"Table\",\"Message\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "Loop", "id": "Loop-CUSTOMERS", "name": "done", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "input_value", "id": "ChatOutput-DONE", "inputTypes": ["Data", "JSON", "DataFrame", "Table", "Message"], "type": "str" }
+        }
+      },
+      {
+        "id": "e-APIRequest-SCREENONE-ConditionalRouter-NEWHITS",
+        "source": "APIRequest-SCREENONE",
+        "sourceHandle": "{\"dataType\":\"APIRequest\",\"id\":\"APIRequest-SCREENONE\",\"name\":\"data\",\"output_types\":[\"Data\"]}",
+        "target": "ConditionalRouter-NEWHITS",
+        "targetHandle": "{\"fieldName\":\"input_text\",\"id\":\"ConditionalRouter-NEWHITS\",\"inputTypes\":[\"Message\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "APIRequest", "id": "APIRequest-SCREENONE", "name": "data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "input_text", "id": "ConditionalRouter-NEWHITS", "inputTypes": ["Message"], "type": "str" }
+        }
+      },
+      {
+        "id": "e-ConditionalRouter-NEWHITS-true-APIRequest-ALERT",
+        "source": "ConditionalRouter-NEWHITS",
+        "sourceHandle": "{\"dataType\":\"ConditionalRouter\",\"id\":\"ConditionalRouter-NEWHITS\",\"name\":\"true_result\",\"output_types\":[\"Message\"]}",
+        "target": "APIRequest-ALERT",
+        "targetHandle": "{\"fieldName\":\"body\",\"id\":\"APIRequest-ALERT\",\"inputTypes\":[\"Data\",\"Message\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ConditionalRouter", "id": "ConditionalRouter-NEWHITS", "name": "true_result", "output_types": ["Message"] },
+          "targetHandle": { "fieldName": "body", "id": "APIRequest-ALERT", "inputTypes": ["Data", "Message"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-ConditionalRouter-NEWHITS-false-Loop-CUSTOMERS-back",
+        "source": "ConditionalRouter-NEWHITS",
+        "sourceHandle": "{\"dataType\":\"ConditionalRouter\",\"id\":\"ConditionalRouter-NEWHITS\",\"name\":\"false_result\",\"output_types\":[\"Message\"]}",
+        "target": "Loop-CUSTOMERS",
+        "targetHandle": "{\"fieldName\":\"data\",\"id\":\"Loop-CUSTOMERS\",\"inputTypes\":[\"Data\"],\"type\":\"other\"}",
+        "animated": true,
+        "className": "loop-back",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ConditionalRouter", "id": "ConditionalRouter-NEWHITS", "name": "false_result", "output_types": ["Message"] },
+          "targetHandle": { "fieldName": "data", "id": "Loop-CUSTOMERS", "inputTypes": ["Data"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-APIRequest-ALERT-Loop-CUSTOMERS-back",
+        "source": "APIRequest-ALERT",
+        "sourceHandle": "{\"dataType\":\"APIRequest\",\"id\":\"APIRequest-ALERT\",\"name\":\"data\",\"output_types\":[\"Data\"]}",
+        "target": "Loop-CUSTOMERS",
+        "targetHandle": "{\"fieldName\":\"data\",\"id\":\"Loop-CUSTOMERS\",\"inputTypes\":[\"Data\"],\"type\":\"other\"}",
+        "animated": true,
+        "className": "loop-back",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "APIRequest", "id": "APIRequest-ALERT", "name": "data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "data", "id": "Loop-CUSTOMERS", "inputTypes": ["Data"], "type": "other" }
+        }
+      }
+    ],
+    "viewport": { "x": 0, "y": 0, "zoom": 0.75 }
+  }
+}
