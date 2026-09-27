@@ -55,12 +55,21 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
         # hang for 40+ minutes walking the broken btree/freelist. It never
         # returned, so the exit-code check below never fired, the fallback
         # path never ran, and Cloud Run crash-looped the container on every
-        # retry. `timeout` turns "hangs forever" into "fails after 60s",
+        # retry. `timeout` turns "hangs forever" into "fails after 60s"
+        # (SIGTERM at 60s, SIGKILL 10s later via -k if it ignores that),
         # which the existing INTEGRITY_CODE -ne 0 branch already treats as
         # potentially corrupt and falls back from -- so a stuck check now
         # degrades exactly like a failed one instead of wedging startup.
-        INTEGRITY_OUTPUT=$(timeout 60s sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
-        INTEGRITY_CODE=$?
+        #
+        # Plain `VAR=$(cmd)` would NOT work here: under `set -e`, a failing
+        # command substitution in a bare assignment kills the script right
+        # here instead of falling through to the `-ne 0` branch below --
+        # verified with `dash -c 'set -e; V=$(false); echo unreached'`. The
+        # `|| INTEGRITY_CODE=$?` puts the assignment in an or-list, which
+        # set -e exempts, the same way the `litestream restore ... || { }`
+        # above already relies on for the same reason.
+        INTEGRITY_CODE=0
+        INTEGRITY_OUTPUT=$(timeout -k 10s 60s sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1) || INTEGRITY_CODE=$?
 
         if [ $INTEGRITY_CODE -ne 0 ]; then
             if [ $INTEGRITY_CODE -eq 124 ]; then
@@ -84,8 +93,8 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
 
         # Verify the flat-file fallback if we just restored it
         if [ -f /app/data/amlkit.db ]; then
-            FALLBACK_CHECK=$(timeout 60s sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
-            FALLBACK_CODE=$?
+            FALLBACK_CODE=0
+            FALLBACK_CHECK=$(timeout -k 10s 60s sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1) || FALLBACK_CODE=$?
             if [ $FALLBACK_CODE -eq 0 ] && echo "$FALLBACK_CHECK" | grep -q "^ok$"; then
                 echo "Flat-file snapshot integrity verified."
             else
