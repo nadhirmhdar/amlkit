@@ -1,6 +1,6 @@
 """Transaction monitoring (KYT) rule evaluation.
 
-Scope is deliberately narrow: four rules that are standard, defensible, and
+Scope is deliberately narrow: five rules that are standard, defensible, and
 checkable from data this tool already asks a DNFBP to record, not a general
 behavioral-analytics engine. Getting a small rule set right and explainable
 beats a large one that produces alerts nobody can justify to an examiner --
@@ -29,13 +29,23 @@ from typing import Any
 # client file -- same posture as the legal disclaimer in the web footer.
 LARGE_CASH_THRESHOLD_AED = 55_000.0
 
-# Structuring: multiple cash transactions individually under the threshold
-# that sum to meet or exceed it within this rolling window. 7 days is a
-# starting point, not a regulatory figure -- deliberately configurable later
+# Structuring: multiple same-direction transactions individually under the
+# threshold that sum to meet or exceed it within this rolling window. 7 days is
+# a starting point, not a regulatory figure -- deliberately configurable later
 # if evidenced need arises, same "no complexity without evidenced need"
 # posture as org_settings.alert_threshold.
 STRUCTURING_WINDOW_DAYS = 7
 STRUCTURING_MIN_COUNT = 2
+
+# Only channels with no bank/card intermediary keeping its own record are
+# aggregated. The AED 55,000 figure is the cash-reporting trigger, so
+# splitting cash (or moving part of it to crypto, or an unrecorded "other"
+# channel) to stay under it is structuring. Wires, cheques and cards have no
+# such threshold to evade and are routine for DNFBP customers (rent,
+# instalments, supplier payments): summing them raised a high-severity alert
+# on nearly every payment. A large single non-cash transfer is still caught
+# by the large_value rule.
+STRUCTURING_METHODS: frozenset[str] = frozenset({"cash", "crypto", "other"})
 
 # Velocity: an unusually high transaction count in a short window, independent
 # of amount -- catches rapid movement that structuring (which requires
@@ -131,6 +141,7 @@ def evaluate_transaction(
     org_id: int,
     customer_id: int,
     transaction_id: int,
+    direction: str,
     method: str,
     amount_aed: float,
     counterparty_country: str | None,
@@ -168,18 +179,44 @@ def evaluate_transaction(
                 "threshold_aed": large_cash_threshold,
             },
         ))
+    elif method != "cash" and current_money >= threshold_money:
+        # Large single non-cash transfer (issue #257 follow-up). Same
+        # threshold as large_cash, but a separate rule at lower severity:
+        # a wire, card or on-chain transfer leaves a third-party record that
+        # cash does not, so this is a prompt to check source of funds rather
+        # than the cash-reporting flag.
+        triggered.append(TriggeredRule(
+            rule_key="large_value",
+            severity="medium",
+            detail={
+                "method": method,
+                "amount_aed": amount_aed,
+                "threshold_aed": large_cash_threshold,
+            },
+        ))
 
-    if method == "cash":
+    # Structuring: see STRUCTURING_METHODS for which channels count. Never
+    # across directions -- receiving funds and paying them back out is
+    # ordinary trade, not keeping one movement of money under threshold.
+    # While the customer already has an open structuring alert, further
+    # transactions extend the same pattern rather than raise a new alert each:
+    # the reviewer sees every transaction on the customer file either way.
+    if method in STRUCTURING_METHODS and not _has_open_alert(
+        conn, org_id, customer_id, "structuring"
+    ):
         window_start = (
             _parse(occurred_at) - timedelta(days=structuring_window_days)
         ).isoformat()
+        placeholders = ",".join("?" * len(STRUCTURING_METHODS))
         rows = conn.execute(
-            """SELECT amount_aed, amount_units, amount_nanos, occurred_at
-               FROM transactions
-               WHERE customer_id=? AND org_id=? AND method='cash'
-                 AND occurred_at >= ? AND occurred_at <= ?
-                 AND id != ?""",
-            (customer_id, org_id, window_start, occurred_at, transaction_id),
+            f"""SELECT amount_aed, amount_units, amount_nanos, occurred_at
+                FROM transactions
+                WHERE customer_id=? AND org_id=? AND direction=?
+                  AND method IN ({placeholders})
+                  AND occurred_at >= ? AND occurred_at <= ?
+                  AND id != ?""",
+            (customer_id, org_id, direction, *sorted(STRUCTURING_METHODS),
+             window_start, occurred_at, transaction_id),
         ).fetchall()
 
         def _row_to_money(r) -> Money:
@@ -207,6 +244,8 @@ def evaluate_transaction(
                     "transaction_count": under_threshold_count,
                     "total_aed": float(under_threshold_total.to_decimal()),
                     "threshold_aed": large_cash_threshold,
+                    "methods": sorted(STRUCTURING_METHODS),
+                    "direction": direction,
                 },
             ))
 
@@ -239,6 +278,14 @@ def evaluate_transaction(
         ))
 
     return triggered
+
+
+def _has_open_alert(conn, org_id: int, customer_id: int, rule_key: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM transaction_alerts"
+        " WHERE org_id=? AND customer_id=? AND rule_key=? AND status='open' LIMIT 1",
+        (org_id, customer_id, rule_key),
+    ).fetchone() is not None
 
 
 def _parse(ts: str) -> datetime:

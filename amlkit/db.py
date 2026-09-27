@@ -318,6 +318,8 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS ix_alert_status ON alerts(status);
 CREATE INDEX IF NOT EXISTS ix_alert_scr    ON alerts(screening_id);
+-- ix_alert_org_status_score / _created (H20): created in Python after
+-- migration, see _create_org_indexes().
 
 -- Operators are both the audit-trail actor identity AND, from this version,
 -- the login credential. `name` stays the audit-facing display identity;
@@ -395,6 +397,8 @@ CREATE TABLE IF NOT EXISTS documents (
     uploaded_at TEXT NOT NULL
 );
 -- ix_documents_org: created in Python after migration, see note above.
+-- H20: Composite index for documents_for_customer query
+CREATE INDEX IF NOT EXISTS ix_documents_cust_uploaded ON documents(customer_id, uploaded_at DESC);
 
 -- Case-level investigative narrative not tied to any one alert -- periodic
 -- review commentary, source-of-wealth notes, anything an officer needs to
@@ -443,6 +447,8 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE INDEX IF NOT EXISTS ix_txn_cust     ON transactions(customer_id);
 CREATE INDEX IF NOT EXISTS ix_txn_org      ON transactions(org_id);
 CREATE INDEX IF NOT EXISTS ix_txn_occurred ON transactions(occurred_at);
+-- H20: Composite index for transactions_for_customer query
+CREATE INDEX IF NOT EXISTS ix_txn_cust_occurred ON transactions(customer_id, occurred_at DESC);
 
 -- One row per rule that fired, not one row per transaction: a single
 -- transaction can trip more than one rule (e.g. large cash AND a high-risk
@@ -459,7 +465,7 @@ CREATE TABLE IF NOT EXISTS transaction_alerts (
     org_id         INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     customer_id    INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
-    rule_key       TEXT NOT NULL,       -- large_cash | structuring | high_risk_country | velocity
+    rule_key       TEXT NOT NULL,       -- large_cash | large_value | structuring | high_risk_country | velocity
     severity       TEXT NOT NULL DEFAULT 'medium',  -- low | medium | high
     detail         TEXT NOT NULL,       -- json: what tripped it, threshold vs actual
     status         TEXT NOT NULL DEFAULT 'open',    -- open | true_positive | false_positive
@@ -642,6 +648,8 @@ CREATE TABLE IF NOT EXISTS signatures (
     created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_sig_cust ON signatures(customer_id);
+-- H20: Composite index for signatures_for_customer query
+CREATE INDEX IF NOT EXISTS ix_sig_cust_signed ON signatures(customer_id, signed_at DESC);
 CREATE INDEX IF NOT EXISTS ix_sig_org  ON signatures(org_id);
 
 -- ---------------------------------------------------------------- reporting
@@ -744,6 +752,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS ix_audit_ts  ON audit_log(ts);
 -- ix_audit_org: created in Python after migration, see note above.
+-- ix_audit_org_action_ts (H20): created in Python after migration, see
+-- _create_org_indexes().
 
 -- ---------------------------------------------------------------- feedback
 -- User feedback from pilot users. Deliberately org-scoped so each firm's
@@ -920,6 +930,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("sessions", "last_active", "ALTER TABLE sessions ADD COLUMN last_active TEXT"),
     # p38: UBO periodic re-verification tracking
     ("ubo_links", "last_verified_at",  "ALTER TABLE ubo_links ADD COLUMN last_verified_at  TEXT"),
+    # Issue #258: per-org single_operator_mode config
+    ("org_settings", "single_operator_mode", "ALTER TABLE org_settings ADD COLUMN single_operator_mode INTEGER"),
     # p46: Organization goAML reporting entity profile fields
     ("organizations", "org_address",            "ALTER TABLE organizations ADD COLUMN org_address            TEXT"),
     ("organizations", "reporting_person_name",  "ALTER TABLE organizations ADD COLUMN reporting_person_name  TEXT"),
@@ -1276,6 +1288,10 @@ def _create_org_indexes(conn: sqlite3.Connection) -> None:
     for name, table in _ORG_INDEXES:
         conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table}(org_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_ubo_parent ON ubo_links(parent_ubo_id)")
+    # H20 composites that lead with org_id: same pre-tenancy constraint.
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_alert_org_status_score ON alerts(org_id, status, score DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_alert_org_status_created ON alerts(org_id, status, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_org_action_ts ON audit_log(org_id, action, ts DESC)")
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
@@ -1425,6 +1441,20 @@ def clear_dataset_error(conn: sqlite3.Connection, key: str) -> None:
 
 def fetch_all(conn: sqlite3.Connection, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
     return conn.execute(sql, tuple(params)).fetchall()
+
+
+def set_org_single_operator_mode(conn: sqlite3.Connection, org_id: int, enabled: bool | None) -> None:
+    """Set an org's single-operator mode explicitly (True/False), or clear it
+    (None) so the org falls back to the instance default. Issue #258: the
+    per-org value always beats AMLKIT_SINGLE_OPERATOR_MODE. Admin-only in
+    practice; enforced by the caller (the route)."""
+    value = None if enabled is None else int(bool(enabled))
+    conn.execute(
+        """INSERT INTO org_settings (org_id, single_operator_mode, updated_at) VALUES (?,?,?)
+           ON CONFLICT(org_id) DO UPDATE SET
+             single_operator_mode=excluded.single_operator_mode, updated_at=excluded.updated_at""",
+        (org_id, value, utcnow()),
+    )
 
 
 def set_org_alert_threshold(conn: sqlite3.Connection, org_id: int, threshold: float | None) -> None:

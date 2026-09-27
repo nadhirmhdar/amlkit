@@ -63,7 +63,7 @@ class KnowledgeGraphScreener:
             )
             resp.raise_for_status()
         except Exception:
-            log.warning("Knowledge Graph API request failed for %r", name, exc_info=True)
+            log.warning("Knowledge Graph API request failed", exc_info=True)
             return KgResult(status="unavailable")
 
         data = resp.json()

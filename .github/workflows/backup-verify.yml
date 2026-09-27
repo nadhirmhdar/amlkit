@@ -67,11 +67,20 @@ jobs:
       # -if-replica-exists: unlike entrypoint.sh's first-boot case, a
       # missing replica here IS the failure this job exists to catch, not a
       # benign state to pass through.
+      # Same repo variable the deploy passes to the app (#350), so this checks
+      # the replica production actually writes -- not the litestream/ prefix
+      # abandoned as corrupt on 2026-09-27. No fallback: verifying the wrong
+      # replica would report a healthy backup that isn't the real one.
       - name: Restore replica to a scratch path
+        env:
+          REPLICA_URL: ${{ vars.LITESTREAM_REPLICA_URL }}
         run: |
+          if [ -z "$REPLICA_URL" ]; then
+            echo "::error::Repo variable LITESTREAM_REPLICA_URL is not set -- cannot tell which replica production writes."
+            exit 1
+          fi
           mkdir -p /tmp/restore-verify
-          litestream restore -o /tmp/restore-verify/amlkit.db \
-            "gs://${{ vars.GCS_BUCKET }}/litestream/amlkit.db"
+          litestream restore -o /tmp/restore-verify/amlkit.db "$REPLICA_URL"
 
       - name: Check restored database integrity
         run: |
