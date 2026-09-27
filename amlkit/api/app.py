@@ -361,18 +361,104 @@ def _set_csrf_cookie(resp, request: Request) -> None:
                         max_age=_COOKIE_MAX_AGE)
 
 
+def _parse_cloud_trace(header: str) -> tuple[str | None, str | None]:
+    """Parse X-Cloud-Trace-Context header and return (trace_id, span_id_hex).
+
+    Format: TRACE_ID/SPAN_ID;o=1 where SPAN_ID is decimal uint64.
+    Returns (trace_id, 16-char hex span) or (trace_id, None) if span is invalid.
+    Only sets span_id if it's numeric, fits in 64 bits, and can be converted to hex.
+    """
+    if not header:
+        return None, None
+    parts = header.split("/")
+    if len(parts) < 2:
+        return None, None
+    trace_id = parts[0]
+    if not trace_id:
+        return None, None
+    span_part = parts[1].split(";")[0]  # Remove ;o=1 suffix
+
+    span_id_hex = None
+    if span_part and span_part.isdigit():
+        try:
+            span_val = int(span_part)
+            if 0 <= span_val < 2**64:
+                span_id_hex = format(span_val, "016x")
+        except (ValueError, OverflowError):
+            pass
+
+    return trace_id, span_id_hex
+
+
+def _parse_w3c_traceparent(header: str) -> tuple[str | None, str | None]:
+    """Parse W3C traceparent header and return (trace_id, span_id_hex).
+
+    Format: 00-TRACE_ID-SPAN_ID-01 where SPAN_ID is already 16-char hex.
+    Returns (trace_id, span_id_hex) or (None, None) if invalid.
+    Only sets span_id if it's exactly 16 hex characters.
+    """
+    if not header:
+        return None, None
+    parts = header.split("-")
+    if len(parts) < 4:
+        return None, None
+    trace_id = parts[1]
+    span_id = parts[2]
+
+    if not trace_id or not span_id:
+        return None, None
+
+    # Validate span_id is exactly 16 hex chars
+    if len(span_id) == 16 and all(c in "0123456789abcdef" for c in span_id.lower()):
+        return trace_id, span_id
+
+    return trace_id, None
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    """Generate a unique request ID for correlation and attach it to the response."""
+    """Generate a unique request ID for correlation and attach it to the response.
+
+    Also parses Cloud Trace context headers (X-Cloud-Trace-Context and W3C traceparent).
+    Converts decimal span IDs to 16-char hex for Cloud Logging LogEntry.
+    """
     request_id = str(uuid.uuid4())
-    from ..logging_config import set_request_id, clear_request_id
+    from ..logging_config import (
+        set_request_id, clear_request_id,
+        set_trace_id, set_span_id,
+        set_org_id
+    )
+
     set_request_id(request_id)
+
+    # Parse trace context from headers
+    # X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE (SPAN_ID is decimal)
+    cloud_trace = request.headers.get("X-Cloud-Trace-Context")
+    if cloud_trace:
+        trace_id, span_id_hex = _parse_cloud_trace(cloud_trace)
+        if trace_id:
+            set_trace_id(trace_id)
+        if span_id_hex:
+            set_span_id(span_id_hex)
+
+    # W3C traceparent: 00-TRACE_ID-SPAN_ID-01 (SPAN_ID is already 16-char hex)
+    traceparent = request.headers.get("traceparent")
+    if traceparent and not cloud_trace:  # Only use if X-Cloud-Trace-Context not present
+        trace_id, span_id_hex = _parse_w3c_traceparent(traceparent)
+        if trace_id:
+            set_trace_id(trace_id)
+        if span_id_hex:
+            set_span_id(span_id_hex)
+
     try:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
     finally:
         clear_request_id()
+        set_trace_id(None)
+        set_span_id(None)
+        set_org_id(None)
 
 
 @app.middleware("http")

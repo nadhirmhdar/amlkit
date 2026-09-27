@@ -114,19 +114,16 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
             smtp.send_message(msg)
         return SENT
     except (OSError, smtplib.SMTPException):
-        # Logged with the traceback and printed to the server console, where
-        # an operator of the deployment can see it. Deliberately NOT returned
-        # to the caller for display: mail is configured here, so whoever
-        # submitted the form has not proved they control the mailbox, and the
-        # link on the console is for the deployment's own operator to use or
-        # ignore -- not for the browser that just posted the form.
-        logger.exception("Failed to send verification email to %s", to_email)
+        # stdout is shipped to Cloud Logging without passing through the
+        # redacting formatter, so this notice deliberately omits the recipient
+        # and the live verification link (its token activates the account).
+        # Recovery is the resend link once the mail provider is fixed.
+        logger.exception("Failed to send verification email")
         print(
             "\n" + "=" * 72 +
-            f"\namlkit: SMTP send FAILED for {to_email} -- mail IS configured, so\n"
-            "the link is NOT being shown to the registering user. Fix the mail\n"
-            "provider, then have them use the resend link.\n\n"
-            f"  {url}\n" +
+            f"\namlkit: SMTP send FAILED for a verification email -- mail IS configured, so\n"
+            "the link is NOT being shown. Fix the mail provider, then have the user use\n"
+            "the resend link.\n" +
             "=" * 72 + "\n"
         )
         return FAILED
@@ -182,7 +179,7 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
             if user:
                 smtp.login(user, password)
             smtp.send_message(msg)
-        logger.info("Staleness alert sent to %d recipients", len(to_emails))
+        logger.info("Staleness alert sent to %d MLRO recipients", len(to_emails))
         return SENT
     except (OSError, smtplib.SMTPException):
         logger.exception("Failed to send staleness alert email")
@@ -274,9 +271,10 @@ def send_freeze_obligation_alert(
             if user:
                 smtp.login(user, password)
             smtp.send_message(msg)
-        logger.info("Freeze obligation alert sent to %s for obligation %d",
-                    to_email, freeze_obligation_id)
+        logger.info("Freeze obligation alert sent for obligation %d",
+                    freeze_obligation_id)
         return SENT
     except (OSError, smtplib.SMTPException):
-        logger.exception("Failed to send freeze obligation alert to %s", to_email)
+        logger.exception("Failed to send freeze obligation alert for obligation %d",
+                         freeze_obligation_id)
         return FAILED
