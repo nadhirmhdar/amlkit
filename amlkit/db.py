@@ -318,6 +318,8 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS ix_alert_status ON alerts(status);
 CREATE INDEX IF NOT EXISTS ix_alert_scr    ON alerts(screening_id);
+-- ix_alert_org_status_score / _created (H20): created in Python after
+-- migration, see _create_org_indexes().
 
 -- Operators are both the audit-trail actor identity AND, from this version,
 -- the login credential. `name` stays the audit-facing display identity;
@@ -395,6 +397,8 @@ CREATE TABLE IF NOT EXISTS documents (
     uploaded_at TEXT NOT NULL
 );
 -- ix_documents_org: created in Python after migration, see note above.
+-- H20: Composite index for documents_for_customer query
+CREATE INDEX IF NOT EXISTS ix_documents_cust_uploaded ON documents(customer_id, uploaded_at DESC);
 
 -- Case-level investigative narrative not tied to any one alert -- periodic
 -- review commentary, source-of-wealth notes, anything an officer needs to
@@ -443,6 +447,8 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE INDEX IF NOT EXISTS ix_txn_cust     ON transactions(customer_id);
 CREATE INDEX IF NOT EXISTS ix_txn_org      ON transactions(org_id);
 CREATE INDEX IF NOT EXISTS ix_txn_occurred ON transactions(occurred_at);
+-- H20: Composite index for transactions_for_customer query
+CREATE INDEX IF NOT EXISTS ix_txn_cust_occurred ON transactions(customer_id, occurred_at DESC);
 
 -- One row per rule that fired, not one row per transaction: a single
 -- transaction can trip more than one rule (e.g. large cash AND a high-risk
@@ -642,6 +648,8 @@ CREATE TABLE IF NOT EXISTS signatures (
     created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_sig_cust ON signatures(customer_id);
+-- H20: Composite index for signatures_for_customer query
+CREATE INDEX IF NOT EXISTS ix_sig_cust_signed ON signatures(customer_id, signed_at DESC);
 CREATE INDEX IF NOT EXISTS ix_sig_org  ON signatures(org_id);
 
 -- ---------------------------------------------------------------- reporting
@@ -744,6 +752,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS ix_audit_ts  ON audit_log(ts);
 -- ix_audit_org: created in Python after migration, see note above.
+-- ix_audit_org_action_ts (H20): created in Python after migration, see
+-- _create_org_indexes().
 
 -- ---------------------------------------------------------------- feedback
 -- User feedback from pilot users. Deliberately org-scoped so each firm's
@@ -1276,6 +1286,10 @@ def _create_org_indexes(conn: sqlite3.Connection) -> None:
     for name, table in _ORG_INDEXES:
         conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table}(org_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_ubo_parent ON ubo_links(parent_ubo_id)")
+    # H20 composites that lead with org_id: same pre-tenancy constraint.
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_alert_org_status_score ON alerts(org_id, status, score DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_alert_org_status_created ON alerts(org_id, status, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_org_action_ts ON audit_log(org_id, action, ts DESC)")
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:

@@ -361,18 +361,104 @@ def _set_csrf_cookie(resp, request: Request) -> None:
                         max_age=_COOKIE_MAX_AGE)
 
 
+def _parse_cloud_trace(header: str) -> tuple[str | None, str | None]:
+    """Parse X-Cloud-Trace-Context header and return (trace_id, span_id_hex).
+
+    Format: TRACE_ID/SPAN_ID;o=1 where SPAN_ID is decimal uint64.
+    Returns (trace_id, 16-char hex span) or (trace_id, None) if span is invalid.
+    Only sets span_id if it's numeric, fits in 64 bits, and can be converted to hex.
+    """
+    if not header:
+        return None, None
+    parts = header.split("/")
+    if len(parts) < 2:
+        return None, None
+    trace_id = parts[0]
+    if not trace_id:
+        return None, None
+    span_part = parts[1].split(";")[0]  # Remove ;o=1 suffix
+
+    span_id_hex = None
+    if span_part and span_part.isdigit():
+        try:
+            span_val = int(span_part)
+            if 0 <= span_val < 2**64:
+                span_id_hex = format(span_val, "016x")
+        except (ValueError, OverflowError):
+            pass
+
+    return trace_id, span_id_hex
+
+
+def _parse_w3c_traceparent(header: str) -> tuple[str | None, str | None]:
+    """Parse W3C traceparent header and return (trace_id, span_id_hex).
+
+    Format: 00-TRACE_ID-SPAN_ID-01 where SPAN_ID is already 16-char hex.
+    Returns (trace_id, span_id_hex) or (None, None) if invalid.
+    Only sets span_id if it's exactly 16 hex characters.
+    """
+    if not header:
+        return None, None
+    parts = header.split("-")
+    if len(parts) < 4:
+        return None, None
+    trace_id = parts[1]
+    span_id = parts[2]
+
+    if not trace_id or not span_id:
+        return None, None
+
+    # Validate span_id is exactly 16 hex chars
+    if len(span_id) == 16 and all(c in "0123456789abcdef" for c in span_id.lower()):
+        return trace_id, span_id
+
+    return trace_id, None
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    """Generate a unique request ID for correlation and attach it to the response."""
+    """Generate a unique request ID for correlation and attach it to the response.
+
+    Also parses Cloud Trace context headers (X-Cloud-Trace-Context and W3C traceparent).
+    Converts decimal span IDs to 16-char hex for Cloud Logging LogEntry.
+    """
     request_id = str(uuid.uuid4())
-    from ..logging_config import set_request_id, clear_request_id
+    from ..logging_config import (
+        set_request_id, clear_request_id,
+        set_trace_id, set_span_id,
+        set_org_id
+    )
+
     set_request_id(request_id)
+
+    # Parse trace context from headers
+    # X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE (SPAN_ID is decimal)
+    cloud_trace = request.headers.get("X-Cloud-Trace-Context")
+    if cloud_trace:
+        trace_id, span_id_hex = _parse_cloud_trace(cloud_trace)
+        if trace_id:
+            set_trace_id(trace_id)
+        if span_id_hex:
+            set_span_id(span_id_hex)
+
+    # W3C traceparent: 00-TRACE_ID-SPAN_ID-01 (SPAN_ID is already 16-char hex)
+    traceparent = request.headers.get("traceparent")
+    if traceparent and not cloud_trace:  # Only use if X-Cloud-Trace-Context not present
+        trace_id, span_id_hex = _parse_w3c_traceparent(traceparent)
+        if trace_id:
+            set_trace_id(trace_id)
+        if span_id_hex:
+            set_span_id(span_id_hex)
+
     try:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
     finally:
         clear_request_id()
+        set_trace_id(None)
+        set_span_id(None)
+        set_org_id(None)
 
 
 @app.middleware("http")
@@ -421,6 +507,7 @@ async def security_headers(request: Request, call_next):
     - X-Content-Type-Options: Prevents MIME-sniffing attacks
     - X-Frame-Options: Prevents clickjacking
     - HSTS: Forces HTTPS in production (when AMLKIT_BEHIND_PROXY=1)
+    - Cache-Control: no-store on everything except /static/ (H7)
     """
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
@@ -434,6 +521,12 @@ async def security_headers(request: Request, call_next):
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    # Pages and API responses carry customer PII, so nothing may be kept in
+    # a shared machine's disk cache (H7). Versionless static assets are
+    # exempt: re-downloading app.css/js/fonts on every page load buys nothing.
+    if not request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
     # HSTS only on HTTPS (production behind proxy)
     if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
         # 1 year HSTS, includeSubDomains
@@ -2217,6 +2310,7 @@ def audit_export(request: Request, db: DB):
         return _R(status_code=403)
 
     import csv
+    import json
     import io as _io
     from fastapi.responses import StreamingResponse
 
@@ -2228,12 +2322,18 @@ def audit_export(request: Request, db: DB):
     writer.writerow(["timestamp", "action", "user", "object_type", "object_id", "detail"])
     for e in entries:
         writer.writerow([
-            e.get("ts", ""),
-            e.get("action", ""),
-            e.get("actor", ""),
-            e.get("object_type", ""),
-            e.get("object_id", ""),
-            _redact_pii(e.get("detail") or ""),
+            _escape_csv_formula(e.get("ts", "")),
+            _escape_csv_formula(e.get("action", "")),
+            _escape_csv_formula(e.get("actor", "")),
+            _escape_csv_formula(e.get("object_type", "")),
+            _escape_csv_formula(e.get("object_id", "")),
+            # audit_trail() returns detail already JSON-decoded (usually a
+            # dict); redact() needs the serialised text.
+            _escape_csv_formula(_redact_pii(
+                e["detail"] if isinstance(e.get("detail"), str)
+                else json.dumps(e["detail"], ensure_ascii=False) if e.get("detail") is not None
+                else ""
+            )),
         ])
     buf.seek(0)
 
@@ -2280,6 +2380,15 @@ def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "ope
     if org is None:
         return back("/console", err="Organization not found.")
 
+    # A-02-5: Audit cross-tenant access by super-admin
+    from ..db import audit
+    audit(
+        db, session.email, "console.org_alerts.view", "organization", str(org_id),
+        {"super_admin_org_id": session.org_id, "status_filter": status},
+        org_id=org_id
+    )
+    db.commit()
+
     from ..cases.review import review_history, REASON_CODES
     alert_list = queries.org_alerts(db, org_id, status=status if status != "all" else None)
     from ..cases.review import review_history
@@ -2311,6 +2420,15 @@ def console_org_customers(request: Request, db: DB, org_id: int):
     org = db.execute("SELECT name FROM organizations WHERE id=?", (org_id,)).fetchone()
     if org is None:
         return back("/console", err="Organization not found.")
+
+    # A-02-5: Audit cross-tenant access by super-admin
+    from ..db import audit
+    audit(
+        db, session.email, "console.org_customers.view", "organization", str(org_id),
+        {"super_admin_org_id": session.org_id},
+        org_id=org_id
+    )
+    db.commit()
 
     customer_list = queries.org_customers(db, org_id)
     return render(request, "customers.html", {
