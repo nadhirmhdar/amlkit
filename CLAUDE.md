@@ -1,4 +1,6 @@
-# amlkit
+# groaml by Grovisor (package: `amlkit`)
+
+Product name is **groaml by Grovisor** (domain: groaml.grovisor.ae). The code package, `AMLKIT_*` env vars, cookies, DB file and cloud resources intentionally keep the `amlkit` name. Use "groaml" in user-facing text only.
 
 UAE AML/CFT compliance toolkit — sanctions screening, customer due diligence, risk assessment, and regulatory reporting for DNFBPs. Built as a single-tenant-per-database Flask/FastAPI web app backed by SQLite.
 

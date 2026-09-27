@@ -91,16 +91,16 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
     port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
     user = os.environ.get("AMLKIT_SMTP_USER", "")
     password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
-    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@amlkit.local")
+    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@groaml.grovisor.ae")
     use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
 
     msg = EmailMessage()
-    msg["Subject"] = "Verify your amlkit account"
+    msg["Subject"] = "Verify your groaml account"
     msg["From"] = from_addr
     msg["To"] = to_email
     msg.set_content(
         f"Hi {name},\n\n"
-        "Confirm this email address to activate your amlkit account:\n\n"
+        "Confirm this email address to activate your groaml account:\n\n"
         f"  {url}\n\n"
         "This link expires in 3 days. If you didn't request this, ignore this email.\n"
     )
@@ -152,7 +152,7 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
     port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
     user = os.environ.get("AMLKIT_SMTP_USER", "")
     password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
-    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@amlkit.local")
+    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@groaml.grovisor.ae")
     use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
 
     dataset_list = "\n".join(
@@ -161,7 +161,7 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
     )
 
     msg = EmailMessage()
-    msg["Subject"] = f"⚠️  amlkit: {len(datasets)} sanctions list(s) stale"
+    msg["Subject"] = f"⚠️  groaml: {len(datasets)} sanctions list(s) stale"
     msg["From"] = from_addr
     msg["To"] = ", ".join(to_emails)
     msg.set_content(
@@ -241,7 +241,7 @@ def send_freeze_obligation_alert(
     port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
     user = os.environ.get("AMLKIT_SMTP_USER", "")
     password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
-    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@amlkit.local")
+    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@groaml.grovisor.ae")
     use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
 
     msg = EmailMessage()

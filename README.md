@@ -1,4 +1,11 @@
-# amlkit — UAE AML screening & CDD
+# groaml by Grovisor — UAE AML screening & CDD
+
+> **groaml** (formerly *amlkit*) · <https://groaml.grovisor.ae>
+>
+> The rename is display-only for now. The Python package (`amlkit/`), the
+> `AMLKIT_*` environment variables, cookie names, the database file and the
+> cloud resources keep their old names, so existing deployments don't need
+> any changes.
 
 Sanctions/PEP screening and customer due diligence for UAE-regulated entities,
 built around the obligations in **Federal Decree-Law No. 10 of 2025** and

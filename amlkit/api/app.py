@@ -176,7 +176,7 @@ async def _lifespan(app):
 # N001: Disable OpenAPI by default unless explicitly enabled
 _openapi_url = "/openapi.json" if os.getenv("AMLKIT_ENABLE_OPENAPI") == "1" else None
 
-app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
+app = FastAPI(title="groaml by Grovisor", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
 
 # Issue #102: Flash messages via signed cookies (no itsdangerous dependency)
 # Uses the same signing mechanism as CSRF tokens
@@ -1062,7 +1062,7 @@ def verify_email(request: Request, db: DB, token: str = ""):
         db, session_token, operator["id"], operator["role"],
         trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
     )
-    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to amlkit."),
+    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to groaml."),
                             status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
@@ -1643,7 +1643,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     footer_html = (
         f'<div style="text-align:center; font-size:9px; color:#888; padding:4px;">'
         f'Generated {generated_at[:19].replace("T", " ")} UTC'
-        f' &middot; amlkit &middot; ruleset {rs.get("version", "unknown")}'
+        f' &middot; groaml by Grovisor &middot; ruleset {rs.get("version", "unknown")}'
         f'</div>'
     )
     html_str = html_str.replace("</body>", footer_html + "</body>")
@@ -3347,7 +3347,7 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
     return back(f"/reports/{report_id}",
-               msg="Report finalized in amlkit. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
+               msg="Report finalized in groaml. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
 
 
 @app.get("/reports/{report_id}/export")
