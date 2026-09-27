@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set nav = 'reports' %}
-{% block title %}Report Detail — amlkit{% endblock %}
+{% block title %}Report Detail — groaml{% endblock %}
 {% block body %}
 
 <div class="page-head" style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
@@ -78,11 +78,11 @@
   <div class="panel" style="border-color:var(--danger);">
     <h2 style="color:var(--danger);">Finalize report</h2>
     <p class="small muted mt-0">
-      Finalizing locks this report in amlkit and freezes the draft from further editing.
-      amlkit does not transmit reports to the UAE FIU: after finalizing, download the goAML XML
+      Finalizing locks this report in groaml and freezes the draft from further editing.
+      groaml does not transmit reports to the UAE FIU: after finalizing, download the goAML XML
       and file it manually via the goAML portal.
     </p>
-    <form method="post" action="/reports/{{ report.id }}/submit" data-confirm="Finalize this report? It will be locked in amlkit. It is not sent to the UAE FIU; you must file it manually via the goAML portal. This action is irreversible.">
+    <form method="post" action="/reports/{{ report.id }}/submit" data-confirm="Finalize this report? It will be locked in groaml. It is not sent to the UAE FIU; you must file it manually via the goAML portal. This action is irreversible.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="danger mt-4">Finalize report</button>
     </form>
@@ -91,7 +91,7 @@
   <div class="panel">
     <h2 style="color:var(--good);">Report finalized</h2>
     <p class="small muted mt-0">
-      This report was finalized in amlkit on <strong>{{ report.submitted_at }}</strong>. It is locked and archived.
+      This report was finalized in groaml on <strong>{{ report.submitted_at }}</strong>. It is locked and archived.
       It has not been sent to the UAE FIU: <a href="/reports/{{ report.id }}/export">download the goAML XML</a>
       and file it manually via the goAML portal.
     </p>
