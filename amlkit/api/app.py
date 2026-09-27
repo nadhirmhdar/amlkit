@@ -58,7 +58,7 @@ from ..cases.review import (
     review_history,
     single_operator_mode,
 )
-from ..db import retry_on_lock, set_org_alert_threshold, utcnow
+from ..db import retry_on_lock, set_org_alert_threshold, set_org_single_operator_mode, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
@@ -176,7 +176,7 @@ async def _lifespan(app):
 # N001: Disable OpenAPI by default unless explicitly enabled
 _openapi_url = "/openapi.json" if os.getenv("AMLKIT_ENABLE_OPENAPI") == "1" else None
 
-app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
+app = FastAPI(title="groaml by Grovisor", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
 
 # Issue #102: Flash messages via signed cookies (no itsdangerous dependency)
 # Uses the same signing mechanism as CSRF tokens
@@ -234,7 +234,11 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         session = current_session(request, db)
     ctx.setdefault("session", session)
     ctx.setdefault("security_warning", startup_warning())
-    ctx.setdefault("single_operator", single_operator_mode())
+    # single_operator_mode requires db + org_id; only set if both available
+    if db and session:
+        ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
+    else:
+        ctx.setdefault("single_operator", False)  # default to stricter control when context unavailable
     # Read flash message from cookie (Issue #102) with URL param fallback.
     # Cookie value is base64-encoded JSON to avoid HTTP quoting of {/"/} chars.
     import json as _json
@@ -1062,7 +1066,7 @@ def verify_email(request: Request, db: DB, token: str = ""):
         db, session_token, operator["id"], operator["role"],
         trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
     )
-    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to amlkit."),
+    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to groaml."),
                             status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
@@ -1635,7 +1639,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     ctx = data | {"session": session, "generated_at": generated_at,
                   "effective_risk": eff_risk}
     ctx.setdefault("security_warning", startup_warning())
-    ctx.setdefault("single_operator", single_operator_mode())
+    ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
     ctx["csrf_token"] = ""
     ctx["request"] = request
 
@@ -1643,7 +1647,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     footer_html = (
         f'<div style="text-align:center; font-size:9px; color:#888; padding:4px;">'
         f'Generated {generated_at[:19].replace("T", " ")} UTC'
-        f' &middot; amlkit &middot; ruleset {rs.get("version", "unknown")}'
+        f' &middot; groaml by Grovisor &middot; ruleset {rs.get("version", "unknown")}'
         f'</div>'
     )
     html_str = html_str.replace("</body>", footer_html + "</body>")
@@ -2494,6 +2498,8 @@ def admin_view(request: Request, db: DB):
         "operators": queries.operators(db, session.org_id),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
+        "single_operator_setting": queries.org_single_operator_setting(db, session.org_id),
+        "single_operator_effective": single_operator_mode(db, session.org_id),
         "sanctions": staleness_report(db),
         "eu_warning": eu_warning,
     })
@@ -2625,6 +2631,36 @@ def admin_set_threshold(
           {"threshold": value}, org_id=session.org_id)
     db.commit()
     return back("/admin", msg=f"Alert threshold set to {value}.")
+
+
+@app.post("/admin/single-operator")
+def admin_set_single_operator(
+    request: Request, db: DB,
+    mode: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Per-org single-operator mode (Issue #258). 'on' / 'off' set it
+    explicitly; 'default' clears it back to the instance default."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    choices = {"on": True, "off": False, "default": None}
+    if mode not in choices:
+        return back("/admin", err="Choose on, off, or default.")
+    set_org_single_operator_mode(db, session.org_id, choices[mode])
+    from ..db import audit
+    audit(db, session.operator_name, "org.single_operator_set", "organization", session.org_id,
+          {"single_operator_mode": choices[mode]}, org_id=session.org_id)
+    db.commit()
+    state = "on" if single_operator_mode(db, session.org_id) else "off"
+    return back("/admin", msg=f"Single-operator mode is now {state}.")
 
 
 @app.post("/admin/operators/{operator_id}/reset-password")
@@ -3347,7 +3383,7 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
     return back(f"/reports/{report_id}",
-               msg="Report finalized in amlkit. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
+               msg="Report finalized in groaml. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
 
 
 @app.get("/reports/{report_id}/export")
