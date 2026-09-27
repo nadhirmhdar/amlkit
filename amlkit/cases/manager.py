@@ -36,6 +36,7 @@ from ..risk.model import (
     assess,
     ruleset,
     save as save_risk,
+    validate_risk_inputs,
 )
 from ..screening.adverse_media import (
     DEFAULT_WINDOW_MONTHS,
@@ -241,6 +242,14 @@ def onboard(
     from ..datamodel import validate_civil_status, validate_occupation
     validate_civil_status(civil_status_code)
     validate_occupation(occupation)
+    # Before the INSERT below: assess() would reject these too, but only after
+    # the customer and its screenings were committed, leaving it unrated.
+    validate_risk_inputs(
+        jurisdiction_tier=jurisdiction_tier,
+        delivery_channel=delivery_channel,
+        cash_level=cash_level,
+        structure=structure,
+    )
 
     now = utcnow()
     ck = canonical_key(full_name)
@@ -555,7 +564,12 @@ def purge_expired(
     Only purges customers with status='closed' AND retention_until < now.
     Audit entry is written BEFORE each deletion so the record of purging
     survives the customer row being gone.
+
+    P0: Real deletion is gated behind AMLKIT_PURGE_ENABLED env flag. Dry run
+    (read-only verification) is always allowed.
     """
+    import os
+    import logging
     from pathlib import Path
 
     now = date.today().isoformat()
@@ -569,6 +583,15 @@ def purge_expired(
     details = [{"customer_id": r["id"], "reference": r["reference"]} for r in rows]
     if dry_run:
         return {"purged": len(details), "details": details, "dry_run": True}
+
+    # P0: Gate real deletion behind env flag - dry run bypasses this
+    if os.getenv("AMLKIT_PURGE_ENABLED") != "true":
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "purge_expired called but AMLKIT_PURGE_ENABLED is not set to 'true' - "
+            "purge disabled. Set AMLKIT_PURGE_ENABLED=true to enable."
+        )
+        return {"purged": 0, "details": [], "disabled": True}
 
     purged_count = 0
     for row in rows:
@@ -1327,6 +1350,12 @@ def reassess_risk(
 
     Returns None when there is no prior assessment to build on.
     """
+    validate_risk_inputs(
+        jurisdiction_tier=jurisdiction_tier,
+        delivery_channel=delivery_channel,
+        cash_level=cash_level,
+        structure=structure,
+    )
     prior = conn.execute(
         "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"
         " ORDER BY id DESC LIMIT 1",
