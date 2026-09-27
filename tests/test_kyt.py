@@ -88,6 +88,48 @@ class TestLargeCash:
         assert n == 1
 
 
+class TestLargeValueNonCash:
+    """A single non-cash transaction at or above the threshold raises
+    large_value (issue #257 follow-up). Kept separate from large_cash: cash
+    is untraceable once handed over, a wire or on-chain transfer is not, so
+    it is a medium-severity prompt rather than the high-severity cash flag."""
+
+    @pytest.mark.parametrize("method", ["wire", "card", "cheque", "crypto", "other"])
+    def test_large_non_cash_triggers(self, conn, org_id, customer_id, method) -> None:
+        _, triggered = record_transaction(
+            conn, customer_id, org_id, direction="outbound", method=method,
+            amount=LARGE_CASH_THRESHOLD_AED, actor="tester",
+        )
+        rule = next(r for r in triggered if r.rule_key == "large_value")
+        assert rule.severity == "medium"
+        assert rule.detail["method"] == method
+        assert rule.detail["amount_aed"] == pytest.approx(LARGE_CASH_THRESHOLD_AED)
+        assert not any(r.rule_key == "large_cash" for r in triggered)
+
+    def test_below_threshold_does_not_trigger(self, conn, org_id, customer_id) -> None:
+        _, triggered = record_transaction(
+            conn, customer_id, org_id, direction="outbound", method="wire",
+            amount=LARGE_CASH_THRESHOLD_AED - 1, actor="tester",
+        )
+        assert not any(r.rule_key == "large_value" for r in triggered)
+
+    def test_large_cash_does_not_also_raise_large_value(self, conn, org_id, customer_id) -> None:
+        _, triggered = record_transaction(
+            conn, customer_id, org_id, direction="inbound", method="cash",
+            amount=LARGE_CASH_THRESHOLD_AED, actor="tester",
+        )
+        assert not any(r.rule_key == "large_value" for r in triggered)
+
+    def test_uses_org_configured_threshold(self, conn, org_id, customer_id) -> None:
+        from amlkit.screening.kyt import save_rule_config
+        save_rule_config(conn, org_id, {"large_cash_threshold_aed": 100_000.0}, actor="test")
+        _, triggered = record_transaction(
+            conn, customer_id, org_id, direction="outbound", method="wire",
+            amount=LARGE_CASH_THRESHOLD_AED, actor="tester",
+        )
+        assert not any(r.rule_key == "large_value" for r in triggered)
+
+
 class TestStructuring:
     def test_two_near_threshold_deposits_trigger(self, conn, org_id, customer_id) -> None:
         occurred_1 = "2026-08-01T09:00:00+00:00"
@@ -306,6 +348,24 @@ class TestRiskFeedback:
         import json
         factors = json.loads(row["factors"])
         assert factors["cash_intensity"]["value"] == "mixed"
+
+    def test_large_value_alerts_do_not_raise_cash_intensity(self, conn, org_id, customer_id) -> None:
+        """cash_intensity is a cash signal; large non-cash transfers must not
+        push a customer towards predominantly_cash."""
+        for _ in range(3):
+            record_transaction(
+                conn, customer_id, org_id, direction="outbound", method="wire",
+                amount=LARGE_CASH_THRESHOLD_AED, actor="tester",
+            )
+        reassess_transaction_risk(conn, customer_id, org_id, actor="tester")
+        row = conn.execute(
+            "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"
+            " ORDER BY id DESC LIMIT 1",
+            (customer_id, org_id),
+        ).fetchone()
+        import json
+        factors = json.loads(row["factors"])
+        assert factors["cash_intensity"]["value"] == "non_cash"
 
     def test_reassess_transaction_risk_no_prior_returns_none(self, conn, org_id) -> None:
         """No prior assessment → returns None without writing anything."""

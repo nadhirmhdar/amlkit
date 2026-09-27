@@ -1228,9 +1228,13 @@ def reassess_transaction_risk(
     except (TypeError, ValueError):
         factors = {}
 
+    # large_value is by definition a non-cash transfer, so it says nothing
+    # about cash intensity and must not push a customer towards
+    # predominantly_cash.
     open_alerts = conn.execute(
         "SELECT COUNT(*) c FROM transaction_alerts"
-        " WHERE customer_id=? AND org_id=? AND status='open'",
+        " WHERE customer_id=? AND org_id=? AND status='open'"
+        " AND rule_key != 'large_value'",
         (customer_id, org_id),
     ).fetchone()["c"]
 
