@@ -81,8 +81,8 @@ class TestSecurityHeaders:
 
 
 class TestCacheControl:
-    """H7: All responses must set Cache-Control: no-store to prevent
-    disk-caching of sensitive data on shared machines."""
+    """H7: pages must set Cache-Control: no-store to prevent disk-caching of
+    sensitive data on shared machines; static assets stay cacheable."""
 
     def test_all_responses_have_no_store(self, client) -> None:
         """All responses must carry Cache-Control: no-store."""
@@ -99,3 +99,9 @@ class TestCacheControl:
         assert r.status_code == 200
         pragma = r.headers.get("Pragma", "")
         assert "no-cache" in pragma.lower(), f"Pragma={pragma!r}"
+
+    def test_static_assets_stay_cacheable(self, client) -> None:
+        r = client.get("/static/app.css")
+        assert r.status_code == 200
+        assert "no-store" not in r.headers.get("Cache-Control", "").lower()
+        assert "Content-Security-Policy" in r.headers
