@@ -930,6 +930,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("sessions", "last_active", "ALTER TABLE sessions ADD COLUMN last_active TEXT"),
     # p38: UBO periodic re-verification tracking
     ("ubo_links", "last_verified_at",  "ALTER TABLE ubo_links ADD COLUMN last_verified_at  TEXT"),
+    # Issue #258: per-org single_operator_mode config
+    ("org_settings", "single_operator_mode", "ALTER TABLE org_settings ADD COLUMN single_operator_mode INTEGER"),
     # p46: Organization goAML reporting entity profile fields
     ("organizations", "org_address",            "ALTER TABLE organizations ADD COLUMN org_address            TEXT"),
     ("organizations", "reporting_person_name",  "ALTER TABLE organizations ADD COLUMN reporting_person_name  TEXT"),
@@ -1439,6 +1441,20 @@ def clear_dataset_error(conn: sqlite3.Connection, key: str) -> None:
 
 def fetch_all(conn: sqlite3.Connection, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
     return conn.execute(sql, tuple(params)).fetchall()
+
+
+def set_org_single_operator_mode(conn: sqlite3.Connection, org_id: int, enabled: bool | None) -> None:
+    """Set an org's single-operator mode explicitly (True/False), or clear it
+    (None) so the org falls back to the instance default. Issue #258: the
+    per-org value always beats AMLKIT_SINGLE_OPERATOR_MODE. Admin-only in
+    practice; enforced by the caller (the route)."""
+    value = None if enabled is None else int(bool(enabled))
+    conn.execute(
+        """INSERT INTO org_settings (org_id, single_operator_mode, updated_at) VALUES (?,?,?)
+           ON CONFLICT(org_id) DO UPDATE SET
+             single_operator_mode=excluded.single_operator_mode, updated_at=excluded.updated_at""",
+        (org_id, value, utcnow()),
+    )
 
 
 def set_org_alert_threshold(conn: sqlite3.Connection, org_id: int, threshold: float | None) -> None:

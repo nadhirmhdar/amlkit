@@ -138,13 +138,16 @@ false-positive volume — the same thin record, reached more slowly.
 
 **Dismissing** a sanctions or proliferation match requires a second operator.
 Confirming one does not: that path leads to freezing and reporting, which
-carries its own scrutiny. Firms with one compliance officer set:
+carries its own scrutiny. Firms with one compliance officer turn on
+**single-operator mode** under *Admin → Independent review* (per organization).
+A single-organization install can instead set it at deploy time:
 
 ```bash
 set AMLKIT_SINGLE_OPERATOR_MODE=1
 ```
 
-which records **"no independent review"** on the alert and in the evidence pack
+The env var is only a default: it is ignored once the database holds more than
+one organization, and never overrides an org's own setting. Either way, it records **"no independent review"** on the alert and in the evidence pack
 rather than pretending the review happened.
 
 ---
