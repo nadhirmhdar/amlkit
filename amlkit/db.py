@@ -318,9 +318,8 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS ix_alert_status ON alerts(status);
 CREATE INDEX IF NOT EXISTS ix_alert_scr    ON alerts(screening_id);
--- H20: Composite indexes to avoid TEMP B-TREE on filtered+sorted queries
-CREATE INDEX IF NOT EXISTS ix_alert_org_status_score ON alerts(org_id, status, score DESC);
-CREATE INDEX IF NOT EXISTS ix_alert_org_status_created ON alerts(org_id, status, created_at DESC);
+-- ix_alert_org_status_score / _created (H20): created in Python after
+-- migration, see _create_org_indexes().
 
 -- Operators are both the audit-trail actor identity AND, from this version,
 -- the login credential. `name` stays the audit-facing display identity;
@@ -753,8 +752,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS ix_audit_ts  ON audit_log(ts);
 -- ix_audit_org: created in Python after migration, see note above.
--- H20: Composite index for filtered audit queries
-CREATE INDEX IF NOT EXISTS ix_audit_org_action_ts ON audit_log(org_id, action, ts DESC);
+-- ix_audit_org_action_ts (H20): created in Python after migration, see
+-- _create_org_indexes().
 
 -- ---------------------------------------------------------------- feedback
 -- User feedback from pilot users. Deliberately org-scoped so each firm's
@@ -1287,6 +1286,10 @@ def _create_org_indexes(conn: sqlite3.Connection) -> None:
     for name, table in _ORG_INDEXES:
         conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table}(org_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_ubo_parent ON ubo_links(parent_ubo_id)")
+    # H20 composites that lead with org_id: same pre-tenancy constraint.
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_alert_org_status_score ON alerts(org_id, status, score DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_alert_org_status_created ON alerts(org_id, status, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_org_action_ts ON audit_log(org_id, action, ts DESC)")
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
