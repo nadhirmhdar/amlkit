@@ -21,10 +21,9 @@ export LITESTREAM_REPLICA_URL="${LITESTREAM_REPLICA_URL:-gs://gen-lang-client-01
 LITESTREAM_CFG=/tmp/litestream.yml
 envsubst < /app/litestream.yml > "$LITESTREAM_CFG"
 
-# Shared budget for the `PRAGMA integrity_check` calls below (both the
-# freshly-restored db and, if that one's rejected, the flat-file fallback).
-# Defined once so the primary check and the fallback-verification check
-# can't silently drift out of sync with each other.
+# Shared budget for the `PRAGMA integrity_check` calls in check_integrity()
+# below (both the freshly-restored db and, if that one's rejected, the
+# flat-file fallback).
 INTEGRITY_TIMEOUT=60
 INTEGRITY_KILL_AFTER=10
 
@@ -36,6 +35,50 @@ INTEGRITY_KILL_AFTER=10
 # file it now sits beside.
 discard_db() {
     rm -f /app/data/amlkit.db /app/data/amlkit.db-wal /app/data/amlkit.db-shm
+}
+
+# Run `PRAGMA integrity_check` against $1, bounded by INTEGRITY_TIMEOUT/
+# INTEGRITY_KILL_AFTER, and classify the result into exactly one of three
+# outcomes (left in $INTEGRITY_STATUS; raw exit code/output left in
+# $INTEGRITY_CODE/$INTEGRITY_OUTPUT for logging) so callers make one
+# decision instead of duplicating the exit-code/output parsing:
+#   ok            -- confirmed healthy
+#   corrupt       -- confirmed bad: explicit integrity errors, or sqlite3
+#                    couldn't even open the file
+#   inconclusive  -- check didn't finish in time; NOT evidence of
+#                    corruption (see the call site for why that matters)
+#
+# 2026-09-27 incident: a corrupted replica made a bare, untimed
+# `PRAGMA integrity_check` hang for 40+ minutes walking the broken
+# btree/freelist, so a later exit-code check for "did it fail" never even
+# ran, the fallback path never fired, and Cloud Run crash-looped the
+# container on every retry. `timeout` bounds that.
+#
+# Plain `VAR=$(cmd)` would NOT survive `set -e` here: a failing command
+# substitution in a bare assignment kills the script right at that line
+# instead of falling through to the classification below -- verified with
+# `dash -c 'set -e; V=$(false); echo unreached'`. `|| INTEGRITY_CODE=$?`
+# puts the assignment in an or-list, which set -e exempts, the same way
+# `litestream restore ... || { }` below already relies on for the same
+# reason.
+check_integrity() {
+    INTEGRITY_CODE=0
+    INTEGRITY_OUTPUT=$(timeout -k "${INTEGRITY_KILL_AFTER}s" "${INTEGRITY_TIMEOUT}s" sqlite3 "$1" "PRAGMA integrity_check" 2>&1) || INTEGRITY_CODE=$?
+
+    # `timeout` exits 124 when its own SIGTERM is what stopped the process,
+    # but 137 (128+SIGKILL) when the process ignored SIGTERM and only died
+    # to the `-k` grace-period SIGKILL instead -- verified empirically:
+    # `timeout -k 2s 1s sh -c 'trap "" TERM; sleep 5'` exits 137, not 124.
+    # Both mean "didn't finish in time", not "confirmed corrupt".
+    if [ $INTEGRITY_CODE -eq 124 ] || [ $INTEGRITY_CODE -eq 137 ]; then
+        INTEGRITY_STATUS=inconclusive
+    elif [ $INTEGRITY_CODE -ne 0 ]; then
+        INTEGRITY_STATUS=corrupt
+    elif echo "$INTEGRITY_OUTPUT" | grep -q "^ok$"; then
+        INTEGRITY_STATUS=ok
+    else
+        INTEGRITY_STATUS=corrupt
+    fi
 }
 
 if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
@@ -69,71 +112,62 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
 
     if [ -f /app/data/amlkit.db ]; then
         echo "Checking database integrity..."
-        # 2026-09-27 incident: a corrupted replica made `PRAGMA integrity_check`
-        # hang for 40+ minutes walking the broken btree/freelist. It never
-        # returned, so the exit-code check below never fired, the fallback
-        # path never ran, and Cloud Run crash-looped the container on every
-        # retry. `timeout` bounds that: SIGTERM at ${INTEGRITY_TIMEOUT}s,
-        # SIGKILL ${INTEGRITY_KILL_AFTER}s later via -k if it ignores that.
-        #
-        # Plain `VAR=$(cmd)` would NOT work here: under `set -e`, a failing
-        # command substitution in a bare assignment kills the script right
-        # here instead of falling through to the branches below -- verified
-        # with `dash -c 'set -e; V=$(false); echo unreached'`. The
-        # `|| INTEGRITY_CODE=$?` puts the assignment in an or-list, which
-        # set -e exempts, the same way `litestream restore ... || { }`
-        # above already relies on for the same reason.
-        INTEGRITY_CODE=0
-        INTEGRITY_OUTPUT=$(timeout -k "${INTEGRITY_KILL_AFTER}s" "${INTEGRITY_TIMEOUT}s" sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1) || INTEGRITY_CODE=$?
+        check_integrity /app/data/amlkit.db
 
-        if [ $INTEGRITY_CODE -eq 124 ]; then
-            # A timeout is NOT proof of corruption -- litestream restore
-            # itself already completed without error a few lines up; this
-            # only means the verification step didn't finish in budget
-            # (a large db, a slow/cold disk, CPU throttling on a cold
-            # start...). amlkit retains AML records, so discarding a
-            # possibly-healthy database and reverting to a stale flat-file
-            # snapshot on nothing more than an ambiguous timeout would trade
-            # a slow startup for silent data loss -- a worse outcome than
-            # the thing we're fixing. Fail OPEN: log loudly and start with
-            # the unverified database. Bounding the *hang* is what actually
-            # fixes the 2026-09-27 crash-loop (worst case ~70s instead of
-            # 40+ minutes); that's independent of how much we trust the
-            # result once it's known to be inconclusive rather than bad.
-            echo "WARNING: integrity check timed out after ${INTEGRITY_TIMEOUT}s -- inconclusive, NOT treated as confirmed corruption. Starting with the unverified database; investigate manually rather than assume corruption."
-        elif [ $INTEGRITY_CODE -ne 0 ]; then
-            echo "ERROR: sqlite3 command failed (exit code $INTEGRITY_CODE). Output: $INTEGRITY_OUTPUT"
-            echo "Cannot verify integrity -- treating as potentially corrupt and falling back."
-            discard_db
-            gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
-                && echo "Restored from flat-file snapshot." \
-                || echo "Flat-file snapshot unavailable -- starting fresh."
-        elif echo "$INTEGRITY_OUTPUT" | grep -q "^ok$"; then
-            echo "Database integrity OK."
-        else
-            echo "Database integrity check FAILED. Output: $INTEGRITY_OUTPUT"
-            discard_db
-            gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
-                && echo "Restored from flat-file snapshot." \
-                || echo "Flat-file snapshot unavailable -- starting fresh."
-        fi
-
-        # Verify the flat-file fallback if we just restored it. Same
-        # timeout-vs-confirmed-corrupt distinction as above: an inconclusive
-        # check here starts with the unverified flat file rather than
-        # wiping the database to empty.
-        if [ -f /app/data/amlkit.db ]; then
-            FALLBACK_CODE=0
-            FALLBACK_CHECK=$(timeout -k "${INTEGRITY_KILL_AFTER}s" "${INTEGRITY_TIMEOUT}s" sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1) || FALLBACK_CODE=$?
-            if [ $FALLBACK_CODE -eq 124 ]; then
-                echo "WARNING: flat-file snapshot integrity check timed out after ${INTEGRITY_TIMEOUT}s -- inconclusive, starting with it anyway rather than wiping the database entirely."
-            elif [ $FALLBACK_CODE -eq 0 ] && echo "$FALLBACK_CHECK" | grep -q "^ok$"; then
-                echo "Flat-file snapshot integrity verified."
-            else
-                echo "WARNING: Flat-file snapshot also corrupt or unverifiable (exit: $FALLBACK_CODE). Starting fresh."
+        case "$INTEGRITY_STATUS" in
+            ok)
+                echo "Database integrity OK."
+                ;;
+            inconclusive)
+                # NOT proof of corruption -- litestream restore itself
+                # already completed without error a few lines up; this only
+                # means the verification step didn't finish in budget (a
+                # large db, a slow/cold disk, CPU throttling on a cold
+                # start...). amlkit retains AML records, so discarding a
+                # possibly-healthy database and reverting to a stale
+                # flat-file snapshot on nothing more than an ambiguous
+                # timeout would trade a slow startup for silent data loss --
+                # a worse outcome than the thing we're fixing. Fail OPEN:
+                # log loudly and start with the unverified database.
+                # Bounding the *hang* (not this decision) is what actually
+                # fixes the 2026-09-27 crash-loop -- worst case is now one
+                # ~70s check, not 40+ minutes of retries.
+                echo "WARNING: integrity check timed out after ${INTEGRITY_TIMEOUT}s -- inconclusive, NOT treated as confirmed corruption. Starting with the unverified database; investigate manually rather than assume corruption."
+                ;;
+            corrupt)
+                echo "Database integrity check FAILED (exit $INTEGRITY_CODE). Output: $INTEGRITY_OUTPUT"
+                echo "Falling back to legacy flat-file snapshot..."
                 discard_db
-            fi
-        fi
+                gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
+                    && echo "Restored from flat-file snapshot." \
+                    || echo "Flat-file snapshot unavailable -- starting fresh."
+
+                # Verify the fallback we just restored -- but only if we
+                # actually replaced the file. A same-file re-check belongs
+                # only here (confirmed-corrupt path), not on every startup:
+                # re-running the identical bounded check against the exact
+                # file that just timed out would double the worst-case
+                # startup delay (~140s instead of ~70s) for no new
+                # information, so the `inconclusive` case above deliberately
+                # does not fall into this block.
+                if [ -f /app/data/amlkit.db ]; then
+                    echo "Verifying flat-file fallback..."
+                    check_integrity /app/data/amlkit.db
+                    case "$INTEGRITY_STATUS" in
+                        ok)
+                            echo "Flat-file snapshot integrity verified."
+                            ;;
+                        inconclusive)
+                            echo "WARNING: flat-file snapshot integrity check timed out after ${INTEGRITY_TIMEOUT}s -- inconclusive, starting with it anyway rather than wiping the database entirely."
+                            ;;
+                        corrupt)
+                            echo "WARNING: Flat-file snapshot also corrupt (exit $INTEGRITY_CODE). Starting fresh."
+                            discard_db
+                            ;;
+                    esac
+                fi
+                ;;
+        esac
     fi
 fi
 
