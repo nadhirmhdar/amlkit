@@ -58,7 +58,7 @@ from ..cases.review import (
     review_history,
     single_operator_mode,
 )
-from ..db import retry_on_lock, set_org_alert_threshold, utcnow
+from ..db import retry_on_lock, set_org_alert_threshold, set_org_single_operator_mode, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
@@ -2498,6 +2498,8 @@ def admin_view(request: Request, db: DB):
         "operators": queries.operators(db, session.org_id),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
+        "single_operator_setting": queries.org_single_operator_setting(db, session.org_id),
+        "single_operator_effective": single_operator_mode(db, session.org_id),
         "sanctions": staleness_report(db),
         "eu_warning": eu_warning,
     })
@@ -2629,6 +2631,36 @@ def admin_set_threshold(
           {"threshold": value}, org_id=session.org_id)
     db.commit()
     return back("/admin", msg=f"Alert threshold set to {value}.")
+
+
+@app.post("/admin/single-operator")
+def admin_set_single_operator(
+    request: Request, db: DB,
+    mode: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Per-org single-operator mode (Issue #258). 'on' / 'off' set it
+    explicitly; 'default' clears it back to the instance default."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    choices = {"on": True, "off": False, "default": None}
+    if mode not in choices:
+        return back("/admin", err="Choose on, off, or default.")
+    set_org_single_operator_mode(db, session.org_id, choices[mode])
+    from ..db import audit
+    audit(db, session.operator_name, "org.single_operator_set", "organization", session.org_id,
+          {"single_operator_mode": choices[mode]}, org_id=session.org_id)
+    db.commit()
+    state = "on" if single_operator_mode(db, session.org_id) else "off"
+    return back("/admin", msg=f"Single-operator mode is now {state}.")
 
 
 @app.post("/admin/operators/{operator_id}/reset-password")

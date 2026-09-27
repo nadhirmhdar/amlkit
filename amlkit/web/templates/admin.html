@@ -133,6 +133,35 @@
 </div>
 
 <div class="panel mb-6">
+  <h2>Independent review</h2>
+  <p class="muted small mt-0">
+    Dismissing a sanctions or proliferation match normally needs a second
+    operator to confirm. Firms with genuinely one compliance officer can turn on
+    single-operator mode: dismissals then apply immediately and are recorded as
+    having had <strong>no independent review</strong>. This setting applies to
+    this organization only.
+  </p>
+  <form method="post" action="/admin/single-operator" class="row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div>
+      <label>Single-operator mode</label>
+      <select name="mode">
+        <option value="off" {% if single_operator_setting == false %}selected{% endif %}>Off — require a second operator</option>
+        <option value="on" {% if single_operator_setting == true %}selected{% endif %}>On — record the review gap</option>
+        <option value="default" {% if single_operator_setting is none %}selected{% endif %}>Instance default</option>
+      </select>
+    </div>
+    <div>
+      <button type="submit">Save</button>
+      <span class="muted small ml-4">
+        Currently <strong>{{ 'on' if single_operator_effective else 'off' }}</strong>
+        {% if single_operator_setting is none %}(instance default){% endif %}.
+      </span>
+    </div>
+  </form>
+</div>
+
+<div class="panel mb-6">
   <h2>Add operator</h2>
   <form method="post" action="/admin/operators" class="row">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

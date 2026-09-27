@@ -1443,6 +1443,20 @@ def fetch_all(conn: sqlite3.Connection, sql: str, params: Iterable[Any] = ()) ->
     return conn.execute(sql, tuple(params)).fetchall()
 
 
+def set_org_single_operator_mode(conn: sqlite3.Connection, org_id: int, enabled: bool | None) -> None:
+    """Set an org's single-operator mode explicitly (True/False), or clear it
+    (None) so the org falls back to the instance default. Issue #258: the
+    per-org value always beats AMLKIT_SINGLE_OPERATOR_MODE. Admin-only in
+    practice; enforced by the caller (the route)."""
+    value = None if enabled is None else int(bool(enabled))
+    conn.execute(
+        """INSERT INTO org_settings (org_id, single_operator_mode, updated_at) VALUES (?,?,?)
+           ON CONFLICT(org_id) DO UPDATE SET
+             single_operator_mode=excluded.single_operator_mode, updated_at=excluded.updated_at""",
+        (org_id, value, utcnow()),
+    )
+
+
 def set_org_alert_threshold(conn: sqlite3.Connection, org_id: int, threshold: float | None) -> None:
     """Set (or clear, with threshold=None) an org's configured alert
     threshold. Admin-only in practice; enforced by the caller (the route),

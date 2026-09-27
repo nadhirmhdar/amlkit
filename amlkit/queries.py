@@ -792,6 +792,17 @@ def case_notes(conn: sqlite3.Connection, customer_id: int, org_id: int) -> list[
         (customer_id, org_id))]
 
 
+def org_single_operator_setting(conn: sqlite3.Connection, org_id: int) -> bool | None:
+    """The org's explicit single-operator setting, or None when unset (the
+    org then follows the instance default -- see review.single_operator_mode)."""
+    row = conn.execute(
+        "SELECT single_operator_mode FROM org_settings WHERE org_id=?", (org_id,)
+    ).fetchone()
+    if row is None or row["single_operator_mode"] is None:
+        return None
+    return bool(row["single_operator_mode"])
+
+
 def org_alert_threshold(conn: sqlite3.Connection, org_id: int) -> float | None:
     """The org's configured alert threshold, or None to use the engine
     default. A single global knob, not per-list-type "screening profiles" --
