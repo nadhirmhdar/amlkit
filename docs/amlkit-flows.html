@@ -185,7 +185,7 @@ h1 {
   overflow-x: auto;
   margin-bottom: 14px;
 }
-.diagram-wrap pre.mermaid {
+.diagram-wrap .mermaid {
   margin: 0;
   display: flex;
   justify-content: center;
@@ -268,8 +268,7 @@ h1 {
     </div>
 
     <div class="diagram-wrap">
-      <pre class="mermaid">
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#1e3055", "primaryTextColor": "#e6edf3", "primaryBorderColor": "#58a6ff", "lineColor": "#58a6ff", "secondaryColor": "#1a2332", "tertiaryColor": "#21262d", "edgeLabelBackground": "#161b22", "fontSize": "13px"}}}%%
+      <div class="mermaid">
 flowchart TD
     WH["Webhook<br/>Customer Onboarded"] --> SCREEN["API Request<br/>POST /api/screen"]
     SCREEN --> HITS{"Conditional Router<br/>Hits Found?"}
@@ -293,7 +292,7 @@ flowchart TD
     style HITS fill:#271e08,stroke:#d29922,color:#e6edf3
     style SINGLEOP fill:#271e08,stroke:#d29922,color:#e6edf3
     style DISP fill:#271e08,stroke:#d29922,color:#e6edf3
-      </pre>
+      </div>
     </div>
 
     <div class="legend">
@@ -325,8 +324,7 @@ flowchart TD
     </div>
 
     <div class="diagram-wrap">
-      <pre class="mermaid">
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#1e3055", "primaryTextColor": "#e6edf3", "primaryBorderColor": "#58a6ff", "lineColor": "#58a6ff", "secondaryColor": "#1a2332", "tertiaryColor": "#21262d", "edgeLabelBackground": "#161b22", "fontSize": "13px"}}}%%
+      <div class="mermaid">
 flowchart TD
     WH["Webhook<br/>Rescreen Triggered"] --> CUST["API Request<br/>GET /api/customers"]
     CUST --> CLIST["Parse JSON<br/>Extract Customer Array"]
@@ -341,7 +339,7 @@ flowchart TD
     style DONE fill:#122a1c,stroke:#3fb950,color:#3fb950
     style NHITS fill:#271e08,stroke:#d29922,color:#e6edf3
     style LOOP fill:#0e1e38,stroke:#58a6ff,color:#e6edf3
-      </pre>
+      </div>
     </div>
 
     <div class="legend">
@@ -453,3 +451,10 @@ tabs.forEach(tab => {
   });
 });
 </script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+mermaid.initialize({startOnLoad: false, theme: 'dark', securityLevel: 'loose', flowchart: {htmlLabels: true, useMaxWidth: true}});
+mermaid.run();
+</script>
+</body></html>
