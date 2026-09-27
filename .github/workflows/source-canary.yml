@@ -356,6 +356,10 @@ jobs:
       # deploy is traceable to the exact commit that produced it. --timeout
       # 900: /system/refresh runs the sanctions refresh synchronously, so the
       # request needs to be allowed to run long enough.
+      # --max-instances 1: Litestream supports exactly ONE writer per replica.
+      # With 10, concurrent instances interleaved two WAL histories into the
+      # same replica and corrupted it (2026-09-27 outage). A rollout can still
+      # overlap old and new revisions briefly; that needs a proper lease/lock.
       # AMLKIT_SMTP_* configure real verification-email delivery via
       # SendGrid's SMTP relay. Host/port/user are SendGrid's fixed relay
       # convention (smtp.sendgrid.net:587, username literally "apikey"), and
@@ -390,6 +394,12 @@ jobs:
           # on the next deploy. Unset/empty = registration closed. Must not
           # contain ";;" (the delimiter used below).
           AMLKIT_REGISTRATION_INVITE_CODE: ${{ secrets.AMLKIT_REGISTRATION_INVITE_CODE }}
+          # Litestream replica location — repo variable LITESTREAM_REPLICA_URL.
+          # Must be passed here for the same reason as above (--set-env-vars
+          # replaces the whole list). Moved to litestream-v2/ after the
+          # 2026-09-27 replica corruption; the old litestream/ prefix is corrupt
+          # and must never be restored from. Unset = entrypoint.sh's default.
+          LITESTREAM_REPLICA_URL: ${{ vars.LITESTREAM_REPLICA_URL }}
         run: |
           gcloud run deploy amlkit \
             --image "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/amlkit/amlkit:${{ github.sha }}" \
@@ -397,12 +407,12 @@ jobs:
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
-            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;GEMINI_API_KEY=${GEMINI_API_KEY};;AMLKIT_REGISTRATION_INVITE_CODE=${AMLKIT_REGISTRATION_INVITE_CODE}" \
+            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;GEMINI_API_KEY=${GEMINI_API_KEY};;AMLKIT_REGISTRATION_INVITE_CODE=${AMLKIT_REGISTRATION_INVITE_CODE};;LITESTREAM_REPLICA_URL=${LITESTREAM_REPLICA_URL}" \
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \
             --min-instances 0 \
-            --max-instances 10 \
+            --max-instances 1 \
             --timeout 900
 
       - name: Report deployed URL

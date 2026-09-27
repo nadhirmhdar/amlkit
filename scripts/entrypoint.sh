@@ -22,7 +22,7 @@ LITESTREAM_CFG=/tmp/litestream.yml
 envsubst < /app/litestream.yml > "$LITESTREAM_CFG"
 
 if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
-    echo "Restoring from litestream replica at gs://${GCS_BUCKET}/litestream/amlkit.db, if one exists..."
+    echo "Restoring from litestream replica at ${LITESTREAM_REPLICA_URL}, if one exists..."
     # `|| true`: this script runs under `set -e`, so a failed restore -- not
     # just "no replica exists yet" (which litestream handles gracefully via
     # -if-replica-exists and leaves no file), but a genuine restore FAILURE
@@ -51,36 +51,26 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
 
     if [ -f /app/data/amlkit.db ]; then
         echo "Checking database integrity..."
-        INTEGRITY_OUTPUT=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
-        INTEGRITY_CODE=$?
+        # `|| INTEGRITY_CODE=$?`: under `set -e` a failing $(...) assignment
+        # kills the script on the spot with sqlite3's own exit code and no
+        # message -- on 2026-09-27 that was a bare "exit(11)" (SQLITE_CORRUPT).
+        INTEGRITY_CODE=0
+        INTEGRITY_OUTPUT=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1) || INTEGRITY_CODE=$?
 
-        if [ $INTEGRITY_CODE -ne 0 ]; then
-            echo "ERROR: sqlite3 command failed (exit code $INTEGRITY_CODE). Output: $INTEGRITY_OUTPUT"
-            echo "Cannot verify integrity -- treating as potentially corrupt and falling back."
-            rm -f /app/data/amlkit.db
-            gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
-                && echo "Restored from flat-file snapshot." \
-                || echo "Flat-file snapshot unavailable -- starting fresh."
-        elif echo "$INTEGRITY_OUTPUT" | grep -q "^ok$"; then
+        if [ "$INTEGRITY_CODE" -eq 0 ] && echo "$INTEGRITY_OUTPUT" | grep -q "^ok$"; then
             echo "Database integrity OK."
         else
-            echo "Database integrity check FAILED. Output: $INTEGRITY_OUTPUT"
-            rm -f /app/data/amlkit.db
-            gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
-                && echo "Restored from flat-file snapshot." \
-                || echo "Flat-file snapshot unavailable -- starting fresh."
-        fi
-
-        # Verify the flat-file fallback if we just restored it
-        if [ -f /app/data/amlkit.db ]; then
-            FALLBACK_CHECK=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
-            FALLBACK_CODE=$?
-            if [ $FALLBACK_CODE -eq 0 ] && echo "$FALLBACK_CHECK" | grep -q "^ok$"; then
-                echo "Flat-file snapshot integrity verified."
-            else
-                echo "WARNING: Flat-file snapshot also corrupt or unverifiable (exit: $FALLBACK_CODE). Starting fresh."
-                rm -f /app/data/amlkit.db
-            fi
+            # Fail closed, deliberately. This used to fall back to the flat-file
+            # snapshot (or an empty database), but that silently rolls
+            # production back to the snapshot's date -- and litestream then
+            # replicates the rolled-back state as the new truth. A loud crash
+            # loses nothing; a quiet rollback loses everything since the
+            # snapshot. Recover by hand: find the newest good point with
+            # `litestream restore -txid <id> -o check.db <replica>` +
+            # PRAGMA integrity_check, then seed a fresh replica from it.
+            echo "FATAL: database failed its integrity check (sqlite3 exit $INTEGRITY_CODE): $INTEGRITY_OUTPUT"
+            echo "FATAL: refusing to start rather than roll back to an older snapshot. Manual recovery required."
+            exit 1
         fi
     fi
 fi
