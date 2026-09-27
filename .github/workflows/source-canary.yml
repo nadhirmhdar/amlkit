@@ -425,10 +425,14 @@ jobs:
       # roles/cloudscheduler.admin to this SA) -- also why the bash default
       # (-e) matters here: if this were left in and failed, it would abort
       # the whole step before ever reaching the job create/update below.
+      # Targets APP_BASE_URL (the custom domain when the repo variable is set)
+      # rather than the raw service URL, so the job keeps working if ingress
+      # is later restricted to the load balancer. Falls back to $URL.
       - name: Wire up Cloud Scheduler sanctions refresh
         continue-on-error: true
         run: |
           JOB_NAME="amlkit-sanctions-refresh"
+          REFRESH_BASE="${APP_BASE_URL:-$URL}"
           if gcloud scheduler jobs describe "$JOB_NAME" --location "${{ vars.GCP_REGION }}" \
               --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
             # 'scheduler jobs update http' does not accept 'create http''s
@@ -437,7 +441,7 @@ jobs:
             gcloud scheduler jobs update http "$JOB_NAME" \
               --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
               --schedule "0 */20 * * *" \
-              --uri "${URL}/system/refresh" \
+              --uri "${REFRESH_BASE}/system/refresh" \
               --http-method POST \
               --message-body "{}" \
               --update-headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
@@ -449,7 +453,7 @@ jobs:
             gcloud scheduler jobs create http "$JOB_NAME" \
               --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
               --schedule "0 */20 * * *" \
-              --uri "${URL}/system/refresh" \
+              --uri "${REFRESH_BASE}/system/refresh" \
               --http-method POST \
               --message-body "{}" \
               --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
