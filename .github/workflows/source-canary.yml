@@ -231,13 +231,45 @@ jobs:
       - name: Run connectivity heartbeat
         run: python scripts/heartbeat.py
 
+  # Back-to-back merges each start a run, and test time varies, so an older
+  # commit's deploy could finish after a newer one's and roll production back
+  # (image and env vars). This gate skips the deploy when master has already
+  # moved past this commit -- the newer run deploys instead. Paired with the
+  # deploy job's concurrency group below, which stops two deploys overlapping.
+  deploy-gate:
+    name: Check commit is still master head
+    needs: [tests, sources]
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      current: ${{ steps.check.outputs.current }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/commits/master" --jq .sha)
+          if [ "$HEAD_SHA" = "${{ github.sha }}" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "master is at $HEAD_SHA, not ${{ github.sha }} -- skipping deploy; the newer run deploys." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   deploy:
     name: Deploy to Cloud Run
-    needs: [tests, sources]
+    needs: [tests, sources, deploy-gate]
     # workflow_dispatch alongside push: lets a manual run re-deploy master
     # on demand (e.g. to verify an IAM change like scripts/grant_scheduler_
     # iam.sh took effect) without needing a throwaway commit to trigger it.
-    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.deploy-gate.outputs.current == 'true'
+    # One deploy at a time. cancel-in-progress: false -- never kill a deploy
+    # mid-rollout; a newer queued run waits and then deploys on top.
+    concurrency:
+      group: cloud-run-deploy-amlkit
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
