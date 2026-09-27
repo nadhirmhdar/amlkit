@@ -21,80 +21,90 @@ export LITESTREAM_REPLICA_URL="${LITESTREAM_REPLICA_URL:-gs://gen-lang-client-01
 LITESTREAM_CFG=/tmp/litestream.yml
 envsubst < /app/litestream.yml > "$LITESTREAM_CFG"
 
-# Shared budget for the `PRAGMA integrity_check` calls in check_integrity()
-# below (both the freshly-restored db and, if that one's rejected, the
-# flat-file fallback).
+# Budget per PRAGMA run. verify_db runs at most two (integrity_check, then
+# quick_check), so the worst case is ~2 x (60+10)s = 140s -- inside Cloud
+# Run's default 240s startup window. Overrunning it matters: being killed by
+# the startup probe mid-check is the silent crash-loop of 2026-09-27.
 INTEGRITY_TIMEOUT=60
 INTEGRITY_KILL_AFTER=10
 
-# Discard a database file together with its WAL-mode sidecar files. amlkit
-# runs SQLite in WAL mode, so even a read-only `PRAGMA integrity_check` can
-# create -wal/-shm files next to it; a plain `rm -f amlkit.db` can leave
-# those behind, and a stale -wal/-shm sitting next to a freshly `gsutil cp`'d
-# replacement db can make SQLite try to apply a WAL that doesn't match the
-# file it now sits beside.
-discard_db() {
-    rm -f /app/data/amlkit.db /app/data/amlkit.db-wal /app/data/amlkit.db-shm
-}
-
-# Fail closed on a database that could not be verified: move it (and its
-# sidecars) aside for investigation and exit non-zero. Moving rather than
-# leaving it in place matters because the restore/verify block below only
-# runs when /app/data/amlkit.db is absent -- a restart on a persistent volume
-# would otherwise boot straight onto the unverified file.
-quarantine_db_and_exit() {
+# Refuse to start on a database we could not positively verify. Serving it
+# would let `litestream replicate` stream it over the replica, and the old
+# alternatives -- the months-old pre-litestream snapshot or an empty database
+# -- would silently roll back AML records in the same way. A non-zero exit
+# trips the amlkit_startup_failures alert instead. The local file (and WAL
+# sidecars) is moved aside so a restart on a persistent volume can't skip
+# verification: the restore/verify block below only runs when amlkit.db is
+# absent.
+refuse_to_start() {
     q="/app/data/amlkit.db.unverified-$(date -u +%Y%m%dT%H%M%SZ)"
+    moved=""
     for f in amlkit.db amlkit.db-wal amlkit.db-shm; do
         if [ -f "/app/data/$f" ]; then
             mv "/app/data/$f" "$q${f#amlkit.db}"
+            moved=1
         fi
     done
-    echo "FATAL: $1 could not be verified (status: $INTEGRITY_STATUS, exit $INTEGRITY_CODE). Moved to $q for investigation; refusing to start."
-    echo "Output: $INTEGRITY_OUTPUT"
+    echo "FATAL: $1 (status: $INTEGRITY_STATUS, exit $INTEGRITY_CODE). Refusing to start."
+    if [ -n "$INTEGRITY_OUTPUT" ]; then
+        echo "Output: $INTEGRITY_OUTPUT"
+    fi
+    if [ -n "$moved" ]; then
+        echo "Local copy moved to $q -- container-local, so on Cloud Run it is gone with this instance; the durable evidence is the replica at ${LITESTREAM_REPLICA_URL}."
+    fi
+    echo "Recovery: investigate that replica, then seed a verified-clean database with the recovery-reseed workflow (.github/workflows/recovery-reseed.yml)."
     exit 1
 }
 
-# Run `PRAGMA $2` (default: integrity_check) against $1, bounded by
-# INTEGRITY_TIMEOUT/INTEGRITY_KILL_AFTER, and classify the result into one of
-# five outcomes (left in $INTEGRITY_STATUS; exit code/output in
-# $INTEGRITY_CODE/$INTEGRITY_OUTPUT for logging):
-#   ok         -- confirmed healthy (exit 0, output contains "ok")
-#   corrupt    -- confirmed bad (non-zero exit, or output does not match "ok")
-#   timeout    -- check hit the timeout (exit 124); caller may retry
-#   tool_error -- timeout/sqlite3 binary missing or broken (exit 125|126|127)
-#   unverifiable -- quick_check also timed out after retry (used by verify_db)
+# Run `PRAGMA $2` (default integrity_check) against $1, bounded by
+# INTEGRITY_TIMEOUT/INTEGRITY_KILL_AFTER. Leaves $INTEGRITY_STATUS as one of
+#   ok          the pragma ran and reported exactly "ok"
+#   corrupt     the pragma reported problems, or sqlite3 said the file is
+#               malformed / not a database
+#   timeout     no verdict in time: 124 (died to SIGTERM) or 137 (needed the
+#               -k SIGKILL -- wedged in uninterruptible I/O, or OOM-killed
+#               under --memory 1Gi); says nothing about the file itself
+#   tool_error  the check itself could not run: 125-127 (timeout/sqlite3
+#               broken or missing), or any other sqlite3 error that is not a
+#               corruption report ("unable to open database file", locked...)
+# plus the raw $INTEGRITY_CODE / $INTEGRITY_OUTPUT for logging.
 #
 # Plain `VAR=$(cmd)` would NOT survive `set -e`: `|| INTEGRITY_CODE=$?` puts
-# the assignment in an or-list, exempting it from set -e (same pattern as
-# `litestream restore ... || { }` below).
+# the assignment in an or-list, exempting it from set -e.
 check_integrity() {
     INTEGRITY_PRAGMA="${2:-integrity_check}"
     INTEGRITY_CODE=0
     INTEGRITY_OUTPUT=$(timeout -k "${INTEGRITY_KILL_AFTER}s" "${INTEGRITY_TIMEOUT}s" sqlite3 "$1" "PRAGMA $INTEGRITY_PRAGMA" 2>&1) || INTEGRITY_CODE=$?
 
-    # Exit code classification:
-    # 124: timeout itself killed the process (SIGTERM accepted)
-    # 125: timeout's own failure (bad args, etc.)
-    # 126: sqlite3 not executable
-    # 127: sqlite3 not found
-    # 137: timeout escalated to SIGKILL (target ignored SIGTERM); treat as corrupt
-    #      per 2026-09-27: wedged in broken btree suggests corruption, not just slow
-    if [ $INTEGRITY_CODE -eq 124 ]; then
-        INTEGRITY_STATUS=timeout
-    elif [ $INTEGRITY_CODE -eq 125 ] || [ $INTEGRITY_CODE -eq 126 ] || [ $INTEGRITY_CODE -eq 127 ]; then
-        INTEGRITY_STATUS=tool_error
-    elif [ $INTEGRITY_CODE -eq 0 ] && echo "$INTEGRITY_OUTPUT" | grep -q "^ok$"; then
-        INTEGRITY_STATUS=ok
-    elif [ $INTEGRITY_CODE -ne 0 ]; then
-        INTEGRITY_STATUS=corrupt
-    else
-        INTEGRITY_STATUS=corrupt
-    fi
+    case "$INTEGRITY_CODE" in
+        0)
+            if [ "$INTEGRITY_OUTPUT" = "ok" ]; then
+                INTEGRITY_STATUS=ok
+            else
+                INTEGRITY_STATUS=corrupt
+            fi
+            ;;
+        124|137)
+            INTEGRITY_STATUS=timeout
+            ;;
+        125|126|127)
+            INTEGRITY_STATUS=tool_error
+            ;;
+        *)
+            # sqlite3 exits 1 for any error, so the code alone is not a
+            # corruption verdict -- only its own wording is.
+            if echo "$INTEGRITY_OUTPUT" | grep -qiE 'malformed|corrupt|not a database|\*\*\* in database'; then
+                INTEGRITY_STATUS=corrupt
+            else
+                INTEGRITY_STATUS=tool_error
+            fi
+            ;;
+    esac
 }
 
-# Verify database integrity: run integrity_check, and if that times out, retry
-# with quick_check (same timeout budget). Result in $INTEGRITY_STATUS ∈
-# {ok, corrupt, unverifiable, tool_error}.
+# integrity_check, retried once as the cheaper quick_check if it produced no
+# verdict. Leaves $INTEGRITY_STATUS as ok | corrupt | tool_error |
+# unverifiable (both runs timed out).
 verify_db() {
     check_integrity "$1" integrity_check
     if [ "$INTEGRITY_STATUS" = "timeout" ]; then
@@ -106,29 +116,22 @@ verify_db() {
 }
 
 if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
-    echo "Restoring from litestream replica at gs://${GCS_BUCKET}/litestream/amlkit.db, if one exists..."
-    # `|| { ... }`: this script runs under `set -e`, so a failed restore --
-    # not just "no replica exists yet" (which litestream handles gracefully
-    # via -if-replica-exists and leaves no file), but a genuine restore
-    # FAILURE (a corrupted/truncated segment, decode error, etc.) -- would
-    # otherwise kill the whole script right here and crash-loop the
-    # container forever, never reaching the legacy-snapshot fallback below
-    # that exists specifically to handle "there's no usable database yet".
-    # A failed restore and a missing replica must both fall through to that
-    # same fallback, not just one of them.
+    echo "Restoring from litestream replica at ${LITESTREAM_REPLICA_URL}, if one exists..."
+    DB_SOURCE="litestream replica ${LITESTREAM_REPLICA_URL}"
+    # -if-replica-exists makes "no replica yet" a clean no-op; any other
+    # failure (corrupted/truncated segment, decode error) refuses to start --
+    # `|| { }` so set -e doesn't kill the script before it can say why.
     litestream restore -config "$LITESTREAM_CFG" -if-replica-exists /app/data/amlkit.db || {
-        echo "litestream restore failed (corrupted replica?) -- falling through to legacy snapshot."
-        # A failed restore can still have written a partial/corrupt file
-        # (and, in principle, sidecar WAL/SHM files) before erroring out.
-        # Remove it so the check below (which only asks "does a file
-        # exist") isn't fooled into treating a broken half-written
-        # database as a database that's already there.
-        discard_db
+        INTEGRITY_CODE=$?
+        INTEGRITY_STATUS=restore_failed
+        INTEGRITY_OUTPUT=""
+        refuse_to_start "litestream restore from ${LITESTREAM_REPLICA_URL} failed"
     }
 
     if [ ! -f /app/data/amlkit.db ]; then
         echo "No litestream replica yet. Falling back to the legacy flat-file"
         echo "snapshot at gs://${GCS_BUCKET}/amlkit.db (pre-litestream data)..."
+        DB_SOURCE="legacy snapshot gs://${GCS_BUCKET}/amlkit.db"
         gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
             && echo "Restored legacy snapshot." \
             || echo "No snapshot found anywhere - starting fresh."
@@ -137,40 +140,11 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
     if [ -f /app/data/amlkit.db ]; then
         echo "Checking database integrity..."
         verify_db /app/data/amlkit.db
-
-        case "$INTEGRITY_STATUS" in
-            ok)
-                echo "Database integrity OK."
-                ;;
-            corrupt)
-                echo "Database integrity check FAILED (exit $INTEGRITY_CODE). Output: $INTEGRITY_OUTPUT"
-                echo "Falling back to legacy flat-file snapshot..."
-                discard_db
-                gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
-                    && echo "Restored from flat-file snapshot." \
-                    || echo "Flat-file snapshot unavailable -- starting fresh."
-
-                if [ -f /app/data/amlkit.db ]; then
-                    echo "Verifying flat-file fallback..."
-                    verify_db /app/data/amlkit.db
-                    case "$INTEGRITY_STATUS" in
-                        ok)
-                            echo "Flat-file snapshot integrity verified."
-                            ;;
-                        corrupt)
-                            echo "WARNING: Flat-file snapshot also corrupt (exit $INTEGRITY_CODE). Starting fresh."
-                            discard_db
-                            ;;
-                        unverifiable|tool_error)
-                            quarantine_db_and_exit "Flat-file snapshot"
-                            ;;
-                    esac
-                fi
-                ;;
-            unverifiable|tool_error)
-                quarantine_db_and_exit "Restored database"
-                ;;
-        esac
+        if [ "$INTEGRITY_STATUS" = "ok" ]; then
+            echo "Database integrity OK."
+        else
+            refuse_to_start "database restored from ${DB_SOURCE} failed verification"
+        fi
     fi
 fi
 
