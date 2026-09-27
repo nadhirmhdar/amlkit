@@ -1,6 +1,6 @@
 """Transaction monitoring (KYT) rule evaluation.
 
-Scope is deliberately narrow: four rules that are standard, defensible, and
+Scope is deliberately narrow: five rules that are standard, defensible, and
 checkable from data this tool already asks a DNFBP to record, not a general
 behavioral-analytics engine. Getting a small rule set right and explainable
 beats a large one that produces alerts nobody can justify to an examiner --
@@ -166,6 +166,21 @@ def evaluate_transaction(
             rule_key="large_cash",
             severity="high",
             detail={
+                "amount_aed": amount_aed,
+                "threshold_aed": large_cash_threshold,
+            },
+        ))
+    elif method != "cash" and current_money >= threshold_money:
+        # Large single non-cash transfer (issue #257 follow-up). Same
+        # threshold as large_cash, but a separate rule at lower severity:
+        # a wire, card or on-chain transfer leaves a third-party record that
+        # cash does not, so this is a prompt to check source of funds rather
+        # than the cash-reporting flag.
+        triggered.append(TriggeredRule(
+            rule_key="large_value",
+            severity="medium",
+            detail={
+                "method": method,
                 "amount_aed": amount_aed,
                 "threshold_aed": large_cash_threshold,
             },

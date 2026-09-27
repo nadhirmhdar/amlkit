@@ -465,7 +465,7 @@ CREATE TABLE IF NOT EXISTS transaction_alerts (
     org_id         INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     customer_id    INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
-    rule_key       TEXT NOT NULL,       -- large_cash | structuring | high_risk_country | velocity
+    rule_key       TEXT NOT NULL,       -- large_cash | large_value | structuring | high_risk_country | velocity
     severity       TEXT NOT NULL DEFAULT 'medium',  -- low | medium | high
     detail         TEXT NOT NULL,       -- json: what tripped it, threshold vs actual
     status         TEXT NOT NULL DEFAULT 'open',    -- open | true_positive | false_positive
