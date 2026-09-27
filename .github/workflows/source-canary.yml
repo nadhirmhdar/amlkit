@@ -335,12 +335,21 @@ jobs:
       # hardcoding it -- a one-time manual `gcloud run services describe`
       # on first deploy for a not-yet-existing service would need a
       # different bootstrap anyway.
+      # The repo variable APP_BASE_URL overrides this with the public custom
+      # domain (https://groaml.grovisor.ae, served by the global HTTPS load
+      # balancer in front of this service) so emailed links don't point at
+      # the raw *.run.app URL. Unset = fall back to the service URL as before.
       - name: Resolve app base URL
+        env:
+          APP_BASE_URL_OVERRIDE: ${{ vars.APP_BASE_URL }}
         run: |
-          APP_BASE_URL=$(gcloud run services describe amlkit --platform managed \
-            --region "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
-            --format "value(status.url)" 2>/dev/null || true)
-          echo "APP_BASE_URL=$APP_BASE_URL" >> "$GITHUB_ENV"
+          APP_BASE_URL="$APP_BASE_URL_OVERRIDE"
+          if [ -z "$APP_BASE_URL" ]; then
+            APP_BASE_URL=$(gcloud run services describe amlkit --platform managed \
+              --region "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
+              --format "value(status.url)" 2>/dev/null || true)
+          fi
+          echo "APP_BASE_URL=${APP_BASE_URL%/}" >> "$GITHUB_ENV"
 
       # Same shape as the old (removed) manual deploy scripts --
       # min-instances 0 to keep idle cost at $0, tagged by commit SHA so every
@@ -416,10 +425,14 @@ jobs:
       # roles/cloudscheduler.admin to this SA) -- also why the bash default
       # (-e) matters here: if this were left in and failed, it would abort
       # the whole step before ever reaching the job create/update below.
+      # Targets APP_BASE_URL (the custom domain when the repo variable is set)
+      # rather than the raw service URL, so the job keeps working if ingress
+      # is later restricted to the load balancer. Falls back to $URL.
       - name: Wire up Cloud Scheduler sanctions refresh
         continue-on-error: true
         run: |
           JOB_NAME="amlkit-sanctions-refresh"
+          REFRESH_BASE="${APP_BASE_URL:-$URL}"
           if gcloud scheduler jobs describe "$JOB_NAME" --location "${{ vars.GCP_REGION }}" \
               --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
             # 'scheduler jobs update http' does not accept 'create http''s
@@ -428,7 +441,7 @@ jobs:
             gcloud scheduler jobs update http "$JOB_NAME" \
               --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
               --schedule "0 */20 * * *" \
-              --uri "${URL}/system/refresh" \
+              --uri "${REFRESH_BASE}/system/refresh" \
               --http-method POST \
               --message-body "{}" \
               --update-headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
@@ -440,7 +453,7 @@ jobs:
             gcloud scheduler jobs create http "$JOB_NAME" \
               --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
               --schedule "0 */20 * * *" \
-              --uri "${URL}/system/refresh" \
+              --uri "${REFRESH_BASE}/system/refresh" \
               --http-method POST \
               --message-body "{}" \
               --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
