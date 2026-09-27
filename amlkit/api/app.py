@@ -507,6 +507,7 @@ async def security_headers(request: Request, call_next):
     - X-Content-Type-Options: Prevents MIME-sniffing attacks
     - X-Frame-Options: Prevents clickjacking
     - HSTS: Forces HTTPS in production (when AMLKIT_BEHIND_PROXY=1)
+    - Cache-Control: no-store on everything except /static/ (H7)
     """
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
@@ -520,6 +521,12 @@ async def security_headers(request: Request, call_next):
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    # Pages and API responses carry customer PII, so nothing may be kept in
+    # a shared machine's disk cache (H7). Versionless static assets are
+    # exempt: re-downloading app.css/js/fonts on every page load buys nothing.
+    if not request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
     # HSTS only on HTTPS (production behind proxy)
     if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
         # 1 year HSTS, includeSubDomains
