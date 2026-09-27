@@ -37,6 +37,23 @@ discard_db() {
     rm -f /app/data/amlkit.db /app/data/amlkit.db-wal /app/data/amlkit.db-shm
 }
 
+# Fail closed on a database that could not be verified: move it (and its
+# sidecars) aside for investigation and exit non-zero. Moving rather than
+# leaving it in place matters because the restore/verify block below only
+# runs when /app/data/amlkit.db is absent -- a restart on a persistent volume
+# would otherwise boot straight onto the unverified file.
+quarantine_db_and_exit() {
+    q="/app/data/amlkit.db.unverified-$(date -u +%Y%m%dT%H%M%SZ)"
+    for f in amlkit.db amlkit.db-wal amlkit.db-shm; do
+        if [ -f "/app/data/$f" ]; then
+            mv "/app/data/$f" "$q${f#amlkit.db}"
+        fi
+    done
+    echo "FATAL: $1 could not be verified (status: $INTEGRITY_STATUS, exit $INTEGRITY_CODE). Moved to $q for investigation; refusing to start."
+    echo "Output: $INTEGRITY_OUTPUT"
+    exit 1
+}
+
 # Run `PRAGMA $2` (default: integrity_check) against $1, bounded by
 # INTEGRITY_TIMEOUT/INTEGRITY_KILL_AFTER, and classify the result into one of
 # five outcomes (left in $INTEGRITY_STATUS; exit code/output in
@@ -51,9 +68,9 @@ discard_db() {
 # the assignment in an or-list, exempting it from set -e (same pattern as
 # `litestream restore ... || { }` below).
 check_integrity() {
-    local PRAGMA="${2:-integrity_check}"
+    INTEGRITY_PRAGMA="${2:-integrity_check}"
     INTEGRITY_CODE=0
-    INTEGRITY_OUTPUT=$(timeout -k "${INTEGRITY_KILL_AFTER}s" "${INTEGRITY_TIMEOUT}s" sqlite3 "$1" "PRAGMA $PRAGMA" 2>&1) || INTEGRITY_CODE=$?
+    INTEGRITY_OUTPUT=$(timeout -k "${INTEGRITY_KILL_AFTER}s" "${INTEGRITY_TIMEOUT}s" sqlite3 "$1" "PRAGMA $INTEGRITY_PRAGMA" 2>&1) || INTEGRITY_CODE=$?
 
     # Exit code classification:
     # 124: timeout itself killed the process (SIGTERM accepted)
@@ -145,17 +162,13 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
                             discard_db
                             ;;
                         unverifiable|tool_error)
-                            echo "FATAL: Cannot verify flat-file snapshot integrity (status: $INTEGRITY_STATUS, exit $INTEGRITY_CODE). File left in place untouched for investigation."
-                            echo "Output: $INTEGRITY_OUTPUT"
-                            exit 1
+                            quarantine_db_and_exit "Flat-file snapshot"
                             ;;
                     esac
                 fi
                 ;;
             unverifiable|tool_error)
-                echo "FATAL: Cannot verify database integrity (status: $INTEGRITY_STATUS, exit $INTEGRITY_CODE). File left in place untouched for investigation."
-                echo "Output: $INTEGRITY_OUTPUT"
-                exit 1
+                quarantine_db_and_exit "Restored database"
                 ;;
         esac
     fi
