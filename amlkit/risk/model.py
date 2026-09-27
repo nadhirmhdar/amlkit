@@ -82,9 +82,61 @@ class CustomerProfile:
     sanctions_hit: bool = False
 
 
+_ALLOWED_FACTOR_VALUES = (
+    # (argument name, ruleset factor, points table)
+    ("jurisdiction_tier", "jurisdiction", "points_by_tier"),
+    ("delivery_channel", "delivery_channel", "points_by_channel"),
+    ("cash_level", "cash_intensity", "points_by_level"),
+    ("structure", "structure", "points_by_type"),
+)
+
+
+def validate_risk_inputs(
+    *,
+    jurisdiction_tier: str | None = None,
+    delivery_channel: str | None = None,
+    cash_level: str | None = None,
+    structure: str | None = None,
+) -> None:
+    """Raise ValueError for any risk-factor value the ruleset doesn't know.
+
+    Unknown values would otherwise score 0 points (lowest risk) via the
+    points-table lookups in assess(). None means "not supplied" and is
+    skipped, so callers can validate just the overrides they were given.
+    Call this at input boundaries, before anything is written.
+    """
+    values = {
+        "jurisdiction_tier": jurisdiction_tier,
+        "delivery_channel": delivery_channel,
+        "cash_level": cash_level,
+        "structure": structure,
+    }
+    factors = ruleset()["factors"]
+    for arg, factor, table in _ALLOWED_FACTOR_VALUES:
+        value = values[arg]
+        if value is None:
+            continue
+        allowed = factors[factor][table].keys()
+        if value not in allowed:
+            raise ValueError(
+                f"Invalid {arg}: {value!r}. Must be one of: {', '.join(allowed)}"
+            )
+
+
 def assess(profile: CustomerProfile) -> RiskAssessment:
     """Compute a risk rating from a customer profile."""
     rs = ruleset()
+    f = rs["factors"]
+
+    # Backstop for values that bypassed the input boundaries (e.g. factors
+    # carried forward from an older assessment): never score them as 0.
+    validate_risk_inputs(
+        jurisdiction_tier=profile.jurisdiction_tier,
+        delivery_channel=profile.delivery_channel,
+        cash_level=profile.cash_level,
+        structure=profile.structure,
+    )
+
     factors: dict[str, Any] = {}
     total = 0.0
     force_high = False
@@ -95,8 +147,6 @@ def assess(profile: CustomerProfile) -> RiskAssessment:
         total += points
         if mandatory:
             force_high = True
-
-    f = rs["factors"]
 
     if profile.sanctions_hit:
         spec = f["sanctions_hit"]

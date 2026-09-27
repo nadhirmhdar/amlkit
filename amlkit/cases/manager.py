@@ -36,6 +36,7 @@ from ..risk.model import (
     assess,
     ruleset,
     save as save_risk,
+    validate_risk_inputs,
 )
 from ..screening.adverse_media import (
     DEFAULT_WINDOW_MONTHS,
@@ -241,6 +242,14 @@ def onboard(
     from ..datamodel import validate_civil_status, validate_occupation
     validate_civil_status(civil_status_code)
     validate_occupation(occupation)
+    # Before the INSERT below: assess() would reject these too, but only after
+    # the customer and its screenings were committed, leaving it unrated.
+    validate_risk_inputs(
+        jurisdiction_tier=jurisdiction_tier,
+        delivery_channel=delivery_channel,
+        cash_level=cash_level,
+        structure=structure,
+    )
 
     now = utcnow()
     ck = canonical_key(full_name)
@@ -1341,6 +1350,12 @@ def reassess_risk(
 
     Returns None when there is no prior assessment to build on.
     """
+    validate_risk_inputs(
+        jurisdiction_tier=jurisdiction_tier,
+        delivery_channel=delivery_channel,
+        cash_level=cash_level,
+        structure=structure,
+    )
     prior = conn.execute(
         "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"
         " ORDER BY id DESC LIMIT 1",

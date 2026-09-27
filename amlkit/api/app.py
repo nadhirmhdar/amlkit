@@ -2310,6 +2310,7 @@ def audit_export(request: Request, db: DB):
         return _R(status_code=403)
 
     import csv
+    import json
     import io as _io
     from fastapi.responses import StreamingResponse
 
@@ -2321,12 +2322,18 @@ def audit_export(request: Request, db: DB):
     writer.writerow(["timestamp", "action", "user", "object_type", "object_id", "detail"])
     for e in entries:
         writer.writerow([
-            e.get("ts", ""),
-            e.get("action", ""),
-            e.get("actor", ""),
-            e.get("object_type", ""),
-            e.get("object_id", ""),
-            _redact_pii(e.get("detail") or ""),
+            _escape_csv_formula(e.get("ts", "")),
+            _escape_csv_formula(e.get("action", "")),
+            _escape_csv_formula(e.get("actor", "")),
+            _escape_csv_formula(e.get("object_type", "")),
+            _escape_csv_formula(e.get("object_id", "")),
+            # audit_trail() returns detail already JSON-decoded (usually a
+            # dict); redact() needs the serialised text.
+            _escape_csv_formula(_redact_pii(
+                e["detail"] if isinstance(e.get("detail"), str)
+                else json.dumps(e["detail"], ensure_ascii=False) if e.get("detail") is not None
+                else ""
+            )),
         ])
     buf.seek(0)
 

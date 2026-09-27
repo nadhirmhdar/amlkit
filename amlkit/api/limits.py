@@ -3,8 +3,6 @@ from fastapi import Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
-
 
 def rate_limit_key_func(request: Request) -> str:
     """Rate limiter key: real client IP, respecting X-Forwarded-For behind proxy.
@@ -33,3 +31,6 @@ def login_rate_limit_key(request: Request) -> str:
     if email:
         return f"{ip}:{email.lower().strip()}"
     return ip
+
+
+limiter = Limiter(key_func=rate_limit_key_func, default_limits=["100/minute"])
