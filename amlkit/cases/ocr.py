@@ -95,30 +95,48 @@ def _load_bytes(image_path_or_file) -> bytes:
     raise TypeError(f"Unsupported input type for OCR: {type(image_path_or_file)!r}")
 
 
+# Longest rendered edge, in pixels. An A4 page at 300 DPI is 2480x3508, so
+# ordinary scans render at full 300 DPI; only oversized pages are scaled
+# down. Without this, a few-hundred-byte PDF declaring one huge page renders
+# at 300 DPI into gigabytes of pixels (a 3000pt page took 92s and 5.4 GB).
+_PDF_MAX_RENDER_PX = 3600
+# PDF's own page-size limit without UserUnit is 14,400pt (200in); anything
+# larger (or non-positive) is not a scanned document.
+_PDF_MAX_PAGE_PT = 14_400.0
+
+
 def _pdf_first_page_to_image_bytes(pdf_bytes: bytes, *, dpi: int = 300) -> bytes:
-    """Rasterize a PDF's first page to PNG bytes.
+    """Rasterize a PDF's first page to PNG bytes with pypdfium2.
 
     Documents scanned or saved as PDF (a phone scanner app, an all-in-one
-    printer) land here just as often in practice as a direct photo upload
-    -- validate_file_mime() already allow-lists application/pdf for exactly
-    this reason -- but MRZ reading and PIL-based OCR fallback both only
-    understand raster images. 300 DPI balances OCR/MRZ legibility against
-    memory: an A4 page at 300 DPI is roughly 2480x3508px, comfortably above
-    assess_image_quality()'s 600px-short-edge floor without being
-    excessive. Only the first page is used -- passport/Emirates ID scans
-    are single-document uploads, not multi-page packets.
+    printer) are as common as photo uploads -- validate_file_mime() already
+    allow-lists application/pdf -- but MRZ reading and PIL-based OCR only
+    understand raster images. Only the first page is used: passport and
+    Emirates ID scans are single-document uploads.
     """
-    import fitz
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(pdf_bytes)
     try:
-        if doc.page_count == 0:
+        if len(pdf) == 0:
             raise ValueError("PDF has no pages")
-        page = doc[0]
-        zoom = dpi / 72
-        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
-        return pix.tobytes("png")
+        page = pdf[0]
+        try:
+            width_pt, height_pt = page.get_size()
+            if not (0 < width_pt <= _PDF_MAX_PAGE_PT and 0 < height_pt <= _PDF_MAX_PAGE_PT):
+                raise ValueError(f"implausible PDF page size {width_pt}x{height_pt}pt")
+            scale = min(dpi / 72, _PDF_MAX_RENDER_PX / max(width_pt, height_pt))
+            bitmap = page.render(scale=scale)
+            try:
+                out = io.BytesIO()
+                bitmap.to_pil().save(out, format="PNG")
+                return out.getvalue()
+            finally:
+                bitmap.close()
+        finally:
+            page.close()
     finally:
-        doc.close()
+        pdf.close()
 
 
 def _prepare_image_bytes(image_path_or_file, *, dpi: int = 300) -> bytes:
