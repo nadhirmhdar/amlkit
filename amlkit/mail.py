@@ -114,12 +114,10 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
             smtp.send_message(msg)
         return SENT
     except (OSError, smtplib.SMTPException):
-        # Logged with the traceback in the logger, NOT printed to stdout.
-        # stdout is shipped to Cloud Logging unredacted, so it must not contain
-        # the recipient's address, the live verification URL, or its token.
-        # Mail is configured here, so whoever submitted the form has not proved
-        # they control the mailbox. The resend link is the recovery path for
-        # operators to use if mail is still failing.
+        # stdout is shipped to Cloud Logging without passing through the
+        # redacting formatter, so this notice deliberately omits the recipient
+        # and the live verification link (its token activates the account).
+        # Recovery is the resend link once the mail provider is fixed.
         logger.exception("Failed to send verification email")
         print(
             "\n" + "=" * 72 +
