@@ -82,42 +82,45 @@ class CustomerProfile:
     sanctions_hit: bool = False
 
 
-def _validate_risk_factors(profile: CustomerProfile, factors: dict[str, Any]) -> None:
-    """Validate risk factors against allowlist. Raise ValueError for invalid values.
+_ALLOWED_FACTOR_VALUES = (
+    # (argument name, ruleset factor, points table)
+    ("jurisdiction_tier", "jurisdiction", "points_by_tier"),
+    ("delivery_channel", "delivery_channel", "points_by_channel"),
+    ("cash_level", "cash_intensity", "points_by_level"),
+    ("structure", "structure", "points_by_type"),
+)
 
-    H13 fix: prevent unknown/misspelled values from silently scoring 0 points.
+
+def validate_risk_inputs(
+    *,
+    jurisdiction_tier: str | None = None,
+    delivery_channel: str | None = None,
+    cash_level: str | None = None,
+    structure: str | None = None,
+) -> None:
+    """Raise ValueError for any risk-factor value the ruleset doesn't know.
+
+    Unknown values would otherwise score 0 points (lowest risk) via the
+    points-table lookups in assess(). None means "not supplied" and is
+    skipped, so callers can validate just the overrides they were given.
+    Call this at input boundaries, before anything is written.
     """
-    # Validate jurisdiction_tier
-    valid_tiers = factors["jurisdiction"]["points_by_tier"].keys()
-    if profile.jurisdiction_tier not in valid_tiers:
-        raise ValueError(
-            f"Invalid jurisdiction_tier: {profile.jurisdiction_tier!r}. "
-            f"Must be one of: {', '.join(valid_tiers)}"
-        )
-
-    # Validate delivery_channel
-    valid_channels = factors["delivery_channel"]["points_by_channel"].keys()
-    if profile.delivery_channel not in valid_channels:
-        raise ValueError(
-            f"Invalid delivery_channel: {profile.delivery_channel!r}. "
-            f"Must be one of: {', '.join(valid_channels)}"
-        )
-
-    # Validate cash_level
-    valid_levels = factors["cash_intensity"]["points_by_level"].keys()
-    if profile.cash_level not in valid_levels:
-        raise ValueError(
-            f"Invalid cash_level: {profile.cash_level!r}. "
-            f"Must be one of: {', '.join(valid_levels)}"
-        )
-
-    # Validate structure
-    valid_structures = factors["structure"]["points_by_type"].keys()
-    if profile.structure not in valid_structures:
-        raise ValueError(
-            f"Invalid structure: {profile.structure!r}. "
-            f"Must be one of: {', '.join(valid_structures)}"
-        )
+    values = {
+        "jurisdiction_tier": jurisdiction_tier,
+        "delivery_channel": delivery_channel,
+        "cash_level": cash_level,
+        "structure": structure,
+    }
+    factors = ruleset()["factors"]
+    for arg, factor, table in _ALLOWED_FACTOR_VALUES:
+        value = values[arg]
+        if value is None:
+            continue
+        allowed = factors[factor][table].keys()
+        if value not in allowed:
+            raise ValueError(
+                f"Invalid {arg}: {value!r}. Must be one of: {', '.join(allowed)}"
+            )
 
 
 def assess(profile: CustomerProfile) -> RiskAssessment:
@@ -125,9 +128,14 @@ def assess(profile: CustomerProfile) -> RiskAssessment:
     rs = ruleset()
     f = rs["factors"]
 
-    # H13: Validate risk factors against allowlist before scoring
-    # Unknown values must not silently score as 0 points (lowest risk)
-    _validate_risk_factors(profile, f)
+    # Backstop for values that bypassed the input boundaries (e.g. factors
+    # carried forward from an older assessment): never score them as 0.
+    validate_risk_inputs(
+        jurisdiction_tier=profile.jurisdiction_tier,
+        delivery_channel=profile.delivery_channel,
+        cash_level=profile.cash_level,
+        structure=profile.structure,
+    )
 
     factors: dict[str, Any] = {}
     total = 0.0

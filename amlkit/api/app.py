@@ -2217,11 +2217,11 @@ def audit_export(request: Request, db: DB):
         return _R(status_code=403)
 
     import csv
+    import json
     import io as _io
     from fastapi.responses import StreamingResponse
 
     from ..pii import redact as _redact_pii
-    from .csv_utils import _escape_csv_formula
 
     entries = queries.audit_trail(db, session.org_id, limit=100000)
     buf = _io.StringIO()
@@ -2234,7 +2234,13 @@ def audit_export(request: Request, db: DB):
             _escape_csv_formula(e.get("actor", "")),
             _escape_csv_formula(e.get("object_type", "")),
             _escape_csv_formula(e.get("object_id", "")),
-            _escape_csv_formula(_redact_pii(e.get("detail") or "")),
+            # audit_trail() returns detail already JSON-decoded (usually a
+            # dict); redact() needs the serialised text.
+            _escape_csv_formula(_redact_pii(
+                e["detail"] if isinstance(e.get("detail"), str)
+                else json.dumps(e["detail"], ensure_ascii=False) if e.get("detail") is not None
+                else ""
+            )),
         ])
     buf.seek(0)
 

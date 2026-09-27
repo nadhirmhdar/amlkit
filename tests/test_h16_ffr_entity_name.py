@@ -1,57 +1,71 @@
-"""Test H16: FFR for legal entity must use full name, handle blank names.
+"""H16: an FFR for a legal entity must carry the entity's full name, and a blank
+customer name must be refused cleanly rather than crash on split()[0].
 
-freeze.py uses split()[0] for first_name, so "Gulf Falcon Trading LLC" would file
-as just "Gulf" in goAML. Blank full_name would raise uncaught IndexError.
+Drives the real freeze.file_ffr_report() against an executed freeze.
 """
+from __future__ import annotations
+
+import json
+
 import pytest
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from amlkit.cases import freeze, manager
+from amlkit.db import utcnow
 
 
-def test_ffr_legal_entity_uses_full_name():
-    """FFR for legal entity should use full entity name in first_name field."""
-    # Test the logic directly without full DB setup
-    # For legal entity, first_name should be the full name
-    customer_type = "legal"
-    full_name = "Gulf Falcon Trading LLC"
-
-    if customer_type == "legal":
-        first_name = full_name
-        last_name = ""
-    else:
-        first_name = full_name.split()[0]
-        last_name = " ".join(full_name.split()[1:])
-
-    assert first_name == "Gulf Falcon Trading LLC", (
-        f"Legal entity FFR must use full name, not split(). Got: {first_name}"
+def _executed_freeze(conn, org_id: int, full_name: str, customer_type: str) -> int:
+    now = utcnow()
+    cid = conn.execute(
+        """INSERT INTO customers (org_id, reference, full_name, customer_type, canonical_key,
+           onboarded_at, status, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (org_id, f"C-H16-{customer_type}-{len(full_name)}", full_name, customer_type,
+         "k", now, "active", now, now),
+    ).lastrowid
+    fid = manager.create_freeze_obligation(
+        conn, org_id, cid, obligation_type="terrorism", risk_category="critical",
+        identified_by="mlro",
     )
-    assert last_name == "", f"Legal entity should have empty last_name. Got: {last_name}"
+    manager.execute_freeze(
+        conn, fid, org_id=org_id, executed_by="mlro",
+        assets_frozen=[{"type": "cash", "identifier": "safe-1", "amount_aed": 60000}],
+    )
+    return fid
 
 
-def test_ffr_natural_person_splits_name():
-    """FFR for natural person should split first/last name."""
-    customer_type = "natural"
-    full_name = "John Ahmed Al Maktoum"
-
-    if customer_type == "legal":
-        first_name = full_name
-        last_name = ""
-    else:
-        first_name = full_name.split()[0]
-        last_name = " ".join(full_name.split()[1:])
-
-    assert first_name == "John", f"Natural person first_name should be first word. Got: {first_name}"
-    assert last_name == "Ahmed Al Maktoum", f"Natural person last_name should be remaining words. Got: {last_name}"
+def _ffr_payload(conn, org_id: int, fid: int) -> dict:
+    report_id = freeze.file_ffr_report(
+        conn, fid, org_id, reporter_name="Mary MLRO", reporter_email="mlro@firm.ae",
+        operator="mlro",
+    )
+    row = conn.execute("SELECT payload FROM reports WHERE id=?", (report_id,)).fetchone()
+    return json.loads(row["payload"])
 
 
-def test_ffr_blank_name_validation():
-    """FFR with blank name should be detected early with clear error."""
-    full_name = "  "  # Blank or whitespace
+def test_legal_entity_ffr_uses_full_entity_name(conn, org_id):
+    fid = _executed_freeze(conn, org_id, "Gulf Falcon Trading LLC", "legal")
+    payload = _ffr_payload(conn, org_id, fid)
+    assert payload["first_name"] == "Gulf Falcon Trading LLC"
+    assert payload["last_name"] == ""
 
-    # This should raise ValueError
-    if not full_name.strip():
-        with pytest.raises(ValueError):
-            raise ValueError("Cannot file FFR: customer full_name is blank")
-    else:
-        pytest.fail("Should have raised ValueError for blank name")
+
+def test_natural_person_ffr_still_splits_name(conn, org_id):
+    fid = _executed_freeze(conn, org_id, "Ahmed Saeed Al Mansoori", "natural")
+    payload = _ffr_payload(conn, org_id, fid)
+    assert payload["first_name"] == "Ahmed"
+    assert payload["last_name"] == "Saeed Al Mansoori"
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_name_is_refused_without_a_report(conn, org_id, blank):
+    fid = _executed_freeze(conn, org_id, blank, "natural")
+    with pytest.raises(ValueError, match="full_name is blank"):
+        freeze.file_ffr_report(
+            conn, fid, org_id, reporter_name="Mary MLRO", reporter_email="mlro@firm.ae",
+            operator="mlro",
+        )
+    assert conn.execute(
+        "SELECT COUNT(*) FROM reports WHERE org_id=? AND report_type='FFR'", (org_id,)
+    ).fetchone()[0] == 0
+    status = conn.execute("SELECT status FROM freeze_obligations WHERE id=?", (fid,)).fetchone()[0]
+    assert status == "executed_pending_report"

@@ -58,6 +58,41 @@ def test_web_audit_csv_escapes_formula_chars(tmp_path, monkeypatch):
     assert "\n=1+1" not in csv_content, "Unescaped formula found in CSV"
 
 
+def test_web_audit_csv_exports_dict_detail_redacted(tmp_path, monkeypatch):
+    """Real audit rows store detail as a JSON object; audit_trail() returns it
+    decoded, and the export must serialise it before redacting (it used to
+    pass the dict straight to redact() and 500 on every real audit log)."""
+    from fastapi.testclient import TestClient
+    from amlkit.api.app import app
+    from amlkit.db import audit, connect, utcnow
+    from amlkit import auth
+    from amlkit.auth import create_session
+
+    db_file = tmp_path / "test.db"
+    monkeypatch.setenv("AMLKIT_DB", str(db_file))
+    conn = connect(db_file)
+    now = utcnow()
+    conn.execute("INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
+                 ("Test Org", "test-org", "active", now))
+    conn.execute(
+        "INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at, email_verified_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (1, "Mary MLRO", "mlro@test.ae", auth.hash_password("Password1!"), "mlro", 1, now, now))
+    audit(conn, "Mary MLRO", "customer.onboard", "customer", 7,
+          {"reference": "C-7", "contact": "jane.doe@example.com"}, org_id=1)
+    conn.commit()
+    token = create_session(conn, operator_id=1, org_id=1)
+    conn.close()
+
+    client = TestClient(app)
+    client.cookies.set("amlkit_session", token)
+    r = client.get("/audit/export")
+    assert r.status_code == 200, r.text[:500]
+    assert "customer.onboard" in r.text
+    assert "C-7" in r.text
+    assert "jane.doe@example.com" not in r.text
+
+
 def test_mobile_audit_csv_escapes_formula_chars(tmp_path, monkeypatch):
     """Mobile /api/v1/admin/audit/export must escape cells starting with =+-@."""
     from fastapi.testclient import TestClient

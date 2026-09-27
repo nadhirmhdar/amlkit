@@ -68,6 +68,7 @@ from ..cases.review import (
 )
 from ..db import set_org_alert_threshold, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
+from ..risk.model import validate_risk_inputs
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
 from .csv_utils import _escape_csv_formula
 from .deps import client_ip, get_db, require_role
@@ -804,6 +805,16 @@ def api_customer_update_risk_factors(
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Customer not found.")
+
+    try:
+        validate_risk_inputs(
+            jurisdiction_tier=body.jurisdiction_tier,
+            delivery_channel=body.delivery_channel,
+            cash_level=body.cash_level,
+            structure=body.structure,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     updates: dict[str, Any] = {}
     if body.sector is not None:
@@ -1679,7 +1690,6 @@ def api_audit_export(
     query += " ORDER BY ts DESC"
     rows = db.execute(query, params).fetchall()
 
-    from .csv_utils import _escape_csv_formula
     from ..pii import redact as _redact_pii
 
     buf = StringIO()
