@@ -555,7 +555,12 @@ def purge_expired(
     Only purges customers with status='closed' AND retention_until < now.
     Audit entry is written BEFORE each deletion so the record of purging
     survives the customer row being gone.
+
+    P0: Real deletion is gated behind AMLKIT_PURGE_ENABLED env flag. Dry run
+    (read-only verification) is always allowed.
     """
+    import os
+    import logging
     from pathlib import Path
 
     now = date.today().isoformat()
@@ -569,6 +574,15 @@ def purge_expired(
     details = [{"customer_id": r["id"], "reference": r["reference"]} for r in rows]
     if dry_run:
         return {"purged": len(details), "details": details, "dry_run": True}
+
+    # P0: Gate real deletion behind env flag - dry run bypasses this
+    if os.getenv("AMLKIT_PURGE_ENABLED") != "true":
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "purge_expired called but AMLKIT_PURGE_ENABLED is not set to 'true' - "
+            "purge disabled. Set AMLKIT_PURGE_ENABLED=true to enable."
+        )
+        return {"purged": 0, "details": [], "disabled": True}
 
     purged_count = 0
     for row in rows:
