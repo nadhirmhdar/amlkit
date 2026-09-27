@@ -269,7 +269,6 @@ h1 {
 
     <div class="diagram-wrap">
       <pre class="mermaid">
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#1e3055", "primaryTextColor": "#e6edf3", "primaryBorderColor": "#58a6ff", "lineColor": "#58a6ff", "secondaryColor": "#1a2332", "tertiaryColor": "#21262d", "edgeLabelBackground": "#161b22", "fontSize": "13px"}}}%%
 flowchart TD
     WH["Webhook<br/>Customer Onboarded"] --> SCREEN["API Request<br/>POST /api/screen"]
     SCREEN --> HITS{"Conditional Router<br/>Hits Found?"}
@@ -326,7 +325,6 @@ flowchart TD
 
     <div class="diagram-wrap">
       <pre class="mermaid">
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#1e3055", "primaryTextColor": "#e6edf3", "primaryBorderColor": "#58a6ff", "lineColor": "#58a6ff", "secondaryColor": "#1a2332", "tertiaryColor": "#21262d", "edgeLabelBackground": "#161b22", "fontSize": "13px"}}}%%
 flowchart TD
     WH["Webhook<br/>Rescreen Triggered"] --> CUST["API Request<br/>GET /api/customers"]
     CUST --> CLIST["Parse JSON<br/>Extract Customer Array"]
