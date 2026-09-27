@@ -51,10 +51,21 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
 
     if [ -f /app/data/amlkit.db ]; then
         echo "Checking database integrity..."
-        INTEGRITY_OUTPUT=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
+        # 2026-09-27 incident: a corrupted replica made `PRAGMA integrity_check`
+        # hang for 40+ minutes walking the broken btree/freelist. It never
+        # returned, so the exit-code check below never fired, the fallback
+        # path never ran, and Cloud Run crash-looped the container on every
+        # retry. `timeout` turns "hangs forever" into "fails after 60s",
+        # which the existing INTEGRITY_CODE -ne 0 branch already treats as
+        # potentially corrupt and falls back from -- so a stuck check now
+        # degrades exactly like a failed one instead of wedging startup.
+        INTEGRITY_OUTPUT=$(timeout 60s sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
         INTEGRITY_CODE=$?
 
         if [ $INTEGRITY_CODE -ne 0 ]; then
+            if [ $INTEGRITY_CODE -eq 124 ]; then
+                echo "ERROR: integrity check timed out after 60s (hung/severely corrupt replica)."
+            fi
             echo "ERROR: sqlite3 command failed (exit code $INTEGRITY_CODE). Output: $INTEGRITY_OUTPUT"
             echo "Cannot verify integrity -- treating as potentially corrupt and falling back."
             rm -f /app/data/amlkit.db
@@ -73,7 +84,7 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
 
         # Verify the flat-file fallback if we just restored it
         if [ -f /app/data/amlkit.db ]; then
-            FALLBACK_CHECK=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
+            FALLBACK_CHECK=$(timeout 60s sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
             FALLBACK_CODE=$?
             if [ $FALLBACK_CODE -eq 0 ] && echo "$FALLBACK_CHECK" | grep -q "^ok$"; then
                 echo "Flat-file snapshot integrity verified."
