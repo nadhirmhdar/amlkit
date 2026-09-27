@@ -149,6 +149,9 @@ class TestSuperAdminAuditTrail:
                ORDER BY id DESC LIMIT 1""",
             (other_org_id,)
         ).fetchone()
+        super_admin_org_id = conn.execute(
+            "SELECT org_id FROM operators WHERE email='super@admin.local'"
+        ).fetchone()["org_id"]
         conn.close()
 
         assert audit_entry is not None, "Audit entry must exist after super-admin views alerts"
@@ -156,7 +159,8 @@ class TestSuperAdminAuditTrail:
         assert audit_entry["actor"] == "super@admin.local", "Actor must be super-admin email"
 
         detail = json.loads(audit_entry["detail"])
-        assert "super_admin_org_id" in detail, "Detail must contain super-admin's org_id"
+        assert isinstance(detail, dict), "detail must be stored as a JSON object, not a double-encoded string"
+        assert detail["super_admin_org_id"] == super_admin_org_id, "Detail must contain correct super-admin's org_id"
 
     def test_console_org_customers_creates_audit_entry(self, super_admin_client, other_org_id) -> None:
         """Super-admin viewing another org's customers must be audited."""
@@ -186,6 +190,9 @@ class TestSuperAdminAuditTrail:
                ORDER BY id DESC LIMIT 1""",
             (other_org_id,)
         ).fetchone()
+        super_admin_org_id = conn.execute(
+            "SELECT org_id FROM operators WHERE email='super@admin.local'"
+        ).fetchone()["org_id"]
         conn.close()
 
         assert audit_entry is not None, "Audit entry must exist after super-admin views customers"
@@ -193,4 +200,5 @@ class TestSuperAdminAuditTrail:
         assert audit_entry["actor"] == "super@admin.local", "Actor must be super-admin email"
 
         detail = json.loads(audit_entry["detail"])
-        assert "super_admin_org_id" in detail, "Detail must contain super-admin's org_id"
+        assert isinstance(detail, dict), "detail must be stored as a JSON object, not a double-encoded string"
+        assert detail["super_admin_org_id"] == super_admin_org_id, "Detail must contain correct super-admin's org_id"

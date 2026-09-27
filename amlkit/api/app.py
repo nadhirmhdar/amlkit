@@ -2282,10 +2282,9 @@ def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "ope
 
     # A-02-5: Audit cross-tenant access by super-admin
     from ..db import audit
-    import json
     audit(
         db, session.email, "console.org_alerts.view", "organization", str(org_id),
-        json.dumps({"super_admin_org_id": session.org_id, "status_filter": status}),
+        {"super_admin_org_id": session.org_id, "status_filter": status},
         org_id=org_id
     )
     db.commit()
@@ -2324,10 +2323,9 @@ def console_org_customers(request: Request, db: DB, org_id: int):
 
     # A-02-5: Audit cross-tenant access by super-admin
     from ..db import audit
-    import json
     audit(
         db, session.email, "console.org_customers.view", "organization", str(org_id),
-        json.dumps({"super_admin_org_id": session.org_id}),
+        {"super_admin_org_id": session.org_id},
         org_id=org_id
     )
     db.commit()
