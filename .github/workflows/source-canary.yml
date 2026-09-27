@@ -383,9 +383,12 @@ jobs:
           # Unset = AI features gracefully degrade (GeminiUnavailable is caught
           # at the call site; no crash, just no AI suggestions).
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # Invite-only org registration — store the code as repo secret
-          # AMLKIT_REGISTRATION_INVITE_CODE. Unset = /register-organization
-          # stays closed (every sign-up is refused without a code).
+          # Firm self-registration (/register-organization) — store the shared
+          # invite code as repo secret AMLKIT_REGISTRATION_INVITE_CODE. It must
+          # be passed here: --set-env-vars below replaces the service's whole
+          # env list, so a value set by hand in the Cloud Run console is wiped
+          # on the next deploy. Unset/empty = registration closed. Must not
+          # contain ";;" (the delimiter used below).
           AMLKIT_REGISTRATION_INVITE_CODE: ${{ secrets.AMLKIT_REGISTRATION_INVITE_CODE }}
         run: |
           gcloud run deploy amlkit \
