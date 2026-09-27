@@ -30,6 +30,13 @@ jobs:
   reseed:
     name: Seed a fresh litestream generation from a verified-clean database
     runs-on: ubuntu-latest
+    # Backstop for the same defect entrypoint.sh's PR #334 fixed: an untimed
+    # `PRAGMA integrity_check` can hang instead of failing. The per-step
+    # `timeout` calls below turn that into a fast, clearly-labeled failure;
+    # this job-level timeout is a second net (deliberate 120s sleep at
+    # "Seed target replica" plus auth/install/restore/verify steps, so this
+    # needs headroom above that, not just above the 120s).
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -56,8 +63,19 @@ jobs:
           gcloud storage cp \
             "gs://${{ vars.GCS_BUCKET }}/${{ inputs.staging_object }}" \
             /tmp/clean.db
-          sqlite3 /tmp/clean.db "PRAGMA integrity_check;" | tee /tmp/pre-seed-check.txt
-          if [ "$(cat /tmp/pre-seed-check.txt)" != "ok" ]; then
+          # `|| CODE=$?`: bash's `set -e` (GH Actions' default for `run:`
+          # steps) kills the step at a bare `VAR=$(cmd)` assignment if the
+          # substitution fails -- same gotcha entrypoint.sh's PR #334 hit --
+          # so guard it the same way rather than let a timeout abort this
+          # script before the clear "::error::" message below can print.
+          CODE=0
+          RESULT=$(timeout -k 10s 60s sqlite3 /tmp/clean.db "PRAGMA integrity_check;") || CODE=$?
+          echo "$RESULT" | tee /tmp/pre-seed-check.txt
+          if [ $CODE -eq 124 ] || [ $CODE -eq 137 ]; then
+            echo "::error::integrity_check timed out after 60s on the staged database -- refusing to seed a replica from it."
+            exit 1
+          fi
+          if [ "$RESULT" != "ok" ]; then
             echo "::error::Staged database is not clean -- refusing to seed a replica from it."
             exit 1
           fi
@@ -89,8 +107,13 @@ jobs:
         run: |
           TARGET="gs://${{ vars.GCS_BUCKET }}/${{ inputs.target_path }}"
           litestream restore -o /tmp/verify.db "$TARGET"
-          RESULT=$(sqlite3 /tmp/verify.db "PRAGMA integrity_check;")
+          CODE=0
+          RESULT=$(timeout -k 10s 60s sqlite3 /tmp/verify.db "PRAGMA integrity_check;") || CODE=$?
           echo "post-seed integrity_check: $RESULT"
+          if [ $CODE -eq 124 ] || [ $CODE -eq 137 ]; then
+            echo "::error::integrity_check timed out after 60s on the freshly-seeded replica."
+            exit 1
+          fi
           if [ "$RESULT" != "ok" ]; then
             echo "::error::Freshly-seeded replica failed integrity_check: $RESULT"
             exit 1

@@ -69,8 +69,15 @@ check_integrity() {
     # but 137 (128+SIGKILL) when the process ignored SIGTERM and only died
     # to the `-k` grace-period SIGKILL instead -- verified empirically:
     # `timeout -k 2s 1s sh -c 'trap "" TERM; sleep 5'` exits 137, not 124.
-    # Both mean "didn't finish in time", not "confirmed corrupt".
-    if [ $INTEGRITY_CODE -eq 124 ] || [ $INTEGRITY_CODE -eq 137 ]; then
+    # These are NOT equivalent: a plain sqlite3 process has no SIGTERM
+    # handler, so a *healthy-but-slow* check dies cleanly to the first
+    # signal (124). Needing the -k escalation to SIGKILL (137) means
+    # something was wrong beyond "just slow" -- wedged in an uninterruptible
+    # read walking corrupted structures, or dying to an unrelated fatal
+    # condition like an OOM kill triggered by that same corruption. Either
+    # way that's grounds to distrust the file, not fail open on it, so only
+    # 124 is treated as merely inconclusive; 137 is treated as corrupt.
+    if [ $INTEGRITY_CODE -eq 124 ]; then
         INTEGRITY_STATUS=inconclusive
     elif [ $INTEGRITY_CODE -ne 0 ]; then
         INTEGRITY_STATUS=corrupt
