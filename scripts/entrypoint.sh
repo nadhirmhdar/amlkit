@@ -51,8 +51,12 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
 
     if [ -f /app/data/amlkit.db ]; then
         echo "Checking database integrity..."
-        INTEGRITY_OUTPUT=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
-        INTEGRITY_CODE=$?
+        # "|| INTEGRITY_CODE=$?" is load-bearing: under `set -e` a bare
+        # VAR=$(failing command) exits the whole script here, so a corrupt
+        # database crash-looped the container instead of reaching the
+        # fallback below.
+        INTEGRITY_CODE=0
+        INTEGRITY_OUTPUT=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1) || INTEGRITY_CODE=$?
 
         if [ $INTEGRITY_CODE -ne 0 ]; then
             echo "ERROR: sqlite3 command failed (exit code $INTEGRITY_CODE). Output: $INTEGRITY_OUTPUT"
@@ -73,8 +77,8 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
 
         # Verify the flat-file fallback if we just restored it
         if [ -f /app/data/amlkit.db ]; then
-            FALLBACK_CHECK=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1)
-            FALLBACK_CODE=$?
+            FALLBACK_CODE=0
+            FALLBACK_CHECK=$(sqlite3 /app/data/amlkit.db "PRAGMA integrity_check" 2>&1) || FALLBACK_CODE=$?
             if [ $FALLBACK_CODE -eq 0 ] && echo "$FALLBACK_CHECK" | grep -q "^ok$"; then
                 echo "Flat-file snapshot integrity verified."
             else
