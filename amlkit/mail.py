@@ -114,19 +114,18 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
             smtp.send_message(msg)
         return SENT
     except (OSError, smtplib.SMTPException):
-        # Logged with the traceback and printed to the server console, where
-        # an operator of the deployment can see it. Deliberately NOT returned
-        # to the caller for display: mail is configured here, so whoever
-        # submitted the form has not proved they control the mailbox, and the
-        # link on the console is for the deployment's own operator to use or
-        # ignore -- not for the browser that just posted the form.
+        # Logged with the traceback in the logger, NOT printed to stdout.
+        # stdout is shipped to Cloud Logging unredacted, so it must not contain
+        # the recipient's address, the live verification URL, or its token.
+        # Mail is configured here, so whoever submitted the form has not proved
+        # they control the mailbox. The resend link is the recovery path for
+        # operators to use if mail is still failing.
         logger.exception("Failed to send verification email")
         print(
             "\n" + "=" * 72 +
-            f"\namlkit: SMTP send FAILED for {to_email} -- mail IS configured, so\n"
-            "the link is NOT being shown to the registering user. Fix the mail\n"
-            "provider, then have them use the resend link.\n\n"
-            f"  {url}\n" +
+            f"\namlkit: SMTP send FAILED for a verification email -- mail IS configured, so\n"
+            "the link is NOT being shown. Fix the mail provider, then have the user use\n"
+            "the resend link.\n" +
             "=" * 72 + "\n"
         )
         return FAILED

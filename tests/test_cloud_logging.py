@@ -175,3 +175,86 @@ def test_gcp_project_id_in_trace_format():
 
     # Cleanup
     del os.environ["GCP_PROJECT_ID"]
+
+
+def test_parse_cloud_trace_decimal_span_to_hex():
+    """X-Cloud-Trace-Context with decimal span ID should convert to 16-char hex."""
+    from amlkit.api.app import _parse_cloud_trace
+
+    # Test: decimal span 1 -> 16-char hex
+    trace_id, span_hex = _parse_cloud_trace("105445aa7843bc8bf206b12000100000/1;o=1")
+    assert trace_id == "105445aa7843bc8bf206b12000100000"
+    assert span_hex == "0000000000000001"
+
+    # Test: large decimal span
+    trace_id, span_hex = _parse_cloud_trace("trace123/12345678901234567890;o=1")
+    assert trace_id == "trace123"
+    assert span_hex == format(12345678901234567890, "016x")
+
+    # Test: non-numeric span -> None
+    trace_id, span_hex = _parse_cloud_trace("trace456/abcdef;o=1")
+    assert trace_id == "trace456"
+    assert span_hex is None
+
+    # Test: missing trace_id -> None, None
+    trace_id, span_hex = _parse_cloud_trace("/123;o=1")
+    assert trace_id is None
+    assert span_hex is None
+
+    # Test: span too large (exceeds uint64) -> None
+    trace_id, span_hex = _parse_cloud_trace("trace789/18446744073709551616;o=1")
+    assert trace_id == "trace789"
+    assert span_hex is None
+
+
+def test_parse_w3c_traceparent_validates_hex_span():
+    """W3C traceparent should only accept 16-char hex span IDs."""
+    from amlkit.api.app import _parse_w3c_traceparent
+
+    # Test: valid 16-char hex span
+    trace_id, span_hex = _parse_w3c_traceparent("00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01")
+    assert trace_id == "0af7651916cd43dd8448eb211c80319c"
+    assert span_hex == "00f067aa0ba902b7"
+
+    # Test: invalid span (not 16 chars) -> None
+    trace_id, span_hex = _parse_w3c_traceparent("00-trace123-abc-01")
+    assert trace_id == "trace123"
+    assert span_hex is None
+
+    # Test: non-hex span -> None
+    trace_id, span_hex = _parse_w3c_traceparent("00-trace456-gggggggggggggggg-01")
+    assert trace_id == "trace456"
+    assert span_hex is None
+
+
+def test_smtp_failure_no_email_or_token_leak(monkeypatch, capsys):
+    """SMTP failure should not print email address or verification token."""
+    import smtplib
+    from unittest.mock import patch
+    from amlkit import mail
+
+    # Enable SMTP (fake configured state)
+    monkeypatch.setenv("AMLKIT_SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("AMLKIT_SMTP_PORT", "587")
+
+    # Mock SMTP to raise OSError
+    def raise_oserror(*args, **kwargs):
+        raise OSError("Connection failed")
+
+    with patch("smtplib.SMTP", side_effect=raise_oserror):
+        result = mail.send_verification_email(
+            to_email="operator@example.com",
+            name="Test Operator",
+            token="secret-activation-token-12345"
+        )
+
+    # Should return FAILED
+    assert result == mail.FAILED
+
+    # Captured stdout should NOT contain email or token
+    captured = capsys.readouterr()
+    stdout_text = captured.out
+    assert "operator@example.com" not in stdout_text
+    assert "secret-activation-token-12345" not in stdout_text
+    assert "amlkit: SMTP send FAILED" in stdout_text
+    assert "resend link" in stdout_text
