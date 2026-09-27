@@ -1,0 +1,991 @@
+{
+  "id": "amlkit-screening-disposition",
+  "name": "AMLKit — Screening & Four-Eyes Disposition",
+  "description": "Receives an onboarding payload, screens against sanctions/PEP/PF lists, drafts an AI narrative, and routes through a two-operator four-eyes disposition gate. Based on C.3 of the 2026-09-21 amlkit infrastructure review.",
+  "data": {
+    "nodes": [
+      {
+        "id": "Webhook-AMLK1",
+        "type": "genericNode",
+        "position": { "x": 80, "y": 300 },
+        "data": {
+          "id": "Webhook-AMLK1",
+          "display_name": "Onboarding Trigger",
+          "description": "Receives POST {org_id, full_name, name_arabic, nationality, dob} from your onboarding service. Langflow exposes this flow at POST /api/v1/webhook/{flow_id}.",
+          "type": "Webhook",
+          "node": {
+            "display_name": "Webhook",
+            "description": "Receives a payload from external systems via HTTP POST.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "output_data", "display_name": "JSON", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "data": {
+                "_input_type": "MultilineInput",
+                "name": "data",
+                "display_name": "Payload",
+                "value": "",
+                "advanced": true,
+                "show": true
+              },
+              "endpoint": {
+                "_input_type": "MultilineInput",
+                "name": "endpoint",
+                "display_name": "Endpoint",
+                "value": "BACKEND_URL",
+                "advanced": false,
+                "show": true,
+                "copy_field": true
+              }
+            },
+            "metadata": { "module": "lfx.components.input_output.webhook.WebhookComponent" },
+            "lf_version": "1.9.0",
+            "icon": "webhook",
+            "field_order": ["data", "curl", "endpoint"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "APIRequest-SCREEN",
+        "type": "genericNode",
+        "position": { "x": 380, "y": 300 },
+        "data": {
+          "id": "APIRequest-SCREEN",
+          "display_name": "Screen Entity",
+          "description": "POST to amlkit /screen with the onboarding payload. Returns {hits, matches[]} from match/engine.py.",
+          "type": "APIRequest",
+          "node": {
+            "display_name": "API Request",
+            "description": "Make HTTP requests to any API endpoint.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "data", "display_name": "Data", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "mode": {
+                "_input_type": "DropdownInput",
+                "name": "mode",
+                "display_name": "Mode",
+                "value": "URL",
+                "options": ["URL", "cURL"],
+                "show": true
+              },
+              "url_input": {
+                "_input_type": "MessageTextInput",
+                "name": "url_input",
+                "display_name": "URL",
+                "value": "https://your-amlkit-instance/screen",
+                "show": true
+              },
+              "method": {
+                "_input_type": "DropdownInput",
+                "name": "method",
+                "display_name": "Method",
+                "value": "POST",
+                "options": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+                "show": true
+              },
+              "body": {
+                "_input_type": "MessageTextInput",
+                "name": "body",
+                "display_name": "Body",
+                "value": "",
+                "info": "Connected from Webhook output_data",
+                "show": true,
+                "input_types": ["Data", "Message"]
+              },
+              "headers": {
+                "_input_type": "TableInput",
+                "name": "headers",
+                "display_name": "Headers",
+                "value": [{"key": "Content-Type", "value": "application/json"}, {"key": "Authorization", "value": "Bearer {AMLKIT_API_KEY}"}],
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.data_source.api_request.APIRequestComponent" },
+            "lf_version": "1.9.0",
+            "icon": "Globe",
+            "field_order": ["mode", "url_input", "method", "headers", "body"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "ConditionalRouter-HITS",
+        "type": "genericNode",
+        "position": { "x": 680, "y": 300 },
+        "data": {
+          "id": "ConditionalRouter-HITS",
+          "display_name": "Hits > 0?",
+          "description": "Routes True (hits > 0) to the alert branch; False (cleared) to ChatOutput.",
+          "type": "ConditionalRouter",
+          "node": {
+            "display_name": "If-Else",
+            "description": "Routes flow based on a text comparison condition.",
+            "base_classes": ["Message"],
+            "outputs": [
+              { "name": "true_result", "display_name": "True", "types": ["Message"], "group_outputs": true },
+              { "name": "false_result", "display_name": "False", "types": ["Message"], "group_outputs": true }
+            ],
+            "template": {
+              "_type": "Component",
+              "input_text": {
+                "_input_type": "MessageTextInput",
+                "name": "input_text",
+                "display_name": "Text Input",
+                "value": "",
+                "info": "Connected from APIRequest data — jq '.hits | tostring'",
+                "show": true,
+                "input_types": ["Message"]
+              },
+              "operator": {
+                "_input_type": "DropdownInput",
+                "name": "operator",
+                "display_name": "Operator",
+                "value": "!=",
+                "options": ["equals", "not equals", "contains", "starts with", "ends with", "!=", "==", ">", "<"],
+                "show": true
+              },
+              "match_text": {
+                "_input_type": "MessageTextInput",
+                "name": "match_text",
+                "display_name": "Match Text",
+                "value": "0",
+                "show": true
+              },
+              "case_sensitive": {
+                "_input_type": "BoolInput",
+                "name": "case_sensitive",
+                "display_name": "Case Sensitive",
+                "value": false,
+                "show": true
+              }
+            },
+            "conditional_paths": ["true_result", "false_result"],
+            "metadata": { "module": "lfx.components.flow_controls.conditional_router.ConditionalRouterComponent" },
+            "lf_version": "1.9.0",
+            "icon": "split",
+            "field_order": ["input_text", "operator", "match_text", "case_sensitive"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "ParseJSONData-ALERT",
+        "type": "genericNode",
+        "position": { "x": 980, "y": 180 },
+        "data": {
+          "id": "ParseJSONData-ALERT",
+          "display_name": "Shape Alert Record",
+          "description": "Extract entity_id, score, matched_topics (sanction|pep|pf|terror) from the screen response using jq.",
+          "type": "ParseJSONData",
+          "node": {
+            "display_name": "Parse JSON",
+            "description": "Parse JSON data using a jq query.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "filtered_data", "display_name": "Filtered Data", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "input": {
+                "_input_type": "DataInput",
+                "name": "input",
+                "display_name": "Input",
+                "value": "",
+                "input_types": ["Data"],
+                "show": true
+              },
+              "query": {
+                "_input_type": "MessageTextInput",
+                "name": "query",
+                "display_name": "JQ Query",
+                "value": "{entity_id: .customer_id, score: .matches[0].score, topics: [.matches[].list_type] | unique, match_count: .hits}",
+                "info": "Extract structured alert fields from /screen response",
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.processing.parse_json_data.ParseJSONDataComponent" },
+            "lf_version": "1.9.0",
+            "icon": "braces",
+            "field_order": ["input", "query"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "StructuredOutput-NARRATIVE",
+        "type": "genericNode",
+        "position": { "x": 1280, "y": 180 },
+        "data": {
+          "id": "StructuredOutput-NARRATIVE",
+          "display_name": "AI Draft Narrative",
+          "description": "Calls the LLM (mirrors POST /api/ai/draft-narrative in app.py:2867) to produce a structured disposition narrative with schema {status, reason_code, narrative}.",
+          "type": "StructuredOutput",
+          "node": {
+            "display_name": "Structured Output",
+            "description": "Generate structured output from an LLM using a defined schema.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "structured_output", "display_name": "Structured Output", "types": ["Data"] },
+              { "name": "structured_output_dataframe", "display_name": "Structured Output DataFrame", "types": ["DataFrame"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "llm": {
+                "_input_type": "HandleInput",
+                "name": "llm",
+                "display_name": "Language Model",
+                "input_types": ["LanguageModel"],
+                "show": true
+              },
+              "input_value": {
+                "_input_type": "MessageTextInput",
+                "name": "input_value",
+                "display_name": "Input Message",
+                "value": "",
+                "input_types": ["Message", "Data"],
+                "show": true
+              },
+              "schema_name": {
+                "_input_type": "MessageTextInput",
+                "name": "schema_name",
+                "display_name": "Schema Name",
+                "value": "DispositionNarrative",
+                "show": true
+              },
+              "output_schema": {
+                "_input_type": "TableInput",
+                "name": "output_schema",
+                "display_name": "Output Schema",
+                "value": [
+                  {"name": "status", "description": "Proposed disposition: true_positive | false_positive | escalated", "type": "str", "multiple": false},
+                  {"name": "reason_code", "description": "Short reason code, e.g. NAME_MATCH_HIGH_CONFIDENCE", "type": "str", "multiple": false},
+                  {"name": "narrative", "description": "Full plain-English explanation for the MLRO file", "type": "str", "multiple": false}
+                ],
+                "show": true
+              },
+              "system_prompt": {
+                "_input_type": "MultilineInput",
+                "name": "system_prompt",
+                "display_name": "Format Instructions",
+                "value": "You are an AML compliance officer drafting a disposition narrative for UAE CBUAE/FATF standards. Given the screening matches, produce a concise, factual narrative suitable for the MLRO file.",
+                "show": true,
+                "advanced": true
+              }
+            },
+            "metadata": { "module": "lfx.components.llm_operations.structured_output.StructuredOutputComponent" },
+            "lf_version": "1.9.0",
+            "icon": "ListChecks",
+            "field_order": ["llm", "input_value", "schema_name", "output_schema", "system_prompt"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "Notify-PROPOSE",
+        "type": "genericNode",
+        "position": { "x": 1580, "y": 180 },
+        "data": {
+          "id": "Notify-PROPOSE",
+          "display_name": "Notify: Awaiting Propose",
+          "description": "Parks the alert + AI draft narrative under context key 'alert_{alert_id}_propose' for operator 1 to pick up.",
+          "type": "Notify",
+          "node": {
+            "display_name": "Notify",
+            "description": "Store data under a context key for a paired Listen component to retrieve.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "output", "display_name": "JSON", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "context_key": {
+                "_input_type": "MessageTextInput",
+                "name": "context_key",
+                "display_name": "Context Key",
+                "value": "alert_{entity_id}_propose",
+                "info": "Unique key per alert. Use entity_id from ParseJSON output.",
+                "show": true
+              },
+              "input_data": {
+                "_input_type": "DataInput",
+                "name": "input_data",
+                "display_name": "Input Data",
+                "input_types": ["Data"],
+                "show": true
+              },
+              "append": {
+                "_input_type": "BoolInput",
+                "name": "append",
+                "display_name": "Append",
+                "value": false,
+                "show": true,
+                "advanced": true
+              }
+            },
+            "metadata": { "module": "lfx.components.flow_controls.notify.NotifyComponent" },
+            "lf_version": "1.9.0",
+            "icon": "Bell",
+            "field_order": ["context_key", "input_data", "append"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "Listen-PROPOSE",
+        "type": "genericNode",
+        "position": { "x": 1580, "y": 420 },
+        "data": {
+          "id": "Listen-PROPOSE",
+          "display_name": "Listen: Operator 1 Proposes",
+          "description": "Blocks until operator 1 POSTs their disposition proposal. In production this is cases/review.py:propose_disposition(). Paired with Notify-PROPOSE.",
+          "type": "Listen",
+          "node": {
+            "display_name": "Listen",
+            "description": "Wait for data stored under a context key by a paired Notify component.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "data", "display_name": "JSON", "types": ["Data"], "cache": false }
+            ],
+            "template": {
+              "_type": "Component",
+              "context_key": {
+                "_input_type": "StrInput",
+                "name": "context_key",
+                "display_name": "Context Key",
+                "value": "alert_{entity_id}_propose",
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.flow_controls.listen.ListenComponent" },
+            "lf_version": "1.9.0",
+            "icon": "ear",
+            "field_order": ["context_key"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "ConditionalRouter-SINGLEOP",
+        "type": "genericNode",
+        "position": { "x": 1880, "y": 420 },
+        "data": {
+          "id": "ConditionalRouter-SINGLEOP",
+          "display_name": "Single-Operator Mode?",
+          "description": "Checks AMLKIT_SINGLE_OPERATOR_MODE env var. True → skip second gate. False → require confirm from a different operator.",
+          "type": "ConditionalRouter",
+          "node": {
+            "display_name": "If-Else",
+            "description": "Routes flow based on a text comparison condition.",
+            "base_classes": ["Message"],
+            "outputs": [
+              { "name": "true_result", "display_name": "Single-Op (bypass)", "types": ["Message"], "group_outputs": true },
+              { "name": "false_result", "display_name": "Four-Eyes (require confirm)", "types": ["Message"], "group_outputs": true }
+            ],
+            "template": {
+              "_type": "Component",
+              "input_text": {
+                "_input_type": "MessageTextInput",
+                "name": "input_text",
+                "display_name": "Text Input",
+                "value": "{AMLKIT_SINGLE_OPERATOR_MODE}",
+                "info": "Set via Langflow Global Variable or env injection",
+                "show": true
+              },
+              "operator": {
+                "_input_type": "DropdownInput",
+                "name": "operator",
+                "display_name": "Operator",
+                "value": "equals",
+                "options": ["equals", "not equals", "contains"],
+                "show": true
+              },
+              "match_text": {
+                "_input_type": "MessageTextInput",
+                "name": "match_text",
+                "display_name": "Match Text",
+                "value": "1",
+                "show": true
+              }
+            },
+            "conditional_paths": ["true_result", "false_result"],
+            "metadata": { "module": "lfx.components.flow_controls.conditional_router.ConditionalRouterComponent" },
+            "lf_version": "1.9.0",
+            "icon": "split",
+            "field_order": ["input_text", "operator", "match_text"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "Notify-CONFIRM",
+        "type": "genericNode",
+        "position": { "x": 2180, "y": 550 },
+        "data": {
+          "id": "Notify-CONFIRM",
+          "display_name": "Notify: Awaiting Confirm",
+          "description": "Parks the proposed disposition under 'alert_{alert_id}_confirm' for a second, different operator. Implements the four-eyes gate from cases/review.py:confirm_disposition().",
+          "type": "Notify",
+          "node": {
+            "display_name": "Notify",
+            "description": "Store data under a context key for a paired Listen component to retrieve.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "output", "display_name": "JSON", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "context_key": {
+                "_input_type": "MessageTextInput",
+                "name": "context_key",
+                "display_name": "Context Key",
+                "value": "alert_{entity_id}_confirm",
+                "show": true
+              },
+              "input_data": {
+                "_input_type": "DataInput",
+                "name": "input_data",
+                "display_name": "Input Data",
+                "input_types": ["Data"],
+                "show": true
+              },
+              "append": {
+                "_input_type": "BoolInput",
+                "name": "append",
+                "display_name": "Append",
+                "value": false,
+                "show": true,
+                "advanced": true
+              }
+            },
+            "metadata": { "module": "lfx.components.flow_controls.notify.NotifyComponent" },
+            "lf_version": "1.9.0",
+            "icon": "Bell",
+            "field_order": ["context_key", "input_data", "append"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "Listen-CONFIRM",
+        "type": "genericNode",
+        "position": { "x": 2180, "y": 750 },
+        "data": {
+          "id": "Listen-CONFIRM",
+          "display_name": "Listen: Operator 2 Confirms",
+          "description": "Blocks until a second operator (≠ operator 1) POSTs their confirmation. Enforces two-person rule from CBUAE AML/CFT guidelines.",
+          "type": "Listen",
+          "node": {
+            "display_name": "Listen",
+            "description": "Wait for data stored under a context key by a paired Notify component.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "data", "display_name": "JSON", "types": ["Data"], "cache": false }
+            ],
+            "template": {
+              "_type": "Component",
+              "context_key": {
+                "_input_type": "StrInput",
+                "name": "context_key",
+                "display_name": "Context Key",
+                "value": "alert_{entity_id}_confirm",
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.flow_controls.listen.ListenComponent" },
+            "lf_version": "1.9.0",
+            "icon": "ear",
+            "field_order": ["context_key"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "ConditionalRouter-DISPOSITION",
+        "type": "genericNode",
+        "position": { "x": 2480, "y": 600 },
+        "data": {
+          "id": "ConditionalRouter-DISPOSITION",
+          "display_name": "Route by Disposition",
+          "description": "Branches on confirmed disposition status: true_positive+sanction/pf/terror → Sub Flow freeze; escalated → Run Flow goaml-export; false_positive → ChatOutput cleared.",
+          "type": "ConditionalRouter",
+          "node": {
+            "display_name": "If-Else",
+            "description": "Routes flow based on a text comparison condition.",
+            "base_classes": ["Message"],
+            "outputs": [
+              { "name": "true_result", "display_name": "True Positive (Freeze/STR)", "types": ["Message"], "group_outputs": true },
+              { "name": "false_result", "display_name": "False Positive / Escalated", "types": ["Message"], "group_outputs": true }
+            ],
+            "template": {
+              "_type": "Component",
+              "input_text": {
+                "_input_type": "MessageTextInput",
+                "name": "input_text",
+                "display_name": "Text Input",
+                "value": "",
+                "info": "Connected from Listen-CONFIRM output — jq '.status'",
+                "show": true
+              },
+              "operator": {
+                "_input_type": "DropdownInput",
+                "name": "operator",
+                "display_name": "Operator",
+                "value": "equals",
+                "options": ["equals", "not equals", "contains"],
+                "show": true
+              },
+              "match_text": {
+                "_input_type": "MessageTextInput",
+                "name": "match_text",
+                "display_name": "Match Text",
+                "value": "true_positive",
+                "show": true
+              }
+            },
+            "conditional_paths": ["true_result", "false_result"],
+            "metadata": { "module": "lfx.components.flow_controls.conditional_router.ConditionalRouterComponent" },
+            "lf_version": "1.9.0",
+            "icon": "split",
+            "field_order": ["input_text", "operator", "match_text"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "SubFlow-FREEZE",
+        "type": "genericNode",
+        "position": { "x": 2780, "y": 460 },
+        "data": {
+          "id": "SubFlow-FREEZE",
+          "display_name": "Sub Flow: Freeze & FFR",
+          "description": "Runs the freeze execution → FFR draft → resolve flow. Each stage has its own Listen/Notify gate (MLRO + LEA confirmation). Calls POST /cases/{id}/freeze, /freeze/{id}/report, /freeze/{id}/resolve.",
+          "type": "SubFlow",
+          "node": {
+            "display_name": "Sub Flow",
+            "description": "Run another Langflow flow as a sub-flow.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "flow_outputs", "display_name": "Flow Outputs", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "flow_name": {
+                "_input_type": "DropdownInput",
+                "name": "flow_name",
+                "display_name": "Flow Name",
+                "value": "amlkit-freeze-ffr",
+                "info": "Select the freeze/FFR sub-flow from your Langflow workspace",
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.flow_controls.sub_flow.SubFlowComponent" },
+            "lf_version": "1.9.0",
+            "icon": "Layers",
+            "field_order": ["flow_name"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "RunFlow-GOAML",
+        "type": "genericNode",
+        "position": { "x": 2780, "y": 700 },
+        "data": {
+          "id": "RunFlow-GOAML",
+          "display_name": "Run Flow: goAML Export",
+          "description": "For escalated cases: calls GET /reports/{id}/export, converts to goAML 5.0 XML (reporting/goaml.py), handles the rejected→draft loop (C5 from review). Exposes the flow as a callable tool.",
+          "type": "RunFlow",
+          "node": {
+            "display_name": "Run Flow",
+            "description": "Run another Langflow flow and return its outputs.",
+            "base_classes": ["Data"],
+            "outputs": [
+              { "name": "run_outputs", "display_name": "Run Outputs", "types": ["Data"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "flow_name": {
+                "_input_type": "DropdownInput",
+                "name": "flow_name",
+                "display_name": "Flow Name",
+                "value": "amlkit-goaml-export",
+                "show": true
+              },
+              "input_value": {
+                "_input_type": "MessageTextInput",
+                "name": "input_value",
+                "display_name": "Input",
+                "value": "",
+                "input_types": ["Data", "Message"],
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.flow_controls.run_flow.RunFlowComponent" },
+            "lf_version": "1.9.0",
+            "icon": "Play",
+            "field_order": ["flow_name", "input_value"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "ChatOutput-CLEARED",
+        "type": "genericNode",
+        "position": { "x": 980, "y": 500 },
+        "data": {
+          "id": "ChatOutput-CLEARED",
+          "display_name": "Cleared — No Matches",
+          "description": "Terminal output when screening returns 0 hits. Returns {status: cleared, entity_id} to the calling service.",
+          "type": "ChatOutput",
+          "node": {
+            "display_name": "Chat Output",
+            "description": "Display a chat message in the Playground.",
+            "base_classes": ["Message"],
+            "outputs": [
+              { "name": "message", "display_name": "Message", "types": ["Message"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "input_value": {
+                "_input_type": "MessageTextInput",
+                "name": "input_value",
+                "display_name": "Text",
+                "value": "✅ Cleared — no sanctions/PEP/PF matches found.",
+                "input_types": ["Data", "JSON", "DataFrame", "Table", "Message"],
+                "show": true
+              },
+              "sender": {
+                "_input_type": "DropdownInput",
+                "name": "sender",
+                "display_name": "Sender Type",
+                "value": "Machine",
+                "options": ["Machine", "User"],
+                "show": true,
+                "advanced": true
+              }
+            },
+            "metadata": { "module": "lfx.components.input_output.chat_output.ChatOutputComponent" },
+            "lf_version": "1.9.0",
+            "icon": "MessageSquare",
+            "field_order": ["input_value", "sender"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      },
+      {
+        "id": "ChatOutput-FP",
+        "type": "genericNode",
+        "position": { "x": 2780, "y": 900 },
+        "data": {
+          "id": "ChatOutput-FP",
+          "display_name": "False Positive — Closed",
+          "description": "Terminal output for false_positive disposition. Audit trail written by cases/manager.py:disposition_alert().",
+          "type": "ChatOutput",
+          "node": {
+            "display_name": "Chat Output",
+            "description": "Display a chat message in the Playground.",
+            "base_classes": ["Message"],
+            "outputs": [
+              { "name": "message", "display_name": "Message", "types": ["Message"] }
+            ],
+            "template": {
+              "_type": "Component",
+              "input_value": {
+                "_input_type": "MessageTextInput",
+                "name": "input_value",
+                "display_name": "Text",
+                "value": "",
+                "info": "Connected from Listen-CONFIRM — includes disposition narrative",
+                "input_types": ["Data", "JSON", "DataFrame", "Table", "Message"],
+                "show": true
+              }
+            },
+            "metadata": { "module": "lfx.components.input_output.chat_output.ChatOutputComponent" },
+            "lf_version": "1.9.0",
+            "icon": "MessageSquare",
+            "field_order": ["input_value"],
+            "frozen": false,
+            "beta": false,
+            "legacy": false,
+            "minimized": false,
+            "conditional_paths": [],
+            "custom_fields": {},
+            "output_types": []
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-Webhook-AMLK1-APIRequest-SCREEN",
+        "source": "Webhook-AMLK1",
+        "sourceHandle": "{\"dataType\":\"Webhook\",\"id\":\"Webhook-AMLK1\",\"name\":\"output_data\",\"output_types\":[\"Data\"]}",
+        "target": "APIRequest-SCREEN",
+        "targetHandle": "{\"fieldName\":\"body\",\"id\":\"APIRequest-SCREEN\",\"inputTypes\":[\"Data\",\"Message\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "Webhook", "id": "Webhook-AMLK1", "name": "output_data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "body", "id": "APIRequest-SCREEN", "inputTypes": ["Data", "Message"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-APIRequest-SCREEN-ConditionalRouter-HITS",
+        "source": "APIRequest-SCREEN",
+        "sourceHandle": "{\"dataType\":\"APIRequest\",\"id\":\"APIRequest-SCREEN\",\"name\":\"data\",\"output_types\":[\"Data\"]}",
+        "target": "ConditionalRouter-HITS",
+        "targetHandle": "{\"fieldName\":\"input_text\",\"id\":\"ConditionalRouter-HITS\",\"inputTypes\":[\"Message\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "APIRequest", "id": "APIRequest-SCREEN", "name": "data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "input_text", "id": "ConditionalRouter-HITS", "inputTypes": ["Message"], "type": "str" }
+        }
+      },
+      {
+        "id": "e-ConditionalRouter-HITS-true-ParseJSONData-ALERT",
+        "source": "ConditionalRouter-HITS",
+        "sourceHandle": "{\"dataType\":\"ConditionalRouter\",\"id\":\"ConditionalRouter-HITS\",\"name\":\"true_result\",\"output_types\":[\"Message\"]}",
+        "target": "ParseJSONData-ALERT",
+        "targetHandle": "{\"fieldName\":\"input\",\"id\":\"ParseJSONData-ALERT\",\"inputTypes\":[\"Data\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ConditionalRouter", "id": "ConditionalRouter-HITS", "name": "true_result", "output_types": ["Message"] },
+          "targetHandle": { "fieldName": "input", "id": "ParseJSONData-ALERT", "inputTypes": ["Data"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-ConditionalRouter-HITS-false-ChatOutput-CLEARED",
+        "source": "ConditionalRouter-HITS",
+        "sourceHandle": "{\"dataType\":\"ConditionalRouter\",\"id\":\"ConditionalRouter-HITS\",\"name\":\"false_result\",\"output_types\":[\"Message\"]}",
+        "target": "ChatOutput-CLEARED",
+        "targetHandle": "{\"fieldName\":\"input_value\",\"id\":\"ChatOutput-CLEARED\",\"inputTypes\":[\"Data\",\"JSON\",\"DataFrame\",\"Table\",\"Message\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ConditionalRouter", "id": "ConditionalRouter-HITS", "name": "false_result", "output_types": ["Message"] },
+          "targetHandle": { "fieldName": "input_value", "id": "ChatOutput-CLEARED", "inputTypes": ["Data", "JSON", "DataFrame", "Table", "Message"], "type": "str" }
+        }
+      },
+      {
+        "id": "e-ParseJSONData-ALERT-StructuredOutput-NARRATIVE",
+        "source": "ParseJSONData-ALERT",
+        "sourceHandle": "{\"dataType\":\"ParseJSONData\",\"id\":\"ParseJSONData-ALERT\",\"name\":\"filtered_data\",\"output_types\":[\"Data\"]}",
+        "target": "StructuredOutput-NARRATIVE",
+        "targetHandle": "{\"fieldName\":\"input_value\",\"id\":\"StructuredOutput-NARRATIVE\",\"inputTypes\":[\"Message\",\"Data\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ParseJSONData", "id": "ParseJSONData-ALERT", "name": "filtered_data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "input_value", "id": "StructuredOutput-NARRATIVE", "inputTypes": ["Message", "Data"], "type": "str" }
+        }
+      },
+      {
+        "id": "e-StructuredOutput-NARRATIVE-Notify-PROPOSE",
+        "source": "StructuredOutput-NARRATIVE",
+        "sourceHandle": "{\"dataType\":\"StructuredOutput\",\"id\":\"StructuredOutput-NARRATIVE\",\"name\":\"structured_output\",\"output_types\":[\"Data\"]}",
+        "target": "Notify-PROPOSE",
+        "targetHandle": "{\"fieldName\":\"input_data\",\"id\":\"Notify-PROPOSE\",\"inputTypes\":[\"Data\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "StructuredOutput", "id": "StructuredOutput-NARRATIVE", "name": "structured_output", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "input_data", "id": "Notify-PROPOSE", "inputTypes": ["Data"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-Listen-PROPOSE-ConditionalRouter-SINGLEOP",
+        "source": "Listen-PROPOSE",
+        "sourceHandle": "{\"dataType\":\"Listen\",\"id\":\"Listen-PROPOSE\",\"name\":\"data\",\"output_types\":[\"Data\"]}",
+        "target": "ConditionalRouter-SINGLEOP",
+        "targetHandle": "{\"fieldName\":\"input_text\",\"id\":\"ConditionalRouter-SINGLEOP\",\"inputTypes\":[\"Message\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "Listen", "id": "Listen-PROPOSE", "name": "data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "input_text", "id": "ConditionalRouter-SINGLEOP", "inputTypes": ["Message"], "type": "str" }
+        }
+      },
+      {
+        "id": "e-ConditionalRouter-SINGLEOP-true-ConditionalRouter-DISPOSITION",
+        "source": "ConditionalRouter-SINGLEOP",
+        "sourceHandle": "{\"dataType\":\"ConditionalRouter\",\"id\":\"ConditionalRouter-SINGLEOP\",\"name\":\"true_result\",\"output_types\":[\"Message\"]}",
+        "target": "ConditionalRouter-DISPOSITION",
+        "targetHandle": "{\"fieldName\":\"input_text\",\"id\":\"ConditionalRouter-DISPOSITION\",\"inputTypes\":[\"Message\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ConditionalRouter", "id": "ConditionalRouter-SINGLEOP", "name": "true_result", "output_types": ["Message"] },
+          "targetHandle": { "fieldName": "input_text", "id": "ConditionalRouter-DISPOSITION", "inputTypes": ["Message"], "type": "str" }
+        }
+      },
+      {
+        "id": "e-ConditionalRouter-SINGLEOP-false-Notify-CONFIRM",
+        "source": "ConditionalRouter-SINGLEOP",
+        "sourceHandle": "{\"dataType\":\"ConditionalRouter\",\"id\":\"ConditionalRouter-SINGLEOP\",\"name\":\"false_result\",\"output_types\":[\"Message\"]}",
+        "target": "Notify-CONFIRM",
+        "targetHandle": "{\"fieldName\":\"input_data\",\"id\":\"Notify-CONFIRM\",\"inputTypes\":[\"Data\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ConditionalRouter", "id": "ConditionalRouter-SINGLEOP", "name": "false_result", "output_types": ["Message"] },
+          "targetHandle": { "fieldName": "input_data", "id": "Notify-CONFIRM", "inputTypes": ["Data"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-Listen-CONFIRM-ConditionalRouter-DISPOSITION",
+        "source": "Listen-CONFIRM",
+        "sourceHandle": "{\"dataType\":\"Listen\",\"id\":\"Listen-CONFIRM\",\"name\":\"data\",\"output_types\":[\"Data\"]}",
+        "target": "ConditionalRouter-DISPOSITION",
+        "targetHandle": "{\"fieldName\":\"input_text\",\"id\":\"ConditionalRouter-DISPOSITION\",\"inputTypes\":[\"Message\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "Listen", "id": "Listen-CONFIRM", "name": "data", "output_types": ["Data"] },
+          "targetHandle": { "fieldName": "input_text", "id": "ConditionalRouter-DISPOSITION", "inputTypes": ["Message"], "type": "str" }
+        }
+      },
+      {
+        "id": "e-ConditionalRouter-DISPOSITION-true-SubFlow-FREEZE",
+        "source": "ConditionalRouter-DISPOSITION",
+        "sourceHandle": "{\"dataType\":\"ConditionalRouter\",\"id\":\"ConditionalRouter-DISPOSITION\",\"name\":\"true_result\",\"output_types\":[\"Message\"]}",
+        "target": "SubFlow-FREEZE",
+        "targetHandle": "{\"fieldName\":\"input_value\",\"id\":\"SubFlow-FREEZE\",\"inputTypes\":[\"Data\",\"Message\"],\"type\":\"other\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ConditionalRouter", "id": "ConditionalRouter-DISPOSITION", "name": "true_result", "output_types": ["Message"] },
+          "targetHandle": { "fieldName": "input_value", "id": "SubFlow-FREEZE", "inputTypes": ["Data", "Message"], "type": "other" }
+        }
+      },
+      {
+        "id": "e-ConditionalRouter-DISPOSITION-false-RunFlow-GOAML",
+        "source": "ConditionalRouter-DISPOSITION",
+        "sourceHandle": "{\"dataType\":\"ConditionalRouter\",\"id\":\"ConditionalRouter-DISPOSITION\",\"name\":\"false_result\",\"output_types\":[\"Message\"]}",
+        "target": "RunFlow-GOAML",
+        "targetHandle": "{\"fieldName\":\"input_value\",\"id\":\"RunFlow-GOAML\",\"inputTypes\":[\"Data\",\"Message\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ConditionalRouter", "id": "ConditionalRouter-DISPOSITION", "name": "false_result", "output_types": ["Message"] },
+          "targetHandle": { "fieldName": "input_value", "id": "RunFlow-GOAML", "inputTypes": ["Data", "Message"], "type": "str" }
+        }
+      },
+      {
+        "id": "e-ConditionalRouter-DISPOSITION-false-ChatOutput-FP",
+        "source": "ConditionalRouter-DISPOSITION",
+        "sourceHandle": "{\"dataType\":\"ConditionalRouter\",\"id\":\"ConditionalRouter-DISPOSITION\",\"name\":\"false_result\",\"output_types\":[\"Message\"]}",
+        "target": "ChatOutput-FP",
+        "targetHandle": "{\"fieldName\":\"input_value\",\"id\":\"ChatOutput-FP\",\"inputTypes\":[\"Data\",\"JSON\",\"DataFrame\",\"Table\",\"Message\"],\"type\":\"str\"}",
+        "animated": false,
+        "className": "",
+        "selected": false,
+        "data": {
+          "sourceHandle": { "dataType": "ConditionalRouter", "id": "ConditionalRouter-DISPOSITION", "name": "false_result", "output_types": ["Message"] },
+          "targetHandle": { "fieldName": "input_value", "id": "ChatOutput-FP", "inputTypes": ["Data", "JSON", "DataFrame", "Table", "Message"], "type": "str" }
+        }
+      }
+    ],
+    "viewport": { "x": 0, "y": 0, "zoom": 0.7 }
+  }
+}

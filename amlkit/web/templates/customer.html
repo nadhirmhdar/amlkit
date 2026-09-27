@@ -2,7 +2,7 @@
 {% from "_macros.html" import name, score_breakdown, aliases, review_trail, disposition_form with context %}
 {% set nav = 'customers' %}
 {% set c = customer %}
-{% block title %}{{ c.full_name }} — amlkit{% endblock %}
+{% block title %}{{ c.full_name }} — groaml{% endblock %}
 {% block body %}
 
 <a href="/customers" class="back-link">&larr; Customers</a>
@@ -238,9 +238,9 @@
 <div class="mb-6">
   <div class="section-label">Transaction monitoring</div>
   <p class="muted small mt-0">
-    Cash transactions at or above AED {{ '{:,.0f}'.format(55000) }} are flagged
-    automatically, along with structuring, high-risk-country counterparties, and
-    unusual velocity.
+    Transactions at or above AED {{ '{:,.0f}'.format(55000) }} are flagged
+    automatically (cash as large cash, other methods as large value), along with
+    structuring, high-risk-country counterparties, and unusual velocity.
   </p>
   {% if transaction_alerts %}
     <div class="stack mb-4">

@@ -41,12 +41,48 @@ import logging
 import os
 import smtplib
 from email.message import EmailMessage
+from email.utils import formataddr, parseaddr
 
 logger = logging.getLogger("amlkit.mail")
 
 
 def app_base_url() -> str:
     return os.environ.get("AMLKIT_APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+DEFAULT_FROM = "no-reply@groaml.grovisor.ae"
+SENDER_NAME = "groaml by Grovisor"
+
+
+def sender_address(smtp_user: str) -> str:
+    """The From address: AMLKIT_SMTP_FROM, else the SMTP login when it is an
+    email address, else DEFAULT_FROM.
+
+    The login is only a fallback when it looks like a mailbox. Providers such
+    as SendGrid use a fixed login ("apikey") that is not an address, and
+    sending From: apikey gets the mail rejected or spam-foldered.
+    """
+    configured = os.environ.get("AMLKIT_SMTP_FROM", "").strip()
+    if configured:
+        return configured
+    if "@" in smtp_user:
+        return smtp_user
+    return DEFAULT_FROM
+
+
+def from_header(address: str) -> str:
+    """The From header: address plus the SENDER_NAME display name.
+
+    Without a display name, mail clients label the message with whatever
+    name they already associate with the address (a contact entry, or the
+    Workspace profile behind noreply@...), so recipients saw a person's name
+    instead of the product. An AMLKIT_SMTP_FROM that already carries its own
+    display name ("Name <addr>") is left as configured.
+    """
+    name, addr = parseaddr(address)
+    if name:
+        return address
+    return formataddr((SENDER_NAME, addr or address))
 
 
 def is_configured() -> bool:
@@ -91,16 +127,16 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
     port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
     user = os.environ.get("AMLKIT_SMTP_USER", "")
     password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
-    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@amlkit.local")
+    from_addr = sender_address(user)
     use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
 
     msg = EmailMessage()
-    msg["Subject"] = "Verify your amlkit account"
-    msg["From"] = from_addr
+    msg["Subject"] = "Verify your groaml account"
+    msg["From"] = from_header(from_addr)
     msg["To"] = to_email
     msg.set_content(
         f"Hi {name},\n\n"
-        "Confirm this email address to activate your amlkit account:\n\n"
+        "Confirm this email address to activate your groaml account:\n\n"
         f"  {url}\n\n"
         "This link expires in 3 days. If you didn't request this, ignore this email.\n"
     )
@@ -114,19 +150,16 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
             smtp.send_message(msg)
         return SENT
     except (OSError, smtplib.SMTPException):
-        # Logged with the traceback and printed to the server console, where
-        # an operator of the deployment can see it. Deliberately NOT returned
-        # to the caller for display: mail is configured here, so whoever
-        # submitted the form has not proved they control the mailbox, and the
-        # link on the console is for the deployment's own operator to use or
-        # ignore -- not for the browser that just posted the form.
-        logger.exception("Failed to send verification email to %s", to_email)
+        # stdout is shipped to Cloud Logging without passing through the
+        # redacting formatter, so this notice deliberately omits the recipient
+        # and the live verification link (its token activates the account).
+        # Recovery is the resend link once the mail provider is fixed.
+        logger.exception("Failed to send verification email")
         print(
             "\n" + "=" * 72 +
-            f"\namlkit: SMTP send FAILED for {to_email} -- mail IS configured, so\n"
-            "the link is NOT being shown to the registering user. Fix the mail\n"
-            "provider, then have them use the resend link.\n\n"
-            f"  {url}\n" +
+            f"\namlkit: SMTP send FAILED for a verification email -- mail IS configured, so\n"
+            "the link is NOT being shown. Fix the mail provider, then have the user use\n"
+            "the resend link.\n" +
             "=" * 72 + "\n"
         )
         return FAILED
@@ -155,7 +188,7 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
     port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
     user = os.environ.get("AMLKIT_SMTP_USER", "")
     password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
-    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@amlkit.local")
+    from_addr = sender_address(user)
     use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
 
     dataset_list = "\n".join(
@@ -164,8 +197,8 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
     )
 
     msg = EmailMessage()
-    msg["Subject"] = f"⚠️  amlkit: {len(datasets)} sanctions list(s) stale"
-    msg["From"] = from_addr
+    msg["Subject"] = f"⚠️  groaml: {len(datasets)} sanctions list(s) stale"
+    msg["From"] = from_header(from_addr)
     msg["To"] = ", ".join(to_emails)
     msg.set_content(
         f"ALERT: {len(datasets)} mandatory sanctions list(s) have exceeded the 24-hour refresh requirement.\n\n"
@@ -182,7 +215,7 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
             if user:
                 smtp.login(user, password)
             smtp.send_message(msg)
-        logger.info("Staleness alert sent to %d recipients", len(to_emails))
+        logger.info("Staleness alert sent to %d MLRO recipients", len(to_emails))
         return SENT
     except (OSError, smtplib.SMTPException):
         logger.exception("Failed to send staleness alert email")
@@ -244,12 +277,12 @@ def send_freeze_obligation_alert(
     port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
     user = os.environ.get("AMLKIT_SMTP_USER", "")
     password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
-    from_addr = os.environ.get("AMLKIT_SMTP_FROM", user or "no-reply@amlkit.local")
+    from_addr = sender_address(user)
     use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
 
     msg = EmailMessage()
     msg["Subject"] = f"[URGENT] TFS Freeze Obligation - {customer_reference}"
-    msg["From"] = from_addr
+    msg["From"] = from_header(from_addr)
     msg["To"] = to_email
     msg.set_content(
         f"URGENT: New TFS freeze obligation identified\n\n"
@@ -274,9 +307,10 @@ def send_freeze_obligation_alert(
             if user:
                 smtp.login(user, password)
             smtp.send_message(msg)
-        logger.info("Freeze obligation alert sent to %s for obligation %d",
-                    to_email, freeze_obligation_id)
+        logger.info("Freeze obligation alert sent for obligation %d",
+                    freeze_obligation_id)
         return SENT
     except (OSError, smtplib.SMTPException):
-        logger.exception("Failed to send freeze obligation alert to %s", to_email)
+        logger.exception("Failed to send freeze obligation alert for obligation %d",
+                         freeze_obligation_id)
         return FAILED
