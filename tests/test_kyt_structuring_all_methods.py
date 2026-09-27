@@ -57,14 +57,16 @@ def test_structuring_triggers_for_wire_transfers():
             actor="test-user",
         )
 
-        # First 3 transfers should NOT trigger structuring (under total threshold yet)
-        if i < 3:
-            # No structuring alert yet
-            pass
+        rule_keys = {r.rule_key for r in alerts}
+        if i < 2:
+            # Running total (20k, 40k) still under the 55k threshold
+            assert "structuring" not in rule_keys
         else:
-            # 4th transfer: total = 80,000 AED (exceeds 55,000 threshold)
-            # Structuring rule should fire
-            assert len(alerts) > 0, f"Expected structuring alert on 4th wire transfer (total={4*per_transfer} AED > {threshold} AED)"
+            # 3rd transfer brings the total to 60k, 4th to 80k
+            assert "structuring" in rule_keys, (
+                f"Expected structuring alert on wire transfer {i + 1} "
+                f"(total={(i + 1) * per_transfer} AED >= {threshold} AED)"
+            )
 
     # Verify the 4th transaction triggered structuring
     last_txn = conn.execute(
@@ -77,6 +79,7 @@ def test_structuring_triggers_for_wire_transfers():
         org_id=org_id,
         customer_id=customer_id,
         transaction_id=last_txn["id"],
+        direction="outbound",
         method="wire",
         amount_aed=per_transfer,
         counterparty_country="AE",
@@ -139,7 +142,9 @@ def test_structuring_still_works_for_cash():
 
         if i == 2:
             # 3rd cash transaction: total = 75,000 AED (exceeds 55,000)
-            assert len(alerts) > 0, "Expected structuring alert on 3rd cash transaction"
+            assert any(r.rule_key == "structuring" for r in alerts), (
+                "Expected structuring alert on 3rd cash transaction"
+            )
 
     # Verify existing cash structuring still works
     last_txn = conn.execute(
@@ -152,6 +157,7 @@ def test_structuring_still_works_for_cash():
         org_id=org_id,
         customer_id=customer_id,
         transaction_id=last_txn["id"],
+        direction="inbound",
         method="cash",
         amount_aed=per_transfer,
         counterparty_country="AE",
