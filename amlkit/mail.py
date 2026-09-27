@@ -41,6 +41,7 @@ import logging
 import os
 import smtplib
 from email.message import EmailMessage
+from email.utils import formataddr, parseaddr
 
 logger = logging.getLogger("amlkit.mail")
 
@@ -50,6 +51,7 @@ def app_base_url() -> str:
 
 
 DEFAULT_FROM = "no-reply@groaml.grovisor.ae"
+SENDER_NAME = "groaml by Grovisor"
 
 
 def sender_address(smtp_user: str) -> str:
@@ -66,6 +68,21 @@ def sender_address(smtp_user: str) -> str:
     if "@" in smtp_user:
         return smtp_user
     return DEFAULT_FROM
+
+
+def from_header(address: str) -> str:
+    """The From header: address plus the SENDER_NAME display name.
+
+    Without a display name, mail clients label the message with whatever
+    name they already associate with the address (a contact entry, or the
+    Workspace profile behind noreply@...), so recipients saw a person's name
+    instead of the product. An AMLKIT_SMTP_FROM that already carries its own
+    display name ("Name <addr>") is left as configured.
+    """
+    name, addr = parseaddr(address)
+    if name:
+        return address
+    return formataddr((SENDER_NAME, addr or address))
 
 
 def is_configured() -> bool:
@@ -115,7 +132,7 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
 
     msg = EmailMessage()
     msg["Subject"] = "Verify your groaml account"
-    msg["From"] = from_addr
+    msg["From"] = from_header(from_addr)
     msg["To"] = to_email
     msg.set_content(
         f"Hi {name},\n\n"
@@ -181,7 +198,7 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
 
     msg = EmailMessage()
     msg["Subject"] = f"⚠️  groaml: {len(datasets)} sanctions list(s) stale"
-    msg["From"] = from_addr
+    msg["From"] = from_header(from_addr)
     msg["To"] = ", ".join(to_emails)
     msg.set_content(
         f"ALERT: {len(datasets)} mandatory sanctions list(s) have exceeded the 24-hour refresh requirement.\n\n"
@@ -265,7 +282,7 @@ def send_freeze_obligation_alert(
 
     msg = EmailMessage()
     msg["Subject"] = f"[URGENT] TFS Freeze Obligation - {customer_reference}"
-    msg["From"] = from_addr
+    msg["From"] = from_header(from_addr)
     msg["To"] = to_email
     msg.set_content(
         f"URGENT: New TFS freeze obligation identified\n\n"
