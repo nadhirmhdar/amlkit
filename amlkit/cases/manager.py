@@ -761,8 +761,8 @@ def record_transaction(
 
         triggered = evaluate_transaction(
             conn, org_id=org_id, customer_id=customer_id, transaction_id=transaction_id,
-            method=method, amount_aed=amount_aed, counterparty_country=counterparty_country,
-            occurred_at=occurred_at,
+            direction=direction, method=method, amount_aed=amount_aed,
+            counterparty_country=counterparty_country, occurred_at=occurred_at,
         )
         for rule in triggered:
             acur = conn.execute(
