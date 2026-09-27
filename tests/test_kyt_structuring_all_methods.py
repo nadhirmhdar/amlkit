@@ -1,168 +1,94 @@
-"""Test structuring rule applies to ALL payment methods, not just cash.
+"""Structuring: which channels aggregate, and one open alert per pattern.
 
-Regression test for issue #257 (board p93): structuring rule was blind to
-wire and virtual-asset transfers, only aggregating cash. This test verifies
-that 4 sub-threshold wire transfers within the structuring window trigger
-the structuring alert.
-
-This test must FAIL before the fix and PASS after.
+Issue #257 asked for structuring beyond cash. Aggregating every method made
+routine bank payments look like structuring: 20 daily AED 30,000 inbound
+wires (rent, instalments) raised 19 high-severity alerts. Structuring now
+aggregates only channels with no bank/card intermediary keeping its own record
+(kyt.STRUCTURING_METHODS: cash, crypto, other), and a customer with an open
+structuring alert is not re-alerted on every further transaction.
 """
+from __future__ import annotations
 
-import pytest
-from amlkit.db import connect, utcnow, upsert_dataset
-from amlkit.screening.kyt import evaluate_transaction, LARGE_CASH_THRESHOLD_AED
-from amlkit.cases.manager import record_transaction, onboard
 from datetime import datetime, timedelta, timezone
 
+import pytest
 
-def test_structuring_triggers_for_wire_transfers():
-    """Four sub-threshold wire transfers within structuring window must trigger alert."""
-    conn = connect(":memory:")
+from amlkit.cases.manager import onboard, record_transaction
+from amlkit.screening.kyt import STRUCTURING_METHODS
 
-    # Create fresh mandatory dataset so onboard() passes staleness guard
-    ds = upsert_dataset(conn, "test_sanctions", "Test Sanctions List", is_mandatory=True)
-    now = utcnow()
-    conn.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
-    conn.commit()
+BASE = datetime(2026, 9, 1, 9, tzinfo=timezone.utc)
 
-    # Register org
-    org_id = conn.execute(
-        """INSERT INTO organizations (name, slug, status, created_at) VALUES (?, ?, ?, ?) RETURNING id""",
-        ("Test Org", "test-org", "active", utcnow())
-    ).fetchone()["id"]
 
-    # Onboard customer
-    result = onboard(conn, org_id=org_id, reference="CUST-001", full_name="John Doe")
-    customer_id = result.customer_id
-    conn.commit()
+@pytest.fixture()
+def customer_id(conn, org_id) -> int:
+    return onboard(conn, org_id=org_id, reference="C-STR-1", full_name="Gulf Supplies Trading").customer_id
 
-    # Record 4 wire transfers, each 20,000 AED (sub-threshold), all within 7 days
-    base_time = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
-    threshold = LARGE_CASH_THRESHOLD_AED  # 55,000 AED
-    per_transfer = 20_000.0  # Sub-threshold
 
-    for i in range(4):
-        occurred_at = (base_time + timedelta(days=i)).isoformat()
-        transaction_id, alerts = record_transaction(
-            conn,
-            org_id=org_id,
-            customer_id=customer_id,
-            direction="outbound",
-            method="wire",  # Wire transfer, not cash
-            amount=per_transfer,
-            currency="AED",
-            counterparty_name="Beneficiary Corp",
-            counterparty_country="AE",
-            occurred_at=occurred_at,
-            actor="test-user",
-        )
+def _record(conn, org_id, cid, *, day, method, amount=30000.0, direction="inbound"):
+    _, rules = record_transaction(
+        conn, cid, org_id, direction=direction, method=method, amount=amount,
+        occurred_at=(BASE + timedelta(days=day)).isoformat(), actor="tester",
+    )
+    return {r.rule_key for r in rules}
 
-        rule_keys = {r.rule_key for r in alerts}
-        if i < 2:
-            # Running total (20k, 40k) still under the 55k threshold
-            assert "structuring" not in rule_keys
-        else:
-            # 3rd transfer brings the total to 60k, 4th to 80k
-            assert "structuring" in rule_keys, (
-                f"Expected structuring alert on wire transfer {i + 1} "
-                f"(total={(i + 1) * per_transfer} AED >= {threshold} AED)"
-            )
 
-    # Verify the 4th transaction triggered structuring
-    last_txn = conn.execute(
-        """SELECT id FROM transactions WHERE customer_id=? ORDER BY occurred_at DESC LIMIT 1""",
-        (customer_id,)
-    ).fetchone()
+def _structuring_alerts(conn, cid) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM transaction_alerts WHERE customer_id=? AND rule_key='structuring'",
+        (cid,),
+    ).fetchone()[0]
 
-    rules = evaluate_transaction(
-        conn,
-        org_id=org_id,
-        customer_id=customer_id,
-        transaction_id=last_txn["id"],
-        direction="outbound",
-        method="wire",
-        amount_aed=per_transfer,
-        counterparty_country="AE",
-        occurred_at=(base_time + timedelta(days=3)).isoformat(),
+
+@pytest.mark.parametrize("method", ["wire", "cheque", "card"])
+def test_routine_bank_payments_never_structure(conn, org_id, customer_id, method):
+    for day in range(20):
+        _record(conn, org_id, customer_id, day=day, method=method)
+    assert _structuring_alerts(conn, customer_id) == 0
+
+
+def test_large_single_wire_still_flagged_as_large_value(conn, org_id, customer_id):
+    keys = _record(conn, org_id, customer_id, day=0, method="wire", amount=60000.0)
+    assert "large_value" in keys
+    assert "structuring" not in keys
+
+
+@pytest.mark.parametrize("method", sorted(STRUCTURING_METHODS))
+def test_split_below_threshold_structures(conn, org_id, customer_id, method):
+    assert "structuring" not in _record(conn, org_id, customer_id, day=0, method=method)
+    assert "structuring" in _record(conn, org_id, customer_id, day=1, method=method)
+
+
+def test_cash_split_with_crypto_combines(conn, org_id, customer_id):
+    _record(conn, org_id, customer_id, day=0, method="cash")
+    assert "structuring" in _record(conn, org_id, customer_id, day=1, method="crypto")
+
+
+def test_wires_do_not_count_towards_a_cash_split(conn, org_id, customer_id):
+    _record(conn, org_id, customer_id, day=0, method="wire")
+    assert "structuring" not in _record(conn, org_id, customer_id, day=1, method="cash")
+
+
+def test_opposite_directions_do_not_combine(conn, org_id, customer_id):
+    _record(conn, org_id, customer_id, day=0, method="cash", direction="inbound")
+    assert "structuring" not in _record(
+        conn, org_id, customer_id, day=1, method="cash", direction="outbound"
     )
 
-    # Must have structuring alert
-    structuring_alerts = [r for r in rules if r.rule_key == "structuring"]
-    assert len(structuring_alerts) == 1, (
-        f"Expected 1 structuring alert for wire transfers totaling "
-        f"{4*per_transfer} AED (> {threshold} AED threshold), got {len(structuring_alerts)}"
+
+def test_one_open_alert_per_pattern(conn, org_id, customer_id):
+    for day in range(6):
+        _record(conn, org_id, customer_id, day=day, method="cash")
+    assert _structuring_alerts(conn, customer_id) == 1
+
+
+def test_new_alert_after_previous_one_is_dispositioned(conn, org_id, customer_id):
+    _record(conn, org_id, customer_id, day=0, method="cash")
+    _record(conn, org_id, customer_id, day=1, method="cash")
+    assert _structuring_alerts(conn, customer_id) == 1
+    conn.execute(
+        "UPDATE transaction_alerts SET status='false_positive' WHERE customer_id=? AND rule_key='structuring'",
+        (customer_id,),
     )
-
-    alert = structuring_alerts[0]
-    assert alert.severity == "high"
-    assert alert.detail["transaction_count"] >= 4
-    assert alert.detail["total_aed"] >= 4 * per_transfer
-
-
-def test_structuring_still_works_for_cash():
-    """Verify existing cash structuring behavior still works after fix."""
-    conn = connect(":memory:")
-
-    # Create fresh mandatory dataset so onboard() passes staleness guard
-    ds = upsert_dataset(conn, "test_sanctions_2", "Test Sanctions List 2", is_mandatory=True)
-    now = utcnow()
-    conn.execute("UPDATE datasets SET last_refresh=?, entity_count=1 WHERE id=?", (now, ds))
     conn.commit()
-
-    # Register org
-    org_id = conn.execute(
-        """INSERT INTO organizations (name, slug, status, created_at) VALUES (?, ?, ?, ?) RETURNING id""",
-        ("Test Org 2", "test-org-2", "active", utcnow())
-    ).fetchone()["id"]
-
-    # Onboard customer
-    result = onboard(conn, org_id=org_id, reference="CUST-002", full_name="Jane Smith")
-    customer_id = result.customer_id
-    conn.commit()
-
-    # Record 3 cash transactions, each 25,000 AED (sub-threshold)
-    base_time = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
-    per_transfer = 25_000.0
-
-    for i in range(3):
-        occurred_at = (base_time + timedelta(days=i)).isoformat()
-        transaction_id, alerts = record_transaction(
-            conn,
-            org_id=org_id,
-            customer_id=customer_id,
-            direction="inbound",
-            method="cash",  # Cash transactions
-            amount=per_transfer,
-            currency="AED",
-            counterparty_name="Walk-in Customer",
-            counterparty_country="AE",
-            occurred_at=occurred_at,
-            actor="test-user",
-        )
-
-        if i == 2:
-            # 3rd cash transaction: total = 75,000 AED (exceeds 55,000)
-            assert any(r.rule_key == "structuring" for r in alerts), (
-                "Expected structuring alert on 3rd cash transaction"
-            )
-
-    # Verify existing cash structuring still works
-    last_txn = conn.execute(
-        """SELECT id FROM transactions WHERE customer_id=? ORDER BY occurred_at DESC LIMIT 1""",
-        (customer_id,)
-    ).fetchone()
-
-    rules = evaluate_transaction(
-        conn,
-        org_id=org_id,
-        customer_id=customer_id,
-        transaction_id=last_txn["id"],
-        direction="inbound",
-        method="cash",
-        amount_aed=per_transfer,
-        counterparty_country="AE",
-        occurred_at=(base_time + timedelta(days=2)).isoformat(),
-    )
-
-    structuring_alerts = [r for r in rules if r.rule_key == "structuring"]
-    assert len(structuring_alerts) == 1, "Cash structuring must still work"
+    assert "structuring" in _record(conn, org_id, customer_id, day=2, method="cash")
+    assert _structuring_alerts(conn, customer_id) == 2

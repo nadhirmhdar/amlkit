@@ -740,11 +740,11 @@ class TestGetRuleConfigCache:
 
 
 class TestStructuringAcrossMethods:
-    """Structuring aggregates every payment method (issue #257), but only
-    within one direction: splitting deposits or splitting payouts is
-    structuring; receiving funds and paying them back out is not."""
+    """Structuring aggregates cash-like channels (cash, crypto, other) within
+    one direction; bank-intermediated payments (wire, cheque, card) do not
+    count. See kyt.STRUCTURING_METHODS and test_kyt_structuring_all_methods.py."""
 
-    def test_wire_transfers_combine(self, conn, org_id, customer_id) -> None:
+    def test_wire_transfers_do_not_combine(self, conn, org_id, customer_id) -> None:
         record_transaction(
             conn, customer_id, org_id, direction="outbound", method="wire",
             amount=30000.0, occurred_at="2026-08-01T09:00:00+00:00", actor="tester",
@@ -753,7 +753,7 @@ class TestStructuringAcrossMethods:
             conn, customer_id, org_id, direction="outbound", method="wire",
             amount=30000.0, occurred_at="2026-08-02T09:00:00+00:00", actor="tester",
         )
-        assert any(r.rule_key == "structuring" for r in triggered)
+        assert not any(r.rule_key == "structuring" for r in triggered)
 
     def test_split_across_channels_combines(self, conn, org_id, customer_id) -> None:
         record_transaction(
@@ -768,11 +768,11 @@ class TestStructuringAcrossMethods:
 
     def test_opposite_directions_do_not_combine(self, conn, org_id, customer_id) -> None:
         record_transaction(
-            conn, customer_id, org_id, direction="inbound", method="wire",
+            conn, customer_id, org_id, direction="inbound", method="cash",
             amount=30000.0, occurred_at="2026-08-01T09:00:00+00:00", actor="tester",
         )
         _, triggered = record_transaction(
-            conn, customer_id, org_id, direction="outbound", method="wire",
+            conn, customer_id, org_id, direction="outbound", method="cash",
             amount=30000.0, occurred_at="2026-08-02T09:00:00+00:00", actor="tester",
         )
         assert not any(r.rule_key == "structuring" for r in triggered)
