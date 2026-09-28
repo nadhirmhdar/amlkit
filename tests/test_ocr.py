@@ -21,6 +21,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -354,3 +355,173 @@ def test_trade_licence_expiry_check_flags_an_expired_licence():
     r = _parse_trade_licence_text(text)
     assert r["expiry_date"] == "2020-01-01"
     assert r["expiry_check"]["expired"] is True
+
+
+# ---------------------------------------------------------------------------
+# Regression coverage for the live-site "could not read full_name and
+# id_number" report on Customers > new > Legal person > Upload & Scan. Root
+# causes (see amlkit/cases/ocr.py's extract_trade_licence_data docstring):
+#
+#  1. tesseract ignores EXIF orientation -- a sideways phone photo OCR'd as
+#     noise. Fixed by _prepare_for_ocr's exif_transpose plus rotation passes
+#     for images with no usable EXIF at all.
+#  2. Space-joining OCR words flattened a labelled layout onto one line, so
+#     the name/legal-type regexes ran past the intended value into the next
+#     label. Fixed by _ocr_data_to_text (line-preserving reconstruction) and
+#     _TRADE_LICENCE_NAME_STOP (a same-line label cut as a second layer).
+#  3. "Business Name" (and similar) labels weren't recognised, and an
+#     earlier "Register No." could win over the real "License No.".
+#  4. Every OCR exception was swallowed identically to "ran fine, found
+#     nothing" -- now surfaced via result["ocr_error"].
+# ---------------------------------------------------------------------------
+
+import shutil  # noqa: E402
+from amlkit.cases.ocr import extract_trade_licence_data  # noqa: E402
+
+_HAS_TESSERACT = shutil.which("tesseract") is not None
+
+
+def test_trade_licence_flattened_text_name_and_legal_type_stop_at_next_label():
+    """Regression: space-joining used to flatten a licence to one line, so
+    the name capture ran into the next label entirely (name = "FALCON RIDGE
+    TRADING LLC Legal Type", legal_type = "Limited Liability Company Issue
+    Date"). Even on a single unbroken line (no line-preserving text
+    available), the name/legal-type values must stop at the next known
+    label instead of swallowing it."""
+    flat = (
+        "Trade Name: FALCON RIDGE TRADING LLC Legal Type: Limited Liability "
+        "Company Issue Date: 12/01/2023"
+    )
+    r = _parse_trade_licence_text(flat)
+    assert r["full_name"] == "FALCON RIDGE TRADING LLC"
+    assert r["legal_type"] == "Limited Liability Company"
+
+
+def test_trade_licence_business_name_label_and_licence_number_beats_register_number():
+    """Regression: "Business Name" wasn't in the label list at all, and
+    whichever labelled number appeared FIRST in the text won regardless of
+    label -- so a "Register No." printed before "License No." took the
+    licence-number field. The genuine licence-number label must win even
+    when it appears later in the text."""
+    text = (
+        "GOVERNMENT OF SHARJAH\n"
+        "Register No : 88112\n"
+        "Business Name : GULF SANDS TRADING FZE\n"
+        "License No : 91234\n"
+        "Legal Type : Free Zone Establishment\n"
+    )
+    r = _parse_trade_licence_text(text)
+    assert r["full_name"] == "GULF SANDS TRADING FZE"
+    assert r["id_number"] == "91234"
+    assert r["legal_type"] == "Free Zone Establishment"
+
+
+def test_trade_licence_registration_number_used_only_as_fallback():
+    """No "License No." label anywhere -- a "Registration No." is the only
+    number-shaped label available, so it is used, but only because nothing
+    better exists (see the previous test for the "never outranks" half of
+    this contract)."""
+    text = "Trade Name : NORTH STAR LLC\nRegistration No : 40021\n"
+    r = _parse_trade_licence_text(text)
+    assert r["full_name"] == "NORTH STAR LLC"
+    assert r["id_number"] == "40021"
+
+
+def _dejavu_font(size: int):
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    ):
+        if Path(path).exists():
+            from PIL import ImageFont
+            return ImageFont.truetype(path, size)
+    from PIL import ImageFont
+    return ImageFont.load_default(size=size)
+
+
+def _make_synthetic_licence_image(lines: list[str], *, size=(1400, 900), font_size: int = 34) -> Image.Image:
+    """A plain, high-contrast, printed-text stand-in for a real trade
+    licence -- good enough to exercise the OCR pipeline end-to-end (as
+    opposed to a scanned document fixture, which this repo doesn't carry).
+    Deliberately not a photo of a real licence -- see the PR description's
+    caveat about needing the real reported image to fully confirm this."""
+    from PIL import ImageDraw
+
+    img = Image.new("RGB", size, "white")
+    draw = ImageDraw.Draw(img)
+    font = _dejavu_font(font_size)
+    y = 40
+    for line in lines:
+        draw.text((40, y), line, fill="black", font=font)
+        y += font_size + 20
+    return img
+
+
+_SYNTHETIC_LICENCE_LINES = [
+    "GOVERNMENT OF DUBAI",
+    "DEPARTMENT OF ECONOMY AND TOURISM",
+    "License No : 749278",
+    "Trade Name : FALCON RIDGE TRADING LLC",
+    "Legal Type : Limited Liability Company",
+    "Issue Date : 12/01/2023",
+    "Expiry Date : 11/01/2099",
+]
+
+
+@pytest.mark.skipif(not _HAS_TESSERACT, reason="tesseract binary not installed")
+def test_trade_licence_sideways_image_is_recovered_by_rotation_passes():
+    """A phone photo stored sideways with NO usable EXIF orientation tag
+    (the pixels themselves are rotated, e.g. a screenshot or a re-saved
+    copy that stripped metadata) -- tesseract's default pass alone reads
+    this as noise. The rotation passes in extract_trade_licence_data must
+    recover it."""
+    upright = _make_synthetic_licence_image(_SYNTHETIC_LICENCE_LINES)
+    sideways = upright.rotate(90, expand=True)  # pixels rotated, no EXIF at all
+
+    result = extract_trade_licence_data(sideways)
+    assert result["ocr_error"] is None
+    assert result["full_name"] == "FALCON RIDGE TRADING LLC"
+    assert result["id_number"] == "749278"
+
+
+@pytest.mark.skipif(not _HAS_TESSERACT, reason="tesseract binary not installed")
+def test_trade_licence_exif_rotated_image_is_corrected_before_ocr():
+    """A phone photo stored sideways WITH the real orientation recorded in
+    EXIF (the common case for an un-edited camera photo) must be corrected
+    by _prepare_for_ocr's exif_transpose before any OCR pass runs."""
+    import io
+
+    upright = _make_synthetic_licence_image(_SYNTHETIC_LICENCE_LINES).convert("RGB")
+    rotated_pixels = upright.rotate(90, expand=True)
+    exif = Image.Exif()
+    exif[274] = 6  # Orientation: viewer must rotate 90 CW to display upright
+    buf = io.BytesIO()
+    rotated_pixels.save(buf, format="JPEG", exif=exif, quality=95)
+    buf.seek(0)
+
+    result = extract_trade_licence_data(buf)
+    assert result["ocr_error"] is None
+    assert result["full_name"] == "FALCON RIDGE TRADING LLC"
+    assert result["id_number"] == "749278"
+
+
+def test_trade_licence_ocr_engine_failure_is_reported_via_ocr_error(monkeypatch):
+    """Regression: every OCR exception was swallowed identically to "ran
+    fine, found nothing" (`except Exception: pass`), so a genuinely broken
+    scanner (missing tesseract binary, a corrupt install) looked exactly
+    like a photo that just didn't have readable text on it. A total OCR
+    failure must be distinguishable via ocr_error, not just an all-null
+    result."""
+    import pytesseract
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("tesseract is not installed or it's not in your PATH")
+
+    monkeypatch.setattr(pytesseract, "image_to_data", boom)
+
+    img = Image.new("RGB", (800, 600), "white")
+    result = extract_trade_licence_data(img)
+    assert result["ocr_error"] is not None
+    assert "tesseract" in result["ocr_error"] or "OCR engine failed" in result["ocr_error"]
+    assert result["full_name"] is None
+    assert result["id_number"] is None

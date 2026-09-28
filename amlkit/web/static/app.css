@@ -893,6 +893,16 @@ details.evidence summary * { display: none; }
      single row rather than each at its default inline width. */
   .btn-pair button { flex: 1; }
   form.stack button[type="submit"]:only-of-type { width: 100%; }
+
+  /* Passport/trade-licence upload zone -- side-by-side (title block, then
+     upload button + status) is too tight past ~380px wide, so the button
+     and its status text stack instead of squeezing onto one row. */
+  .ocr-upload-zone { flex-direction: column; align-items: stretch; }
+  .ocr-upload-zone > div:last-child {
+    display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  }
+  .ocr-upload-zone > div:last-child .btn,
+  .ocr-upload-zone > div:last-child button { width: 100%; }
 }
 
 /* ------------------------------------------------------------------- spinner / loading */
@@ -931,16 +941,21 @@ form.is-submitting button[type="submit"] {
 }
 
 /* ------------------------------------------------------------------- feedback */
+/* Same ink-black + brand-orange radial glow as .btn-glow/.hero-stat, so the
+   floating button reads as part of this app rather than a generic
+   accent-blue widget dropped on top of it. */
 .feedback-btn {
   position: fixed; bottom: 24px; right: 24px; z-index: 999;
   width: 56px; height: 56px; border-radius: 50%;
-  background: var(--accent); color: white;
-  border: none; font-size: 24px;
-  cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  background: radial-gradient(circle at 100% 0%, oklch(40% 0.1 45 / 0.85), transparent 55%), var(--ink);
+  color: white; border: none;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   transition: transform 0.2s, box-shadow 0.2s;
 }
+.feedback-btn svg { width: 24px; height: 24px; }
 .feedback-btn:hover {
-  transform: scale(1.05); box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+  transform: scale(1.05); box-shadow: 0 6px 16px rgba(0,0,0,0.25);
 }
 @media (max-width: 680px) {
   /* Fixed at bottom-right at every width, this landed directly on top of
@@ -951,27 +966,78 @@ form.is-submitting button[type="submit"] {
   .feedback-btn { bottom: calc(var(--tabbar-h) + 20px); right: 16px; }
 }
 
+/* Body scroll lock while the feedback (or disclaimer) modal is open --
+   scoped to this class rather than the bare body selector (which would
+   permanently trap scroll on every page). app.js toggles the class. */
+body.modal-open { overflow: hidden; }
+
 .feedback-modal {
   display: none; position: fixed; z-index: 1000;
   left: 0; top: 0; width: 100%; height: 100%;
-  background-color: rgba(0,0,0,0.5);
+  background-color: oklch(19% 0.012 250 / 0.45);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
 }
 .feedback-modal-content {
-  background: var(--surface); margin: 10% auto;
-  padding: 24px; border-radius: var(--radius); max-width: 480px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.2); position: relative;
+  background: var(--surface); margin: 8% auto;
+  padding: 28px; border-radius: var(--radius-lg); max-width: 460px;
+  /* rgba, not oklch -- this class is shared with the first-login disclaimer
+     modal, which base.html renders (inline display:block) into every page
+     including ones WeasyPrint turns into a PDF (evidence pack). This
+     bundled tinycss2 can't convert an oklch() color to srgb for a blurred
+     box-shadow's gradient (Color.to('srgb') has no oklch branch), which
+     crashed PDF rendering outright rather than degrading gracefully. */
+  box-shadow: 0 20px 48px rgba(0,0,0,0.3); position: relative;
+}
+.feedback-modal__handle { display: none; }
+.feedback-modal__eyebrow {
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-3); margin: 0 0 6px;
 }
 .feedback-modal-close {
   position: absolute; right: 16px; top: 16px;
-  font-size: 28px; font-weight: bold; color: var(--ink-3);
-  cursor: pointer; line-height: 1;
+  width: 32px; height: 32px; border-radius: 50%; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--ink-3);
+  cursor: pointer;
 }
-.feedback-modal-close:hover { color: var(--ink); }
-.feedback-modal h3 { margin: 0 0 8px 0; }
+.feedback-modal-close svg { width: 18px; height: 18px; }
+.feedback-modal-close:hover { color: var(--ink); background: var(--line-soft); }
+.feedback-modal h3 { margin: 0 0 8px 0; padding-right: 28px; }
+.feedback-modal label.feedback-label {
+  display: block; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--ink-3); margin: 14px 0 8px;
+}
 .feedback-modal textarea {
-  width: 100%; padding: 10px; margin-top: 8px;
-  border: 1px solid var(--line); border-radius: var(--radius-xs);
+  width: 100%; padding: 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
   font-family: inherit; font-size: 14px; resize: vertical;
+  background: var(--surface); color: var(--ink);
+}
+.feedback-modal textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.feedback-modal .btn-pair { margin-top: 16px; }
+
+@media (max-width: 680px) {
+  /* Bottom sheet: pinned to the viewport bottom with a grab handle, rather
+     than a centered box floating mid-screen -- matches the phone tab bar/
+     dropdown vocabulary elsewhere in the app. Shared by the first-login
+     disclaimer modal too (same .feedback-modal-content), which has no
+     handle element of its own and simply renders without one. */
+  .feedback-modal-content {
+    position: fixed; left: 0; right: 0; bottom: 0; margin: 0;
+    max-width: none; width: 100%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    max-height: 85vh; overflow-y: auto;
+    padding: 12px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  .feedback-modal__handle {
+    display: block; width: 36px; height: 4px; border-radius: 999px;
+    background: var(--line); margin: 0 auto 16px;
+  }
+  /* 16px prevents iOS Safari's auto-zoom-on-focus for any input under 16px. */
+  .feedback-modal textarea { font-size: 16px; }
+  /* Send above Cancel, full width each, within easy thumb reach. */
+  .feedback-modal .btn-pair { flex-direction: column; }
+  .feedback-modal .btn-pair button { width: 100%; }
 }
 
 /* ------------------------------------------- freeze obligations (TFS, CR 134/2025) */
