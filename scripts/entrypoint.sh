@@ -14,8 +14,14 @@ mkdir -p /app/data
 # Cloud Run always injects PORT=8080; fall back to 8080 if absent.
 export AMLKIT_PORT="${PORT:-8080}"
 
-# Default to the original hardcoded bucket if not set
-export LITESTREAM_REPLICA_URL="${LITESTREAM_REPLICA_URL:-gs://gen-lang-client-0153967509-aml-data/litestream/amlkit.db}"
+# No default replica. The old default was the litestream/ prefix abandoned as
+# corrupt on 2026-09-27, and any hardcoded default lets a deploy that forgot
+# the variable restore from -- and then replicate into -- the wrong place.
+if [ -z "$LITESTREAM_REPLICA_URL" ]; then
+    echo "FATAL: LITESTREAM_REPLICA_URL is not set. Refusing to start: without it there is no way to know which replica holds this deployment's data."
+    exit 1
+fi
+export LITESTREAM_REPLICA_URL
 
 # Template the litestream config (litestream doesn't do env-var substitution itself)
 LITESTREAM_CFG=/tmp/litestream.yml
@@ -25,8 +31,12 @@ envsubst < /app/litestream.yml > "$LITESTREAM_CFG"
 # quick_check), so the worst case is ~2 x (60+10)s = 140s -- inside Cloud
 # Run's default 240s startup window. Overrunning it matters: being killed by
 # the startup probe mid-check is the silent crash-loop of 2026-09-27.
-INTEGRITY_TIMEOUT=60
-INTEGRITY_KILL_AFTER=10
+# AMLKIT_INTEGRITY_TIMEOUT raises the budget if the database outgrows it (a
+# healthy check that times out twice refuses to start); keep 2 x (timeout +
+# kill-after) under the service's startup window. Each check logs its duration
+# so the trend is visible well before that.
+INTEGRITY_TIMEOUT="${AMLKIT_INTEGRITY_TIMEOUT:-60}"
+INTEGRITY_KILL_AFTER="${AMLKIT_INTEGRITY_KILL_AFTER:-10}"
 
 # Refuse to start on a database we could not positively verify. Serving it
 # would let `litestream replicate` stream it over the replica, and the old
@@ -41,8 +51,9 @@ refuse_to_start() {
     moved=""
     for f in amlkit.db amlkit.db-wal amlkit.db-shm; do
         if [ -f "/app/data/$f" ]; then
-            mv "/app/data/$f" "$q${f#amlkit.db}"
-            moved=1
+            # `|| true`: under set -e a failed mv (read-only volume,
+            # permissions) would exit before the FATAL line below.
+            mv "/app/data/$f" "$q${f#amlkit.db}" && moved=1 || true
         fi
     done
     echo "FATAL: $1 (status: $INTEGRITY_STATUS, exit $INTEGRITY_CODE). Refusing to start."
@@ -74,7 +85,9 @@ refuse_to_start() {
 check_integrity() {
     INTEGRITY_PRAGMA="${2:-integrity_check}"
     INTEGRITY_CODE=0
+    started=$(date +%s)
     INTEGRITY_OUTPUT=$(timeout -k "${INTEGRITY_KILL_AFTER}s" "${INTEGRITY_TIMEOUT}s" sqlite3 "$1" "PRAGMA $INTEGRITY_PRAGMA" 2>&1) || INTEGRITY_CODE=$?
+    echo "PRAGMA $INTEGRITY_PRAGMA finished in $(( $(date +%s) - started ))s (limit ${INTEGRITY_TIMEOUT}s, exit $INTEGRITY_CODE)."
 
     case "$INTEGRITY_CODE" in
         0)
@@ -115,12 +128,15 @@ verify_db() {
     fi
 }
 
-if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
-    echo "Restoring from litestream replica at ${LITESTREAM_REPLICA_URL}, if one exists..."
-    DB_SOURCE="litestream replica ${LITESTREAM_REPLICA_URL}"
-    # -if-replica-exists makes "no replica yet" a clean no-op; any other
-    # failure (corrupted/truncated segment, decode error) refuses to start --
-    # `|| { }` so set -e doesn't kill the script before it can say why.
+# Keyed on the database file alone, not on GCS_BUCKET: a deploy missing that
+# variable used to skip the restore and replicate an empty database over the
+# real replica.
+if [ ! -f /app/data/amlkit.db ]; then
+    echo "Restoring from litestream replica at ${LITESTREAM_REPLICA_URL}..."
+    # -if-replica-exists makes "no replica" a clean no-op, handled below; any
+    # other failure (corrupted/truncated segment, decode error, auth) refuses
+    # to start -- `|| { }` so set -e doesn't kill the script before it can
+    # say why.
     litestream restore -config "$LITESTREAM_CFG" -if-replica-exists /app/data/amlkit.db || {
         INTEGRITY_CODE=$?
         INTEGRITY_STATUS=restore_failed
@@ -129,21 +145,27 @@ if [ -n "$GCS_BUCKET" ] && [ ! -f /app/data/amlkit.db ]; then
     }
 
     if [ ! -f /app/data/amlkit.db ]; then
-        echo "No litestream replica yet. Falling back to the legacy flat-file"
-        echo "snapshot at gs://${GCS_BUCKET}/amlkit.db (pre-litestream data)..."
-        DB_SOURCE="legacy snapshot gs://${GCS_BUCKET}/amlkit.db"
-        gsutil cp "gs://${GCS_BUCKET}/amlkit.db" /app/data/amlkit.db \
-            && echo "Restored legacy snapshot." \
-            || echo "No snapshot found anywhere - starting fresh."
-    fi
-
-    if [ -f /app/data/amlkit.db ]; then
+        # No replica at that URL. For a brand-new deployment that is expected;
+        # anywhere else it means a mistyped URL or an emptied prefix, and
+        # starting would serve an empty (or, before this, a months-old
+        # pre-litestream) database and replicate it as the new truth. So a
+        # fresh start must be asked for explicitly, for one boot.
+        if [ "${AMLKIT_ALLOW_FRESH_START:-}" = "1" ]; then
+            echo "No replica at ${LITESTREAM_REPLICA_URL}; AMLKIT_ALLOW_FRESH_START=1, so starting with an empty database."
+            echo "Unset AMLKIT_ALLOW_FRESH_START once this deployment has written its first replica."
+        else
+            INTEGRITY_CODE=0
+            INTEGRITY_STATUS=no_replica
+            INTEGRITY_OUTPUT=""
+            refuse_to_start "no litestream replica found at ${LITESTREAM_REPLICA_URL} (set AMLKIT_ALLOW_FRESH_START=1 only for a brand-new deployment)"
+        fi
+    else
         echo "Checking database integrity..."
         verify_db /app/data/amlkit.db
         if [ "$INTEGRITY_STATUS" = "ok" ]; then
             echo "Database integrity OK."
         else
-            refuse_to_start "database restored from ${DB_SOURCE} failed verification"
+            refuse_to_start "database restored from litestream replica ${LITESTREAM_REPLICA_URL} failed verification"
         fi
     fi
 fi

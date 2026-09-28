@@ -1,8 +1,9 @@
 """Boot-path tests for scripts/entrypoint.sh.
 
 The script runs for real under sh, with /app/ redirected to a temp dir, the
-integrity timeouts cut to 1s, and litestream/gsutil/envsubst/sqlite3 replaced
-by stubs on a PATH that contains nothing else.
+integrity timeouts cut to 1s (via their env overrides), and
+litestream/gsutil/envsubst/sqlite3 replaced by stubs on a PATH that contains
+nothing else. gsutil must never be called: the legacy snapshot fallback is gone.
 """
 from __future__ import annotations
 
@@ -59,17 +60,18 @@ esac
 """
 
 
+REPLICA = "gs://test-bucket/litestream-v2/amlkit.db"
+
+
 def _run(tmp_path: Path, *, restore="db", integrity="ok", quick="ok",
-         legacy="missing", sqlite_installed=True):
+         legacy="missing", sqlite_installed=True, replica_url=REPLICA,
+         gcs_bucket="test-bucket", extra_env=None):
     app = tmp_path / "app"
     (app / "data").mkdir(parents=True)
     (app / "litestream.yml").write_text("dbs: []\n")
 
     script = ENTRYPOINT.read_text()
     script = script.replace("/app/", f"{app}/")
-    script = script.replace("INTEGRITY_TIMEOUT=60", "INTEGRITY_TIMEOUT=1")
-    script = script.replace("INTEGRITY_KILL_AFTER=10", "INTEGRITY_KILL_AFTER=1")
-    assert "INTEGRITY_TIMEOUT=1" in script and "INTEGRITY_KILL_AFTER=1" in script
     entry = tmp_path / "entrypoint.sh"
     entry.write_text(script)
 
@@ -92,14 +94,19 @@ def _run(tmp_path: Path, *, restore="db", integrity="ok", quick="ok",
     env = {
         "PATH": str(bindir),
         "HOME": str(tmp_path),
-        "GCS_BUCKET": "test-bucket",
-        "LITESTREAM_REPLICA_URL": "gs://test-bucket/litestream/amlkit.db",
+        "AMLKIT_INTEGRITY_TIMEOUT": "1",
+        "AMLKIT_INTEGRITY_KILL_AFTER": "1",
         "STUB_RESTORE": restore,
         "STUB_INTEGRITY": integrity,
         "STUB_QUICK": quick,
         "STUB_LEGACY": legacy,
         "STUB_GSUTIL_LOG": str(gsutil_log),
     }
+    if replica_url is not None:
+        env["LITESTREAM_REPLICA_URL"] = replica_url
+    if gcs_bucket is not None:
+        env["GCS_BUCKET"] = gcs_bucket
+    env.update(extra_env or {})
     proc = subprocess.run(
         ["sh", str(entry)], env=env, capture_output=True, text=True, timeout=60
     )
@@ -144,7 +151,7 @@ def test_unverified_database_refuses_to_start(tmp_path, integrity, quick, status
     assert r["rc"] == 1, r["out"]
     assert "APP STARTED" not in r["out"]
     assert f"status: {status}" in r["out"]
-    assert "gs://test-bucket/litestream/amlkit.db" in r["out"]
+    assert REPLICA in r["out"]
     # Moved aside, not deleted, and no fallback to the stale legacy snapshot.
     assert not r["db_present"]
     assert r["quarantined"] and r["quarantined"][0].startswith("amlkit.db.unverified-")
@@ -168,16 +175,52 @@ def test_failed_restore_refuses_without_stale_fallback(tmp_path):
     assert not r["db_present"]
 
 
-def test_no_replica_and_no_snapshot_starts_fresh(tmp_path):
-    r = _run(tmp_path, restore="none", legacy="missing")
-    assert r["rc"] == 0, r["out"]
-    assert "starting fresh" in r["out"]
-    assert "APP STARTED" in r["out"]
-    assert len(r["gsutil_calls"]) == 1
-
-
-def test_corrupt_legacy_snapshot_refuses_and_names_it(tmp_path):
-    r = _run(tmp_path, restore="none", legacy="present", integrity="problems")
+@pytest.mark.parametrize("legacy", ["missing", "present"])
+def test_no_replica_refuses_and_never_uses_the_legacy_snapshot(tmp_path, legacy):
+    """A mistyped URL or an emptied prefix looks exactly like "no replica yet";
+    starting would serve an empty or months-old database and replicate it."""
+    r = _run(tmp_path, restore="none", legacy=legacy)
     assert r["rc"] == 1, r["out"]
-    assert "legacy snapshot gs://test-bucket/amlkit.db" in r["out"]
-    assert r["quarantined"]
+    assert "status: no_replica" in r["out"]
+    assert "AMLKIT_ALLOW_FRESH_START=1" in r["out"]
+    assert "APP STARTED" not in r["out"]
+    assert r["gsutil_calls"] == []
+    assert not r["db_present"]
+
+
+def test_fresh_start_only_when_explicitly_allowed(tmp_path):
+    r = _run(tmp_path, restore="none", extra_env={"AMLKIT_ALLOW_FRESH_START": "1"})
+    assert r["rc"] == 0, r["out"]
+    assert "starting with an empty database" in r["out"]
+    assert "APP STARTED" in r["out"]
+    assert r["gsutil_calls"] == []
+
+
+@pytest.mark.parametrize("replica_url", [None, ""])
+def test_unset_replica_url_refuses_before_touching_anything(tmp_path, replica_url):
+    r = _run(tmp_path, replica_url=replica_url)
+    assert r["rc"] == 1, r["out"]
+    assert "LITESTREAM_REPLICA_URL is not set" in r["out"]
+    assert "APP STARTED" not in r["out"]
+    # Not the abandoned litestream/ prefix, or any other hardcoded default.
+    assert "gs://" not in r["out"]
+    assert not r["db_present"]
+
+
+def test_restore_runs_even_without_gcs_bucket(tmp_path):
+    """A deploy missing GCS_BUCKET used to skip the restore and replicate an
+    empty database over the real replica."""
+    r = _run(tmp_path, gcs_bucket=None, restore="none")
+    assert r["rc"] == 1, r["out"]
+    assert "status: no_replica" in r["out"]
+
+    r = _run(tmp_path / "2", gcs_bucket=None, restore="db")
+    assert r["rc"] == 0, r["out"]
+    assert "Database integrity OK." in r["out"]
+
+
+def test_integrity_timeout_is_configurable_and_duration_logged(tmp_path):
+    r = _run(tmp_path, extra_env={"AMLKIT_INTEGRITY_TIMEOUT": "7"})
+    assert r["rc"] == 0, r["out"]
+    assert "PRAGMA integrity_check finished in" in r["out"]
+    assert "(limit 7s, exit 0)" in r["out"]
