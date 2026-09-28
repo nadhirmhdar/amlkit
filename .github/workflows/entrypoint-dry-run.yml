@@ -166,7 +166,7 @@ jobs:
               # Production is replicating while this reads, so litestream can
               # delete an LTX file the restore already listed. Retry, and
               # report how many attempts it took: that is the same race a
-              # deploy's new revision runs against the old one.
+              # new revision of a deploy runs against the old one.
               n=1
               while :; do
                 t0=$(date +%s)
