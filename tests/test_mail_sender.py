@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from amlkit.mail import DEFAULT_FROM, sender_address
+from amlkit.mail import DEFAULT_FROM, from_header, sender_address
 
 
 def test_explicit_from_wins(monkeypatch):
@@ -24,3 +24,11 @@ def test_non_address_login_is_never_the_sender(monkeypatch):
 def test_blank_from_falls_back(monkeypatch):
     monkeypatch.setenv("AMLKIT_SMTP_FROM", "  ")
     assert sender_address("") == DEFAULT_FROM
+
+
+def test_from_header_adds_product_name():
+    assert from_header("noreply@grovisor.ae") == "groaml by Grovisor <noreply@grovisor.ae>"
+
+
+def test_from_header_keeps_configured_display_name():
+    assert from_header("Compliance Team <alerts@firm.ae>") == "Compliance Team <alerts@firm.ae>"

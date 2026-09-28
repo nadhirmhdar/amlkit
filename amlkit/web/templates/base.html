@@ -48,6 +48,10 @@
       <img src="/static/img/grovisor-logo.png" alt="groaml" class="mobile-header__logo-img">
       groaml
     </a>
+    <a class="notif-bell" href="/notifications" aria-label="Notifications">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>
+      <span class="notif-badge" data-notif-badge hidden>0</span>
+    </a>
     <div class="user-menu-wrap" id="user-menu-wrap">
       <button class="user-menu-btn" data-action="toggle-user-menu" aria-label="User menu" aria-expanded="false">
         <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
@@ -109,6 +113,10 @@
         Single-operator mode
       </span>
     {% endif %}
+    <a class="notif-bell" href="/notifications" aria-label="Notifications">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>
+      <span class="notif-badge" data-notif-badge hidden>0</span>
+    </a>
     <div class="user-menu-wrap" id="desktop-user-menu-wrap">
       <button class="user-menu-btn" data-action="toggle-desktop-user-menu" aria-label="User menu" aria-expanded="false">
         <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>

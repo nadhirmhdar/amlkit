@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Any
 
+from .. import notifications
 from ..db import audit, utcnow
 from ..names.arabic import blocking_keys
 from ..screening.pf import classify_programs, obligation_note
@@ -213,6 +214,7 @@ def screen(
     persist: bool = True,
     actor: str = "system",
     active_datasets: list[str] | None = None,
+    notify: bool = True,
 ) -> ScreeningResult:
     """Screen one name against every loaded dataset.
 
@@ -290,6 +292,10 @@ def screen(
         out.screening_id, out.alerts_created = _persist(
             conn, out, org_id, customer_id, ubo_id, actor, datasets
         )
+        # The screening and its alerts are committed by now; telling the MLROs
+        # is a follow-on that must not be able to undo or fail them.
+        if notify and out.alerts_created:
+            notifications.notify_new_match(conn, org_id, out, customer_id=customer_id)
     return out
 
 
@@ -406,7 +412,7 @@ def rescreen_all(
                 conn, nm, org_id=org_id, trigger="list_update", threshold=threshold,
                 country=row["nationality"], birth_date=row["birth_date"],
                 gender=row["gender"], customer_id=row["id"], actor=actor,
-                active_datasets=active_datasets,
+                active_datasets=active_datasets, notify=False,
             )
             screened += 1
             new_alerts += res.alerts_created
@@ -421,10 +427,11 @@ def rescreen_all(
                 conn, nm, org_id=org_id, trigger="list_update", threshold=threshold,
                 country=row["nationality"], birth_date=row["birth_date"],
                 customer_id=row["customer_id"], ubo_id=row["id"], actor=actor,
-                active_datasets=active_datasets,
+                active_datasets=active_datasets, notify=False,
             )
             screened += 1
             new_alerts += res.alerts_created
 
+    notifications.notify_rescreen_digest(conn, org_id, new_alerts)
     return {"screened": screened, "alerts": new_alerts}
 
