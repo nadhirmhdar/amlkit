@@ -163,8 +163,20 @@ jobs:
             -e REPLICA_URL="$REPLICA_URL" \
             --entrypoint sh amlkit:measure -c '
               set -e
-              t0=$(date +%s)
-              litestream restore -o /tmp/m.db "$REPLICA_URL"
+              # Production is replicating while this reads, so litestream can
+              # delete an LTX file the restore already listed. Retry, and
+              # report how many attempts it took: that is the same race a
+              # deploy's new revision runs against the old one.
+              n=1
+              while :; do
+                t0=$(date +%s)
+                if litestream restore -o /tmp/m.db "$REPLICA_URL"; then break; fi
+                echo "restore attempt $n failed after $(( $(date +%s) - t0 ))s"
+                [ "$n" -ge 6 ] && { echo "restore_attempts=$n (all failed)"; exit 1; }
+                rm -f /tmp/m.db /tmp/m.db-wal /tmp/m.db-shm
+                n=$((n + 1)); sleep 5
+              done
+              echo "restore_attempts=$n"
               echo "restore_seconds=$(( $(date +%s) - t0 ))"
               echo "db_bytes=$(stat -c %s /tmp/m.db)"
               for p in integrity_check quick_check; do
@@ -187,7 +199,7 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| Database size | $(( ${bytes:-0} / 1048576 )) MiB |"
-            echo "| litestream restore | ${restore}s |"
+            echo "| litestream restore | ${restore}s (attempt $(get restore_attempts)) |"
             echo "| integrity_check | ${ic}s (exit ${ic_rc}, \`${ic_res}\`) |"
             echo "| quick_check | ${qc}s (\`${qc_res}\`) |"
             echo "| Entrypoint budget per check | 60s |"
