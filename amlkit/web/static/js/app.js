@@ -190,10 +190,10 @@ function toggleCustomerFields() {
   const ocrDesc = document.querySelector('.ocr-upload-zone p');
   if (isLegal) {
     ocrTitle.textContent = 'Scan Trade Licence (OCR)';
-    ocrDesc.textContent = 'Upload trade licence image to auto-fill company details.';
+    ocrDesc.textContent = 'Upload trade licence image or PDF to auto-fill company details.';
   } else {
     ocrTitle.textContent = 'Scan Passport (MRZ / OCR)';
-    ocrDesc.textContent = 'Upload passport image to auto-fill name, DOB, nationality and gender.';
+    ocrDesc.textContent = 'Upload passport image or PDF scan to auto-fill name, DOB, nationality and gender.';
   }
 }
 
