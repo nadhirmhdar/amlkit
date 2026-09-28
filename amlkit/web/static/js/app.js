@@ -71,24 +71,53 @@
 }());
 
 // Feedback modal functions
+var feedbackLastFocused = null;
+
+// Renders into #feedback-result via textContent only -- never innerHTML --
+// so a server-supplied message/error string can never be interpreted as
+// markup, regardless of what the /feedback endpoint returns.
+function showFeedbackResult(message, kind) {
+  var resultDiv = document.getElementById('feedback-result');
+  resultDiv.textContent = '';
+  if (!message) return;
+  var span = document.createElement('span');
+  if (kind === 'ok') span.style.color = '#059669';
+  else if (kind === 'err') span.style.color = '#dc2626';
+  span.textContent = (kind === 'ok' ? '✓ ' : kind === 'err' ? '✗ ' : '') + message;
+  resultDiv.appendChild(span);
+}
+
 function openFeedback() {
+  feedbackLastFocused = document.activeElement;
   document.getElementById('feedback-modal').style.display = 'block';
-  document.getElementById('feedback-result').innerHTML = '';
+  document.body.classList.add('modal-open');
+  showFeedbackResult('');
   document.querySelector('#feedback-form textarea').focus();
 }
 
 function closeFeedback() {
   document.getElementById('feedback-modal').style.display = 'none';
-  document.getElementById('feedback-form').reset();
-  document.getElementById('feedback-result').innerHTML = '';
+  document.body.classList.remove('modal-open');
+  var form = document.getElementById('feedback-form');
+  form.reset();
+  var sendBtn = form.querySelector('button[type="submit"]');
+  if (sendBtn) sendBtn.disabled = false;
+  showFeedbackResult('');
+  // Return focus to whatever opened the dialog (the feedback button, in
+  // practice) rather than dropping it back to the top of the page.
+  if (feedbackLastFocused && typeof feedbackLastFocused.focus === 'function') {
+    feedbackLastFocused.focus();
+  }
+  feedbackLastFocused = null;
 }
 
 function submitFeedback(e) {
   e.preventDefault();
   var form = e.target;
   var formData = new FormData(form);
-  var resultDiv = document.getElementById('feedback-result');
-  resultDiv.innerHTML = '<span class="muted">Sending...</span>';
+  var sendBtn = form.querySelector('button[type="submit"]');
+  if (sendBtn) sendBtn.disabled = true;
+  showFeedbackResult('Sending…');
   fetch('/feedback', {
     method: 'POST',
     body: formData
@@ -96,22 +125,29 @@ function submitFeedback(e) {
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.success) {
-      resultDiv.innerHTML = '<span style="color:#059669;">✓ ' + data.message + '</span>';
+      showFeedbackResult(data.message, 'ok');
       form.reset();
       setTimeout(closeFeedback, 2000);
     } else {
-      resultDiv.innerHTML = '<span style="color:#dc2626;">✗ ' + (data.error || 'Failed to send feedback.') + '</span>';
+      showFeedbackResult(data.error || 'Failed to send feedback.', 'err');
+      if (sendBtn) sendBtn.disabled = false;
     }
   })
   .catch(function(err) {
-    resultDiv.innerHTML = '<span style="color:#dc2626;">✗ Network error. Try again.</span>';
+    showFeedbackResult('Network error. Try again.', 'err');
+    if (sendBtn) sendBtn.disabled = false;
   });
 }
 
-// Close modal on click outside
+// Close modal on click outside, or on Escape while it's open.
 window.addEventListener('click', function(e) {
   var modal = document.getElementById('feedback-modal');
   if (e.target === modal) closeFeedback();
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  var modal = document.getElementById('feedback-modal');
+  if (modal && modal.style.display === 'block') closeFeedback();
 });
 
 // Generic confirm handler for buttons and forms with data-confirm attribute
@@ -259,6 +295,11 @@ async function performPassportOCR(input) {
       ...((data.expiry_check && data.expiry_check.flags) || []),
     ];
     if (flags.length > 0) {
+      // Explicit "err" (red) class -- #scan-authenticity is shared with the
+      // trade-licence path below, which switches it to "warn" (amber) for
+      // its own recoverable note, so this must reassert its own style each
+      // time rather than relying on the template's static default.
+      warnEl.className = 'banner err mt-4';
       warnEl.textContent = 'Document check: ' + flags.join('; ') +
         '. Verify this document manually before relying on the extracted fields.';
       warnEl.style.display = 'block';
@@ -301,14 +342,33 @@ async function performTradeLicenceOCR(input) {
       if (licenceInput) licenceInput.value = data.id_number;
     }
 
+    // Trade licences have no authenticity/checksum signal (unlike passport
+    // MRZ), and missing fields here are a normal, recoverable "please fill
+    // this in" outcome, not an error -- so this note uses the "warn" banner
+    // style (amber), not the "err" (red) style the passport path above
+    // keeps for its own warning banner.
     const warnEl = document.getElementById('scan-authenticity');
-    const flags = (data.expiry_check && data.expiry_check.flags) || [];
-    const missing = ['full_name', 'id_number'].filter(function (f) { return !data[f]; });
-    if (missing.length) {
-      flags.push('could not read ' + missing.join(' and ') + ' from this image -- enter manually');
+    const expiryFlags = (data.expiry_check && data.expiry_check.flags) || [];
+    const missingRequired = !data.full_name || !data.id_number;
+
+    let note = '';
+    if (data.ocr_error) {
+      note = 'Scan note: the scanner could not read this image -- please enter the ' +
+        'company name and licence number manually. For a better read, upload a flat, ' +
+        'well-lit, full-page photo or the PDF.';
+    } else if (missingRequired) {
+      note = 'Scan note: could not read the company name or the licence number from ' +
+        'this image -- please enter them manually. For a better read, upload a flat, ' +
+        'well-lit, full-page photo or the PDF.';
     }
-    if (flags.length > 0) {
-      warnEl.textContent = 'Document check: ' + flags.join('; ') + '.';
+
+    const messages = [];
+    if (note) messages.push(note);
+    if (expiryFlags.length > 0) messages.push('Document check: ' + expiryFlags.join('; ') + '.');
+
+    if (messages.length > 0) {
+      warnEl.className = 'banner warn mt-4';
+      warnEl.textContent = messages.join(' ');
       warnEl.style.display = 'block';
       statusEl.textContent = 'Scan complete — see note below.';
     } else {

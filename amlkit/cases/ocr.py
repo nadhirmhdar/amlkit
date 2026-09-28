@@ -35,10 +35,14 @@ forgery detection beyond the signal here) remains out of scope -- see
 from __future__ import annotations
 
 import io
+import logging
 import re
+import time
 from datetime import date, datetime
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageOps
 from passporteye import read_mrz
+
+logger = logging.getLogger(__name__)
 
 
 # 784-YYYY-NNNNNNN-N. OCR may drop or vary the separators, so the pattern
@@ -607,23 +611,76 @@ _TRADE_LICENCE_LEGAL_TYPES: tuple[str, ...] = (
     "Private Joint Stock Company", "General Partnership", "FZCO", "FZE", "LLC",
 )
 
+# Genuine licence-number labels, tried first (see _parse_trade_licence_text).
+# Registration/CR/CN numbers are a DIFFERENT identifier some layouts print
+# ABOVE the licence number -- searching the whole alternation with one
+# .search() let whichever label happened to appear FIRST in the text win,
+# so a "Register No." printed before "License No." silently took the
+# licence-number field. This pattern is searched on its own, first.
 _TRADE_LICENCE_NUMBER_LABEL = re.compile(
-    r"(?:Trade\s+)?Licen[cs]e\s+(?:No\.?|Number)|Registration\s+No\.?|Reg\.?\s*No\.?"
-    r"|CN\s*No\.?",
+    r"(?:Trade\s+)?Licen[cs]e\s+(?:No\.?|Number)",
+    re.IGNORECASE,
+)
+# Only consulted when no genuine licence-number label was found anywhere in
+# the text -- a registration/CR/CN number is better than nothing, but must
+# never outrank the real licence number.
+_TRADE_LICENCE_NUMBER_LABEL_FALLBACK = re.compile(
+    r"Registration\s+No\.?|Reg\.?\s*No\.?|CR\s*No\.?|CN\s*No\.?",
     re.IGNORECASE,
 )
 _TRADE_LICENCE_NUMBER_VALUE = re.compile(r"[:\s]+([A-Z]{0,6}[\s\-]?\d{3,10})", re.IGNORECASE)
 
+# Name-field labels across the 40+ issuing-authority layouts this module has
+# to cope with (see _parse_trade_licence_text's docstring) -- the original
+# list only covered "Trade Name"/"Company Name"/"Licensee"/"Legal Name", so
+# a "Business Name" (and similar) layout returned nothing at all. Ordered
+# longest-alternative-first within each near-duplicate pair ("Licensee Name"
+# before bare "Licensee") so re's leftmost-alternative-wins behavior prefers
+# the more specific label when both would match at the same position.
 _TRADE_LICENCE_NAME_LABEL = re.compile(
-    r"(?:Trade\s+Name|Company\s+Name|Licensee(?:\s+Name)?|Legal\s+Name)\s*[:\s]+"
-    r"([A-Z][A-Za-z0-9&' \-\.]{2,90})",
+    r"(?:Trade\s+Name|Company\s+Name|Business\s+Name|Firm\s+Name|"
+    r"Establishment\s+Name|Entity\s+Name|Name\s+of\s+Company|"
+    r"Licensee\s+Name|Licensee|Legal\s+Name)\s*[:\s]+"
+    r"([A-Z][^\n]{2,90})",
     re.IGNORECASE,
 )
 
 _TRADE_LICENCE_TYPE_LABEL = re.compile(
-    r"(?:Legal\s+(?:Type|Form)|Company\s+Type)\s*[:\s]+([A-Za-z][A-Za-z \-]{2,50})",
+    r"(?:Legal\s+(?:Type|Form)|Company\s+Type)\s*[:\s]+([A-Za-z][^\n]{2,50})",
     re.IGNORECASE,
 )
+
+# Labels a captured name/legal-type value must stop AT rather than run into.
+# With line-preserving OCR text (_ocr_data_to_text) the capture above
+# already stops at the newline most of the time, but a line break tesseract
+# missed (or a layout that prints two fields on one visual line) used to let
+# the name capture run on into the next field, e.g. name ending up as
+# "FALCON RIDGE TRADING LLC Legal Type" with legal_type then reading
+# "Limited Liability Company Issue Date". Ordered longest-first so a
+# multi-word label is matched (and cut) whole rather than at its first word.
+_TRADE_LICENCE_NAME_STOP = re.compile(
+    r"\b(?:"
+    r"Legal\s+Type|Legal\s+Form|Company\s+Type|"
+    r"Trade\s+Name|Company\s+Name|Business\s+Name|Firm\s+Name|"
+    r"Establishment\s+Name|Entity\s+Name|Name\s+of\s+Company|"
+    r"Licensee\s+Name|Licensee|Legal\s+Name|"
+    r"(?:Trade\s+)?Licen[cs]e\s+(?:No\.?|Number)|"
+    r"Registration\s+No\.?|Reg\.?\s*No\.?|CR\s*No\.?|CN\s*No\.?|"
+    r"Issue\s+Date|Expiry\s+Date|Date\s+of\s+Issue|Date\s+of\s+Expiry|"
+    r"Nationality|Address|Activity|Activities|Owner|Partners|Manager"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _cut_at_stop_label(value: str) -> str:
+    """Truncate a captured name/legal-type value at the first label word it
+    ran into, per _TRADE_LICENCE_NAME_STOP above. Trims trailing punctuation
+    left over from a label's leading colon/dash."""
+    stop = _TRADE_LICENCE_NAME_STOP.search(value)
+    if stop:
+        value = value[: stop.start()]
+    return value.strip().strip(":-.,").strip()
 
 
 def _parse_trade_licence_text(text: str, mean_confidence: float | None = None) -> dict[str, object]:
@@ -656,7 +713,12 @@ def _parse_trade_licence_text(text: str, mean_confidence: float | None = None) -
         "field_confidence": {},
     }
 
+    # Genuine licence-number label first; registration/CR/CN number only as
+    # a fallback when no licence-number label was found anywhere in the
+    # text -- see _TRADE_LICENCE_NUMBER_LABEL_FALLBACK above.
     num_label = _TRADE_LICENCE_NUMBER_LABEL.search(text)
+    if not num_label:
+        num_label = _TRADE_LICENCE_NUMBER_LABEL_FALLBACK.search(text)
     if num_label:
         value = _TRADE_LICENCE_NUMBER_VALUE.match(text[num_label.end():])
         if value:
@@ -665,13 +727,17 @@ def _parse_trade_licence_text(text: str, mean_confidence: float | None = None) -
 
     name_match = _TRADE_LICENCE_NAME_LABEL.search(text)
     if name_match:
-        res["full_name"] = name_match.group(1).strip().rstrip(".")
-        res["field_confidence"]["full_name"] = mean_confidence
+        name_value = _cut_at_stop_label(name_match.group(1))
+        if name_value:
+            res["full_name"] = name_value
+            res["field_confidence"]["full_name"] = mean_confidence
 
     type_match = _TRADE_LICENCE_TYPE_LABEL.search(text)
     if type_match:
-        res["legal_type"] = type_match.group(1).strip()
-        res["field_confidence"]["legal_type"] = mean_confidence
+        type_value = _cut_at_stop_label(type_match.group(1))
+        if type_value:
+            res["legal_type"] = type_value
+            res["field_confidence"]["legal_type"] = mean_confidence
     else:
         # No labelled "Legal Type" field on this layout -- the trade name
         # itself often carries the suffix (e.g. "... TRADING LLC").
@@ -709,47 +775,231 @@ def _parse_trade_licence_text(text: str, mean_confidence: float | None = None) -
     return res
 
 
+def _prepare_for_ocr(img: Image.Image, *, min_long_side: int = 1600, max_long_side: int = 3000) -> Image.Image:
+    """Normalize a phone photo for tesseract: real orientation, contrast, size.
+
+    Two failure modes this exists to fix (see extract_trade_licence_data's
+    docstring for the reported symptom):
+
+    1. Phone photos are routinely stored sideways -- the camera saved
+       landscape pixels with the intended "portrait" orientation recorded
+       only in the EXIF `Orientation` tag. tesseract does not read EXIF at
+       all, so it OCR'd the raw (sideways) pixels as noise and returned
+       nothing. `ImageOps.exif_transpose` physically rotates the pixels to
+       match the recorded orientation before any OCR pass runs.
+    2. A phone photo is often low-contrast (indoor lighting, glare) and
+       either far larger or far smaller than tesseract's sweet spot.
+       Greyscale + autocontrast plus clamping the long edge into
+       [min_long_side, max_long_side] keeps quality consistent across wildly
+       different camera resolutions without ever upscaling a huge image into
+       a slow multi-pass run.
+
+    A genuinely sideways image with NO EXIF orientation tag (a screenshot, a
+    re-saved copy that stripped metadata) is not fixed here -- that is what
+    the rotation passes in `extract_trade_licence_data` are for.
+    """
+    img = ImageOps.exif_transpose(img)
+    if img.mode != "L":
+        img = img.convert("L")
+    img = ImageOps.autocontrast(img)
+
+    long_side = max(img.size)
+    if long_side < min_long_side:
+        scale = min_long_side / long_side
+    elif long_side > max_long_side:
+        scale = max_long_side / long_side
+    else:
+        scale = 1.0
+    if scale != 1.0:
+        new_size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+        img = img.resize(new_size, Image.LANCZOS)
+    return img
+
+
+def _ocr_data_to_text(data: dict) -> str:
+    """Rebuild line-preserving text from pytesseract's `image_to_data` output.
+
+    The old code joined every OCR word with a single space
+    (`" ".join(...)`), which flattens a labelled-field layout -- "License
+    No: 123456   Issue Date: 01/01/2023" printed as two columns, or any
+    multi-field licence -- onto one line. The name/legal-type regexes then
+    ran straight past the end of the intended value into the next label
+    (e.g. `full_name` coming back as "FALCON RIDGE TRADING LLC Legal
+    Type"). `image_to_data`'s `block_num`/`par_num`/`line_num` identify
+    which physical source line each word belongs to, in reading order, so
+    this walks the parallel arrays once and starts a new output line
+    whenever that triple changes -- giving the field parser real line
+    boundaries to anchor "stop at end of line" on.
+
+    Falls back to the old space-joined behavior when those keys are absent:
+    the fake `image_to_data` mocks in test_trade_licence_scan.py (and the
+    original test fixtures) only return `text`/`conf`, and must keep
+    working unchanged.
+    """
+    texts = data.get("text", [])
+    confs = data.get("conf", [])
+    has_line_info = "block_num" in data and "par_num" in data and "line_num" in data
+
+    if not has_line_info:
+        words = [w for w, c in zip(texts, confs) if w.strip() and float(c) >= 0]
+        return " ".join(words)
+
+    out_lines: list[str] = []
+    current_key = None
+    current_words: list[str] = []
+    for word, conf, b, p, ln in zip(texts, confs, data["block_num"], data["par_num"], data["line_num"]):
+        if not word.strip() or float(conf) < 0:
+            continue
+        key = (b, p, ln)
+        if key != current_key:
+            if current_words:
+                out_lines.append(" ".join(current_words))
+            current_words = []
+            current_key = key
+        current_words.append(word)
+    if current_words:
+        out_lines.append(" ".join(current_words))
+    return "\n".join(out_lines)
+
+
+def _mean_ocr_confidence(data: dict) -> float | None:
+    """Mean word-level OCR confidence, same filter as `_ocr_data_to_text`."""
+    confs = [
+        float(conf) for word, conf in zip(data.get("text", []), data.get("conf", []))
+        if word.strip() and float(conf) >= 0
+    ]
+    return round(sum(confs) / len(confs), 1) if confs else None
+
+
+def _score_trade_licence_result(result: dict[str, object]) -> int:
+    """Rank a parsed OCR pass so the best of several attempts can be kept.
+
+    The two fields everything else on the customer record keys off --
+    company name and licence number -- weigh far more than the supporting
+    fields, so a pass that recovers both always outranks a pass that only
+    picked up a legal type and a date.
+    """
+    score = 0
+    if result.get("full_name"):
+        score += 3
+    if result.get("id_number"):
+        score += 3
+    if result.get("legal_type"):
+        score += 1
+    if result.get("issue_date"):
+        score += 1
+    if result.get("expiry_date"):
+        score += 1
+    return score
+
+
+# (config, rotation-degrees) for each attempt, in order. `None` config runs
+# pytesseract.image_to_data with no `config=` kwarg at all -- required so the
+# FIRST pass keeps calling it with the exact signature existing test mocks
+# (e.g. test_trade_licence_scan.py's fake_image_to_data(img, output_type=))
+# expect. --psm 6 ("assume a single uniform block of text") and --psm 11
+# ("sparse text, no particular layout") cover licences tesseract's default
+# page-segmentation guess misreads; the three rotations cover a sideways
+# photo that carries no usable EXIF orientation (see _prepare_for_ocr).
+_TRADE_LICENCE_OCR_PASSES: tuple[tuple[str | None, int], ...] = (
+    (None, 0),
+    ("--psm 6", 0),
+    ("--psm 11", 0),
+    (None, 90),
+    (None, 270),
+    (None, 180),
+)
+
+# Wall-clock ceiling across all passes. Best-effort only -- checked between
+# passes, not inside one -- but bounds the worst case (a large, hard image
+# run through six full tesseract passes) to something a web request can
+# still return within.
+_TRADE_LICENCE_OCR_TIME_BUDGET_S = 45.0
+
+
 def extract_trade_licence_data(image_path_or_file) -> dict[str, object]:
     """OCR a UAE trade licence image and extract company/licence fields.
 
-    Runs pytesseract in word-level mode so a mean OCR confidence is available
-    to attach to extracted fields, exactly like `extract_emirates_id_data` --
-    see that function and `_parse_trade_licence_text` for why this is a
-    page-level proxy rather than a true per-field score.
+    Multi-pass: tries `_TRADE_LICENCE_OCR_PASSES` in order (default page
+    segmentation, then --psm 6, then --psm 11, then the image rotated 90/
+    270/180 degrees), keeping the highest-`_score_trade_licence_result`
+    parse seen so far, and stopping as soon as a pass recovers both
+    `full_name` and `id_number` -- the two fields nothing else can be
+    guessed for. This exists because a real phone photo of a licence is
+    often sideways with no usable EXIF (a screenshot, a re-saved copy) and
+    tesseract's default page-segmentation mode alone frequently returns
+    nothing readable from it; see this module's module-level docstring
+    reference and the regression tests in test_ocr.py.
 
-    An image that fails to decode or OCR (corrupt upload, unsupported format,
-    a blurry phone photo pytesseract chokes on) degrades to an all-null
-    result rather than raising -- the same "never let a missing field crash
-    an otherwise-successful extraction" contract `extract_passport_data`
-    documents for its own OCR fallback path, so the caller always gets a
-    dict back and the person onboarding a company sees "nothing was read,
-    fill it in" instead of a raw server error.
+    Each pass runs on the SAME `_prepare_for_ocr`-normalized image (rotated
+    per-pass where listed) -- see that function for the EXIF-orientation and
+    contrast/scaling fix that handles the common case.
+
+    An image that fails to decode or every OCR pass raises (corrupt upload,
+    unsupported format, the tesseract binary missing) degrades to an
+    all-null result with `ocr_error` set to a short message, rather than
+    raising -- the same "never let a missing field crash an otherwise-
+    successful extraction" contract `extract_passport_data` documents for
+    its own OCR fallback path. Previously EVERY OCR exception was silently
+    swallowed (`except Exception: pass`), so "the scanner itself failed"
+    and "the scanner ran fine but found nothing" were indistinguishable to
+    both the caller and the person onboarding a company; `ocr_error` is
+    `None` on any pass that ran, whatever it did or didn't find.
     """
-    text = ""
-    mean_confidence = None
     try:
         import pytesseract
 
         if isinstance(image_path_or_file, Image.Image):
-            img = image_path_or_file
+            raw_img = image_path_or_file
         else:
             # Same path as passport/Emirates ID: a scanned-to-PDF licence is
             # rasterized (size-capped) before OCR.
-            img = Image.open(io.BytesIO(_prepare_image_bytes(image_path_or_file)))
-        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+            raw_img = Image.open(io.BytesIO(_prepare_image_bytes(image_path_or_file)))
+        prepared = _prepare_for_ocr(raw_img)
+    except Exception as exc:
+        logger.warning("trade licence OCR: could not prepare image: %s", exc)
+        result = _parse_trade_licence_text("")
+        result["ocr_error"] = f"could not read this image: {exc}"
+        return result
 
-        words_with_conf = [
-            (word, float(conf))
-            for word, conf in zip(data["text"], data["conf"])
-            if word.strip() and float(conf) >= 0
-        ]
-        text = " ".join(word for word, _ in words_with_conf)
-        mean_confidence = (
-            round(sum(conf for _, conf in words_with_conf) / len(words_with_conf), 1)
-            if words_with_conf
-            else None
-        )
-    except Exception:
-        pass  # degrade to the all-null result below; see docstring
+    best_result: dict[str, object] | None = None
+    best_score = -1
+    last_error: Exception | None = None
+    any_pass_ran = False
+    start = time.monotonic()
 
-    return _parse_trade_licence_text(text, mean_confidence=mean_confidence)
+    for config, rotation in _TRADE_LICENCE_OCR_PASSES:
+        if time.monotonic() - start > _TRADE_LICENCE_OCR_TIME_BUDGET_S:
+            break
+        pass_img = prepared.rotate(rotation, expand=True) if rotation else prepared
+        try:
+            kwargs: dict[str, object] = {"output_type": pytesseract.Output.DICT}
+            if config:
+                kwargs["config"] = config
+            data = pytesseract.image_to_data(pass_img, **kwargs)
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "trade licence OCR pass failed (config=%r, rotation=%s): %s", config, rotation, exc
+            )
+            continue
+
+        any_pass_ran = True
+        text = _ocr_data_to_text(data)
+        mean_confidence = _mean_ocr_confidence(data)
+        result = _parse_trade_licence_text(text, mean_confidence=mean_confidence)
+        score = _score_trade_licence_result(result)
+        if score > best_score:
+            best_result, best_score = result, score
+        if result.get("full_name") and result.get("id_number"):
+            break
+
+    if not any_pass_ran:
+        logger.warning("trade licence OCR: every pass failed: %s", last_error)
+        result = _parse_trade_licence_text("")
+        result["ocr_error"] = f"OCR engine failed: {last_error}" if last_error else "OCR engine failed"
+        return result
+
+    assert best_result is not None  # any_pass_ran guarantees at least one result was scored
+    best_result["ocr_error"] = None
+    return best_result
