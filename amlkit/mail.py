@@ -314,3 +314,64 @@ def send_freeze_obligation_alert(
         logger.exception("Failed to send freeze obligation alert for obligation %d",
                          freeze_obligation_id)
         return FAILED
+
+
+def send_screening_match_alert(to_emails: list[str], *, summary: str, alert_url: str) -> str:
+    """Email every active MLRO that screening produced new match(es).
+
+    Best-effort second channel next to the in-app notification, which is the
+    record of truth. The email deliberately names nobody: neither the
+    customer screened nor the listed party. Mail leaves the platform in
+    plaintext and sits in inboxes outside the audit trail, so it only says
+    that something needs review and links to it (the same approach as the
+    freeze alert, which carries a customer reference, not a name). Same
+    three-valued outcome as the other senders and, like them, never raises:
+    a mail outage must not be able to break a screening.
+    """
+    recipients = [e for e in to_emails if e]
+    if not recipients:
+        return SENT  # nobody to notify
+
+    subject = "groaml: new screening match needs review"
+    body = (
+        f"{summary}\n\n"
+        "Review it in groaml (a decision needs a reason and a written narrative):\n"
+        f"  {alert_url}\n\n"
+        "Do not discuss this alert with the customer.\n"
+    )
+
+    if not is_configured():
+        print(
+            "\n" + "=" * 72 +
+            f"\namlkit: NEW SCREENING MATCH ALERT\nTo: {', '.join(recipients)}\n{summary}\n\n"
+            "No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.\n\n"
+            f"  {alert_url}\n" + "=" * 72 + "\n"
+        )
+        return NOT_CONFIGURED
+
+    host = os.environ["AMLKIT_SMTP_HOST"]
+    port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
+    user = os.environ.get("AMLKIT_SMTP_USER", "")
+    password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
+    from_addr = sender_address(user)
+    use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = from_header(from_addr)
+    # One message per run, but MLROs must not see each other's addresses.
+    msg["To"] = from_header(from_addr)
+    msg["Bcc"] = ", ".join(recipients)
+    msg.set_content(body)
+    try:
+        with smtplib.SMTP(host, port, timeout=15) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if user:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+        logger.info("Screening match alert sent to %d MLRO(s)", len(recipients))
+        return SENT
+    except (OSError, smtplib.SMTPException):
+        logger.exception("Failed to send screening match alert")
+        return FAILED
