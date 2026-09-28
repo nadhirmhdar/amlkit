@@ -13,7 +13,10 @@ Environment:
     AMLKIT_BIND_HOST            default 127.0.0.1 (changing it prints a warning)
     AMLKIT_PORT                 default 8000
     AMLKIT_DB                   override database path
-    AMLKIT_SINGLE_OPERATOR_MODE 1 if a firm has one compliance officer
+    AMLKIT_SINGLE_OPERATOR_MODE 1 on a single-organization install with one
+                                compliance officer (ignored once the database
+                                holds more than one organization; set it per
+                                org under Admin instead)
     AMLKIT_SSL_KEYFILE          path to a TLS private key, for LAN deployment
     AMLKIT_SSL_CERTFILE         path to the matching TLS certificate
 """
@@ -35,7 +38,7 @@ from amlkit.api.deps import (  # noqa: E402
     db_path,
     startup_warning,
 )
-from amlkit.cases.review import single_operator_mode  # noqa: E402
+from amlkit.cases.review import env_single_operator_default  # noqa: E402
 from amlkit.db import connect  # noqa: E402
 from amlkit.ingest.loader import staleness_report  # noqa: E402
 
@@ -67,10 +70,10 @@ def main() -> int:
         if any(r["breach"] for r in rows):
             print("\n  Mandatory lists are stale. Run:  python scripts/refresh.py\n")
 
-    if single_operator_mode():
-        print("\n  Single-operator mode ON: dismissals of sanctions and")
-        print("  proliferation matches are recorded as having had no")
-        print("  independent review.\n")
+    if env_single_operator_default():
+        print("\n  AMLKIT_SINGLE_OPERATOR_MODE is set: applies only while this database")
+        print("  holds a single organization, and never overrides an org's own")
+        print("  setting under Admin > Independent review.\n")
 
     uvicorn.run(
         "amlkit.api.app:app", host=BIND_HOST, port=BIND_PORT, log_level="warning",

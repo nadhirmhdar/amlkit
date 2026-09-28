@@ -1,6 +1,6 @@
 @echo off
 REM ---------------------------------------------------------------------
-REM  amlkit launcher
+REM  groaml by Grovisor launcher
 REM
 REM  Starts the local server and opens it in your default browser.
 REM  The server runs in its own console window: CLOSE THAT WINDOW TO STOP.
@@ -39,11 +39,11 @@ REM  treatment, and it stops a solo officer being unable to clear a queue.
 REM ---------------------------------------------------------------------
 REM set AMLKIT_SINGLE_OPERATOR_MODE=1
 
-echo Starting amlkit...
+echo Starting groaml by Grovisor...
 
 REM Server gets its own titled window so it is obvious what is running and
 REM how to stop it. Closing that window shuts the server down.
-start "amlkit server - CLOSE THIS WINDOW TO STOP" .venv\Scripts\python.exe scripts\serve.py
+start "groaml server - CLOSE THIS WINDOW TO STOP" .venv\Scripts\python.exe scripts\serve.py
 
 REM Give uvicorn a moment to bind before the browser asks for the page,
 REM otherwise the first load fails with a connection error.

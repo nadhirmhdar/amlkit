@@ -22,7 +22,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, Request, UploadFile
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
@@ -30,7 +30,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from .. import auth, queries
+from .. import auth, notifications, queries
 from .limits import limiter, login_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
@@ -58,7 +58,7 @@ from ..cases.review import (
     review_history,
     single_operator_mode,
 )
-from ..db import retry_on_lock, set_org_alert_threshold, utcnow
+from ..db import retry_on_lock, set_org_alert_threshold, set_org_single_operator_mode, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
@@ -176,7 +176,7 @@ async def _lifespan(app):
 # N001: Disable OpenAPI by default unless explicitly enabled
 _openapi_url = "/openapi.json" if os.getenv("AMLKIT_ENABLE_OPENAPI") == "1" else None
 
-app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
+app = FastAPI(title="groaml by Grovisor", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
 
 # Issue #102: Flash messages via signed cookies (no itsdangerous dependency)
 # Uses the same signing mechanism as CSRF tokens
@@ -234,7 +234,11 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         session = current_session(request, db)
     ctx.setdefault("session", session)
     ctx.setdefault("security_warning", startup_warning())
-    ctx.setdefault("single_operator", single_operator_mode())
+    # single_operator_mode requires db + org_id; only set if both available
+    if db and session:
+        ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
+    else:
+        ctx.setdefault("single_operator", False)  # default to stricter control when context unavailable
     # Read flash message from cookie (Issue #102) with URL param fallback.
     # Cookie value is base64-encoded JSON to avoid HTTP quoting of {/"/} chars.
     import json as _json
@@ -507,6 +511,7 @@ async def security_headers(request: Request, call_next):
     - X-Content-Type-Options: Prevents MIME-sniffing attacks
     - X-Frame-Options: Prevents clickjacking
     - HSTS: Forces HTTPS in production (when AMLKIT_BEHIND_PROXY=1)
+    - Cache-Control: no-store on everything except /static/ (H7)
     """
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
@@ -520,6 +525,12 @@ async def security_headers(request: Request, call_next):
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    # Pages and API responses carry customer PII, so nothing may be kept in
+    # a shared machine's disk cache (H7). Versionless static assets are
+    # exempt: re-downloading app.css/js/fonts on every page load buys nothing.
+    if not request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
     # HSTS only on HTTPS (production behind proxy)
     if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
         # 1 year HSTS, includeSubDomains
@@ -1055,7 +1066,7 @@ def verify_email(request: Request, db: DB, token: str = ""):
         db, session_token, operator["id"], operator["role"],
         trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
     )
-    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to amlkit."),
+    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to groaml."),
                             status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
@@ -1536,6 +1547,43 @@ def customer_scan_passport(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.post("/customers/scan-trade-licence")
+def customer_scan_trade_licence(
+    request: Request, db: DB,
+    licence_file: UploadFile,
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Same contract as /customers/scan-passport, for the legal-person path.
+
+    Onboarding a company previously reused the passport scanner under a
+    relabelled button -- it read passports, never trade licences, so a
+    company's licence photo silently produced almost nothing. This is the
+    real extractor (see cases/ocr.py's extract_trade_licence_data).
+    """
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    import io
+    from ..cases.ocr import extract_trade_licence_data
+
+    try:
+        content = licence_file.file.read()
+        file_like = io.BytesIO(content)
+        data = extract_trade_licence_data(file_like)
+        return data
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/customers/{customer_id}", response_class=HTMLResponse)
 def customer_detail(request: Request, db: DB, customer_id: int):
     try:
@@ -1628,7 +1676,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     ctx = data | {"session": session, "generated_at": generated_at,
                   "effective_risk": eff_risk}
     ctx.setdefault("security_warning", startup_warning())
-    ctx.setdefault("single_operator", single_operator_mode())
+    ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
     ctx["csrf_token"] = ""
     ctx["request"] = request
 
@@ -1636,7 +1684,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     footer_html = (
         f'<div style="text-align:center; font-size:9px; color:#888; padding:4px;">'
         f'Generated {generated_at[:19].replace("T", " ")} UTC'
-        f' &middot; amlkit &middot; ruleset {rs.get("version", "unknown")}'
+        f' &middot; groaml by Grovisor &middot; ruleset {rs.get("version", "unknown")}'
         f'</div>'
     )
     html_str = html_str.replace("</body>", footer_html + "</body>")
@@ -2216,6 +2264,76 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
 # without an account (linked externally, or read by an examiner) than gated
 # behind login like every operational page. current_session (not
 # require_session) so a signed-in visitor still gets the sidebar shell.
+# --------------------------------------------------------------------------
+# In-app notifications (MLRO inbox). Written by notifications.py when a
+# screening finds a match; these routes only read them and mark them read.
+# --------------------------------------------------------------------------
+
+@app.get("/notifications", response_class=HTMLResponse)
+def notifications_page(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "notifications.html", {
+        "session": session,
+        "items": queries.notifications_for(db, session.org_id, session.operator_id, limit=100),
+    }, db)
+
+
+@app.get("/notifications/unread-count")
+def notifications_unread_count(request: Request, db: DB):
+    """Polled by the bell in the page header."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return {"count": queries.unread_notification_count(db, session.org_id, session.operator_id)}
+
+
+@app.post("/notifications/read-all")
+def notifications_read_all(
+    request: Request, db: DB, csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/notifications", err=str(exc))
+    n = notifications.mark_all_read(db, session.org_id, session.operator_id)
+    return back("/notifications", msg=f"{n} notification{'s' if n != 1 else ''} marked read.")
+
+
+@app.post("/notifications/{notification_id}/read")
+def notification_open(
+    request: Request, db: DB, notification_id: int, csrf_token: Annotated[str, Form()] = "",
+):
+    """Mark one notification read and go to what it points at."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/notifications", err=str(exc))
+    row = db.execute(
+        "SELECT link FROM notifications WHERE id=? AND org_id=? AND operator_id=?",
+        (notification_id, session.org_id, session.operator_id),
+    ).fetchone()
+    if row is None:
+        return back("/notifications", err="Notification not found.")
+    notifications.mark_read(db, session.org_id, session.operator_id, notification_id)
+    link = row["link"] or "/notifications"
+    # Links are written by notifications.py, but never redirect off-site regardless.
+    if not link.startswith("/") or link.startswith("//"):
+        link = "/notifications"
+    return RedirectResponse(link, status_code=303)
+
+
 @app.get("/about", response_class=HTMLResponse)
 def about_view(request: Request, db: DB):
     session = current_session(request, db)
@@ -2303,6 +2421,7 @@ def audit_export(request: Request, db: DB):
         return _R(status_code=403)
 
     import csv
+    import json
     import io as _io
     from fastapi.responses import StreamingResponse
 
@@ -2314,12 +2433,18 @@ def audit_export(request: Request, db: DB):
     writer.writerow(["timestamp", "action", "user", "object_type", "object_id", "detail"])
     for e in entries:
         writer.writerow([
-            e.get("ts", ""),
-            e.get("action", ""),
-            e.get("actor", ""),
-            e.get("object_type", ""),
-            e.get("object_id", ""),
-            _redact_pii(e.get("detail") or ""),
+            _escape_csv_formula(e.get("ts", "")),
+            _escape_csv_formula(e.get("action", "")),
+            _escape_csv_formula(e.get("actor", "")),
+            _escape_csv_formula(e.get("object_type", "")),
+            _escape_csv_formula(e.get("object_id", "")),
+            # audit_trail() returns detail already JSON-decoded (usually a
+            # dict); redact() needs the serialised text.
+            _escape_csv_formula(_redact_pii(
+                e["detail"] if isinstance(e.get("detail"), str)
+                else json.dumps(e["detail"], ensure_ascii=False) if e.get("detail") is not None
+                else ""
+            )),
         ])
     buf.seek(0)
 
@@ -2480,6 +2605,8 @@ def admin_view(request: Request, db: DB):
         "operators": queries.operators(db, session.org_id),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
+        "single_operator_setting": queries.org_single_operator_setting(db, session.org_id),
+        "single_operator_effective": single_operator_mode(db, session.org_id),
         "sanctions": staleness_report(db),
         "eu_warning": eu_warning,
     })
@@ -2611,6 +2738,36 @@ def admin_set_threshold(
           {"threshold": value}, org_id=session.org_id)
     db.commit()
     return back("/admin", msg=f"Alert threshold set to {value}.")
+
+
+@app.post("/admin/single-operator")
+def admin_set_single_operator(
+    request: Request, db: DB,
+    mode: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Per-org single-operator mode (Issue #258). 'on' / 'off' set it
+    explicitly; 'default' clears it back to the instance default."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    choices = {"on": True, "off": False, "default": None}
+    if mode not in choices:
+        return back("/admin", err="Choose on, off, or default.")
+    set_org_single_operator_mode(db, session.org_id, choices[mode])
+    from ..db import audit
+    audit(db, session.operator_name, "org.single_operator_set", "organization", session.org_id,
+          {"single_operator_mode": choices[mode]}, org_id=session.org_id)
+    db.commit()
+    state = "on" if single_operator_mode(db, session.org_id) else "off"
+    return back("/admin", msg=f"Single-operator mode is now {state}.")
 
 
 @app.post("/admin/operators/{operator_id}/reset-password")
@@ -3333,7 +3490,7 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
     return back(f"/reports/{report_id}",
-               msg="Report finalized in amlkit. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
+               msg="Report finalized in groaml. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
 
 
 @app.get("/reports/{report_id}/export")
