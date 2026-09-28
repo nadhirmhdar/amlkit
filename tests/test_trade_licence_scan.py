@@ -72,3 +72,26 @@ def test_scan_trade_licence_extracts_real_fields_from_ocr_text(client, monkeypat
     assert r.status_code == 200
     assert r.json()["full_name"] == "FALCON RIDGE TRADING FZE"
     assert r.json()["id_number"] == "749278"
+
+
+def test_pdf_trade_licence_is_rasterized_before_ocr(monkeypatch) -> None:
+    """A scanned-to-PDF licence reaches pytesseract as a decoded image (the
+    same capped PDF path as passport/Emirates ID), and its text is parsed."""
+    import pytesseract
+    from PIL import Image
+
+    from amlkit.cases.ocr import extract_trade_licence_data
+    from test_ocr_pdf_support import _make_blank_pdf_bytes
+
+    seen = []
+
+    def fake_image_to_data(img, output_type=None):
+        seen.append(img)
+        words = ["Trade", "Name:", "Gulf", "Falcon", "Trading", "LLC", "Licence", "No:", "123456"]
+        return {"text": words, "conf": ["90"] * len(words)}
+
+    monkeypatch.setattr(pytesseract, "image_to_data", fake_image_to_data)
+    out = extract_trade_licence_data(io.BytesIO(_make_blank_pdf_bytes()))
+    assert isinstance(seen[0], Image.Image) and seen[0].size[0] > 2000
+    assert out["id_number"] == "123456"
+    assert out["legal_type"] == "LLC"

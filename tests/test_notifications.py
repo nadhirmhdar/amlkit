@@ -143,6 +143,51 @@ def test_email_is_sent_to_every_active_mlro_address(conn, firm, monkeypatch):
     screen(conn, LISTED, org_id=firm["org"], actor="officer")
     assert len(sent) == 1
     assert sorted(sent[0][0]) == ["mlro.a@example.test", "mlro.b@example.test"]
+    # Email leaves the platform: it names neither the customer nor the listed party.
+    assert LISTED.lower() not in repr(sent[0][1]).lower()
+
+
+def test_match_email_is_branded_blind_copied_and_names_nobody(monkeypatch):
+    from amlkit import mail
+
+    captured = []
+
+    class FakeSMTP:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def starttls(self):
+            pass
+
+        def login(self, *a):
+            pass
+
+        def send_message(self, msg):
+            captured.append(msg)
+
+    monkeypatch.setenv("AMLKIT_SMTP_HOST", "smtp.example.test")
+    monkeypatch.delenv("AMLKIT_SMTP_FROM", raising=False)
+    monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
+
+    out = mail.send_screening_match_alert(
+        ["mlro.a@example.test", "mlro.b@example.test"],
+        summary="A screening has produced 1 new possible match (top score 0.97).",
+        alert_url="https://groaml.example.test/customers/7#alerts",
+    )
+    assert out == mail.SENT
+    msg = captured[0]
+    assert "groaml by Grovisor" in msg["From"]
+    assert msg["Bcc"] == "mlro.a@example.test, mlro.b@example.test"
+    assert "mlro.a@example.test" not in msg["To"]
+    body = msg.get_content()
+    assert "/customers/7#alerts" in body
+    assert "Do not discuss this alert with the customer." in body
 
 
 def test_rescreen_sends_one_digest_not_one_notification_per_hit(conn, firm):

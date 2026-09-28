@@ -58,7 +58,7 @@ from ..cases.review import (
     review_history,
     single_operator_mode,
 )
-from ..db import retry_on_lock, set_org_alert_threshold, utcnow
+from ..db import retry_on_lock, set_org_alert_threshold, set_org_single_operator_mode, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
@@ -176,7 +176,7 @@ async def _lifespan(app):
 # N001: Disable OpenAPI by default unless explicitly enabled
 _openapi_url = "/openapi.json" if os.getenv("AMLKIT_ENABLE_OPENAPI") == "1" else None
 
-app = FastAPI(title="amlkit", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
+app = FastAPI(title="groaml by Grovisor", docs_url=None, redoc_url=None, openapi_url=_openapi_url, lifespan=_lifespan)
 
 # Issue #102: Flash messages via signed cookies (no itsdangerous dependency)
 # Uses the same signing mechanism as CSRF tokens
@@ -234,7 +234,11 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         session = current_session(request, db)
     ctx.setdefault("session", session)
     ctx.setdefault("security_warning", startup_warning())
-    ctx.setdefault("single_operator", single_operator_mode())
+    # single_operator_mode requires db + org_id; only set if both available
+    if db and session:
+        ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
+    else:
+        ctx.setdefault("single_operator", False)  # default to stricter control when context unavailable
     # Read flash message from cookie (Issue #102) with URL param fallback.
     # Cookie value is base64-encoded JSON to avoid HTTP quoting of {/"/} chars.
     import json as _json
@@ -361,18 +365,104 @@ def _set_csrf_cookie(resp, request: Request) -> None:
                         max_age=_COOKIE_MAX_AGE)
 
 
+def _parse_cloud_trace(header: str) -> tuple[str | None, str | None]:
+    """Parse X-Cloud-Trace-Context header and return (trace_id, span_id_hex).
+
+    Format: TRACE_ID/SPAN_ID;o=1 where SPAN_ID is decimal uint64.
+    Returns (trace_id, 16-char hex span) or (trace_id, None) if span is invalid.
+    Only sets span_id if it's numeric, fits in 64 bits, and can be converted to hex.
+    """
+    if not header:
+        return None, None
+    parts = header.split("/")
+    if len(parts) < 2:
+        return None, None
+    trace_id = parts[0]
+    if not trace_id:
+        return None, None
+    span_part = parts[1].split(";")[0]  # Remove ;o=1 suffix
+
+    span_id_hex = None
+    if span_part and span_part.isdigit():
+        try:
+            span_val = int(span_part)
+            if 0 <= span_val < 2**64:
+                span_id_hex = format(span_val, "016x")
+        except (ValueError, OverflowError):
+            pass
+
+    return trace_id, span_id_hex
+
+
+def _parse_w3c_traceparent(header: str) -> tuple[str | None, str | None]:
+    """Parse W3C traceparent header and return (trace_id, span_id_hex).
+
+    Format: 00-TRACE_ID-SPAN_ID-01 where SPAN_ID is already 16-char hex.
+    Returns (trace_id, span_id_hex) or (None, None) if invalid.
+    Only sets span_id if it's exactly 16 hex characters.
+    """
+    if not header:
+        return None, None
+    parts = header.split("-")
+    if len(parts) < 4:
+        return None, None
+    trace_id = parts[1]
+    span_id = parts[2]
+
+    if not trace_id or not span_id:
+        return None, None
+
+    # Validate span_id is exactly 16 hex chars
+    if len(span_id) == 16 and all(c in "0123456789abcdef" for c in span_id.lower()):
+        return trace_id, span_id
+
+    return trace_id, None
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    """Generate a unique request ID for correlation and attach it to the response."""
+    """Generate a unique request ID for correlation and attach it to the response.
+
+    Also parses Cloud Trace context headers (X-Cloud-Trace-Context and W3C traceparent).
+    Converts decimal span IDs to 16-char hex for Cloud Logging LogEntry.
+    """
     request_id = str(uuid.uuid4())
-    from ..logging_config import set_request_id, clear_request_id
+    from ..logging_config import (
+        set_request_id, clear_request_id,
+        set_trace_id, set_span_id,
+        set_org_id
+    )
+
     set_request_id(request_id)
+
+    # Parse trace context from headers
+    # X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE (SPAN_ID is decimal)
+    cloud_trace = request.headers.get("X-Cloud-Trace-Context")
+    if cloud_trace:
+        trace_id, span_id_hex = _parse_cloud_trace(cloud_trace)
+        if trace_id:
+            set_trace_id(trace_id)
+        if span_id_hex:
+            set_span_id(span_id_hex)
+
+    # W3C traceparent: 00-TRACE_ID-SPAN_ID-01 (SPAN_ID is already 16-char hex)
+    traceparent = request.headers.get("traceparent")
+    if traceparent and not cloud_trace:  # Only use if X-Cloud-Trace-Context not present
+        trace_id, span_id_hex = _parse_w3c_traceparent(traceparent)
+        if trace_id:
+            set_trace_id(trace_id)
+        if span_id_hex:
+            set_span_id(span_id_hex)
+
     try:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
     finally:
         clear_request_id()
+        set_trace_id(None)
+        set_span_id(None)
+        set_org_id(None)
 
 
 @app.middleware("http")
@@ -421,6 +511,7 @@ async def security_headers(request: Request, call_next):
     - X-Content-Type-Options: Prevents MIME-sniffing attacks
     - X-Frame-Options: Prevents clickjacking
     - HSTS: Forces HTTPS in production (when AMLKIT_BEHIND_PROXY=1)
+    - Cache-Control: no-store on everything except /static/ (H7)
     """
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
@@ -434,6 +525,12 @@ async def security_headers(request: Request, call_next):
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    # Pages and API responses carry customer PII, so nothing may be kept in
+    # a shared machine's disk cache (H7). Versionless static assets are
+    # exempt: re-downloading app.css/js/fonts on every page load buys nothing.
+    if not request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
     # HSTS only on HTTPS (production behind proxy)
     if os.environ.get("AMLKIT_BEHIND_PROXY") == "1":
         # 1 year HSTS, includeSubDomains
@@ -969,7 +1066,7 @@ def verify_email(request: Request, db: DB, token: str = ""):
         db, session_token, operator["id"], operator["role"],
         trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
     )
-    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to amlkit."),
+    resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to groaml."),
                             status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     resp.set_cookie(SESSION_COOKIE, session_token, httponly=True, samesite="strict",
@@ -1579,7 +1676,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     ctx = data | {"session": session, "generated_at": generated_at,
                   "effective_risk": eff_risk}
     ctx.setdefault("security_warning", startup_warning())
-    ctx.setdefault("single_operator", single_operator_mode())
+    ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
     ctx["csrf_token"] = ""
     ctx["request"] = request
 
@@ -1587,7 +1684,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     footer_html = (
         f'<div style="text-align:center; font-size:9px; color:#888; padding:4px;">'
         f'Generated {generated_at[:19].replace("T", " ")} UTC'
-        f' &middot; amlkit &middot; ruleset {rs.get("version", "unknown")}'
+        f' &middot; groaml by Grovisor &middot; ruleset {rs.get("version", "unknown")}'
         f'</div>'
     )
     html_str = html_str.replace("</body>", footer_html + "</body>")
@@ -2324,6 +2421,7 @@ def audit_export(request: Request, db: DB):
         return _R(status_code=403)
 
     import csv
+    import json
     import io as _io
     from fastapi.responses import StreamingResponse
 
@@ -2335,12 +2433,18 @@ def audit_export(request: Request, db: DB):
     writer.writerow(["timestamp", "action", "user", "object_type", "object_id", "detail"])
     for e in entries:
         writer.writerow([
-            e.get("ts", ""),
-            e.get("action", ""),
-            e.get("actor", ""),
-            e.get("object_type", ""),
-            e.get("object_id", ""),
-            _redact_pii(e.get("detail") or ""),
+            _escape_csv_formula(e.get("ts", "")),
+            _escape_csv_formula(e.get("action", "")),
+            _escape_csv_formula(e.get("actor", "")),
+            _escape_csv_formula(e.get("object_type", "")),
+            _escape_csv_formula(e.get("object_id", "")),
+            # audit_trail() returns detail already JSON-decoded (usually a
+            # dict); redact() needs the serialised text.
+            _escape_csv_formula(_redact_pii(
+                e["detail"] if isinstance(e.get("detail"), str)
+                else json.dumps(e["detail"], ensure_ascii=False) if e.get("detail") is not None
+                else ""
+            )),
         ])
     buf.seek(0)
 
@@ -2387,6 +2491,15 @@ def console_org_alerts(request: Request, db: DB, org_id: int, status: str = "ope
     if org is None:
         return back("/console", err="Organization not found.")
 
+    # A-02-5: Audit cross-tenant access by super-admin
+    from ..db import audit
+    audit(
+        db, session.email, "console.org_alerts.view", "organization", str(org_id),
+        {"super_admin_org_id": session.org_id, "status_filter": status},
+        org_id=org_id
+    )
+    db.commit()
+
     from ..cases.review import review_history, REASON_CODES
     alert_list = queries.org_alerts(db, org_id, status=status if status != "all" else None)
     from ..cases.review import review_history
@@ -2418,6 +2531,15 @@ def console_org_customers(request: Request, db: DB, org_id: int):
     org = db.execute("SELECT name FROM organizations WHERE id=?", (org_id,)).fetchone()
     if org is None:
         return back("/console", err="Organization not found.")
+
+    # A-02-5: Audit cross-tenant access by super-admin
+    from ..db import audit
+    audit(
+        db, session.email, "console.org_customers.view", "organization", str(org_id),
+        {"super_admin_org_id": session.org_id},
+        org_id=org_id
+    )
+    db.commit()
 
     customer_list = queries.org_customers(db, org_id)
     return render(request, "customers.html", {
@@ -2483,6 +2605,8 @@ def admin_view(request: Request, db: DB):
         "operators": queries.operators(db, session.org_id),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
+        "single_operator_setting": queries.org_single_operator_setting(db, session.org_id),
+        "single_operator_effective": single_operator_mode(db, session.org_id),
         "sanctions": staleness_report(db),
         "eu_warning": eu_warning,
     })
@@ -2614,6 +2738,36 @@ def admin_set_threshold(
           {"threshold": value}, org_id=session.org_id)
     db.commit()
     return back("/admin", msg=f"Alert threshold set to {value}.")
+
+
+@app.post("/admin/single-operator")
+def admin_set_single_operator(
+    request: Request, db: DB,
+    mode: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Per-org single-operator mode (Issue #258). 'on' / 'off' set it
+    explicitly; 'default' clears it back to the instance default."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    choices = {"on": True, "off": False, "default": None}
+    if mode not in choices:
+        return back("/admin", err="Choose on, off, or default.")
+    set_org_single_operator_mode(db, session.org_id, choices[mode])
+    from ..db import audit
+    audit(db, session.operator_name, "org.single_operator_set", "organization", session.org_id,
+          {"single_operator_mode": choices[mode]}, org_id=session.org_id)
+    db.commit()
+    state = "on" if single_operator_mode(db, session.org_id) else "off"
+    return back("/admin", msg=f"Single-operator mode is now {state}.")
 
 
 @app.post("/admin/operators/{operator_id}/reset-password")
@@ -3336,7 +3490,7 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
     return back(f"/reports/{report_id}",
-               msg="Report finalized in amlkit. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
+               msg="Report finalized in groaml. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
 
 
 @app.get("/reports/{report_id}/export")

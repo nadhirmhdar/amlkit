@@ -16,6 +16,17 @@ from amlkit.cases.manager import run_adverse_media_async, check_adverse_media_st
 from amlkit.names.arabic import canonical_key as _ck
 
 
+class _StubGDELT:
+    """Answers instantly so the background job never makes a live GDELT call.
+
+    Without it these tests depended on GDELT responding (and on the shared
+    5s rate limiter) inside the 30s polling window, and failed when it didn't.
+    """
+
+    def fetch(self, query, *, window_months, max_records):
+        return {"articles": []}
+
+
 def test_async_returns_immediately(tmp_path):
     """Async version should return immediately, not block on HTTP."""
     db_file = tmp_path / "test.db"
@@ -42,7 +53,8 @@ def test_async_returns_immediately(tmp_path):
         org_id=org_id,
         name="John Smith",
         customer_id=customer_id,
-        actor="test"
+        actor="test",
+        client=_StubGDELT(),
     )
     elapsed = time.time() - start
 
@@ -76,7 +88,8 @@ def test_async_status_pending_then_complete(tmp_path):
         org_id=org_id,
         name="Test Name",
         customer_id=customer_id,
-        actor="test"
+        actor="test",
+        client=_StubGDELT(),
     )
 
     # Should be pending immediately after start
@@ -119,7 +132,8 @@ def test_async_stores_results_when_done(tmp_path):
         org_id=org_id,
         name="Test Person",
         customer_id=customer_id,
-        actor="test"
+        actor="test",
+        client=_StubGDELT(),
     )
 
     # Wait for completion
@@ -173,7 +187,8 @@ def test_async_multiple_concurrent_jobs(tmp_path):
             org_id=org_id,
             name=f"Person {i}",
             customer_id=customer_id,
-            actor="test"
+            actor="test",
+        client=_StubGDELT(),
         )
         job_ids.append(job_id)
     elapsed = time.time() - start

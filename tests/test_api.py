@@ -188,7 +188,7 @@ class TestPagesRender:
     def test_page_renders_when_authenticated(self, client, path: str) -> None:
         r = client.get(path)
         assert r.status_code == 200
-        assert "amlkit" in r.text
+        assert "groaml" in r.text
 
     @pytest.mark.parametrize("path", ["/", "/dashboard", "/screen", "/alerts", "/customers", "/admin"])
     def test_page_redirects_when_not_authenticated(self, client, path: str) -> None:

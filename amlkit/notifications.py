@@ -65,9 +65,10 @@ def notify_new_match(conn: sqlite3.Connection, org_id: int, result: Any, *, cust
     try:
         mail.send_screening_match_alert(
             [m["email"] for m in mlros],
-            query_name=result.query,
-            match_caption=top.caption,
-            score=top.score,
+            summary=(
+                f"A screening has produced {n} new possible match{'es' if n != 1 else ''}"
+                f" (top score {top.score:.2f})."
+            ),
             alert_url=mail.app_base_url() + link,
         )
     except Exception:  # noqa: BLE001 -- a mail failure must never break a screening
@@ -88,9 +89,10 @@ def notify_rescreen_digest(conn: sqlite3.Connection, org_id: int, new_alerts: in
     try:
         mail.send_screening_match_alert(
             [m["email"] for m in mlros],
-            query_name="Customer book (list update re-screen)",
-            match_caption=f"{new_alerts} new alert(s)",
-            score=1.0,
+            summary=(
+                f"The re-screen after a sanctions list update found {new_alerts} new possible"
+                f" match{'es' if new_alerts != 1 else ''} in your customer book."
+            ),
             alert_url=mail.app_base_url() + "/alerts",
         )
     except Exception:  # noqa: BLE001

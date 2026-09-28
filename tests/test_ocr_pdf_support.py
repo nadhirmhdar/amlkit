@@ -21,12 +21,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 def _make_blank_pdf_bytes(width: float = 595.0, height: float = 842.0) -> bytes:
     """Build a real, minimal single-page PDF in-process (A4-ish points)."""
-    import fitz
+    import pypdfium2 as pdfium
 
-    doc = fitz.open()
+    doc = pdfium.PdfDocument.new()
     try:
-        doc.new_page(width=width, height=height)
-        return doc.tobytes()
+        doc.new_page(width, height)
+        out = io.BytesIO()
+        doc.save(out)
+        return out.getvalue()
     finally:
         doc.close()
 
@@ -50,6 +52,38 @@ class TestPrepareImageBytesPdfRasterization:
         expected_height = round(842.0 / 72 * 300)
         assert abs(img.width - expected_width) <= 5
         assert abs(img.height - expected_height) <= 5
+
+    def test_oversized_page_is_scaled_down_not_rendered_at_300_dpi(self) -> None:
+        """A few-hundred-byte PDF declaring a 3000pt page used to render at
+        300 DPI (12500x12500px): 92s and 5.4 GB in review. The longest edge
+        is now capped, keeping the aspect ratio."""
+        from amlkit.cases.ocr import _PDF_MAX_RENDER_PX, _prepare_image_bytes
+        from PIL import Image
+
+        pdf_bytes = _make_blank_pdf_bytes(width=3000.0, height=1500.0)
+        assert len(pdf_bytes) < 2000
+        img = Image.open(io.BytesIO(_prepare_image_bytes(pdf_bytes, dpi=300)))
+        assert max(img.size) == _PDF_MAX_RENDER_PX
+        assert abs(img.width / img.height - 2.0) < 0.01
+
+    def test_a4_scan_keeps_full_300_dpi(self) -> None:
+        from amlkit.cases.ocr import _PDF_MAX_RENDER_PX, _prepare_image_bytes
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(_prepare_image_bytes(_make_blank_pdf_bytes(), dpi=300)))
+        assert max(img.size) < _PDF_MAX_RENDER_PX
+        assert abs(img.height - round(842.0 / 72 * 300)) <= 5
+
+    def test_implausible_page_size_is_not_rendered(self) -> None:
+        """Beyond PDF's own 14,400pt page limit: not a scanned document, so
+        rasterization is refused and the raw bytes fall through to the
+        existing all-null path instead of being rendered."""
+        from amlkit.cases.ocr import _pdf_first_page_to_image_bytes, _prepare_image_bytes
+
+        pdf_bytes = _make_blank_pdf_bytes(width=20000.0, height=20000.0)
+        with pytest.raises(ValueError, match="implausible"):
+            _pdf_first_page_to_image_bytes(pdf_bytes)
+        assert _prepare_image_bytes(pdf_bytes) == pdf_bytes
 
     def test_non_pdf_bytes_pass_through_unchanged(self) -> None:
         from amlkit.cases.ocr import _prepare_image_bytes

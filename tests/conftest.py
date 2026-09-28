@@ -30,8 +30,9 @@ def register_org(client, org_name, name, email, password="a-strong-password-1", 
 
 @pytest.fixture(autouse=True)
 def _invite_code_and_limiter_reset(monkeypatch):
-    """Every test gets AMLKIT_REGISTRATION_INVITE_CODE set and a fresh rate-limiter."""
+    """Every test gets AMLKIT_REGISTRATION_INVITE_CODE set, purge enabled for test assertions, and a fresh rate-limiter."""
     monkeypatch.setenv("AMLKIT_REGISTRATION_INVITE_CODE", INVITE_CODE)
+    monkeypatch.setenv("AMLKIT_PURGE_ENABLED", "true")
     from amlkit.api.app import limiter
     limiter.reset()
     yield
