@@ -328,7 +328,7 @@ flowchart TD
 flowchart TD
     WH["Webhook<br/>Rescreen Triggered"] --> CUST["API Request<br/>GET /api/customers"]
     CUST --> CLIST["Parse JSON<br/>Extract Customer Array"]
-    CLIST --> LOOP[/"Loop<br/>Iterate Customers"/]
+    CLIST --> LOOP["Loop<br/>Iterate Customers"]
     LOOP -->|"next item"| SONE["API Request<br/>POST /api/screen one customer"]
     SONE --> NHITS{"Conditional Router<br/>New Hits?"}
     NHITS -->|"true — new hit found"| ALERT["API Request<br/>POST /api/alerts  — create alert"]
@@ -457,4 +457,3 @@ tabs.forEach(tab => {
 mermaid.initialize({startOnLoad: false, theme: 'dark', securityLevel: 'loose', flowchart: {htmlLabels: true, useMaxWidth: true}});
 mermaid.run();
 </script>
-</body></html>
