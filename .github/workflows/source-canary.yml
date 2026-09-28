@@ -430,9 +430,15 @@ jobs:
           # Must be passed here for the same reason as above (--set-env-vars
           # replaces the whole list). Moved to litestream-v2/ after the
           # 2026-09-27 replica corruption; the old litestream/ prefix is corrupt
-          # and must never be restored from. Unset = entrypoint.sh's default.
+          # and must never be restored from. Required: entrypoint.sh has no
+          # default and refuses to start without it, so fail here, before a
+          # revision that cannot boot is rolled out.
           LITESTREAM_REPLICA_URL: ${{ vars.LITESTREAM_REPLICA_URL }}
         run: |
+          if [ -z "$LITESTREAM_REPLICA_URL" ]; then
+            echo "::error::Repo variable LITESTREAM_REPLICA_URL is not set; the container would refuse to start. Set it to the production replica (litestream-v2/)."
+            exit 1
+          fi
           gcloud run deploy amlkit \
             --image "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/amlkit/amlkit:${{ github.sha }}" \
             --platform managed \
