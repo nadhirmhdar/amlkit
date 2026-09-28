@@ -51,7 +51,7 @@ def app_base_url() -> str:
 
 
 DEFAULT_FROM = "no-reply@groaml.grovisor.ae"
-SENDER_NAME = "groaml by Grovisor"
+SENDER_NAME = "groAML by Grovisor"
 
 
 def sender_address(smtp_user: str) -> str:
@@ -131,12 +131,12 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
     use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
 
     msg = EmailMessage()
-    msg["Subject"] = "Verify your groaml account"
+    msg["Subject"] = "Verify your groAML account"
     msg["From"] = from_header(from_addr)
     msg["To"] = to_email
     msg.set_content(
         f"Hi {name},\n\n"
-        "Confirm this email address to activate your groaml account:\n\n"
+        "Confirm this email address to activate your groAML account:\n\n"
         f"  {url}\n\n"
         "This link expires in 3 days. If you didn't request this, ignore this email.\n"
     )
@@ -197,7 +197,7 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
     )
 
     msg = EmailMessage()
-    msg["Subject"] = f"⚠️  groaml: {len(datasets)} sanctions list(s) stale"
+    msg["Subject"] = f"⚠️  groAML: {len(datasets)} sanctions list(s) stale"
     msg["From"] = from_header(from_addr)
     msg["To"] = ", ".join(to_emails)
     msg.set_content(
@@ -332,10 +332,10 @@ def send_screening_match_alert(to_emails: list[str], *, summary: str, alert_url:
     if not recipients:
         return SENT  # nobody to notify
 
-    subject = "groaml: new screening match needs review"
+    subject = "groAML: new screening match needs review"
     body = (
         f"{summary}\n\n"
-        "Review it in groaml (a decision needs a reason and a written narrative):\n"
+        "Review it in groAML (a decision needs a reason and a written narrative):\n"
         f"  {alert_url}\n\n"
         "Do not discuss this alert with the customer.\n"
     )

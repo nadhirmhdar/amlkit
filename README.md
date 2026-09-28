@@ -1,6 +1,6 @@
-# groaml by Grovisor — UAE AML screening & CDD
+# groAML by Grovisor — UAE AML screening & CDD
 
-> **groaml** (formerly *amlkit*) · <https://groaml.grovisor.ae>
+> **groAML** (formerly *amlkit*) · <https://groaml.grovisor.ae>
 >
 > The rename is display-only for now. The Python package (`amlkit/`), the
 > `AMLKIT_*` environment variables, cookie names, the database file and the

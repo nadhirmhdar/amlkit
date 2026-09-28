@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Complete setup — groaml{% endblock %}
+{% block title %}Complete setup — groAML{% endblock %}
 {% block body %}
 
 <div style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
   <div style="width:400px;">
     <div style="text-align:center; margin-bottom:36px;">
-      <div style="font-size:30px; font-weight:800; letter-spacing:-0.02em; background:linear-gradient(100deg, var(--ink) 55%, oklch(48% 0.14 45)); -webkit-background-clip:text; background-clip:text; color:transparent;">groaml</div>
+      <div style="font-size:30px; font-weight:800; letter-spacing:-0.02em; background:linear-gradient(100deg, var(--ink) 55%, oklch(48% 0.14 45)); -webkit-background-clip:text; background-clip:text; color:transparent;">groAML</div>
     </div>
 
     <div class="panel">
@@ -14,7 +14,7 @@
       {% if not valid %}
         <p>{{ err }}</p>
         <p class="muted small">
-          This link is printed once, to the console, the first time groaml
+          This link is printed once, to the console, the first time groAML
           upgrades an existing single-firm database to the multi-tenant model.
           If you don't have it, ask whoever ran the upgrade to check the server
           console output.
