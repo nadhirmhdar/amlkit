@@ -270,21 +270,21 @@ h1 {
     <div class="diagram-wrap">
       <div class="mermaid">
 flowchart TD
-    WH["Webhook<br/>Customer Onboarded"] --> SCREEN["API Request<br/>POST /api/screen"]
-    SCREEN --> HITS{"Conditional Router<br/>Hits Found?"}
-    HITS -->|"false — no hits"| CLEARED["Chat Output<br/>Cleared — No Match"]
-    HITS -->|"true — hits found"| ALERT["Parse JSON<br/>Extract Alert Data"]
-    ALERT --> NARR["Structured Output<br/>Generate Narrative"]
-    NARR --> PROP["Notify<br/>Propose Disposition"]
-    PROP --> LPROP["Listen<br/>Await Proposal Response"]
-    LPROP --> SINGLEOP{"Conditional Router<br/>Single Operator Mode?"}
-    SINGLEOP -->|"true — bypass four-eyes"| FREEZE["SubFlow<br/>Freeze Assets"]
-    SINGLEOP -->|"false — four-eyes required"| NCONF["Notify<br/>Request Second-Officer Confirm"]
-    NCONF --> LCONF["Listen<br/>Await Confirmation"]
-    LCONF --> DISP{"Conditional Router<br/>Disposition Confirmed?"}
+    WH["Webhook\nCustomer Onboarded"] --> SCREEN["API Request\nPOST /api/screen"]
+    SCREEN --> HITS{"Conditional Router\nHits Found?"}
+    HITS -->|"false — no hits"| CLEARED["Chat Output\nCleared — No Match"]
+    HITS -->|"true — hits found"| ALERT["Parse JSON\nExtract Alert Data"]
+    ALERT --> NARR["Structured Output\nGenerate Narrative"]
+    NARR --> PROP["Notify\nPropose Disposition"]
+    PROP --> LPROP["Listen\nAwait Proposal Response"]
+    LPROP --> SINGLEOP{"Conditional Router\nSingle Operator Mode?"}
+    SINGLEOP -->|"true — bypass four-eyes"| FREEZE["SubFlow\nFreeze Assets"]
+    SINGLEOP -->|"false — four-eyes required"| NCONF["Notify\nRequest Second-Officer Confirm"]
+    NCONF --> LCONF["Listen\nAwait Confirmation"]
+    LCONF --> DISP{"Conditional Router\nDisposition Confirmed?"}
     DISP -->|"true — confirmed"| FREEZE
-    DISP -->|"false — false positive"| FP["Chat Output<br/>Marked False Positive"]
-    FREEZE --> GOAML["Run Flow<br/>goAML 5.0 STR Export"]
+    DISP -->|"false — false positive"| FP["Chat Output\nMarked False Positive"]
+    FREEZE --> GOAML["Run Flow\ngoAML 5.0 STR Export"]
 
     style CLEARED fill:#122a1c,stroke:#3fb950,color:#3fb950
     style FP fill:#2a1212,stroke:#f85149,color:#f85149
@@ -326,15 +326,15 @@ flowchart TD
     <div class="diagram-wrap">
       <div class="mermaid">
 flowchart TD
-    WH["Webhook<br/>Rescreen Triggered"] --> CUST["API Request<br/>GET /api/customers"]
-    CUST --> CLIST["Parse JSON<br/>Extract Customer Array"]
-    CLIST --> LOOP["Loop<br/>Iterate Customers"]
-    LOOP -->|"next item"| SONE["API Request<br/>POST /api/screen one customer"]
-    SONE --> NHITS{"Conditional Router<br/>New Hits?"}
-    NHITS -->|"true — new hit found"| ALERT["API Request<br/>POST /api/alerts  — create alert"]
+    WH["Webhook\nRescreen Triggered"] --> CUST["API Request\nGET /api/customers"]
+    CUST --> CLIST["Parse JSON\nExtract Customer Array"]
+    CLIST --> LOOP["Loop\nIterate Customers"]
+    LOOP -->|"next item"| SONE["API Request\nPOST /api/screen one customer"]
+    SONE --> NHITS{"Conditional Router\nNew Hits?"}
+    NHITS -->|"true — new hit found"| ALERT["API Request\nPOST /api/alerts  — create alert"]
     ALERT -->|"loop back"| LOOP
     NHITS -->|"false — no new hit"| LOOP
-    LOOP -->|"done"| DONE["Chat Output<br/>Rescreen Complete"]
+    LOOP -->|"done"| DONE["Chat Output\nRescreen Complete"]
 
     style DONE fill:#122a1c,stroke:#3fb950,color:#3fb950
     style NHITS fill:#271e08,stroke:#d29922,color:#e6edf3
