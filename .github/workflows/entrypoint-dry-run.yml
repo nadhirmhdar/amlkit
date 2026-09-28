@@ -11,16 +11,30 @@
 #
 # Run it from the Actions tab (or the API) with `ref` set to the branch whose
 # entrypoint you want to test.
+#
+# mode=measure-healthy answers the other half: how long the startup integrity
+# check takes on the HEALTHY production database, under Cloud Run's limits.
+# It restores vars.LITESTREAM_REPLICA_URL (read-only, as above) inside the
+# image and times integrity_check / quick_check directly -- the entrypoint and
+# `litestream replicate` are never run, so nothing can be written anywhere.
+# entrypoint.sh gives each check 60s (AMLKIT_INTEGRITY_TIMEOUT); this fails
+# if the healthy check needs more than half of that.
 
 name: Entrypoint dry run
 
 on:
   workflow_dispatch:
     inputs:
-      replica_path:
-        description: "Replica to boot against, relative to the data bucket"
+      mode:
+        description: "refuse = boot against a bad replica and expect FATAL; measure-healthy = time the check on the production replica"
         required: true
-        default: "quarantine-litestream-2026-09-27/amlkit.db"
+        type: choice
+        options: [refuse, measure-healthy]
+        default: refuse
+      replica_path:
+        description: "refuse mode: replica to boot against, relative to the data bucket"
+        required: true
+        default: "quarantine-litestream-2026-09-27/litestream/amlkit.db"
       expected_status:
         description: "Space-separated FATAL statuses that count as a pass"
         required: true
@@ -29,6 +43,7 @@ on:
 jobs:
   dry-run:
     name: Boot the image against the replica
+    if: inputs.mode == 'refuse'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -110,3 +125,81 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
           exit $fail
+
+  measure-healthy:
+    name: Time the integrity check on the production replica
+    if: inputs.mode == 'measure-healthy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BACKUP_VERIFY_SA }}
+
+      - name: Build the image from this ref
+        run: docker build -t amlkit:measure .
+
+      # Same limits as Cloud Run. Each check gets 300s here so a slow one is
+      # measured rather than cut off at the entrypoint's 60s.
+      - name: Restore and time the checks
+        env:
+          REPLICA_URL: ${{ vars.LITESTREAM_REPLICA_URL }}
+        run: |
+          set -o pipefail
+          if [ -z "$REPLICA_URL" ]; then
+            echo "::error::Repo variable LITESTREAM_REPLICA_URL is not set."
+            exit 1
+          fi
+          docker run --rm --memory 1g --cpus 1 \
+            -v "${{ steps.auth.outputs.credentials_file_path }}:/tmp/gcp-creds.json:ro" \
+            -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json \
+            -e REPLICA_URL="$REPLICA_URL" \
+            --entrypoint sh amlkit:measure -c '
+              set -e
+              t0=$(date +%s)
+              litestream restore -o /tmp/m.db "$REPLICA_URL"
+              echo "restore_seconds=$(( $(date +%s) - t0 ))"
+              echo "db_bytes=$(stat -c %s /tmp/m.db)"
+              for p in integrity_check quick_check; do
+                s=$(date +%s); rc=0
+                out=$(timeout -k 10s 300s sqlite3 /tmp/m.db "PRAGMA $p" 2>&1) || rc=$?
+                echo "${p}_seconds=$(( $(date +%s) - s ))"
+                echo "${p}_exit=$rc"
+                echo "${p}_result=$(echo "$out" | head -1)"
+              done
+            ' | tee /tmp/measure.txt
+
+      - name: Check the budget
+        run: |
+          get() { sed -n "s/^$1=//p" /tmp/measure.txt | head -1; }
+          restore=$(get restore_seconds); bytes=$(get db_bytes)
+          ic=$(get integrity_check_seconds); ic_rc=$(get integrity_check_exit); ic_res=$(get integrity_check_result)
+          qc=$(get quick_check_seconds); qc_res=$(get quick_check_result)
+          {
+            echo "### Healthy startup check on the production replica"
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Database size | $(( ${bytes:-0} / 1048576 )) MiB |"
+            echo "| litestream restore | ${restore}s |"
+            echo "| integrity_check | ${ic}s (exit ${ic_rc}, \`${ic_res}\`) |"
+            echo "| quick_check | ${qc}s (\`${qc_res}\`) |"
+            echo "| Entrypoint budget per check | 60s |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+          if [ "$ic_rc" != "0" ] || [ "$ic_res" != "ok" ]; then
+            echo "::error::The production replica did not pass integrity_check (exit $ic_rc: $ic_res)."
+            exit 1
+          fi
+          if [ "$ic" -ge 30 ]; then
+            echo "::error::integrity_check took ${ic}s -- over half the 60s entrypoint budget; raise AMLKIT_INTEGRITY_TIMEOUT before relying on it."
+            exit 1
+          fi
+          echo "PASS: healthy integrity_check ${ic}s, restore ${restore}s, total ~$(( restore + ic ))s of Cloud Run's 240s."
+
