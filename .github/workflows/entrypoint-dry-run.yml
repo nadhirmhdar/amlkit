@@ -1,0 +1,112 @@
+# Boots the real container image against a (corrupt) litestream replica and
+# checks that scripts/entrypoint.sh refuses to start, in time, with a FATAL
+# line -- the live dry run for the 2026-09-27 outage fix (#334).
+#
+# Read-only by construction: it authenticates as the backup-verifier service
+# account (read-only on the data bucket, see backup-verify.yml), so even if
+# the entrypoint wrongly accepted the database and went on to
+# `litestream replicate`, it could not write to any replica. Nothing is
+# deployed to Cloud Run and the production replica is never touched (a guard
+# below refuses to point at it).
+#
+# Run it from the Actions tab (or the API) with `ref` set to the branch whose
+# entrypoint you want to test.
+
+name: Entrypoint dry run
+
+on:
+  workflow_dispatch:
+    inputs:
+      replica_path:
+        description: "Replica to boot against, relative to the data bucket"
+        required: true
+        default: "quarantine-litestream-2026-09-27/amlkit.db"
+      expected_status:
+        description: "Space-separated FATAL statuses that count as a pass"
+        required: true
+        default: "corrupt unverifiable"
+
+jobs:
+  dry-run:
+    name: Boot the image against the replica
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BACKUP_VERIFY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve and inspect the replica
+        env:
+          REPLICA_URL: gs://${{ vars.GCS_BUCKET }}/${{ inputs.replica_path }}
+          PROD_URL: ${{ vars.LITESTREAM_REPLICA_URL }}
+        run: |
+          if [ -n "$PROD_URL" ] && [ "${REPLICA_URL%/}" = "${PROD_URL%/}" ]; then
+            echo "::error::Refusing to dry-run against the production replica ($PROD_URL)."
+            exit 1
+          fi
+          echo "REPLICA_URL=$REPLICA_URL" >> "$GITHUB_ENV"
+          echo "Objects under $REPLICA_URL:"
+          gcloud storage ls --recursive "$REPLICA_URL" | head -40 || true
+
+      - name: Build the image from this ref
+        run: docker build -t amlkit:dry-run .
+
+      # Same limits as the Cloud Run service (--memory 1Gi --cpu 1). The
+      # outer timeout is above Cloud Run's 240s startup window so an overrun
+      # shows up as a failure below, not as a silently killed step.
+      - name: Boot the container
+        run: |
+          start=$(date +%s)
+          rc=0
+          timeout 420 docker run --rm \
+            --memory 1g --cpus 1 \
+            -v "${{ steps.auth.outputs.credentials_file_path }}:/tmp/gcp-creds.json:ro" \
+            -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json \
+            -e LITESTREAM_REPLICA_URL="$REPLICA_URL" \
+            -e GCS_BUCKET="${{ vars.GCS_BUCKET }}" \
+            amlkit:dry-run > /tmp/boot.log 2>&1 || rc=$?
+          echo "BOOT_RC=$rc" >> "$GITHUB_ENV"
+          echo "BOOT_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+          cat /tmp/boot.log
+
+      - name: Check the verdict
+        env:
+          EXPECTED: ${{ inputs.expected_status }}
+        run: |
+          echo "exit code: $BOOT_RC, boot time: ${BOOT_SECONDS}s"
+          fail=0
+          if [ "$BOOT_RC" = "0" ] || [ "$BOOT_RC" = "124" ] || grep -q "Starting amlkit web server" /tmp/boot.log; then
+            echo "::error::The container did not refuse to start (exit $BOOT_RC)."
+            fail=1
+          fi
+          status=$(grep -o 'status: [a-z_]*' /tmp/boot.log | tail -1 | cut -d' ' -f2)
+          if [ -z "$status" ]; then
+            echo "::error::No FATAL status line in the boot log."
+            fail=1
+          elif ! echo " $EXPECTED " | grep -q " $status "; then
+            echo "::error::Refused with status '$status', expected one of: $EXPECTED."
+            fail=1
+          fi
+          if [ "$BOOT_SECONDS" -ge 240 ]; then
+            echo "::error::Took ${BOOT_SECONDS}s -- over Cloud Run's 240s startup window."
+            fail=1
+          fi
+          if [ "$fail" = "0" ]; then
+            echo "PASS: refused to start with status '$status' after ${BOOT_SECONDS}s."
+            {
+              echo "### Entrypoint dry run: PASS"
+              echo "Replica: \`$REPLICA_URL\`  "
+              echo "Refused with status **$status** after **${BOOT_SECONDS}s** (exit $BOOT_RC)."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $fail
