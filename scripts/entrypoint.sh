@@ -35,6 +35,8 @@ envsubst < /app/litestream.yml > "$LITESTREAM_CFG"
 # healthy check that times out twice refuses to start); keep 2 x (timeout +
 # kill-after) under the service's startup window. Each check logs its duration
 # so the trend is visible well before that.
+RESTORE_ATTEMPTS="${AMLKIT_RESTORE_ATTEMPTS:-3}"
+RESTORE_RETRY_DELAY="${AMLKIT_RESTORE_RETRY_DELAY:-5}"
 INTEGRITY_TIMEOUT="${AMLKIT_INTEGRITY_TIMEOUT:-60}"
 INTEGRITY_KILL_AFTER="${AMLKIT_INTEGRITY_KILL_AFTER:-10}"
 
@@ -137,12 +139,29 @@ if [ ! -f /app/data/amlkit.db ]; then
     # other failure (corrupted/truncated segment, decode error, auth) refuses
     # to start -- `|| { }` so set -e doesn't kill the script before it can
     # say why.
-    litestream restore -config "$LITESTREAM_CFG" -if-replica-exists /app/data/amlkit.db || {
-        INTEGRITY_CODE=$?
-        INTEGRITY_STATUS=restore_failed
-        INTEGRITY_OUTPUT=""
-        refuse_to_start "litestream restore from ${LITESTREAM_REPLICA_URL} failed"
-    }
+    #
+    # A restore can also fail transiently: while another instance is still
+    # replicating (a deploy overlapping the old revision), litestream compacts
+    # and deletes LTX files the restore has already listed ("reopen ltx file
+    # ... file does not exist"). So retry a few times, starting from a clean
+    # slate each time, before calling it a failure.
+    attempt=1
+    while :; do
+        rm -f /app/data/amlkit.db /app/data/amlkit.db-wal /app/data/amlkit.db-shm
+        INTEGRITY_CODE=0
+        litestream restore -config "$LITESTREAM_CFG" -if-replica-exists /app/data/amlkit.db || INTEGRITY_CODE=$?
+        if [ "$INTEGRITY_CODE" -eq 0 ]; then
+            break
+        fi
+        if [ "$attempt" -ge "$RESTORE_ATTEMPTS" ]; then
+            INTEGRITY_STATUS=restore_failed
+            INTEGRITY_OUTPUT=""
+            refuse_to_start "litestream restore from ${LITESTREAM_REPLICA_URL} failed ${attempt} times"
+        fi
+        echo "litestream restore failed (exit $INTEGRITY_CODE, attempt $attempt of $RESTORE_ATTEMPTS); retrying in ${RESTORE_RETRY_DELAY}s..."
+        sleep "$RESTORE_RETRY_DELAY"
+        attempt=$((attempt + 1))
+    done
 
     if [ ! -f /app/data/amlkit.db ]; then
         # No replica at that URL. For a brand-new deployment that is expected;

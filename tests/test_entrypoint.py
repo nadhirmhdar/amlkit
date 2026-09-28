@@ -45,6 +45,13 @@ case "$1" in
       db) echo restored > "$last" ;;
       none) ;;
       fail) echo "decode page 7575: EOF" >&2; exit 1 ;;
+      flaky)
+        n=$(cat "$STUB_COUNTER" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$STUB_COUNTER"
+        if [ "$n" -lt 2 ]; then
+          echo partial > "$last"
+          echo "reopen ltx file at offset 0: file does not exist" >&2; exit 1
+        fi
+        echo restored > "$last" ;;
     esac ;;
   replicate) echo "APP STARTED" ;;
 esac
@@ -96,6 +103,8 @@ def _run(tmp_path: Path, *, restore="db", integrity="ok", quick="ok",
         "HOME": str(tmp_path),
         "AMLKIT_INTEGRITY_TIMEOUT": "1",
         "AMLKIT_INTEGRITY_KILL_AFTER": "1",
+        "AMLKIT_RESTORE_RETRY_DELAY": "0",
+        "STUB_COUNTER": str(tmp_path / "restore-count"),
         "STUB_RESTORE": restore,
         "STUB_INTEGRITY": integrity,
         "STUB_QUICK": quick,
@@ -170,6 +179,7 @@ def test_failed_restore_refuses_without_stale_fallback(tmp_path):
     r = _run(tmp_path, restore="fail", legacy="present")
     assert r["rc"] == 1, r["out"]
     assert "status: restore_failed" in r["out"]
+    assert "failed 3 times" in r["out"]
     assert "APP STARTED" not in r["out"]
     assert r["gsutil_calls"] == []
     assert not r["db_present"]
@@ -224,3 +234,16 @@ def test_integrity_timeout_is_configurable_and_duration_logged(tmp_path):
     assert r["rc"] == 0, r["out"]
     assert "PRAGMA integrity_check finished in" in r["out"]
     assert "(limit 7s, exit 0)" in r["out"]
+
+
+def test_transient_restore_failure_is_retried(tmp_path):
+    """A live writer compacting LTX files mid-restore makes one attempt fail
+    ("reopen ltx file ... file does not exist"); the next one succeeds, and
+    the partial file from the failed attempt is not what gets verified."""
+    r = _run(tmp_path, restore="flaky")
+    assert r["rc"] == 0, r["out"]
+    assert "attempt 1 of 3); retrying" in r["out"]
+    assert "Database integrity OK." in r["out"]
+    assert "APP STARTED" in r["out"]
+    assert (tmp_path / "app" / "data" / "amlkit.db").read_text() == "restored\n"
+

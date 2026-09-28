@@ -115,3 +115,4 @@ HH:55  GitHub Issues Sync  →  updates My Tasks artifact DB
 - `LITESTREAM_REPLICA_URL` — production replica (container refuses to start if unset; no default)
 - `AMLKIT_ALLOW_FRESH_START` — `1` lets a brand-new deployment boot with no replica; otherwise a missing replica refuses to start
 - `AMLKIT_INTEGRITY_TIMEOUT` — startup integrity-check budget in seconds (default 60)
+- `AMLKIT_RESTORE_ATTEMPTS` / `AMLKIT_RESTORE_RETRY_DELAY` — startup litestream restore retries (default 3 attempts, 5s apart) before refusing to start
