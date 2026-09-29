@@ -27,7 +27,7 @@ def test_blank_from_falls_back(monkeypatch):
 
 
 def test_from_header_adds_product_name():
-    assert from_header("noreply@grovisor.ae") == "groaml by Grovisor <noreply@grovisor.ae>"
+    assert from_header("noreply@grovisor.ae") == "groAML by Grovisor <noreply@grovisor.ae>"
 
 
 def test_from_header_keeps_configured_display_name():

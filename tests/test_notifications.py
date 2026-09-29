@@ -182,7 +182,7 @@ def test_match_email_is_branded_blind_copied_and_names_nobody(monkeypatch):
     )
     assert out == mail.SENT
     msg = captured[0]
-    assert "groaml by Grovisor" in msg["From"]
+    assert "groAML by Grovisor" in msg["From"]
     assert msg["Bcc"] == "mlro.a@example.test, mlro.b@example.test"
     assert "mlro.a@example.test" not in msg["To"]
     body = msg.get_content()
