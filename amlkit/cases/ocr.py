@@ -51,7 +51,12 @@ EMIRATES_ID_PATTERN = re.compile(r"784[\s\-]?(\d{4})[\s\-]?(\d{7})[\s\-]?(\d)\b"
 
 # DD/MM/YYYY, shared by the passport OCR fallback and the Emirates ID parser
 # so a future change to separator/format handling only has to be made once.
-_DATE_DDMMYYYY_PATTERN = re.compile(r"(\d{2})[/\-.](\d{2})[/\-.](\d{4})")
+# The year is constrained to 19xx/20xx (not a bare \d{4}) so an unrelated
+# nearby digit run -- a document reference stamp, a page ID, a phone number
+# -- can't be misread as a date: a trade licence's printed
+# "03.03.4421700.01" footer stamp used to match this pattern as
+# day=03/month=03/year=4421 and silently win as the licence's expiry date.
+_DATE_DDMMYYYY_PATTERN = re.compile(r"(\d{2})[/\-.](\d{2})[/\-.]((?:19|20)\d{2})")
 
 # Front-of-card labels the Emirates ID name regex's word class can run into.
 # The name capture stops at the first one of these it hits (see
@@ -629,6 +634,19 @@ _TRADE_LICENCE_NUMBER_LABEL_FALLBACK = re.compile(
     re.IGNORECASE,
 )
 _TRADE_LICENCE_NUMBER_VALUE = re.compile(r"[:\s]+([A-Z]{0,6}[\s\-]?\d{3,10})", re.IGNORECASE)
+# Fallback for when the label's own line has no digits at all (see the
+# bilingual-label handling in _parse_trade_licence_text below): matches a
+# value anchored at the very START of the following line only, so a stray
+# word from an intervening noise line can never be absorbed as part of the
+# number the way a plain multi-line search over _TRADE_LICENCE_NUMBER_VALUE
+# would (its optional `[A-Z]{0,6}` prefix is happy to eat any short word,
+# including e.g. "Gary" out of a mangled Arabic transliteration, if a
+# `.search()` were simply allowed to run across line boundaries). A trailing
+# ".NN" is also captured here since some layouts print the licence number as
+# a decimal (e.g. "4421700.01"), unlike the plain integer form above.
+_TRADE_LICENCE_NUMBER_VALUE_NEXT_LINE = re.compile(
+    r"^\s*([A-Z]{0,6}[\s\-]?\d{3,10}(?:\.\d{1,4})?)", re.IGNORECASE
+)
 
 # Name-field labels across the 40+ issuing-authority layouts this module has
 # to cope with (see _parse_trade_licence_text's docstring) -- the original
@@ -720,7 +738,21 @@ def _parse_trade_licence_text(text: str, mean_confidence: float | None = None) -
     if not num_label:
         num_label = _TRADE_LICENCE_NUMBER_LABEL_FALLBACK.search(text)
     if num_label:
-        value = _TRADE_LICENCE_NUMBER_VALUE.match(text[num_label.end():])
+        tail = text[num_label.end():]
+        same_line, _, rest = tail.partition("\n")
+        value = _TRADE_LICENCE_NUMBER_VALUE.match(same_line)
+        if not value:
+            # Some free-zone authorities (e.g. Sharjah Publishing City Free
+            # Zone) print the English label immediately followed, on the
+            # SAME line, by an Arabic transliteration that tesseract
+            # mangles into noise ("License No. ayli Gary") -- the real
+            # value only appears on the line after that. Only tried when
+            # the label's own line had no digits at all, and only matches
+            # a value anchored at the start of the NEXT line -- see
+            # _TRADE_LICENCE_NUMBER_VALUE_NEXT_LINE for why this can't
+            # absorb a stray word the way a plain multi-line search would.
+            next_line = rest.split("\n", 1)[0]
+            value = _TRADE_LICENCE_NUMBER_VALUE_NEXT_LINE.match(next_line)
         if value:
             res["id_number"] = value.group(1).strip()
             res["field_confidence"]["id_number"] = mean_confidence

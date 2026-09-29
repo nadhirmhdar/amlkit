@@ -427,6 +427,50 @@ def test_trade_licence_registration_number_used_only_as_fallback():
     assert r["id_number"] == "40021"
 
 
+def test_trade_licence_number_after_bilingual_noise_line():
+    """Regression: a real customer report against a Sharjah Publishing City
+    Free Zone licence. That authority prints its English label immediately
+    followed, on the SAME line, by a garbled Arabic transliteration
+    ("License No. zjym gqwr") that tesseract reads as short meaningless
+    Latin words -- the actual licence number only appears on the line
+    after that. The value regex used to anchor flush against the label and
+    so never found the number at all (id_number stayed None even though
+    the number was clearly present a line down); a naive multi-line search
+    fix then absorbed a stray word off the noise line as if it were an
+    alphanumeric prefix of the number itself ("gqwr\\n4421700" instead of
+    "4421700.01"). Neither happens with the current line-anchored
+    fallback, which only matches a value anchored at the very start of the
+    line following the label's own."""
+    text = (
+        "BUSINESS LICENSE\n"
+        "License No. zjym gqwr\n"
+        "4421700.01\n"
+        "Company Name zjym gqwr\n"
+        "SOME COMPANY NAME FZE\n"
+    )
+    r = _parse_trade_licence_text(text)
+    assert r["id_number"] == "4421700.01"
+
+
+def test_trade_licence_expiry_date_ignores_implausible_stamp_number():
+    """Regression: the same real-world licence also carries an unrelated
+    document reference stamp ("03.03.4421700.01") that happens to match
+    the DD.MM.YYYY date pattern. With a bare `\\d{4}` year, that produced a
+    year-4421 "expiry date" which numerically outranked the real printed
+    expiry (30/05/2026) once dates are sorted to pick the latest as expiry
+    -- silently replacing a correct, soon-to-matter expiry date with
+    nonsense. The year is now constrained to a plausible 19xx/20xx range,
+    so an unrelated digit run can no longer be mistaken for a date."""
+    text = (
+        "License Formation Date\n31/05/2025\n"
+        "License Expiry Date\n30/05/2026\n"
+        "Document Ref 03.03.4421700.01\n"
+    )
+    r = _parse_trade_licence_text(text)
+    assert r["issue_date"] == "2025-05-31"
+    assert r["expiry_date"] == "2026-05-30"
+
+
 def _dejavu_font(size: int):
     for path in (
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
