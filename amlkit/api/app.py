@@ -1298,9 +1298,12 @@ def dashboard(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+    d = queries.dashboard(db, session.org_id)
     ctx = {
         "session": session,
-        "d": queries.dashboard(db, session.org_id),
+        "d": d,
+        "alert_lines": queries.alert_lines(d["open_alerts"], d["alert_counts"]),
+        "greeting": queries.dubai_greeting(),
         "datasets": queries.datasets(db),
     }
     if can_view_audit(session):

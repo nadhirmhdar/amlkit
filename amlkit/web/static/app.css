@@ -223,6 +223,11 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
   /* The single-operator chip widens the corner to roughly 240px. */
   main:has(.mode-chip) > .page-head, main:has(.mode-chip) > .home-head { padding-right: 250px; }
   .canvas-corner:has(.mode-chip) + .banner { margin-right: 250px; }
+  /* A header with an action sits that action below the corner chips, so only
+     the title block (not the action) needs to stay clear of them. */
+  main > .page-head--with-actions, main:has(.mode-chip) > .page-head--with-actions { padding-right: 0; }
+  main > .page-head--with-actions > div:first-child { padding-right: 64px; }
+  main:has(.mode-chip) > .page-head--with-actions > div:first-child { padding-right: 250px; }
 }
 
 /* Phone bottom tab bar -- hidden by default (desktop/tablet keep the
@@ -254,7 +259,8 @@ main {
   display: flex; justify-content: space-between; align-items: flex-end;
   gap: 16px; flex-wrap: wrap;
 }
-.page-head__actions { flex-shrink: 0; }
+.page-head__actions { flex-shrink: 0; margin-left: auto; }
+
 .btn-outline {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 10px 16px; font-size: 14px; font-weight: 600;
@@ -1178,3 +1184,75 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .notif-row.is-unread{background:var(--accent-soft)}
 .notif-title{font-weight:700}
 .notif-dot{display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:var(--accent)}
+
+/* ------------------------------------------------- dashboard: alerts by category
+   One line per category, one dot per alert. Opens only on click. Every row
+   shares one grid (label | count | track | overflow | chevron) so the tracks
+   and dots line up from row to row. */
+.cat-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 8px 24px; margin-bottom: 24px; }
+.cat-card__head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px 24px; padding: 20px 0 16px; border-bottom: 1px solid var(--line-soft); }
+.cat-card__title { flex: 1; min-width: 0; }
+.cat-card__head h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.cat-card__meta { margin-top: 8px; font-size: 13px; color: var(--ink-2); }
+.cat-card__meta strong { color: var(--ink); font-size: 14px; }
+.cat-key { display: inline-flex; align-items: center; gap: 6px; margin-left: 16px; white-space: nowrap; }
+.cat-key + .cat-key { margin-left: 12px; }
+.cat-key i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; background: var(--ink-2); }
+.cat-key i.is-staged { background: transparent; border: 2px solid var(--ink-2); }
+.btn-primary-teal { background: var(--accent); color: #fff; border-radius: var(--radius-sm); padding: 10px 16px; font-size: 13px; font-weight: 700; }
+.btn-primary-teal:hover { background: color-mix(in oklab, var(--accent), black 25%); color: #fff; text-decoration: none; }
+.cat-line { --c: var(--ink-3); }
+.cat-line + .cat-line { border-top: 1px solid var(--line-soft); }
+.cat-line--sanction { --c: var(--danger); } .cat-line--terrorism { --c: var(--terrorism); }
+.cat-line--pep { --c: var(--warn); } .cat-line--proliferation { --c: var(--violet); }
+.cat-line__row { display: grid; grid-template-columns: minmax(120px, 200px) 56px minmax(0, 1fr) 48px 24px; column-gap: 16px; align-items: baseline; padding: 16px 0; }
+.cat-line summary.cat-line__row { cursor: pointer; list-style: none; }
+.cat-line summary::-webkit-details-marker { display: none; }
+.cat-line--zero .cat-line__row { padding: 12px 0; }
+.cat-line summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.cat-line__label { font-weight: 700; font-size: 15px; }
+.cat-line--zero .cat-line__label { color: var(--ink-2); font-weight: 600; }
+.cat-line__n { font-size: 30px; font-weight: 500; line-height: 1; color: var(--c); font-variant-numeric: tabular-nums; }
+.cat-line--zero .cat-line__n { font-size: 18px; font-weight: 400; color: var(--ink-3); }
+.cat-line__track { align-self: center; position: relative; height: 2px; background: color-mix(in oklab, var(--c), transparent 30%); }
+.cat-line__track.is-empty { background: none; border-top: 2px dotted color-mix(in oklab, var(--ink-3), transparent 55%); height: 0; }
+/* Dots sit 28px apart, closing up when the track is narrower than 12 of them
+   need, so the last dot always ends inside the track (never under the count
+   pill or chevron). 11 = gaps between the 12 dots that can be drawn. */
+.cat-dot { position: absolute; top: 50%; left: calc(14px + var(--i, 0) * min(28px, (100% - 28px) / 11)); width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 4px color-mix(in oklab, var(--c), transparent 82%); }
+.cat-dot--staged { box-sizing: border-box; background: var(--surface); border: 2px solid var(--c); box-shadow: none; }
+.cat-line__rest { align-self: center; justify-self: end; font-size: 12px; font-weight: 700; color: var(--ink); background: color-mix(in oklab, var(--c), transparent 86%); border-radius: 999px; padding: 2px 8px; }
+.cat-line__rest:empty { background: none; padding: 0; }
+.cat-line__chev { align-self: center; color: var(--ink-3); transition: transform .15s; }
+.cat-line[open] .cat-line__chev { transform: rotate(180deg); }
+.cat-line__body { background: var(--bg); border-radius: var(--radius-sm); margin: 0 0 16px; padding: 4px 12px; }
+.cat-line__body .list-row .side { font-size: 12px; color: var(--ink-2); }
+.cat-card__note { margin: 16px 0 8px; font-size: 13px; color: var(--ink-2); }
+@media (max-width: 680px) {
+  .dash-main { display: flex; flex-direction: column; }
+  .dash-main .stat-strip { order: 2; margin: 16px 0 0; }
+  .cat-card { padding: 4px 16px 8px; }
+  .cat-card__title { flex-basis: 100%; }
+  .cat-card__head { padding: 16px 0 14px; }
+  .btn-primary-teal { min-height: 44px; display: inline-flex; align-items: center; }
+  .cat-key { margin-left: 0; margin-right: 12px; }
+  .cat-line__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; padding: 16px 0; }
+  .cat-line__label { flex: 1; }
+  .cat-line__track { order: 5; flex-basis: 100%; margin: 4px 0 0; }
+  .cat-line--zero .cat-line__track { display: none; }
+  .cat-line--zero .cat-line__row { padding: 10px 0; }
+  .cat-line__chev { min-width: 24px; text-align: center; }
+  .stat-strip { grid-template-columns: 1fr 1fr; gap: 16px; }
+  .stat-strip__item { padding: 0; border-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .cat-line__chev { transition: none; } }
+.cat-line__more { display: block; padding: 12px 0 8px; font-size: 13px; font-weight: 600; }
+
+/* Counts under the dashboard header: a quiet 4-up row so the alerts card,
+   not these zeros, carries the weight. */
+.stat-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 24px 0; }
+.stat-strip__item { display: flex; flex-direction: column; gap: 2px; padding: 0 24px; }
+.stat-strip__item:first-child { padding-left: 0; }
+.stat-strip__item + .stat-strip__item { border-left: 1px solid var(--line); }
+.stat-strip__item .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-strip__item .label { font-size: 12.5px; color: var(--ink-2); }

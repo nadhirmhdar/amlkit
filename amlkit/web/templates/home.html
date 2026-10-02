@@ -70,10 +70,10 @@
    pill itself keeps its existing look untouched. See the CSS comment on
    .alerts-float-wrap for why this replaced position:sticky. #}
 <div class="alerts-float-wrap">
-  <a class="alerts-float {{ 'is-pending' if d.open_alerts|length else 'is-clear' }}" href="/dashboard">
+  <a class="alerts-float {{ 'is-pending' if d.alert_total else 'is-clear' }}" href="/dashboard">
     <span class="alerts-float__text">
-      {% if d.open_alerts|length %}
-        <strong>{{ d.open_alerts|length }} alert{{ 's' if d.open_alerts|length != 1 }} need{{ '' if d.open_alerts|length != 1 else 's' }} your action.</strong>
+      {% if d.alert_total %}
+        <strong>{{ d.alert_total }} alert{{ 's' if d.alert_total != 1 }} need{{ '' if d.alert_total != 1 else 's' }} your action.</strong>
         <span>Tap to review the queue</span>
       {% else %}
         <strong>No alerts pending.</strong>

@@ -30,6 +30,103 @@ from .screening.pf import classify_programs, obligation_note
 # 10/2025 and the least familiar to an operator, so it should never be buried
 # under a longer list of ordinary sanctions hits.
 CATEGORY_RANK = {"proliferation": 0, "terrorism": 1, "sanction": 2, "pep": 3, "other": 4}
+DASHBOARD_LINE_DOTS = 12
+DASHBOARD_ALERT_CAP = 200
+
+
+def dubai_greeting(now_utc: "datetime | None" = None) -> dict[str, str]:
+    """Time-of-day word and date in UAE time (UTC+4, no DST); the server runs in UTC.
+
+    `now_utc` is injectable so the UTC-vs-UAE boundary can be tested.
+    """
+    from datetime import datetime, timedelta, timezone
+    now = (now_utc or datetime.now(timezone.utc)) + timedelta(hours=4)
+    period = "morning" if now.hour < 12 else "afternoon" if now.hour < 18 else "evening"
+    return {"period": period, "date": f"{now:%A} · {now.day} {now:%B %Y}"}
+
+
+def alert_counts(conn: sqlite3.Connection, org_id: int) -> dict[str, dict[str, int]]:
+    """Uncapped counts of open and staged alerts per category, for one org.
+
+    {"sanction": {"open": 3, "pending_review": 1}, ...}. Category comes from the
+    listed entity's topics and programs (see _category), so it is counted here
+    rather than in SQL. Reads only those two columns, not the whole queue row.
+    """
+    counts: dict[str, dict[str, int]] = {}
+    for row in conn.execute(
+        """SELECT a.status, e.topics, e.programs
+           FROM alerts a JOIN entities e ON e.id = a.entity_id
+           WHERE a.org_id = ? AND a.status IN ('open', 'pending_review')""",
+        (org_id,),
+    ):
+        cat = _category(json.loads(row["topics"] or "[]"), json.loads(row["programs"] or "[]"))
+        bucket = counts.setdefault(cat, {"open": 0, "pending_review": 0})
+        bucket[row["status"]] += 1
+    return counts
+
+
+def _age_label(hours: float) -> str:
+    """'under 1 h' / '3 h' / '2 d' for an age in hours."""
+    if hours < 1:
+        return "under 1 h"
+    hours = int(hours)
+    return f"{hours} h" if hours < 48 else f"{hours // 24} d"
+
+
+def _waiting(created_at: str, now: "datetime") -> str:
+    """'under 1 h' / '3 h' / '2 d' since an alert was raised."""
+    from datetime import datetime, timezone
+    try:
+        t = datetime.fromisoformat(created_at)
+    except ValueError:
+        return ""
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return _age_label(max(0.0, (now - t).total_seconds() / 3600))
+
+
+def alert_lines(alerts: list[dict[str, Any]], counts: dict[str, dict[str, int]] | None = None,
+                now_utc: "datetime | None" = None) -> list[dict[str, Any]]:
+    """One line per alert category for the dashboard, in alert-queue rank order.
+
+    Web-only (kept out of dashboard(), which the mobile API returns whole).
+    `alerts` is the capped, oldest-first list (it feeds the dots and rows);
+    `counts` (from alert_counts) is the uncapped truth for every number shown.
+    Dots are capped so a backlog never overflows the line; "rest" says how
+    many more there are. Adverse media is not an alert category (it has its
+    own "due" list), so it is deliberately not a line. "other" only appears
+    when something is in it.
+    """
+    labels = [("proliferation", "Proliferation financing"), ("terrorism", "Terrorism"),
+              ("sanction", "Sanctions"), ("pep", "PEP"), ("other", "Other")]
+    from datetime import datetime, timezone
+    now = now_utc or datetime.now(timezone.utc)
+    lines = []
+    for key, label in sorted(labels, key=lambda kv: CATEGORY_RANK.get(kv[0], 9)):
+        items = sorted((a for a in alerts if a["category"] == key), key=lambda a: a["created_at"])
+        c = (counts or {}).get(key) or {"open": sum(1 for a in items if a["status"] == "open"),
+                                        "pending_review": sum(1 for a in items if a["status"] == "pending_review")}
+        total = c["open"] + c["pending_review"]
+        if key == "other" and not total:
+            continue
+        # Copy: these dicts are shared with the dashboard payload (which the
+        # mobile API returns whole), and the extra keys are web-only.
+        items = [dict(a) for a in items]
+        for a in items:
+            if a.get("ubo_name") and a.get("customer_name"):
+                subject = f'{a["customer_name"]} · {a["ubo_name"]}'
+            else:
+                subject = a.get("customer_name") or a.get("ubo_name") or a.get("query_name") or "Ad-hoc screen"
+            a["subject"] = subject
+            a["waiting"] = _waiting(a["created_at"], now)
+        lines.append({
+            "key": key, "label": label, "total": total, "staged": c["pending_review"],
+            "dots": items[:DASHBOARD_LINE_DOTS], "rest": max(0, total - len(items[:DASHBOARD_LINE_DOTS])),
+            # Oldest first, capped like the dots: row n is dot n, and /alerts
+            # defaults to the same order. The rest live in the queue.
+            "alerts": items[:DASHBOARD_LINE_DOTS],
+        })
+    return lines
 
 
 def organization_name(conn: sqlite3.Connection, org_id: int) -> str | None:
@@ -167,11 +264,18 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
     staleness = staleness_report(conn)
     breaches = [d for d in staleness if d["breach"]]
 
-    alerts = (alert_queue(conn, org_id, status="open")
-              + alert_queue(conn, org_id, status="pending_review"))
-    by_category: dict[str, int] = {}
-    for a in alerts:
-        by_category[a["category"]] = by_category.get(a["category"], 0) + 1
+    # Oldest first, so when the queue is longer than the cap the alerts we
+    # miss are the newest, not the ones that have waited longest.
+    open_q = alert_queue(conn, org_id, status="open", limit=DASHBOARD_ALERT_CAP, sort_by="age_asc")
+    staged_q = alert_queue(conn, org_id, status="pending_review", limit=DASHBOARD_ALERT_CAP, sort_by="age_asc")
+    alerts = open_q + staged_q
+    alerts_truncated = len(open_q) >= DASHBOARD_ALERT_CAP or len(staged_q) >= DASHBOARD_ALERT_CAP
+    # The lists above are capped (they feed the rows and dots). Every NUMBER shown
+    # comes from this uncapped count, so a long queue is never under-reported.
+    queue_counts = alert_counts(conn, org_id)
+    by_category = {cat: n["open"] + n["pending_review"] for cat, n in queue_counts.items()}
+    open_total = sum(n["open"] for n in queue_counts.values())
+    staged_total = sum(n["pending_review"] for n in queue_counts.values())
 
     reviews = due_for_review(conn, org_id)
     # Adverse media runs on its own, much shorter cadence than the CDD review
@@ -213,6 +317,16 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
     }
 
     return {
+        "alerts_truncated": alerts_truncated,
+        "alert_counts": queue_counts,
+        "alert_open_total": open_total,
+        "alert_staged_total": staged_total,
+        "alert_total": open_total + staged_total,
+        # Age of the stalest mandatory list: how old the data you are screening
+        # against can be right now. None when no mandatory list has loaded.
+        "oldest_list_age": (_age_label(max(d["hours_since_refresh"] for d in staleness
+                                           if d["mandatory"] and d["hours_since_refresh"] is not None))
+                            if any(d["mandatory"] and d["hours_since_refresh"] is not None for d in staleness) else None),
         "staleness": staleness,
         "breaches": breaches,
         "compliant": not breaches,

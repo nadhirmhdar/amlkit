@@ -7,7 +7,7 @@
    the whole width and appears before anything else. Everything else on this
    page is informational; this one is a compliance failure in progress. #}
 {% if d.breaches %}
-  <div class="banner err">
+  <div class="banner err" role="alert">
     <strong>24-HOUR RULE BREACHED.</strong>
     {{ d.breaches|map(attribute='title')|join(', ') }}
     {{ 'has' if d.breaches|length == 1 else 'have' }} not been refreshed within
@@ -25,14 +25,13 @@
 
 <div class="page-head page-head--with-actions">
   <div>
-    <div class="eyebrow">Workspace</div>
-    <h1>Overview</h1>
+    <div class="eyebrow">{{ greeting.date }}</div>
+    <h1>Good {{ greeting.period }}, <strong>{{ session.operator_name.split()[0] if session.operator_name else '' }}</strong></h1>
     <div class="status-line {{ 'bad' if not d.compliant }}">
       <span class="dot"></span>
       <span class="text">
-        {% if d.compliant %}Sanctions lists refreshed within the 24-hour window
+        {% if d.compliant %}Sanctions lists refreshed within the 24-hour window{% if d.oldest_list_age %} &middot; oldest {{ d.oldest_list_age }} ago{% endif %}
         {% else %}Sanctions list refresh is overdue{% endif %}
-        &middot; {{ d.generated_at[:10] }}
       </span>
     </div>
   </div>
@@ -51,35 +50,84 @@
   {% endif %}
 </div>
 
-<div class="dashboard-hero">
-  <div class="hero-stat">
-    <div class="eyebrow">Needs a decision</div>
-    <div>
-      <div class="n">{{ d.open_alerts|length }}</div>
-      <div class="l">alerts awaiting decision</div>
+<div class="dash-main">
+<div class="stat-strip">
+  <div class="stat-strip__item"><span class="value">{{ d.counts.customers }}</span><span class="label">Customers on file</span></div>
+  <div class="stat-strip__item"><span class="value" style="color:{{ 'var(--warn)' if d.due_for_review else 'var(--ink)' }}">{{ d.due_for_review|length }}</span><span class="label">Customers due for periodic review</span></div>
+  <div class="stat-strip__item"><span class="value" style="color:{{ 'var(--warn)' if d.high_risk_customers else 'var(--ink)' }}">{{ d.high_risk_customers }}</span><span class="label">High-risk customers</span></div>
+  <div class="stat-strip__item"><span class="value" style="color:{{ 'var(--danger)' if d.open_transaction_alerts else 'var(--ink)' }}">{{ d.open_transaction_alerts|length }}</span><span class="label">Transaction alerts open</span></div>
+</div>
+
+{# Alerts by category: one line per category, one dot per alert. A line opens
+   only on click (details/summary: keyboard-accessible, no script). Hollow dots
+   are alerts awaiting a second reviewer's confirmation. #}
+<section class="cat-card" aria-labelledby="cat-title">
+  <div class="cat-card__head">
+    <div class="cat-card__title">
+      <h2 id="cat-title">Alerts by category</h2>
+      <div class="cat-card__meta">
+        {% if d.alert_total %}
+          <strong>{{ d.alert_open_total }} waiting for a decision</strong>
+          {% if d.alert_staged_total %}&middot; {{ d.alert_staged_total }} awaiting second review{% endif %}
+          {% if d.alerts_truncated %}&middot; showing the oldest 200 &mdash; the queue is longer{% endif %}
+          <span class="cat-key"><i aria-hidden="true"></i>one dot per alert, oldest first</span>
+          {% if d.alert_staged_total %}<span class="cat-key"><i class="is-staged" aria-hidden="true"></i>second review pending</span>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% if d.alert_total %}<a href="/alerts" class="btn-primary-teal">Open the queue ({{ d.alert_total }}) <span aria-hidden="true">&rarr;</span></a>{% endif %}
+  </div>
+  {% for line in alert_lines %}
+  {% if not line.total %}
+  {# Nothing to open, so it is a plain row, not a disclosure widget. #}
+  <div class="cat-line cat-line--{{ line.key }} cat-line--zero">
+    <div class="cat-line__row">
+      <span class="cat-line__label">{{ line.label }}</span>
+      <span class="cat-line__n">0</span>
+      <span class="cat-line__track is-empty" aria-hidden="true"></span>
     </div>
   </div>
-  <div class="stat-list">
-    <div class="row-item">
-      <div class="label">Customers due for periodic review</div>
-      <div class="value" style="color:{{ 'var(--warn)' if d.due_for_review else 'var(--ink)' }}">{{ d.due_for_review|length }}</div>
+  {% else %}
+  <details class="cat-line cat-line--{{ line.key }}">
+    <summary class="cat-line__row">
+      <span class="cat-line__label">{{ line.label }}</span>
+      <span class="cat-line__n">{{ line.total }}</span>
+      <span class="visually-hidden">alerts{% if line.staged %}, {{ line.staged }} awaiting second review{% endif %}</span>
+      <span class="cat-line__track" aria-hidden="true">
+        {% for a in line.dots %}
+          <span class="cat-dot {{ 'cat-dot--staged' if a.status == 'pending_review' }}" style="--i:{{ loop.index0 }}"></span>
+        {% endfor %}
+      </span>
+      <span class="cat-line__rest" {% if not line.rest %}aria-hidden="true"{% endif %}>{% if line.rest %}<span class="visually-hidden">{{ line.rest }} more not shown as dots, </span><span aria-hidden="true">+{{ line.rest }}</span>{% endif %}</span>
+      <span class="cat-line__chev" aria-hidden="true">&#9662;</span>
+    </summary>
+    <div class="cat-line__body flat-list">
+      {% for a in line.alerts %}
+      <a href="/alerts" data-alert-id="{{ a.id }}" class="list-row" aria-expanded="false" aria-label="Open alert details: {{ a.subject }}, {{ a.dataset_title }}, {{ 'awaiting second review' if a.status == 'pending_review' else (a.assigned_to or 'unassigned') }}" style="text-decoration:none; color:inherit;">
+        <div class="grow">
+          <div class="primary">{{ a.subject }}</div>
+          <div class="side">{{ a.dataset_title }} &middot; matched {{ a.caption }}</div>
+        </div>
+        <div class="side nowrap">{{ 'awaiting second review' if a.status == 'pending_review' else (a.assigned_to or 'Unassigned') }}{% if a.waiting %} &middot; opened {{ a.waiting }} ago{% endif %}</div>
+        <div class="num"><span class="visually-hidden">Match score </span>{{ '%.3f'|format(a.score) }}</div>
+      </a>
+      {% endfor %}
+      {% if line.rest %}<a href="/alerts" class="cat-line__more">{{ line.rest }} more in the full queue (all categories) &rarr;</a>{% endif %}
     </div>
-    <div class="row-item">
-      <div class="label">High-risk customers</div>
-      <div class="value" style="color:{{ 'var(--warn)' if d.high_risk_customers else 'var(--ink)' }}">{{ d.high_risk_customers }}</div>
-    </div>
-    <div class="row-item">
-      <div class="label">Transaction alerts open</div>
-      <div class="value" style="color:{{ 'var(--danger)' if d.open_transaction_alerts else 'var(--good)' }}">{{ d.open_transaction_alerts|length }}</div>
-    </div>
-  </div>
+  </details>
+  {% endif %}
+  {% endfor %}
+  {% if not d.alert_total %}
+    <p class="cat-card__note"><strong>Queue empty.</strong> No alert is waiting for a decision.</p>
+  {% endif %}
+</section>
 </div>
 
 {% if session.operator_role == 'mlro' %}
 <details class="freeze-obligations-panel mb-6">
   <summary class="freeze-obligations-summary">
     <span class="freeze-obligations-title">TFS Freeze Obligations</span>
-    <span class="freeze-obligations-chevron">▼</span>
+    <span class="freeze-obligations-chevron" aria-hidden="true">▼</span>
   </summary>
   <div class="freeze-obligations-content panel">
     <div class="alert-box mb-4" style="background:var(--warn-soft); border-left:3px solid var(--warn); padding:14px 18px;">
@@ -101,42 +149,6 @@
 </details>
 {% endif %}
 
-{% if d.open_by_category %}
-<div class="mb-6">
-  <div class="section-label">Open alerts by category</div>
-  <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:center;">
-    {% for cat, n in d.open_by_category.items() %}
-      <a href="/alerts" class="text-decoration-none" style="display:flex; align-items:center; gap:8px;">
-        <span class="tag {{ cat }}">{{ cat }}</span>
-        <strong style="font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--ink);">{{ n }}</strong>
-      </a>
-    {% endfor %}
-  </div>
-  {% if d.pending_review %}
-    <div class="review-note mt-4">
-      {{ d.pending_review|length }} alert(s) staged for independent review —
-      a second operator must confirm before they can close.
-    </div>
-  {% endif %}
-</div>
-{% endif %}
-
-{% if d.oldest_open %}
-<div class="mb-6">
-  <div class="section-label">Oldest open alerts</div>
-  <div class="flat-list">
-    {% for a in d.oldest_open %}
-      <a href="/alerts" data-alert-id="{{ a.id }}" class="list-row" style="cursor:pointer; text-decoration:none; color:inherit;">
-        <span class="tag {{ a.category }}" style="min-width:80px; flex-shrink:0;">{{ a.category }}</span>
-        <div class="grow primary">{{ a.caption }}</div>
-        <div class="num">{{ '%.3f'|format(a.score) }}</div>
-        <div class="side nowrap">{{ a.assigned_to or 'Unassigned' }}</div>
-      </a>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
-
 {% if d.oldest_open_transaction_alerts %}
 <div class="mb-6">
   <div class="section-label">Oldest open transaction alerts</div>
@@ -148,7 +160,7 @@
         </div>
         <span class="tag {{ ta.severity }}" style="flex-shrink:0;">{{ ta.rule_key.replace('_',' ') }}</span>
         <div class="num nowrap">AED {{ '{:,.2f}'.format(ta.amount_aed) }}</div>
-        <div class="side nowrap">{{ ta.created_at[:16].replace('T',' ') }}</div>
+        <div class="side nowrap">{{ ta.created_at[:16].replace('T',' ') }} UTC</div>
       </a>
     {% endfor %}
   </div>
@@ -225,7 +237,7 @@
           <div class="primary">{{ entry.action.replace('.', ' ').replace('_', ' ') }}</div>
           <div class="secondary">{{ entry.actor }}{% if entry.object_type %} &middot; {{ entry.object_type }}{% endif %}</div>
         </div>
-        <div class="side nowrap muted small">{{ ((entry.ts or '')|string)[:16].replace('T', ' ') }}</div>
+        <div class="side nowrap muted small">{{ ((entry.ts or '')|string)[:16].replace('T', ' ') }} UTC</div>
       </div>
     {% endfor %}
   </div>
