@@ -978,7 +978,13 @@ def record_uaepass_verification(
 
         # Best-effort, non-destructive backfill -- see docstring above.
         updates: dict[str, Any] = {}
-        if not owned["id_number"] and profile.idn:
+        if not owned["id_number"] and not owned["id_type"] and profile.idn:
+            # id_number and id_type describe one document together. Gating
+            # on id_number alone would let an already-chosen id_type (e.g.
+            # "passport", picked before a number was typed in) survive while
+            # id_number gets overwritten with an Emirates ID number -- a
+            # mismatched pair worse than leaving both alone. Only backfill
+            # when neither half of the pair has a value yet.
             updates["id_number"] = profile.idn
             updates["id_type"] = EMIRATES_ID_TYPE
         if not owned["nationality"] and profile.nationality_en:

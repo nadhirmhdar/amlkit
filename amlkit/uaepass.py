@@ -59,6 +59,14 @@ SANDBOX_CLIENT_SECRET = "sandbox_stage"
 # both the operator-SSO and customer-verification flows, for now.
 ACR_LEVEL_DEFAULT = "urn:safelayer:tws:policies:authentication:level:low"
 
+# Account assurance levels strong enough to trust a profile's self-reported
+# `email` claim for linking it to an existing operator account (see
+# auth.resolve_uaepass_operator()). SOP1 is self-registered with no
+# bank/telco/ICA verification behind it -- its email claim is no more
+# trustworthy than an unverified email amlkit's own signup flow would never
+# accept for this purpose either.
+EMAIL_LINK_MIN_ASSURANCE = {"SOP2", "SOP3"}
+
 # UAE PASS's own request/response field naming (snake_case mixed with
 # camelCase, e.g. `idn`, `nationalityEN`) is kept verbatim in this module
 # rather than translated to a house style, so the field list stays easy to

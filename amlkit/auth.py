@@ -39,6 +39,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
 from .db import EMAIL_VERIFY_TOKEN_LIFETIME, UAEPASS_STATE_LIFETIME, audit, utcnow
+from .uaepass import EMAIL_LINK_MIN_ASSURANCE
 
 _hasher = PasswordHasher()
 
@@ -47,6 +48,17 @@ SESSION_LIFETIME = timedelta(days=14)
 IDLE_TIMEOUT_HOURS = 8  # Configurable via AMLKIT_IDLE_TIMEOUT_HOURS env var
 SESSION_COOKIE = "amlkit_session"
 CSRF_COOKIE = "amlkit_csrf"
+
+# Binds a UAE PASS OAuth `state` to the browser that started the flow. The
+# uaepass_states DB row alone (purpose/expiry/single-use) proves a state is
+# *valid*, but not that it was issued to *this* browser -- without this
+# cookie, an attacker can complete their own UAE PASS login, capture their
+# own callback URL before using it, and hand it to a victim whose browser
+# then gets logged into (or has a verification recorded under) the
+# attacker's identity. Lax, not Strict: the browser must still send it on
+# the top-level GET navigation UAE PASS redirects back with, which is a
+# cross-site navigation from UAE PASS's own domain.
+UAEPASS_STATE_COOKIE = "amlkit_uaepass_state"
 
 # "Remember this device" for MFA (p-trusted-device): a recognised browser can
 # skip the TOTP challenge for this long before it needs re-verifying.
@@ -877,9 +889,14 @@ def resolve_uaepass_operator(conn: sqlite3.Connection, profile) -> tuple[Any, bo
        when that operator's `email_verified_at` IS ALREADY SET -- an
        unverified email must never be used to link, since that would let
        someone claim another operator's account by registering a UAE PASS
-       identity under their (not-yet-proven) email address. On a match, the
-       uuid is persisted onto that operator row so future logins match
-       directly via (1).
+       identity under their (not-yet-proven) email address -- AND ONLY when
+       `profile.user_type` is SOP2 or SOP3. SOP1 is UAE PASS's weakest tier
+       (self-registered, no bank/telco/ICA verification behind it), so its
+       `email` claim is no more trustworthy than the unverified-email case
+       above: without this gate, anyone could self-register a SOP1 UAE PASS
+       identity claiming an operator's known work email and link it to that
+       operator's account. On a match, the uuid is persisted onto that
+       operator row so future logins match directly via (1).
     3. No match at all: caller sends the user to /login with a message
        telling them to ask an admin to link their account first.
 
@@ -905,6 +922,8 @@ def resolve_uaepass_operator(conn: sqlite3.Connection, profile) -> tuple[Any, bo
         (email,),
     ).fetchone()
     if candidate is None or candidate["email_verified_at"] is None or not candidate["is_active"]:
+        return None, False
+    if profile.user_type not in EMAIL_LINK_MIN_ASSURANCE:
         return None, False
 
     # uaepass_uuid IS NULL guards against clobbering a different identity

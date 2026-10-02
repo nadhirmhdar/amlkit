@@ -632,6 +632,24 @@ def _uaepass_redirect_uri(path: str) -> str:
     return mail.app_base_url() + path
 
 
+def _set_uaepass_state_cookie(resp: RedirectResponse, state: str) -> None:
+    """Bind a freshly issued UAE PASS state to this browser. See
+    auth.UAEPASS_STATE_COOKIE's comment for why this is needed in addition
+    to the state's own DB-side validity check."""
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+    resp.set_cookie(
+        auth.UAEPASS_STATE_COOKIE, state, httponly=True, samesite="lax",
+        secure=_behind_proxy, max_age=int(auth.UAEPASS_STATE_LIFETIME.total_seconds()),
+    )
+
+
+def _clear_uaepass_state_cookie(resp: RedirectResponse) -> RedirectResponse:
+    """Drop the one-shot state cookie once its callback has been handled
+    (success or failure) so it never lingers past a single attempt."""
+    resp.delete_cookie(auth.UAEPASS_STATE_COOKIE)
+    return resp
+
+
 @app.get("/auth/uaepass/start")
 @limiter.limit("10/minute")  # IP ceiling, matching /login's: an alternative way to get a session
 def uaepass_operator_start(request: Request, db: DB):
@@ -646,12 +664,14 @@ def uaepass_operator_start(request: Request, db: DB):
         raise HTTPException(status_code=404)
     redirect_uri = _uaepass_redirect_uri("/auth/uaepass/callback")
     state = auth.create_uaepass_state(db, purpose="operator_sso", redirect_uri=redirect_uri)
-    return RedirectResponse(
+    resp = RedirectResponse(
         uaepass.build_authorize_url(
             config, state=state, redirect_uri=redirect_uri, acr=uaepass.ACR_LEVEL_DEFAULT
         ),
         status_code=303,
     )
+    _set_uaepass_state_cookie(resp, state)
+    return resp
 
 
 @app.get("/auth/uaepass/callback")
@@ -659,32 +679,42 @@ def uaepass_operator_start(request: Request, db: DB):
 def uaepass_operator_callback(request: Request, db: DB, code: str = "", state: str = ""):
     """UAE PASS redirects here with ?code=&state=. See
     auth.resolve_uaepass_operator() for the operator-linking policy (never
-    auto-provisions an account) and auth.consume_uaepass_state() for the
-    state/CSRF/replay check that gates everything below it.
+    auto-provisions an account), auth.consume_uaepass_state() for the
+    DB-side state/replay check, and UAEPASS_STATE_COOKIE's comment for why
+    that check alone is not enough (login CSRF / session swapping) and this
+    route also requires the state to match this exact browser's cookie.
     """
     config = uaepass.load_config()
     if config is None:
         raise HTTPException(status_code=404)
 
+    if not auth.csrf_valid(request.cookies.get(auth.UAEPASS_STATE_COOKIE), state):
+        return _clear_uaepass_state_cookie(
+            back("/login", err="UAE PASS sign-in expired or was already used. Please try again.")
+        )
     row = auth.consume_uaepass_state(db, state, purpose="operator_sso")
     if row is None:
-        return back("/login", err="UAE PASS sign-in expired or was already used. Please try again.")
+        return _clear_uaepass_state_cookie(
+            back("/login", err="UAE PASS sign-in expired or was already used. Please try again.")
+        )
     if not code:
-        return back("/login", err="UAE PASS sign-in was cancelled or did not return a code.")
+        return _clear_uaepass_state_cookie(
+            back("/login", err="UAE PASS sign-in was cancelled or did not return a code.")
+        )
 
     try:
         token_payload = uaepass.exchange_code(config, code=code, redirect_uri=row["redirect_uri"])
         profile = uaepass.fetch_userinfo(config, token_payload["access_token"])
     except uaepass.UaePassError as exc:
-        return back("/login", err=f"UAE PASS sign-in failed: {exc}")
+        return _clear_uaepass_state_cookie(back("/login", err=f"UAE PASS sign-in failed: {exc}"))
 
     operator, _newly_linked = auth.resolve_uaepass_operator(db, profile)
     if operator is None:
-        return back(
+        return _clear_uaepass_state_cookie(back(
             "/login",
             err="No groAML account is linked to this UAE PASS identity yet. "
                 "Ask an admin to link your account, then try again.",
-        )
+        ))
 
     token, info = auth.login_via_uaepass(db, operator, ip=client_ip(request))
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
@@ -700,7 +730,7 @@ def uaepass_operator_callback(request: Request, db: DB, code: str = "", state: s
                     secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
                     samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
-    return resp
+    return _clear_uaepass_state_cookie(resp)
 
 
 @app.post("/logout")
@@ -1700,6 +1730,7 @@ def customer_detail(request: Request, db: DB, customer_id: int):
 
 
 @app.get("/customers/{customer_id}/uaepass/start")
+@limiter.limit("10/minute")  # IP ceiling, same as the operator SSO pair above
 def uaepass_customer_start(request: Request, db: DB, customer_id: int):
     """Redirect the browser to UAE PASS so a customer can verify their
     identity for CDD -- stronger evidence than the OCR passport/Emirates-ID
@@ -1732,15 +1763,18 @@ def uaepass_customer_start(request: Request, db: DB, customer_id: int):
         db, purpose="customer_verification", redirect_uri=redirect_uri,
         org_id=session.org_id, customer_id=customer_id,
     )
-    return RedirectResponse(
+    resp = RedirectResponse(
         uaepass.build_authorize_url(
             config, state=state, redirect_uri=redirect_uri, acr=uaepass.ACR_LEVEL_DEFAULT
         ),
         status_code=303,
     )
+    _set_uaepass_state_cookie(resp, state)
+    return resp
 
 
 @app.get("/customers/{customer_id}/uaepass/callback")
+@limiter.limit("10/minute")  # IP ceiling, same as the operator SSO pair above
 def uaepass_customer_callback(
     request: Request, db: DB, customer_id: int, code: str = "", state: str = "",
 ):
@@ -1752,32 +1786,38 @@ def uaepass_customer_callback(
     if config is None:
         raise HTTPException(status_code=404)
 
+    expired_err = "UAE PASS verification expired, was already used, or does not match this customer."
+    if not auth.csrf_valid(request.cookies.get(auth.UAEPASS_STATE_COOKIE), state):
+        return _clear_uaepass_state_cookie(back(f"/customers/{customer_id}", err=expired_err))
     row = auth.consume_uaepass_state(
         db, state, purpose="customer_verification",
         org_id=session.org_id, customer_id=customer_id,
     )
     if row is None:
-        return back(
-            f"/customers/{customer_id}",
-            err="UAE PASS verification expired, was already used, or does not match this customer.",
-        )
+        return _clear_uaepass_state_cookie(back(f"/customers/{customer_id}", err=expired_err))
     if not code:
-        return back(f"/customers/{customer_id}",
-                     err="UAE PASS verification was cancelled or did not return a code.")
+        return _clear_uaepass_state_cookie(back(
+            f"/customers/{customer_id}",
+            err="UAE PASS verification was cancelled or did not return a code.",
+        ))
 
     try:
         token_payload = uaepass.exchange_code(config, code=code, redirect_uri=row["redirect_uri"])
         profile = uaepass.fetch_userinfo(config, token_payload["access_token"])
     except uaepass.UaePassError as exc:
-        return back(f"/customers/{customer_id}", err=f"UAE PASS verification failed: {exc}")
+        return _clear_uaepass_state_cookie(
+            back(f"/customers/{customer_id}", err=f"UAE PASS verification failed: {exc}")
+        )
 
     if not profile.uuid:
         # uaepass_verifications.uaepass_uuid is NOT NULL; fetch_userinfo()
         # parses defensively and never raises on a missing field, so this is
         # the one place that must still fail loudly rather than let an
         # unexpected UAE PASS response shape hit a DB constraint as a 500.
-        return back(f"/customers/{customer_id}",
-                     err="UAE PASS did not return a verifiable identity. Please try again.")
+        return _clear_uaepass_state_cookie(back(
+            f"/customers/{customer_id}",
+            err="UAE PASS did not return a verifiable identity. Please try again.",
+        ))
 
     try:
         record_uaepass_verification(
@@ -1788,9 +1828,11 @@ def uaepass_customer_callback(
         # record_uaepass_verification() raises when customer_id/org_id don't
         # match -- same "not found" treatment as every other cross-tenant
         # customer_id in this file (see add_case_note()'s docstring).
-        return back("/customers", err=str(exc))
+        return _clear_uaepass_state_cookie(back("/customers", err=str(exc)))
     db.commit()
-    return back(f"/customers/{customer_id}", msg="Customer identity verified via UAE PASS.")
+    return _clear_uaepass_state_cookie(
+        back(f"/customers/{customer_id}", msg="Customer identity verified via UAE PASS.")
+    )
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
