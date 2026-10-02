@@ -38,3 +38,12 @@ def test_empty_tax_residencies_are_hidden(client) -> None:
 def test_ownership_label_is_spelled_out(client) -> None:
     cid = _onboard(nationalities=["AE"])
     assert "Ownership %" in client.get(f"/customers/{cid}").text
+
+
+def test_code_list_handles_odd_stored_values() -> None:
+    from amlkit.api.app import _code_list
+    assert _code_list('["AE", "GB"]') == "AE, GB"
+    assert _code_list(["AE", " ", "GB"]) == "AE, GB"
+    assert _code_list("[]") == "" and _code_list(None) == "" and _code_list("") == ""
+    assert _code_list("AE") == "AE"          # legacy plain string
+    assert _code_list('"AE"') == "AE"
