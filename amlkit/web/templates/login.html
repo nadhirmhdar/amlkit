@@ -30,6 +30,20 @@
         <button type="submit" class="btn-glow" style="margin-top:10px;" data-loading="Signing in…">SIGN IN</button>
       </form>
 
+      {% if uaepass_enabled %}
+      <div style="display:flex; align-items:center; gap:12px; color:var(--ink-3); font-size:11px;">
+        <div style="flex:1; height:1px; background:var(--line);"></div>
+        <div>OR</div>
+        <div style="flex:1; height:1px; background:var(--line);"></div>
+      </div>
+      <!-- Placeholder button: UAE PASS publishes official button/branding
+           assets, but they were not fetched for this change (see PR
+           description's follow-up note). Plain labelled button for now. -->
+      <a href="/auth/uaepass/start" class="btn-glow" style="display:block; text-align:center; text-decoration:none; background:#b3832f;">
+        Sign in with UAE PASS
+      </a>
+      {% endif %}
+
       <div style="text-align:center; font-size:12px; color:var(--ink-3);">Single sign-on across your firm's workspace.</div>
 
       {% if unverified_email %}

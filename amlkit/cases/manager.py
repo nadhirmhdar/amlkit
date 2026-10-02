@@ -907,6 +907,105 @@ def add_case_note(
         return cur.lastrowid
 
 
+# ---------------------------------------------------------------------- UAE PASS
+def record_uaepass_verification(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    profile: "UaePassProfile",
+    *,
+    actor: str,
+    verified_by: int | None,
+) -> int:
+    """Record a UAE PASS identity-verification result as CDD evidence.
+
+    Append-only, like every other evidence table in this module (signatures,
+    documents): a re-verification inserts a new row rather than overwriting
+    the last one. Verifies the customer belongs to org_id first, same
+    "cross-tenant customer_id is not found" contract as add_case_note() above.
+
+    This is ADDITIONAL identity-verification evidence alongside the OCR
+    passport/Emirates-ID-scan flow (cases/ocr.py), not a replacement for it --
+    a customer without UAE PASS still onboards via OCR/manual entry.
+
+    Also best-effort backfills the customer's own identity columns (id_number,
+    id_type, nationality, email, phone, gender) using the same field mapping
+    `cases.manager.onboard()` accepts (id_number <- idn, nationality <-
+    alpha-2 of nationalityEN, phone <- mobile), but ONLY where the existing
+    column is currently empty -- this is stronger evidence arriving for a
+    field nobody had filled in yet, not silent overwrite of whatever an
+    operator or OCR scan already recorded. full_name/name_arabic are
+    deliberately left untouched: changing them here would silently change the
+    customer's canonical_key/screening identity without re-running screen(),
+    which onboard() does but this append-only evidence path does not.
+
+    The full raw UAE PASS userinfo response is kept on the accompanying
+    audit_log row's `detail` (uaepass_verifications itself has no raw/JSON
+    column -- see db.py's schema comment), so a response shape this parser
+    didn't anticipate is still inspectable afterward rather than lost.
+    """
+    from ..datamodel import validate_country_code
+    from ..uaepass import alpha3_to_alpha2, normalize_gender, EMIRATES_ID_TYPE
+
+    now = utcnow()
+    with conn:
+        owned = conn.execute(
+            "SELECT id, nationality, id_number, id_type, email, phone, gender"
+            " FROM customers WHERE id=? AND org_id=?",
+            (customer_id, org_id),
+        ).fetchone()
+        if owned is None:
+            raise ValueError(f"customer {customer_id} not found")
+
+        cur = conn.execute(
+            """INSERT INTO uaepass_verifications
+               (org_id, customer_id, uaepass_uuid, idn, fullname_en, fullname_ar,
+                nationality_en, mobile, email, user_type, verified_at, verified_by)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                org_id, customer_id, profile.uuid, profile.idn,
+                profile.fullname_en, profile.fullname_ar, profile.nationality_en,
+                profile.mobile, profile.email, profile.user_type, now, verified_by,
+            ),
+        )
+        verification_id = cur.lastrowid
+
+        audit(conn, actor, "customer.uaepass_verify", "customer", customer_id,
+              {"verification_id": verification_id, "uaepass_uuid": profile.uuid,
+               "user_type": profile.user_type, "raw": profile.raw},
+              org_id=org_id)
+
+        # Best-effort, non-destructive backfill -- see docstring above.
+        updates: dict[str, Any] = {}
+        if not owned["id_number"] and profile.idn:
+            updates["id_number"] = profile.idn
+            updates["id_type"] = EMIRATES_ID_TYPE
+        if not owned["nationality"] and profile.nationality_en:
+            alpha2 = alpha3_to_alpha2(profile.nationality_en)
+            try:
+                validate_country_code(alpha2)
+                updates["nationality"] = alpha2
+            except ValueError:
+                pass  # unrecognised code -- leave nationality unset rather than guess
+        if not owned["email"] and profile.email:
+            updates["email"] = profile.email
+        if not owned["phone"] and profile.mobile:
+            updates["phone"] = profile.mobile
+        if not owned["gender"] and profile.gender:
+            normalized_gender = normalize_gender(profile.gender)
+            if normalized_gender:
+                updates["gender"] = normalized_gender
+
+        if updates:
+            set_sql = ", ".join(f"{col}=?" for col in updates)
+            conn.execute(
+                f"UPDATE customers SET {set_sql}, updated_at=? WHERE id=? AND org_id=?",
+                (*updates.values(), now, customer_id, org_id),
+            )
+
+        return verification_id
+
+
 # ---------------------------------------------------------------- adverse media
 def _persist_adverse_media(
     conn: sqlite3.Connection,
