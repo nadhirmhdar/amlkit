@@ -402,6 +402,7 @@ function togglePassword() {
     const isPassword = pwd.type === 'password';
     pwd.type = isPassword ? 'text' : 'password';
     toggle.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+    toggle.setAttribute('aria-pressed', isPassword ? 'true' : 'false');
   }
 }
 

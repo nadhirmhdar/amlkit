@@ -20,7 +20,7 @@
 }
 
 :root {
-  /* Tokens per the AMLKit redesign spec — cool-neutral base, single blue
+  /* Tokens per the AMLKit redesign spec — cool-neutral base, single teal
      accent, muted semantic hues at similar chroma/lightness. */
   --bg:          oklch(96%   0.004 250);
   --surface:     oklch(99.4% 0.002 250);
@@ -28,13 +28,14 @@
   --line-soft:   oklch(94.5% 0.004 250);
   --ink:         oklch(19%   0.012 250);
   --ink-2:       oklch(46%   0.012 250);
-  --ink-3:       oklch(64%   0.01  250);
-  --accent:      oklch(52%   0.15  250);
-  --accent-soft: oklch(94%   0.035 250);
+  --ink-3:       oklch(54%   0.01  250);
+  --accent:      #00515e; /* groAML deep teal */
+  --accent-soft: #e4f2f3;
+  --teal-on-dark: #4eccd3;
 
   --danger:      oklch(53%   0.16  25);
   --danger-soft: oklch(95%   0.035 25);
-  --warn:        oklch(62%   0.13  70);
+  --warn:        oklch(56%   0.12  68);
   --warn-soft:   oklch(95%   0.04  70);
   --good:        oklch(52%   0.12  150);
   --good-soft:   oklch(95%   0.035 150);
@@ -52,7 +53,6 @@
   --terrorism-soft: oklch(95% 0.035 45);
 
   --sidebar-w: 268px;
-  --brand-orange: oklch(40% 0.1 45);
   --mono: ui-monospace, 'SF Mono', Menlo, monospace;
 
   --radius-lg: 20px;
@@ -74,13 +74,13 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
-::selection { background: oklch(88% 0.05 250); }
+::selection { background: var(--accent-soft); }
 
 a { color: var(--accent); text-decoration: none; }
-a:hover { color: oklch(45% 0.16 250); text-decoration: underline; }
+a:hover { color: color-mix(in oklab, var(--accent), black 25%); text-decoration: underline; }
 
 input, select, textarea, button { font-family: inherit; }
-input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
+input::placeholder, textarea::placeholder { color: oklch(58% 0.008 250); }
 
 [dir="auto"], .name-ar { font-family: 'Manrope', "Tahoma", "Arial", sans-serif; }
 .name-ar { font-size: 1.05em; }
@@ -112,7 +112,7 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 }
 .sidebar .brand-block { padding: 8px 14px 30px; }
 .sidebar .brand-block img { height: 60px; width: auto; display: block; }
-.sidebar .brand-block .product { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; margin-top: 10px; color: var(--ink-2); }
+.sidebar .brand-block .product { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; margin-top: 10px; }
 
 .sidebar nav { display: flex; flex-direction: column; gap: 2px; }
 .sidebar nav a {
@@ -318,7 +318,7 @@ main {
 /* Hero stat card -- dashboard "needs a decision" */
 .hero-stat {
   background:
-    radial-gradient(circle at 100% 0%, oklch(40% 0.1 45 / 0.85), transparent 55%),
+    radial-gradient(circle at 100% 0%, rgb(0 81 94 / 0.9), transparent 55%),
     var(--ink);
   color: white;
   border-radius: var(--radius-lg);
@@ -431,7 +431,7 @@ main {
      px value rather than a %, which would dilute the color across the
      whole width and read as pitch black past the first sliver. */
   color: white;
-  background: radial-gradient(circle 340px at 100% 0%, oklch(40% 0.1 45 / 0.85), var(--ink) 100%);
+  background: radial-gradient(circle 340px at 100% 0%, rgb(0 81 94 / 0.9), var(--ink) 100%);
   --glow-shadow: oklch(19% 0.012 250 / 0.35);
 }
 .alerts-float.is-pending:hover { color: white; }
@@ -555,7 +555,7 @@ button.small, .btn.small { padding: 6px 13px; font-size: 12.5px; }
 
 /* Sign-in / primary action button with the brand radial glow */
 .btn-glow {
-  background: radial-gradient(circle at 100% 0%, oklch(40% 0.1 45 / 0.85), transparent 55%), var(--ink);
+  background: radial-gradient(circle at 100% 0%, rgb(0 81 94 / 0.9), transparent 55%), var(--ink);
   color: white; border: none; border-radius: var(--radius-sm);
   padding: 15px; font-size: 14.5px; font-weight: 700; letter-spacing: 0.02em; cursor: pointer;
   width: 100%;
@@ -944,13 +944,13 @@ form.is-submitting button[type="submit"] {
 }
 
 /* ------------------------------------------------------------------- feedback */
-/* Same ink-black + brand-orange radial glow as .btn-glow/.hero-stat, so the
+/* Same ink-black + teal radial glow as .btn-glow/.hero-stat, so the
    floating button reads as part of this app rather than a generic
    accent-blue widget dropped on top of it. */
 .feedback-btn {
   position: fixed; bottom: 24px; right: 24px; z-index: 999;
   width: 56px; height: 56px; border-radius: 50%;
-  background: radial-gradient(circle at 100% 0%, oklch(40% 0.1 45 / 0.85), transparent 55%), var(--ink);
+  background: radial-gradient(circle at 100% 0%, rgb(0 81 94 / 0.9), transparent 55%), var(--ink);
   color: white; border: none;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
@@ -1107,7 +1107,7 @@ body.modal-open { overflow: hidden; }
    onto the existing .btn.small / .btn.secondary looks plus an accent primary. */
 .btn.btn-sm { padding: 6px 13px; font-size: 12.5px; }
 .btn.btn-primary { background: var(--accent); border-color: var(--accent); color: white; }
-.btn.btn-primary:hover { background: oklch(45% 0.16 250); border-color: oklch(45% 0.16 250); color: white; }
+.btn.btn-primary:hover { background: color-mix(in oklab, var(--accent), black 25%); border-color: color-mix(in oklab, var(--accent), black 25%); color: white; }
 .btn.btn-secondary { background: none; color: var(--ink); border-color: var(--line); }
 .btn.btn-secondary:hover { background: var(--line-soft); color: var(--ink); }
 
@@ -1178,3 +1178,19 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .notif-row.is-unread{background:var(--accent-soft)}
 .notif-title{font-weight:700}
 .notif-dot{display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:var(--accent)}
+
+/* ------------------------------------------------------------- wordmark
+   "Node-o": the o in groAML is a ring with a dot -- many inputs, one
+   point. Sized in em so it scales with the surrounding text. */
+.wm { font-weight: 800; letter-spacing: -0.02em; white-space: nowrap; }
+.wm .nd {
+  display: inline-block; position: relative; vertical-align: baseline;
+  width: 0.62em; height: 0.62em; margin: 0 0.02em;
+  border: 0.13em solid currentColor; border-radius: 50%;
+}
+.wm .nd::after {
+  content: ""; position: absolute; inset: 0; margin: auto;
+  width: 0.2em; height: 0.2em; border-radius: 50%; background: var(--teal-on-dark);
+}
+.wm--accent { color: var(--accent); }
+.wm--accent .nd::after { background: var(--accent); }

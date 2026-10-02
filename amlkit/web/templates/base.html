@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}groAML by Grovisor{% endblock %}</title>
 <link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
 </head>
 <body>
@@ -18,7 +19,7 @@
   <aside class="sidebar no-print">
     <div class="brand-block">
       <img src="/static/img/grovisor-logo.png" alt="Grovisor">
-      <div class="product">groAML</div>
+      <div class="product wm wm--accent" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></div>
       {% if org_name %}
         <div class="muted small" style="margin-top:4px;">{{ org_name }}</div>
       {% endif %}
@@ -164,11 +165,14 @@
     {% endif %}
 {% else %}
 <div class="fade-in">
+  {# Overridable: the sign-in page shows these inside its own layout. #}
+  {% block flash %}
   {% if security_warning %}
     <div class="banner err" style="max-width:600px;margin:16px auto"><strong>{{ security_warning }}</strong></div>
   {% endif %}
   {% if msg %}<div class="banner ok" style="max-width:600px;margin:16px auto">{{ msg }}</div>{% endif %}
   {% if err %}<div class="banner err" style="max-width:600px;margin:16px auto">{{ err }}</div>{% endif %}
+  {% endblock %}
 {% endif %}
 
 {% block body %}{% endblock %}
