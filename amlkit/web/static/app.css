@@ -1197,3 +1197,17 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   /* Touch targets: 44px minimum for the compact in-page buttons on phones. */
   main button.small, main .btn.small { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 }
+
+/* Screen a name: form column plus a "recent checks" aside on wide screens. */
+.screen-layout { display: grid; grid-template-columns: minmax(0, 640px); gap: 40px; }
+.screen-recent h2 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 12px; }
+.screen-recent ul { list-style: none; margin: 0 0 12px; padding: 0; }
+.screen-recent li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.screen-recent li a { font-weight: 600; min-height: 24px; overflow-wrap: anywhere; }
+.recent-hit { color: var(--danger); font-weight: 700; white-space: nowrap; }
+.screen-recent .muted { white-space: nowrap; }
+@media (min-width: 1100px) {
+  .screen-layout { grid-template-columns: minmax(0, 640px) 280px; align-items: start; }
+  .screen-recent { padding-top: 96px; }
+}
+

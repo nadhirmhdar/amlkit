@@ -62,3 +62,20 @@ def test_freeze_obligations_title_carries_product_name(client) -> None:
 def test_alerts_tabs_and_actions_are_separate_rows() -> None:
     src = (TEMPLATES / "alerts.html").read_text()
     assert "tab-filter__tabs" in src and "tab-filter__actions" in src
+
+
+def test_screen_page_lists_recent_checks_once_per_name(client) -> None:
+    import re as _re
+    tok = _re.search(r'name="csrf_token" value="([^"]+)"', client.get("/screen").text).group(1)
+    for nm in ("Jane Roe", "jane roe", "John Doe"):
+        r = client.post("/screen", data={"name": nm, "csrf_token": tok})
+        assert r.status_code == 200
+    page = client.get("/screen").text
+    assert "Recent checks" in page
+    assert page.count("/screen?name=") == 2      # Jane (once, newest spelling) and John
+    assert "/screen?name=John%20Doe" in page
+
+
+def test_screen_prefills_name_from_query_string(client) -> None:
+    r = client.get("/screen?name=Jane%20Roe")
+    assert 'value="Jane Roe"' in r.text
