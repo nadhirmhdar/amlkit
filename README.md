@@ -32,6 +32,7 @@ them is free to redistribute commercially:
 | UK Sanctions List | UK FCDO/OFSI | `ingest/uk.py` | Public domain |
 | EU Financial Sanctions | European Commission | `ingest/eu.py` | Public domain (token, see below) |
 | CIA World Leaders (PEPs) | US CIA | `ingest/cia.py` | Public domain (17 U.S.C. §105) |
+| Wikidata Ministers (PEPs) | Wikidata | `ingest/wikidata_peps.py` | CC0 (public domain dedication) |
 | Adverse media (news index) | The GDELT Project | `screening/adverse_media.py` | Free for commercial use, attribution required |
 
 **OpenSanctions is no longer in the refresh path.** `ingest/opensanctions.py`

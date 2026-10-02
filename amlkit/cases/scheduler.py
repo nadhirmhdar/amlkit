@@ -39,6 +39,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     from ..ingest.uk import UKSanctionsAdapter
     from ..ingest.fatf import FATFAdapter, load_fatf_data
     from ..ingest.interpol import InterpolRedNoticeAdapter
+    from ..ingest.wikidata_peps import wikidata_ministers
     from ..match.engine import rescreen_all
     from ..match.cache import invalidate as invalidate_cache
     from ..db import audit, record_dataset_error, upsert_dataset
@@ -48,7 +49,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     mandatory_failures: list[str] = []
     for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
                      EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders,
-                     FATFAdapter, InterpolRedNoticeAdapter]:
+                     FATFAdapter, InterpolRedNoticeAdapter, wikidata_ministers]:
         adapter = factory()
         try:
             result = load(conn, adapter, actor=actor)
@@ -121,9 +122,10 @@ def _default_adapters():
     from ..ingest.eu import EUSanctionsAdapter
     from ..ingest.uk import UKSanctionsAdapter
     from ..ingest.interpol import InterpolRedNoticeAdapter
+    from ..ingest.wikidata_peps import wikidata_ministers
     return [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
             EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders,
-            InterpolRedNoticeAdapter]
+            InterpolRedNoticeAdapter, wikidata_ministers]
 
 
 def refresh_with_progress(conn, actor, adapters=None):
