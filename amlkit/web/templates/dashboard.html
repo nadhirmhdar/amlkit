@@ -201,8 +201,8 @@
     </div>
     <form method="post" action="/adverse-media/run-due" class="row mt-4">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div><label>How many</label>
-        <input type="number" name="limit" value="5" min="1" max="20"></div>
+      <div><label for="dash-limit">How many</label>
+        <input type="number" id="dash-limit" name="limit" value="5" min="1" max="20"></div>
       <div><button class="small" type="submit">Check the next few</button></div>
     </form>
     <p class="muted small mt-2">
