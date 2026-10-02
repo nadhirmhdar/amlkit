@@ -1214,3 +1214,15 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   /* Touch targets: 44px minimum for the compact in-page buttons on phones. */
   main button.small, main .btn.small { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 }
+
+/* Customer detail: the risk / status tags sit beside the name they describe. */
+.title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.title-row h1 { margin: 0; }
+
+/* Admin organisation profile: fields top-aligned in even columns; the hint
+   under the goAML reference no longer lifts that field above its neighbours. */
+.row.profile-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; gap: 20px 24px; }
+.profile-grid input { width: 100%; box-sizing: border-box; }
+.profile-grid .muted.small { display: block; margin-top: 6px; line-height: 1.5; }
+.profile-grid__actions { grid-column: 1 / -1; }
+

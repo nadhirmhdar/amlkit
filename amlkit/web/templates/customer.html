@@ -9,7 +9,11 @@
 
 <div class="page-head" style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
   <div>
-    <h1 style="font-size:32px;">{{ name(c.full_name) }}</h1>
+    <div class="title-row">
+      <h1 style="font-size:32px;">{{ name(c.full_name) }}</h1>
+      {% if risk %}<span class="tag {{ risk.rating }}" style="font-size:11.5px;">{{ risk.rating }} risk</span>{% endif %}
+      {% if c.status != 'active' %}<span class="tag other">{{ c.status }}</span>{% endif %}
+    </div>
     {% if c.name_arabic %}<div style="font-size:15px; color:var(--ink-2); margin-top:4px;">{{ name(c.name_arabic) }}</div>{% endif %}
     <div class="mono small muted mt-2">{{ c.reference }} &middot; {{ c.customer_type }} &middot; {{ c.sector }}</div>
     <div class="mt-4">
@@ -50,10 +54,6 @@
       <p class="muted small mt-4">Records retained until <strong>{{ c.retention_until }}</strong>
         (ten years after the relationship ended).</p>
     {% endif %}
-  </div>
-  <div style="flex-shrink:0;">
-    {% if risk %}<span class="tag {{ risk.rating }}" style="font-size:11.5px;">{{ risk.rating }} risk</span>{% endif %}
-    {% if c.status != 'active' %}<span class="tag other ml-4">{{ c.status }}</span>{% endif %}
   </div>
 </div>
 
