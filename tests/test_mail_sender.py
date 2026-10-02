@@ -32,3 +32,37 @@ def test_from_header_adds_product_name():
 
 def test_from_header_keeps_configured_display_name():
     assert from_header("Compliance Team <alerts@firm.ae>") == "Compliance Team <alerts@firm.ae>"
+
+
+def test_alert_subjects_use_groaml_casing(monkeypatch):
+    """Subjects are matched by external inbox filters, so pin their exact text."""
+    from amlkit import mail
+
+    captured = []
+
+    class FakeSMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def starttls(self): pass
+        def login(self, *a): pass
+        def send_message(self, msg): captured.append(msg)
+
+    monkeypatch.setenv("AMLKIT_SMTP_HOST", "smtp.example.test")
+    monkeypatch.delenv("AMLKIT_SMTP_FROM", raising=False)
+    monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
+
+    mail.send_verification_email("a@example.test", "A", "tok")
+    mail.send_staleness_alert(
+        ["ops@example.test"],
+        [{"title": "UN", "last_refresh": None, "hours_ago": 30}],
+    )
+    mail.send_screening_match_alert(
+        ["mlro@example.test"], summary="s", alert_url="https://x.example.test/a"
+    )
+
+    assert [m["Subject"] for m in captured] == [
+        "Verify your groAML account",
+        "⚠️  groAML: 1 sanctions list(s) stale",
+        "groAML: new screening match needs review",
+    ]
