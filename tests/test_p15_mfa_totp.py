@@ -24,7 +24,7 @@ def test_mfa_enrollment_generates_secret(conn, org_id):
     assert "otpauth://totp/" in qr_uri
     assert "test@example.ae" in unquote(qr_uri)
     # authenticator apps label the entry with the product name
-    assert "issuer=groAML" in qr_uri
+    assert "issuer=groaml" in qr_uri
     # pending until confirmed; a second call resumes rather than rotates
     assert mfa_enroll(conn, operator_id=1)[0] == secret
 
