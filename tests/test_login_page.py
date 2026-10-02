@@ -24,7 +24,7 @@ def test_sign_in_is_the_page_heading_and_the_slogan_is_not(client):
     html = client.get("/login").text
     assert len(re.findall(r"<h1[ >]", html)) == 1
     assert re.search(r"<h1[^>]*>Sign in</h1>", html)
-    assert "Compliance," in html and "Many sources. One decision." in html
+    assert "Compliance," in html and "One decision" not in html
 
 
 def test_decorative_strands_are_hidden_from_assistive_tech_and_sources_are_stated(client):
