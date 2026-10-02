@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% set nav = 'blog' %}
+{% block title %}Blog — groAML by Grovisor{% endblock %}
+{% block meta_description %}<meta name="description" content="Practical guidance on sanctions screening, CDD and AML/CFT compliance for UAE DNFBPs, from the team building groAML.">{% endblock %}
+{% block canonical %}<link rel="canonical" href="https://groaml.grovisor.ae/blog">{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "groAML", "item": "https://groaml.grovisor.ae/about" },
+        { "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://groaml.grovisor.ae/blog" }
+      ]
+    },
+    {
+      "@type": "Blog",
+      "name": "groAML Blog",
+      "url": "https://groaml.grovisor.ae/blog",
+      "publisher": { "@type": "Organization", "name": "Grovisor Business Consultants LLC", "url": "https://grovisor.ae/" }
+    }
+  ]
+}
+</script>
+{% endblock %}
+{% block body %}
+
+<div style="max-width:680px;">
+  <div class="page-head">
+    <div class="eyebrow">Blog</div>
+    <h1>AML/CFT compliance, explained.</h1>
+    <p class="sub">
+      Practical guidance on sanctions screening, customer due diligence and
+      regulatory reporting for UAE DNFBPs &mdash; written by the team building
+      groAML.
+    </p>
+  </div>
+
+  <div class="flat-list">
+    {% for post in posts %}
+    <div class="list-row" style="align-items:flex-start;">
+      <div class="grow">
+        <div class="primary" style="font-size:15px;">
+          <a href="/blog/{{ post.slug }}" style="color:inherit; text-decoration:none;">{{ post.title }}</a>
+        </div>
+        <div class="secondary" style="font-size:13.5px; color:var(--ink-2); margin-top:4px; line-height:1.5;">
+          {{ post.description }}
+        </div>
+        <a href="/blog/{{ post.slug }}" style="font-size:13px; font-weight:600;">Read more &rarr;</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}

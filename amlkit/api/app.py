@@ -31,6 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, notifications, queries, uaepass
+from ..web import blog
 from .limits import limiter, login_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
@@ -2576,6 +2577,47 @@ def about_view(request: Request, db: DB):
 def privacy_view(request: Request, db: DB):
     session = current_session(request, db)
     return render(request, "privacy.html", {"session": session}, db)
+
+
+# ------------------------------------------------------------------------ blog
+# Public, same as /about -- educational content for DNFBPs researching their
+# screening obligations, meant to be found by search rather than reached from
+# inside the product.
+@app.get("/blog", response_class=HTMLResponse)
+def blog_index(request: Request, db: DB):
+    session = current_session(request, db)
+    return render(request, "blog_index.html", {"session": session, "posts": blog.all_posts()}, db)
+
+
+@app.get("/blog/{slug}", response_class=HTMLResponse)
+def blog_post_view(request: Request, slug: str, db: DB):
+    post = blog.get_post(slug)
+    if post is None:
+        raise HTTPException(status_code=404)
+    session = current_session(request, db)
+    return render(request, f"blog/{post.slug}.html", {"session": session, "post": post}, db)
+
+
+@app.get("/robots.txt", response_class=Response)
+def robots_txt():
+    body = "User-agent: *\nAllow: /\nSitemap: https://groaml.grovisor.ae/sitemap.xml\n"
+    return Response(body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml", response_class=Response)
+def sitemap_xml():
+    urls = ["/about", "/privacy", "/blog"] + [f"/blog/{p.slug}" for p in blog.all_posts()]
+    lastmods = {"/blog": blog.all_posts()[0].updated if blog.all_posts() else None}
+    for p in blog.all_posts():
+        lastmods[f"/blog/{p.slug}"] = p.updated
+    entries = "\n".join(
+        f'  <url><loc>https://groaml.grovisor.ae{u}</loc>'
+        + (f'<lastmod>{lastmods[u]}</lastmod>' if lastmods.get(u) else '')
+        + '</url>'
+        for u in urls
+    )
+    body = f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{entries}\n</urlset>\n'
+    return Response(body, media_type="application/xml")
 
 
 # ---------------------------------------------------------------------- feedback

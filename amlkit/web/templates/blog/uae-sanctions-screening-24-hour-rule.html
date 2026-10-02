@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% set nav = 'blog' %}
+{% block title %}{{ post.title }} — groAML{% endblock %}
+{% block meta_description %}<meta name="description" content="{{ post.description }}">{% endblock %}
+{% block canonical %}<link rel="canonical" href="https://groaml.grovisor.ae/blog/{{ post.slug }}">{% endblock %}
+{% block og %}
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="groAML by Grovisor">
+<meta property="og:title" content="{{ post.title }}">
+<meta property="og:description" content="{{ post.description }}">
+<meta property="og:url" content="https://groaml.grovisor.ae/blog/{{ post.slug }}">
+<meta name="twitter:card" content="summary">
+{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "groAML", "item": "https://groaml.grovisor.ae/about" },
+        { "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://groaml.grovisor.ae/blog" },
+        { "@type": "ListItem", "position": 3, "name": "{{ post.title }}", "item": "https://groaml.grovisor.ae/blog/{{ post.slug }}" }
+      ]
+    },
+    {
+      "@type": "BlogPosting",
+      "headline": "{{ post.title }}",
+      "description": "{{ post.description }}",
+      "datePublished": "{{ post.published }}",
+      "dateModified": "{{ post.updated }}",
+      "author": { "@type": "Organization", "name": "Grovisor Business Consultants LLC", "url": "https://grovisor.ae/" },
+      "publisher": { "@type": "Organization", "name": "Grovisor Business Consultants LLC", "url": "https://grovisor.ae/" }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is the UAE Local Terrorist List?",
+          "acceptedAnswer": { "@type": "Answer", "text": "A list of designated individuals and entities maintained by the UAE Cabinet via the Executive Office for Control and Non-Proliferation. It sits alongside the UN Consolidated List as the two sanctions lists that UAE AML law specifically requires financial institutions and DNFBPs to screen against and act on without delay." }
+        },
+        {
+          "@type": "Question",
+          "name": "How often must a UAE DNFBP re-screen its customers?",
+          "acceptedAnswer": { "@type": "Answer", "text": "On every update to the Local Terrorist List or UN Consolidated List, before onboarding a new customer, at every periodic KYC review, when a customer's details change, and before processing a transaction — not just once at onboarding." }
+        },
+        {
+          "@type": "Question",
+          "name": "What happens if a DNFBP misses the 24-hour freezing deadline?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Failing to freeze a designated person's funds within 24 hours of a listing update, or otherwise dealing with a listed party, is a breach of UAE law and can carry both financial penalties and, in serious cases, criminal liability under Federal Decree-Law No. 10 of 2025." }
+        },
+        {
+          "@type": "Question",
+          "name": "Do UAE DNFBPs need to screen OFAC, EU and UK sanctions lists too?",
+          "acceptedAnswer": { "@type": "Answer", "text": "The 24-hour freezing obligation under UAE law attaches specifically to the Local Terrorist List and the UN Consolidated List. Screening against OFAC, EU, UK sanctions and FATF high-risk jurisdictions is broader risk-based practice — expected for firms with cross-border exposure or correspondent banking relationships, but not the same statutory deadline." }
+        }
+      ]
+    }
+  ]
+}
+</script>
+{% endblock %}
+{% block body %}
+
+<article style="max-width:680px;">
+  <div class="page-head">
+    <div class="eyebrow">Compliance</div>
+    <h1>{{ post.title }}</h1>
+    <p class="sub">Published {{ post.published }}</p>
+  </div>
+
+  <div style="font-size:14.5px; line-height:1.7; color:var(--ink-2);">
+
+    <p>
+      Since <a href="https://grovisor.ae/blog/dnfbp-aml-obligations-uae">Federal Decree-Law No. 10 of 2025</a>
+      came into effect on 14 October 2025 &mdash; replacing Decree-Law No. 20 of
+      2018, with its executive regulations following on 14 December 2025 &mdash;
+      UAE DNFBPs have had to take sanctions screening seriously in a way that
+      goes well beyond a one-time check at onboarding. One obligation trips up
+      more small firms than any other: the <strong>24-hour rule</strong>.
+    </p>
+
+    <div class="section-label" style="margin-top:28px;">What the law actually requires</div>
+    <p>
+      UAE AML law requires financial institutions and DNFBPs to screen against
+      two specific lists: the <strong>UAE Local Terrorist List</strong>
+      (maintained by the Cabinet through the Executive Office for Control and
+      Non-Proliferation) and the <strong>UN Consolidated List</strong>. When
+      either list is updated, a DNFBP must apply freezing measures &mdash;
+      without delay, and in any case within 24 hours &mdash; to any funds or
+      transactions linked to a newly designated person or entity.
+    </p>
+    <p>
+      That 24-hour window isn't just for new designations. The same screening
+      has to run before onboarding a new customer, at every periodic KYC
+      review, whenever a customer's details change, and before processing a
+      transaction. A DNFBP that only screens once, at account opening, is not
+      meeting the standard.
+    </p>
+    <p>
+      Missing the window is not a paperwork issue. Failing to freeze a listed
+      party's funds in time, or otherwise providing funds or services to a
+      designated person, is a breach of UAE law that can carry financial
+      penalties and, in serious cases, criminal liability.
+    </p>
+
+    <div class="section-label" style="margin-top:28px;">Beyond the legal minimum</div>
+    <p>
+      The Local Terrorist List and UN Consolidated List are the two lists the
+      24-hour rule attaches to by law. Most DNFBPs screen more broadly than
+      that as a matter of risk-based practice &mdash; OFAC's SDN list, EU and
+      UK sanctions, and FATF's high-risk-jurisdiction list &mdash; especially
+      firms with cross-border clients, correspondent banking relationships, or
+      customers who themselves deal internationally. It's good practice, not
+      a separate statutory deadline, so it's worth knowing which screening is
+      the legal floor and which is added risk management.
+    </p>
+
+    <div class="section-label" style="margin-top:28px;">The part generic screening tools miss</div>
+    <p>
+      A large share of UAE customer and counterparty names are Arabic in
+      origin, and the same name can appear half a dozen different ways in
+      Latin script &mdash; Mohammed, Muhammad, Mohamed; honorifics included or
+      dropped; different transliteration conventions entirely. A screening
+      tool built for a Latin-only market will either miss genuine matches
+      (false negatives &mdash; the dangerous direction) or bury an operator in
+      false positives severe enough that real matches get rubber-stamped
+      through. Either failure mode defeats the point of screening.
+    </p>
+
+    <div class="section-label" style="margin-top:28px;">What this looks like day to day</div>
+    <p>
+      For a DNFBP without an in-house compliance team, meeting this standard
+      manually means registering with the Executive Office for update
+      notifications, re-running every active customer against each list on
+      every update, and keeping an auditable record of when each check ran
+      and what it found &mdash; on top of the CDD file, risk scoring and
+      reporting work the rest of AML compliance already demands.
+      <a href="/about">groAML</a> was built around exactly that workflow:
+      continuous re-screening against the Local Terrorist List, UN
+      Consolidated List, OFAC, EU, UK and FATF high-risk jurisdictions, with
+      Arabic-aware name matching and an evidence trail for every alert.
+    </p>
+
+    <div class="section-label" style="margin-top:28px;">Frequently asked questions</div>
+
+    <div class="flat-list">
+      <div class="list-row" style="align-items:flex-start;">
+        <div class="grow">
+          <div class="primary" style="font-size:14.5px; color:var(--ink);">What is the UAE Local Terrorist List?</div>
+          <div class="secondary" style="font-size:13.5px; margin-top:4px;">A list of designated individuals and entities maintained by the UAE Cabinet via the Executive Office for Control and Non-Proliferation, alongside the UN Consolidated List, as the two sanctions lists UAE AML law specifically requires screening against.</div>
+        </div>
+      </div>
+      <div class="list-row" style="align-items:flex-start;">
+        <div class="grow">
+          <div class="primary" style="font-size:14.5px; color:var(--ink);">How often must a DNFBP re-screen its customers?</div>
+          <div class="secondary" style="font-size:13.5px; margin-top:4px;">On every list update, before onboarding, at every periodic KYC review, when customer details change, and before processing a transaction.</div>
+        </div>
+      </div>
+      <div class="list-row" style="align-items:flex-start;">
+        <div class="grow">
+          <div class="primary" style="font-size:14.5px; color:var(--ink);">What happens if a DNFBP misses the 24-hour deadline?</div>
+          <div class="secondary" style="font-size:13.5px; margin-top:4px;">It's a breach of UAE law that can carry financial penalties and, in serious cases, criminal liability under Federal Decree-Law No. 10 of 2025.</div>
+        </div>
+      </div>
+      <div class="list-row" style="align-items:flex-start;">
+        <div class="grow">
+          <div class="primary" style="font-size:14.5px; color:var(--ink);">Do UAE DNFBPs need to screen OFAC, EU and UK lists too?</div>
+          <div class="secondary" style="font-size:13.5px; margin-top:4px;">The 24-hour freezing obligation attaches to the Local Terrorist List and UN Consolidated List specifically. OFAC, EU, UK and FATF high-risk-jurisdiction screening is broader risk-based practice, not the same statutory deadline.</div>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-top:28px; font-size:12.5px; color:var(--ink-2); border-top:1px solid var(--line, #e5e7eb); padding-top:16px;">
+      General information, not legal advice. A UAE-qualified adviser should
+      confirm how these obligations apply to your specific business before
+      you rely on this. For who counts as a DNFBP and the full set of AML/CFT
+      obligations they carry, see
+      <a href="https://grovisor.ae/blog/dnfbp-aml-obligations-uae">Grovisor's guide to DNFBP obligations</a>.
+    </p>
+
+  </div>
+</article>
+
+{% endblock %}

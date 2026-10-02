@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}groAML by Grovisor{% endblock %}</title>
+{% block meta_description %}<meta name="description" content="groAML by Grovisor: sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs under Federal Decree-Law No. 10 of 2025.">{% endblock %}
+{% block canonical %}{% endblock %}
+{% block og %}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="groAML by Grovisor">
+<meta property="og:title" content="groAML by Grovisor">
+<meta property="og:description" content="Sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs.">
+<meta name="twitter:card" content="summary">
+{% endblock %}
+{% block json_ld %}{% endblock %}
 <link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
@@ -165,6 +175,22 @@
     {% endif %}
 {% else %}
 <div class="fade-in">
+  {# Public pages only (about/privacy/blog) land here unauthenticated and
+     otherwise have no way back to the app or across to grovisor.ae -- the
+     sign-in page overrides this block to keep its own bare layout. #}
+  {% block public_header %}
+  <header class="no-print" style="max-width:860px;margin:0 auto;padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+    <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
+      <img src="/static/img/grovisor-logo.png" alt="" style="height:26px;">
+      <span class="wm wm--accent" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></span>
+    </a>
+    <nav aria-label="Site" style="display:flex;gap:18px;font-size:14px;">
+      <a href="/about">About</a>
+      <a href="/blog">Blog</a>
+      <a href="https://grovisor.ae" target="_blank" rel="noopener">grovisor.ae</a>
+    </nav>
+  </header>
+  {% endblock %}
   {# Overridable: the sign-in page shows these inside its own layout. #}
   {% block flash %}
   {% if security_warning %}
@@ -243,6 +269,16 @@
   </div>{# /content-col #}
 </div>
 {% else %}
+  {% block public_footer %}
+  <footer class="no-print" style="max-width:860px;margin:40px auto 0;padding:24px 24px;border-top:1px solid var(--line, #e5e7eb);font-size:13px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;">
+    <span>&copy; 2026 Grovisor Business Consultants LLC. groAML by Grovisor.</span>
+    <span style="display:flex;gap:16px;">
+      <a href="/about">About</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/blog">Blog</a>
+    </span>
+  </footer>
+  {% endblock %}
 </div>
 {% endif %}
 
