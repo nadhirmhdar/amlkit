@@ -619,6 +619,7 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
             conn, org_id, status=None, customer_id=customer_id
         ),
         "signatures": signatures_for_customer(conn, customer_id, org_id),
+        "uaepass_verifications": uaepass_verifications_for_customer(conn, customer_id, org_id),
         "adverse_media": adverse_media_for_customer(conn, customer_id, org_id),
         "adverse_media_runs": adverse_media_runs(conn, customer_id, org_id),
         "documents": documents_for_customer(conn, customer_id, org_id),
@@ -723,6 +724,18 @@ def signatures_for_customer(
 ) -> list[dict[str, Any]]:
     return [dict(r) for r in conn.execute(
         "SELECT * FROM signatures WHERE customer_id=? AND org_id=? ORDER BY signed_at DESC",
+        (customer_id, org_id))]
+
+
+def uaepass_verifications_for_customer(
+    conn: sqlite3.Connection, customer_id: int, org_id: int
+) -> list[dict[str, Any]]:
+    """Append-only UAE PASS identity-verification history for one customer,
+    newest first -- same shape/ordering convention as signatures_for_customer
+    above."""
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM uaepass_verifications WHERE customer_id=? AND org_id=?"
+        " ORDER BY verified_at DESC",
         (customer_id, org_id))]
 
 
