@@ -62,3 +62,21 @@ def test_freeze_obligations_title_carries_product_name(client) -> None:
 def test_alerts_tabs_and_actions_are_separate_rows() -> None:
     src = (TEMPLATES / "alerts.html").read_text()
     assert "tab-filter__tabs" in src and "tab-filter__actions" in src
+
+
+def test_admin_and_freeze_pages_label_every_control(client) -> None:
+    for path in ("/admin", "/freeze-obligations"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert _unnamed(r.text) == [], path
+
+
+_BARE_SIBLING = re.compile(r"<label>[^<]*</label>\s*<(input|select|textarea)\b")
+
+
+def test_labelled_templates_have_no_unassociated_sibling_labels() -> None:
+    """customer/admin/dashboard/freeze templates: every <label> next to a control
+    must carry `for` (a bare <label> beside an input labels nothing)."""
+    for name in ("customer.html", "admin.html", "dashboard.html", "freeze_obligations.html"):
+        src = (TEMPLATES / name).read_text()
+        assert not _BARE_SIBLING.search(src), f"{name}: bare <label> beside a control"
