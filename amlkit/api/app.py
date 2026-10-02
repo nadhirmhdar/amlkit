@@ -220,6 +220,20 @@ DB = Annotated[sqlite3.Connection, Depends(get_db)]
 _COOKIE_MAX_AGE = int(auth.SESSION_LIFETIME.total_seconds())
 
 
+def _is_applications_viewer(session) -> bool:
+    """Whether `session` is the platform admin who receives quotation requests.
+
+    Applications are not tenant data (no org_id): the session must be a
+    super-admin whose own email is one of the quote recipients (AMLKIT_QUOTE_TO,
+    default info@grovisor.ae). Shared by render() (sidebar link visibility) and
+    _applications_viewer() (the route guard) so the two checks can't drift.
+    """
+    if session is None or not session.super_admin:
+        return False
+    from ..mail import quote_recipients
+    return session.email.lower() in {a.lower() for a in quote_recipients()}
+
+
 def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None = None) -> HTMLResponse:
     """Render with the context every page needs, including a fresh CSRF token
     for any form on the page.
@@ -271,9 +285,7 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         # own 24-hour-rule breach banner when a mandatory list is stale.
         if session.super_admin:
             ctx.setdefault("dataset_banner", queries.dataset_health_banner(db))
-            from ..mail import quote_recipients
-            ctx.setdefault("applications_viewer",
-                           session.email.lower() in {a.lower() for a in quote_recipients()})
+            ctx.setdefault("applications_viewer", _is_applications_viewer(session))
         # Check for MFA lockouts (show to admin/MLRO roles)
         if session.operator_role in ("mlro", "admin"):
             mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
@@ -1268,9 +1280,7 @@ def _applications_viewer(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return None
-    from ..mail import quote_recipients
-    allowed = {a.lower() for a in quote_recipients()}
-    if session.super_admin and session.email.lower() in allowed:
+    if _is_applications_viewer(session):
         return session
     return None
 
@@ -2753,7 +2763,9 @@ def about_view(request: Request, db: DB):
 @app.get("/privacy", response_class=HTMLResponse)
 def privacy_view(request: Request, db: DB):
     session = current_session(request, db)
-    return render(request, "privacy.html", {"session": session}, db)
+    from ..mail import quote_recipients
+    return render(request, "privacy.html",
+                  {"session": session, "quote_to": quote_recipients()[0]}, db)
 
 
 # ---------------------------------------------------------------------- feedback

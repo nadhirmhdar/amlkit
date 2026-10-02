@@ -76,7 +76,7 @@
                  {% if errors.get('org_name') %}aria-invalid="true" aria-describedby="ap-org_name-err"{% endif %}>
           {% if errors.get('org_name') %}<div class="field-error" id="ap-org_name-err">{{ errors['org_name'] }}</div>{% endif %}
         </div>
-        <div id="ap-consultant-fields" {{ 'hidden' if values.get('applicant_type') != consultant }}>
+        <div id="ap-consultant-fields" {{ 'hidden' if values.get('applicant_type') and values.get('applicant_type') != consultant }}>
           {{ select('client_firms', 'Client firms you would run', client_firm_counts, hint='We will confirm how this would be set up in your quotation.') }}
         </div>
         <div class="apply-grid">

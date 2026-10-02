@@ -398,13 +398,15 @@ def send_application_notice(application_id: int, a: dict) -> str:
     already saved in the database, so a mail outage must not lose it or fail
     the applicant's submission.
     """
+    from .cases.applications import NO_FIRM_TYPES
+
     needs = ", ".join(a.get("needs") or []) or "(none selected)"
     lines = [
         f"New groAML quotation request #{application_id}",
         "",
         f"Applying as:     {a['applicant_type']}"
         + (f" (would run {a['client_firms']} client firms)" if a.get("client_firms") else ""),
-        (f"Firm:            {a['org_name']}" if a["applicant_type"] != "Natural person"
+        (f"Firm:            {a['org_name']}" if a["applicant_type"] not in NO_FIRM_TYPES
          else "Firm:            (none: applying as an individual)"),
         f"Business type:   {a['category']}",
         f"Licensed in:     {a['jurisdiction']}",
