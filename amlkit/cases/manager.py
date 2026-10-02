@@ -30,6 +30,7 @@ from typing import Any
 from ..db import audit, retry_on_lock, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, ScreeningResult, screen
 from ..names.arabic import canonical_key
+from ..uaepass import UaePassProfile
 from ..risk.model import (
     CustomerProfile,
     RiskAssessment,
@@ -912,7 +913,7 @@ def record_uaepass_verification(
     conn: sqlite3.Connection,
     customer_id: int,
     org_id: int,
-    profile: "UaePassProfile",
+    profile: UaePassProfile,
     *,
     actor: str,
     verified_by: int | None,
