@@ -33,6 +33,11 @@
 .si-btn:hover { background:#7ee0e5; }
 .si-btn:active { background:#3ab8bf; transform:translateY(1px); }
 .si-btn:focus-visible, .si-eye:focus-visible, .si a:focus-visible { outline:2px solid #fff; outline-offset:3px; }
+.si-or { display:flex; align-items:center; gap:12px; margin:22px 0 14px; color:rgb(233 241 242 / .7); font-size:11px; text-transform:uppercase; letter-spacing:.1em; }
+.si-or::before, .si-or::after { content:""; flex:1; height:1px; background:rgb(233 241 242 / .25); }
+.si-alt { display:block; text-align:center; text-decoration:none; padding:13px; border:1px solid #4eccd3; border-radius:var(--radius-sm); color:#4eccd3; font-weight:700; font-size:14px; }
+.si .si-alt, .si .si-alt:hover { text-decoration:none; }
+.si-alt:hover { background:rgb(78 204 211 / .12); color:#7ee0e5; text-decoration:none; }
 .si .input-underline:focus-visible { outline:none; }
 .si-note { margin:-14px 0 24px; padding:12px 14px; border-radius:8px; font-size:13px; line-height:1.5; }
 .si-note--err { color:#ffd9d4; background:rgb(255 120 105 / .12); border:1px solid rgb(255 150 135 / .45); }
@@ -100,6 +105,13 @@
         </div>
         <button type="submit" id="si-btn" class="si-btn" style="margin-top:10px;" data-loading="Signing in…">Sign in</button>
       </form>
+
+      {% if uaepass_enabled %}
+      <div class="si-or" aria-hidden="true"><span>or</span></div>
+      {# Plain labelled link for now: UAE PASS publishes official button
+         assets that have not been added to the repo yet. #}
+      <a href="/auth/uaepass/start" class="si-alt">Sign in with UAE PASS</a>
+      {% endif %}
 
       {% if unverified_email %}
       <form method="post" action="/resend-verification" style="margin-top:18px;">

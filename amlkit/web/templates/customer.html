@@ -445,6 +445,39 @@
   </form>
 </div>
 
+{% if uaepass_enabled %}
+<div class="mb-6">
+  <div class="section-label">UAE PASS identity verification</div>
+  <p class="muted small mt-0">
+    Stronger identity evidence than the OCR passport/Emirates ID scan — the
+    customer authenticates directly with UAE PASS, and groAML records the
+    verified attributes it returns. The OCR scan remains the fallback for
+    customers without UAE PASS.
+  </p>
+  {% if uaepass_verifications %}
+    <div class="flat-list mb-4">
+      {% for v in uaepass_verifications %}
+      <div class="list-row" style="align-items:flex-start; display:block;">
+        <div class="small">
+          <strong>{{ v.fullname_en or 'Verified identity' }}</strong>
+          {% if v.user_type %}<span class="muted">({{ v.user_type }})</span>{% endif %} ·
+          <span class="muted">{{ v.verified_at[:16].replace('T',' ') }}</span>
+        </div>
+        <div class="muted small mt-2">
+          {% if v.idn %}Emirates ID: {{ v.idn }} &middot; {% endif %}
+          {% if v.nationality_en %}Nationality: {{ v.nationality_en }} &middot; {% endif %}
+          {% if v.mobile %}Mobile: {{ v.mobile }}{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted small">No UAE PASS verification on file yet.</p>
+  {% endif %}
+  <a class="btn small" href="/customers/{{ c.id }}/uaepass/start">Verify via UAE PASS</a>
+</div>
+{% endif %}
+
 <div class="mb-6">
   <div class="section-label">Signatures &amp; acknowledgments</div>
   <p class="muted small mt-0">
