@@ -20,7 +20,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from amlkit.ingest.base import AdapterError  # noqa: E402
-from amlkit.ingest.wikidata_peps import WikidataPEPAdapter  # noqa: E402
+from amlkit.ingest.wikidata_peps import WikidataPEPAdapter, _statement_query  # noqa: E402
 
 
 def _binding(**kv) -> dict:
@@ -76,9 +76,46 @@ class TestParsing:
     def test_position_and_dates_preserved_in_raw(self):
         e = _parse(_payload(_row(position_label="Minister of Economy",
                                   start="2020-01-04T00:00:00Z", end=None)))[0]
-        assert e.raw["position"] == "Minister of Economy"
-        assert e.raw["start"] == "2020-01-04T00:00:00Z"
+        assert e.raw["positions"] == [{
+            "position": "Minister of Economy", "position_qid": "Q83307",
+            "country": None, "start": "2020-01-04T00:00:00Z", "end": None,
+        }]
         assert e.listed_at == "2020-01-04T00:00:00Z"
+
+    def test_person_holding_two_positions_yields_one_entity_not_two(self):
+        """Regression test: parse() used to yield one entity per
+        (person, position) row, all sharing the same source_id (keyed on
+        the person QID alone) -- entities.(dataset_id, source_id) is
+        UNIQUE, so a person with two posts crashed load() with a bare
+        sqlite3.IntegrityError that none of this adapter's callers catch.
+        One entity per person, with every position collected into
+        raw["positions"], fixes this."""
+        first = _row(person="Q7", person_label="Multi Minister",
+                     position="Q1", position_label="Minister of Finance",
+                     start="2018-06-01T00:00:00Z")
+        second = _row(person="Q7", person_label="Multi Minister",
+                      position="Q2", position_label="Deputy Prime Minister",
+                      start="2020-01-01T00:00:00Z")
+        entities = _parse(_payload(first, second))
+        assert len(entities) == 1
+        e = entities[0]
+        assert e.source_id == "WD-Q7"
+        assert len(e.raw["positions"]) == 2
+        assert {p["position"] for p in e.raw["positions"]} == {
+            "Minister of Finance", "Deputy Prime Minister",
+        }
+        # Earliest of the two starts, not the second row's.
+        assert e.listed_at == "2018-06-01T00:00:00Z"
+
+    def test_two_positions_merge_country_labels_without_duplicates(self):
+        first = _row(person="Q7", person_label="Multi Minister",
+                     country="Q1045", country_label="Belarus")
+        second = _row(person="Q7", person_label="Multi Minister",
+                      country="Q1045", country_label="Belarus")
+        third = _row(person="Q7", person_label="Multi Minister",
+                     country="Q159", country_label="Russia")
+        e = _parse(_payload(first, second, third))[0]
+        assert e.countries == ["Belarus", "Russia"]
 
     def test_blank_person_label_row_is_skipped(self):
         blank = _row(person_label="")
@@ -99,6 +136,73 @@ class TestParsing:
     def test_empty_source_raises_rather_than_clearing_the_dataset(self):
         with pytest.raises(AdapterError, match="parsed 0 position-holders"):
             _parse(b"")
+
+
+class TestKeysetQuery:
+    """Regression tests for the OFFSET -> keyset pagination fix. Plain
+    OFFSET with no stable ORDER BY was measured live to return only ~21%
+    overlap between two otherwise-identical paginated calls -- rows were
+    silently skipped or duplicated across page boundaries, and the loader
+    deletes entities missing from a refresh (cascading to their alerts),
+    so a PEP could lose its alert history just from unlucky pagination."""
+
+    def test_first_page_has_no_keyset_filter(self):
+        query = _statement_query(2000, None)
+        assert "FILTER(STR(?person) >" not in query
+        assert "ORDER BY STR(?person)" in query
+        assert "OFFSET" not in query
+
+    def test_later_page_filters_on_the_previous_boundary(self):
+        query = _statement_query(2000, "http://www.wikidata.org/entity/Q108443110")
+        assert 'FILTER(STR(?person) > "http://www.wikidata.org/entity/Q108443110")' in query
+        assert "ORDER BY STR(?person)" in query
+
+    def test_order_by_and_filter_use_the_same_cast(self):
+        """ORDER BY ?person (the raw IRI term) and a STR(?person) filter
+        sort/compare differently -- live-verified: ordering by the IRI
+        term took ~29s and produced a different order than ordering by its
+        string form (~6s), so mixing the two cast styles would compare
+        pages sorted one way against a boundary computed the other way."""
+        query = _statement_query(2000, "http://www.wikidata.org/entity/Q1")
+        assert "ORDER BY STR(?person)" in query
+        assert "ORDER BY ?person\n" not in query
+        assert "ORDER BY ?person " not in query
+
+    def test_boundary_value_is_escaped(self):
+        """The boundary flows from a previous HTTP response's JSON back
+        into the next request's query text -- escaped defensively even
+        though a real Wikidata IRI will never contain a quote."""
+        query = _statement_query(2000, 'http://example/Q1"); DROP')
+        assert '\\"' in query
+
+
+class TestKeysetFetchIntegration:
+    def test_second_page_request_carries_first_pages_last_person(self, stub):
+        """_fetch_statements must compute the next page's keyset boundary
+        from the ACTUAL last row of the previous page, not from some other
+        value -- otherwise pages can silently gap or overlap exactly the
+        way plain OFFSET did."""
+        page1 = [
+            _binding(person="http://www.wikidata.org/entity/Q1", position="http://www.wikidata.org/entity/Q83307"),
+            _binding(person="http://www.wikidata.org/entity/Q5", position="http://www.wikidata.org/entity/Q83307"),
+        ]
+        transport = stub([page1, []], labels={"Q1": "A", "Q5": "B", "Q83307": "Minister"})
+
+        queries = []
+        real_handle = transport.handle_request
+
+        def recording_handle(request):
+            queries.append(request.url.params.get("query", ""))
+            return real_handle(request)
+
+        transport.handle_request = recording_handle
+
+        WikidataPEPAdapter().fetch()
+
+        statement_queries = [q for q in queries if "ps:P39" in q]
+        assert len(statement_queries) == 2
+        assert "FILTER(STR(?person) >" not in statement_queries[0]
+        assert 'FILTER(STR(?person) > "http://www.wikidata.org/entity/Q5")' in statement_queries[1]
 
 
 def test_dataset_identity_is_commercially_usable():

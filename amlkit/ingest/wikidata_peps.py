@@ -27,21 +27,45 @@ coverage, not comprehensive.
 
 TWO-PHASE FETCH, AND WHY
 -------------------------
-A single query joining `SERVICE wikibase:label` across this many rows, or
-adding `ORDER BY` so OFFSET-based pagination is stable, reliably times out
-on Wikidata's public endpoint -- confirmed live: an ORDER BY + LIMIT 2000
-OFFSET 20000 page timed out past 60s. The same statement-only query with NO
-label service and NO ORDER BY returns the full ~38k rows without timing out.
+A single query joining `SERVICE wikibase:label` across this many rows
+reliably times out on Wikidata's public endpoint, so phase 1 fetches
+(person QID, position QID, country QID, start, end) tuples with no label
+service, and phase 2 resolves the distinct QIDs collected in phase 1 to
+English labels in small batches via a VALUES clause -- the standard,
+scale-safe alternative to SERVICE wikibase:label for bulk Wikidata
+extraction.
 
-So phase 1 fetches (person QID, position QID, country QID, start, end)
-tuples, unordered, paginated by LIMIT/OFFSET -- accepting that Wikidata's
-internal row order could in principle drift between two paginated calls
-(it's live data, not a frozen snapshot), which could skip or duplicate a
-handful of rows across a page boundary. For a periodic bulk refresh this is
-an acceptable trade, not a silent one: documented here rather than assumed
-away. Phase 2 resolves the distinct QIDs collected in phase 1 to English
-labels in small batches via a VALUES clause -- the standard, scale-safe
-alternative to SERVICE wikibase:label for bulk Wikidata extraction.
+Phase 1 is paginated by KEYSET, not OFFSET: `ORDER BY STR(?person) LIMIT n`
+plus `FILTER(STR(?person) > "<last seen person IRI>")` for every page after
+the first. This is deliberate, not incidental:
+
+- `ORDER BY ?person LIMIT 2000 OFFSET 0` (ordering the raw IRI term) took
+  ~29s live; `ORDER BY STR(?person)` (ordering the lexical string) took
+  ~6s for the same page -- the server evidently has to do real work to
+  compare IRIs as terms that it does not have to do to compare them as
+  strings.
+- OFFSET-based pagination got slower as the offset grew (a live OFFSET
+  20000 page timed out past 60s), because the engine has to materialise
+  and discard every row before the offset on every call. Keyset avoids
+  that: filtering by "greater than the last value seen" cost ~6-9s
+  whether it was page 1 or page 2, live-verified -- not growing with
+  position, unlike OFFSET.
+- OFFSET pagination with NO stable ORDER BY (the original design) was
+  measured live to return only ~21% overlap between two otherwise-
+  identical paginated calls -- Wikidata's internal row order is not
+  guaranteed stable across requests at all, so skipped/duplicated rows
+  were not "a handful", they were most of the dataset. `ORDER BY
+  STR(?person)` plus a keyset filter fixes this: each page is a
+  deterministic, non-overlapping slice of a stable sort order,
+  live-verified across two consecutive pages (zero overlap, correct
+  ordering, contiguous boundary).
+
+The ORDER BY clause and the keyset FILTER both cast with the same STR()
+deliberately -- `ORDER BY ?person` orders by IRI term, not by its lexical
+string, so filtering with STR(?person) against an ORDER BY ?person sort
+would compare pages sorted one way against a boundary computed the other
+way, producing the same kind of silent gaps/overlaps this scheme exists to
+avoid. Both sides of the keyset comparison must use the identical cast.
 """
 
 from __future__ import annotations
@@ -70,7 +94,24 @@ LABEL_BATCH_SIZE = 400
 MAX_PAGES = 100  # ~200k rows ceiling -- a circuit breaker, not an expected count
 
 
-def _statement_query(limit: int, offset: int) -> str:
+def _escape_iri(iri: str) -> str:
+    """Escape a full IRI for use inside a double-quoted SPARQL string
+    literal. Wikidata entity IRIs never legitimately contain a quote or
+    backslash, but a keyset boundary value flows from a previous response
+    back into the next request's query text, so it is escaped defensively
+    rather than trusted."""
+    return iri.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _statement_query(limit: int, after: str | None) -> str:
+    """`after`, when given, is the full person IRI (not the bare QID) of the
+    last row returned by the previous page -- see the module docstring for
+    why this is a keyset filter rather than OFFSET, and why both this filter
+    and ORDER BY below cast through STR() identically.
+    """
+    keyset_filter = (
+        f'FILTER(STR(?person) > "{_escape_iri(after)}")' if after is not None else ""
+    )
     return f"""
         SELECT ?person ?position ?country ?start ?end WHERE {{
           ?person p:P39 ?stmt .
@@ -80,8 +121,10 @@ def _statement_query(limit: int, offset: int) -> str:
           OPTIONAL {{ ?stmt pq:P580 ?start }}
           OPTIONAL {{ ?stmt pq:P582 ?end }}
           FILTER(!BOUND(?end) || ?end >= "{SINCE_YEAR}-01-01"^^xsd:dateTime)
+          {keyset_filter}
         }}
-        LIMIT {limit} OFFSET {offset}
+        ORDER BY STR(?person)
+        LIMIT {limit}
     """
 
 
@@ -174,22 +217,28 @@ class WikidataPEPAdapter:
 
     def _fetch_statements(self, client: httpx.Client) -> list[tuple[str, str, str | None, str | None, str | None]]:
         rows: list[tuple[str, str, str | None, str | None, str | None]] = []
+        after: str | None = None
         for page in range(MAX_PAGES):
-            offset = page * PAGE_SIZE
             try:
-                bindings = _sparql_get(client, _statement_query(PAGE_SIZE, offset))
+                bindings = _sparql_get(client, _statement_query(PAGE_SIZE, after))
             except AdapterError as exc:
-                raise AdapterError(f"{self.key}: statement query failed at offset {offset} - {exc}") from exc
+                raise AdapterError(f"{self.key}: statement query failed after page {page} - {exc}") from exc
 
             if not bindings:
                 break
             for b in bindings:
-                person = _qid(b["person"]["value"])
+                person_iri = b["person"]["value"]
+                person = _qid(person_iri)
                 position = _qid(b["position"]["value"])
                 country = _qid(b["country"]["value"]) if "country" in b else None
                 start = b.get("start", {}).get("value")
                 end = b.get("end", {}).get("value")
                 rows.append((person, position, country, start, end))
+            # Keyset continuation: next page asks for STR(?person) greater
+            # than the last row's full IRI. Rows are ORDER BY STR(?person)
+            # (see _statement_query), so the last binding in this page is
+            # the correct boundary for the next one.
+            after = bindings[-1]["person"]["value"]
         return rows
 
     def _fetch_labels(self, client: httpx.Client, qids: list[str]) -> dict[str, str]:
@@ -210,9 +259,27 @@ class WikidataPEPAdapter:
     # -- parse ----------------------------------------------------------------
 
     def parse(self, payload: bytes) -> Iterator[SourceEntity]:
-        import json
+        """One SourceEntity per PERSON, not per (person, position) row.
 
-        seen = 0
+        A single person can hold more than one ministerial position (a
+        Deputy PM who also holds a portfolio is not unusual) -- phase 1's
+        query returns one row per position, so a person like that produces
+        multiple rows here. Every row for the same person shares the same
+        source_id (derived from the person QID), and entities.(dataset_id,
+        source_id) is UNIQUE (see db.py) -- load() snapshots existing rows
+        once before its insert/update loop, so yielding a second entity
+        with a source_id already seen EARLIER IN THIS SAME BATCH hits a
+        raw INSERT with no conflict handling and raises a bare
+        sqlite3.IntegrityError, which none of this adapter's callers catch
+        (they only catch AdapterError) -- aborting the scheduled refresh
+        before the rest of that run's work (FATF table reload, every org's
+        rescreen) happens. Grouping by person here is the fix: all of a
+        person's positions collapse into one entity's raw["positions"].
+        """
+        import json
+        from collections import OrderedDict
+
+        by_person: "OrderedDict[str, dict]" = OrderedDict()
         for line in payload.decode("utf-8", errors="replace").splitlines():
             line = line.strip()
             if not line:
@@ -226,30 +293,54 @@ class WikidataPEPAdapter:
             if not name:
                 continue
 
-            position_label = (row.get("position_label") or "").strip()
-            country_label = (row.get("country_label") or "").strip()
+            person = row["person"]
+            group = by_person.setdefault(person, {"name": name, "rows": []})
+            group["rows"].append(row)
 
+        seen = 0
+        for person, group in by_person.items():
+            rows = group["rows"]
             seen += 1
-            yield SourceEntity(
-                source_id=f"WD-{row['person']}",
-                schema_type="Person",
-                caption=name,
-                names=[],
-                countries=[country_label] if country_label else [],
-                birth_date=None,  # not fetched -- see module docstring scope
-                gender=None,
-                topics=["role.pep"],
-                programs=[],
-                identifiers=[("wikidata", row["person"])],
-                listed_at=row.get("start"),
-                raw={
-                    "source": "Wikidata",
-                    "wikidata_id": row["person"],
+
+            countries: "OrderedDict[str, None]" = OrderedDict()
+            positions = []
+            starts = []
+            for row in rows:
+                position_label = (row.get("position_label") or "").strip()
+                country_label = (row.get("country_label") or "").strip()
+                if country_label:
+                    countries.setdefault(country_label, None)
+                positions.append({
                     "position": position_label or row.get("position"),
                     "position_qid": row.get("position"),
                     "country": country_label or None,
                     "start": row.get("start"),
                     "end": row.get("end"),
+                })
+                if row.get("start"):
+                    starts.append(row["start"])
+
+            # Earliest start across all of a person's positions, as a
+            # conservative "PEP status began" marker -- ISO 8601 date
+            # strings sort chronologically as plain strings.
+            listed_at = min(starts) if starts else None
+
+            yield SourceEntity(
+                source_id=f"WD-{person}",
+                schema_type="Person",
+                caption=group["name"],
+                names=[],
+                countries=list(countries),
+                birth_date=None,  # not fetched -- see module docstring scope
+                gender=None,
+                topics=["role.pep"],
+                programs=[],
+                identifiers=[("wikidata", person)],
+                listed_at=listed_at,
+                raw={
+                    "source": "Wikidata",
+                    "wikidata_id": person,
+                    "positions": positions,
                 },
             )
 
