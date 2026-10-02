@@ -33,11 +33,13 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+from typing import Any
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
-from .db import EMAIL_VERIFY_TOKEN_LIFETIME, audit, utcnow
+from .db import EMAIL_VERIFY_TOKEN_LIFETIME, UAEPASS_STATE_LIFETIME, audit, utcnow
+from .uaepass import EMAIL_LINK_MIN_ASSURANCE
 
 _hasher = PasswordHasher()
 
@@ -46,6 +48,17 @@ SESSION_LIFETIME = timedelta(days=14)
 IDLE_TIMEOUT_HOURS = 8  # Configurable via AMLKIT_IDLE_TIMEOUT_HOURS env var
 SESSION_COOKIE = "amlkit_session"
 CSRF_COOKIE = "amlkit_csrf"
+
+# Binds a UAE PASS OAuth `state` to the browser that started the flow. The
+# uaepass_states DB row alone (purpose/expiry/single-use) proves a state is
+# *valid*, but not that it was issued to *this* browser -- without this
+# cookie, an attacker can complete their own UAE PASS login, capture their
+# own callback URL before using it, and hand it to a victim whose browser
+# then gets logged into (or has a verification recorded under) the
+# attacker's identity. Lax, not Strict: the browser must still send it on
+# the top-level GET navigation UAE PASS redirects back with, which is a
+# cross-site navigation from UAE PASS's own domain.
+UAEPASS_STATE_COOKIE = "amlkit_uaepass_state"
 
 # "Remember this device" for MFA (p-trusted-device): a recognised browser can
 # skip the TOTP challenge for this long before it needs re-verifying.
@@ -421,6 +434,32 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
         org_name=row["org_name"] or "",
         super_admin=bool(row["super_admin"]),
         disclaimer_acknowledged=bool(row["disclaimer_acknowledged_at"]),
+    )
+    return token, info
+
+
+def login_via_uaepass(conn: sqlite3.Connection, operator_row, *, ip: str | None = None) -> tuple[str, SessionInfo]:
+    """Mint a session for an operator who authenticated via UAE PASS SSO.
+
+    Mirrors login()'s tail exactly (session creation, auth_log row, audit
+    row) so a UAE PASS SSO login is indistinguishable from a password login
+    in every place that matters for forensics/evidence, except the recorded
+    method (`detail={"method": "uaepass"}` on both, same as login()'s own
+    `{"reason": ...}` detail convention). The caller -- resolve_uaepass_operator()
+    -- has already resolved identity; this function only ever mints a session
+    for the operator row it is handed, it never decides who that is.
+    """
+    token = create_session(conn, operator_row["id"], operator_row["org_id"])
+    _log_auth_event(conn, "login_success", operator_row["email"], {"method": "uaepass"}, ip=ip)
+    audit(conn, operator_row["name"], "operator.login", "operator", operator_row["id"],
+          {"method": "uaepass"}, org_id=operator_row["org_id"])
+    conn.commit()
+    info = SessionInfo(
+        operator_id=operator_row["id"], org_id=operator_row["org_id"],
+        operator_name=operator_row["name"], operator_role=operator_row["role"],
+        email=operator_row["email"], org_name=operator_row["org_name"] or "",
+        super_admin=bool(operator_row["super_admin"]),
+        disclaimer_acknowledged=bool(operator_row["disclaimer_acknowledged_at"]),
     )
     return token, info
 
@@ -813,6 +852,164 @@ def mfa_verify_backup_code(conn, operator_id: int, code: str) -> bool:
         return True
 
     return False
+
+
+# --------------------------------------------------------------------- UAE PASS
+# OAuth `state` for the UAE PASS authorization-code flow (operator SSO and
+# customer identity verification). This IS the flow's CSRF/replay defense --
+# a GET-initiated redirect to an external IdP cannot carry the usual
+# synchronizer form token (see csrf_valid() above), so the callback instead
+# rejects any `state` that doesn't match a live, unused, unexpired row bound
+# to the exact purpose (and, for customer verification, the exact org/
+# customer) it was issued for. Modeled directly on
+# create_email_verify_token()/consume_email_verify_token() above: hashed at
+# rest, single-use, short TTL, fail-closed on anything not exactly right.
+def find_operator_by_uaepass_uuid(conn: sqlite3.Connection, uaepass_uuid: str):
+    """Operator row already linked to this UAE PASS identity, or None."""
+    return conn.execute(
+        """SELECT o.id, o.org_id, o.name, o.role, o.email, o.is_active, o.super_admin,
+                  o.disclaimer_acknowledged_at, org.name AS org_name
+           FROM operators o LEFT JOIN organizations org ON org.id = o.org_id
+           WHERE o.uaepass_uuid = ?""",
+        (uaepass_uuid,),
+    ).fetchone()
+
+
+def resolve_uaepass_operator(conn: sqlite3.Connection, profile) -> tuple[Any, bool]:
+    """Resolve a UAE PASS profile to an existing operator, per the linking
+    policy below. Returns (operator_row_or_None, newly_linked: bool).
+
+    UAE PASS must NEVER auto-provision a new operator account -- operator
+    provisioning stays admin-only via /system/create-operator and
+    /admin/operators. This function only ever LINKS an identity to a row that
+    already exists:
+
+    1. A `uaepass_uuid` already on an operator row matches directly.
+    2. Failing that, `lower(email) = lower(profile.email)` matches, but ONLY
+       when that operator's `email_verified_at` IS ALREADY SET -- an
+       unverified email must never be used to link, since that would let
+       someone claim another operator's account by registering a UAE PASS
+       identity under their (not-yet-proven) email address -- AND ONLY when
+       `profile.user_type` is SOP2 or SOP3. SOP1 is UAE PASS's weakest tier
+       (self-registered, no bank/telco/ICA verification behind it), so its
+       `email` claim is no more trustworthy than the unverified-email case
+       above: without this gate, anyone could self-register a SOP1 UAE PASS
+       identity claiming an operator's known work email and link it to that
+       operator's account. On a match, the uuid is persisted onto that
+       operator row so future logins match directly via (1).
+    3. No match at all: caller sends the user to /login with a message
+       telling them to ask an admin to link their account first.
+
+    An inactive operator is treated as no match (same as auth.login()'s
+    is_active guard) -- UAE PASS SSO is not a way around a deactivation.
+    """
+    if not profile.uuid:
+        return None, False
+
+    row = find_operator_by_uaepass_uuid(conn, profile.uuid)
+    if row is not None:
+        return (row if row["is_active"] else None), False
+
+    if not profile.email:
+        return None, False
+    email = profile.email.strip().lower()
+    candidate = conn.execute(
+        """SELECT o.id, o.org_id, o.name, o.role, o.email, o.is_active, o.super_admin,
+                  o.disclaimer_acknowledged_at, o.email_verified_at, o.uaepass_uuid,
+                  org.name AS org_name
+           FROM operators o LEFT JOIN organizations org ON org.id = o.org_id
+           WHERE lower(o.email) = ?""",
+        (email,),
+    ).fetchone()
+    if candidate is None or candidate["email_verified_at"] is None or not candidate["is_active"]:
+        return None, False
+    if profile.user_type not in EMAIL_LINK_MIN_ASSURANCE:
+        return None, False
+
+    # uaepass_uuid IS NULL guards against clobbering a different identity
+    # this operator may already have linked -- one-UAE-PASS-identity-per-
+    # operator, enforced here at the application layer (see db.py's
+    # migration comment for why not a SQL UNIQUE constraint).
+    cur = conn.execute(
+        "UPDATE operators SET uaepass_uuid=? WHERE id=? AND uaepass_uuid IS NULL",
+        (profile.uuid, candidate["id"]),
+    )
+    conn.commit()
+    if cur.rowcount == 0:
+        # Lost a race: something else set this operator's uaepass_uuid
+        # between our SELECT above and this UPDATE (e.g. two concurrent UAE
+        # PASS logins for the same not-yet-linked operator). Re-check what
+        # actually won rather than assuming it was us -- returning
+        # (candidate, True) unconditionally here would silently log this
+        # session in even if a *different* UAE PASS identity won the race,
+        # and would leave that identity's own uuid unpersisted for any
+        # future direct lookup.
+        recheck = conn.execute(
+            "SELECT uaepass_uuid FROM operators WHERE id=?", (candidate["id"],)
+        ).fetchone()
+        if recheck is None or recheck["uaepass_uuid"] != profile.uuid:
+            return None, False
+        return candidate, False  # same identity won concurrently; not a fresh link
+    return candidate, True
+
+
+def create_uaepass_state(
+    conn: sqlite3.Connection, *, purpose: str, redirect_uri: str,
+    org_id: int | None = None, customer_id: int | None = None,
+) -> str:
+    """Issue a fresh one-time UAE PASS OAuth state value.
+
+    purpose: "operator_sso" or "customer_verification". org_id/customer_id
+    are None for operator SSO (there is no tenant yet -- that's what this
+    login is establishing) and required for customer_verification, so a
+    captured callback cannot be replayed against a different customer.
+    """
+    raw = _new_token()
+    now = utcnow()
+    expires_at = (datetime.now(timezone.utc) + UAEPASS_STATE_LIFETIME).isoformat(timespec="seconds")
+    conn.execute(
+        """INSERT INTO uaepass_states
+           (state_hash, purpose, org_id, customer_id, redirect_uri, created_at, expires_at)
+           VALUES (?,?,?,?,?,?,?)""",
+        (_token_hash(raw), purpose, org_id, customer_id, redirect_uri, now, expires_at),
+    )
+    conn.commit()
+    return raw
+
+
+def consume_uaepass_state(
+    conn: sqlite3.Connection, raw_state: str | None, *, purpose: str,
+    org_id: int | None = None, customer_id: int | None = None,
+):
+    """Validate and redeem a UAE PASS OAuth state in one step.
+
+    Returns the row (carrying redirect_uri) on success, or None if the state
+    is missing, unknown, already consumed, expired, issued for a different
+    purpose, or (for customer_verification) bound to a different org/customer
+    than the caller is claiming. Every one of these is a real rejection
+    reason: this check is the flow's whole CSRF/replay defense, so none of
+    them is optional.
+    """
+    if not raw_state:
+        return None
+    row = conn.execute(
+        """SELECT id, purpose, org_id, customer_id, redirect_uri, consumed_at, expires_at
+           FROM uaepass_states WHERE state_hash=?""",
+        (_token_hash(raw_state),),
+    ).fetchone()
+    if row is None or row["consumed_at"] is not None:
+        return None
+    if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        return None
+    if row["purpose"] != purpose:
+        return None
+    if purpose == "customer_verification" and (
+        row["org_id"] != org_id or row["customer_id"] != customer_id
+    ):
+        return None
+    conn.execute("UPDATE uaepass_states SET consumed_at=? WHERE id=?", (utcnow(), row["id"]))
+    conn.commit()
+    return row
 
 
 def _generate_backup_codes(conn, operator_id: int) -> list[str]:
