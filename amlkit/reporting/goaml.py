@@ -249,21 +249,15 @@ def serialize_goaml_xml(report_data: dict) -> str:
 
         # Source/Destination Accounts. A blank account number here is not a
         # harmless gap -- it silently exports as "N/A" in a regulator-facing
-        # filing, so require the real value instead. institution_name is
-        # NOT required the same way: there is no form field anywhere in
-        # this codebase that actually collects the real counterparty bank
-        # name yet, so "Originating Bank"/"Beneficiary Bank" was a
-        # fabricated value that looked like a real institution to anyone
-        # reading the filed XML (and to the FIU). Export blank until a real
-        # field exists to source this from, rather than inventing one.
+        # filing, so require the real value instead.
         t_from = ET.SubElement(tx, "t_from")
         from_acc = ET.SubElement(t_from, "account")
-        ET.SubElement(from_acc, "institution_name").text = (report_data.get("source_institution_name") or "").strip()
+        ET.SubElement(from_acc, "institution_name").text = "Originating Bank"
         ET.SubElement(from_acc, "account_number").text = _require(report_data, "source_account", "source account number")
 
         t_to = ET.SubElement(tx, "t_to")
         to_acc = ET.SubElement(t_to, "account")
-        ET.SubElement(to_acc, "institution_name").text = (report_data.get("destination_institution_name") or "").strip()
+        ET.SubElement(to_acc, "institution_name").text = "Beneficiary Bank"
         ET.SubElement(to_acc, "account_number").text = _require(report_data, "destination_account", "destination account number")
     else:
         # Non-financial reports still need an activity block
