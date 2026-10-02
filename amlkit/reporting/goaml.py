@@ -47,15 +47,23 @@ def serialize_goaml_xml(report_data: dict) -> str:
     
     # Report Header
     ET.SubElement(root, "report_code").text = report_code
-    ET.SubElement(root, "entity_reference").text = report_data.get("entity_reference") or "GROVISOR-AML"
+    ET.SubElement(root, "entity_reference").text = _require(
+        report_data, "entity_reference", "entity reference / licence number"
+    )
     ET.SubElement(root, "submission_code").text = "NEW"
     ET.SubElement(root, "submission_date").text = now_str
     ET.SubElement(root, "currency_code_local").text = "AED"
 
-    # Reporting Entity Details
+    # Reporting Entity Details. The entity name identifies WHICH firm is
+    # filing -- it must come from that firm's own org profile (see
+    # api/app.py's /admin/organization and str_builder.html), never a
+    # hardcoded placeholder company, or every tenant's filings would
+    # misattribute themselves to whichever org that placeholder named.
     rep_ent = ET.SubElement(root, "reporting_entity")
-    ET.SubElement(rep_ent, "reporting_entity_name").text = report_data.get("reporting_entity_name") or "Grovisor Consultants"
-    ET.SubElement(rep_ent, "reporting_entity_branch").text = report_data.get("reporting_entity_branch") or "Dubai HQ"
+    ET.SubElement(rep_ent, "reporting_entity_name").text = _require(
+        report_data, "reporting_entity_name", "reporting entity name"
+    )
+    ET.SubElement(rep_ent, "reporting_entity_branch").text = report_data.get("reporting_entity_branch") or ""
     
     # Reporter Details. The reporting officer is legally accountable for this
     # filing, so their name/email must be the real submitter's, never a
@@ -121,17 +129,23 @@ def serialize_goaml_xml(report_data: dict) -> str:
         ET.SubElement(tx, "transmode_code").text = report_data.get("transaction_type") or "Wire Transfer"
         ET.SubElement(tx, "amount_local").text = str(report_data.get("amount") or 0.0)
 
-        # Source/Destination Accounts. A blank account number here is not a
-        # harmless gap -- it silently exports as "N/A" in a regulator-facing
-        # filing, so require the real value instead.
+        # Source/Destination Accounts. A blank account number, or a fictitious
+        # "Originating Bank"/"Beneficiary Bank" institution name standing in
+        # for the real counterparty, is not a harmless gap -- it silently
+        # exports as a real-looking value in a regulator-facing filing, so
+        # both are required rather than defaulted.
         t_from = ET.SubElement(tx, "t_from")
         from_acc = ET.SubElement(t_from, "account")
-        ET.SubElement(from_acc, "institution_name").text = "Originating Bank"
+        ET.SubElement(from_acc, "institution_name").text = _require(
+            report_data, "source_institution_name", "source institution name"
+        )
         ET.SubElement(from_acc, "account_number").text = _require(report_data, "source_account", "source account number")
 
         t_to = ET.SubElement(tx, "t_to")
         to_acc = ET.SubElement(t_to, "account")
-        ET.SubElement(to_acc, "institution_name").text = "Beneficiary Bank"
+        ET.SubElement(to_acc, "institution_name").text = _require(
+            report_data, "destination_institution_name", "destination institution name"
+        )
         ET.SubElement(to_acc, "account_number").text = _require(report_data, "destination_account", "destination account number")
     else:
         # Non-financial reports still need an activity block

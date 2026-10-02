@@ -81,6 +81,65 @@
         came back clear is exactly what an examiner asks for.
       </div>
     {% endif %}
+
+    <div class="mt-6" style="border-top:1px solid var(--line); padding-top:20px;">
+      <div class="section-label">Adverse media</div>
+      <p class="muted small mt-0">
+        Sanctions/PEP lists only cover names someone has actually designated.
+        A fraud or enforcement case with no list entry — like a loan-default
+        fugitive — only shows up in news coverage, which this checks
+        separately.
+      </p>
+
+      {% if media_result.status != 'ok' %}
+        <div class="banner warn">
+          Adverse media check did not complete: {{ media_result.error }}.
+          The sanctions/PEP result above is unaffected; try again shortly.
+        </div>
+      {% elif media_result.findings %}
+        <div style="font-size:14.5px; color:var(--ink-2); margin-bottom:12px;">
+          <strong style="color:var(--danger);">{{ media_result.findings|length }}</strong>
+          adverse article(s) for {{ name(query) }}, highest severity
+          <span class="tag {{ 'high' if media_result.severity == 'financial_crime_alleged' else ('medium' if media_result.severity == 'regulatory_action' else 'low') }}">
+            {{ media_result.severity.replace('_',' ') }}
+          </span>
+          ({{ media_result.articles_considered }} article(s) screened over {{ media_result.window_months }} months).
+        </div>
+        <div class="stack">
+          {% for f in media_result.findings %}
+          <div class="alert-card">
+            <div class="alert-head">
+              <div>
+                <span class="tag {{ 'high' if f.severity == 'financial_crime_alleged' else ('medium' if f.severity == 'regulatory_action' else 'low') }}">
+                  {{ f.severity.replace('_',' ') }}
+                </span>
+                {% if f.name_evidence != 'title' %}
+                <span class="tag low ml-4" title="The name was matched in the article body, which we cannot show you. Open the article and confirm it is about this person.">name not in headline</span>
+                {% endif %}
+                <span class="muted small ml-4">
+                  {{ f.article.domain or 'unknown source' }}
+                  {%- if f.article.published_at %} · {{ f.article.published_at[:10] }}{% endif %}
+                  {%- if f.article.language %} · {{ f.article.language }}{% endif %}
+                </span>
+              </div>
+            </div>
+            <div class="mt-4"><a href="{{ f.article.url }}" target="_blank" rel="noopener noreferrer" dir="auto">{{ f.article.title or f.article.url }}</a></div>
+            {% if f.matched_terms %}
+            <div class="small muted mt-2">matched: {{ f.matched_terms|join(', ') }}</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted small">
+          No adverse coverage found for {{ name(query) }} in the last
+          {{ media_result.window_months }} months
+          ({{ media_result.articles_considered }} article(s) screened).
+          This search has been recorded.
+        </p>
+      {% endif %}
+      <p class="muted small mt-4">{{ media_attribution }}</p>
+    </div>
   {% endif %}
 </div>
 

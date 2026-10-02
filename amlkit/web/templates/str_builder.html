@@ -26,11 +26,11 @@
     <div class="row">
       <div>
         <label>Reporting Entity Name</label>
-        <input type="text" name="reporting_entity_name" value="{{ payload.reporting_entity_name or session.org_name or 'Grovisor Business Consultants' }}" required>
+        <input type="text" name="reporting_entity_name" value="{{ payload.reporting_entity_name or org.legal_name or org.name or '' }}" required>
       </div>
       <div>
         <label>Entity Reference / Licence #</label>
-        <input type="text" name="entity_reference" value="{{ payload.entity_reference or 'GROVISOR-LIC-2026' }}" required>
+        <input type="text" name="entity_reference" value="{{ payload.entity_reference or org.trade_license_number or '' }}" required>
       </div>
     </div>
     <div class="row">
@@ -123,8 +123,18 @@
     </div>
     <div class="row">
       <div>
+        <label>Source Institution Name</label>
+        <input type="text" name="source_institution_name" value="{{ payload.source_institution_name or '' }}" placeholder="e.g. Emirates NBD">
+      </div>
+      <div>
         <label>Source Account (IBAN/Card/Wallet)</label>
         <input type="text" name="source_account" value="{{ payload.source_account or '' }}">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Destination Institution Name</label>
+        <input type="text" name="destination_institution_name" value="{{ payload.destination_institution_name or '' }}" placeholder="e.g. ADCB">
       </div>
       <div>
         <label>Destination Account (IBAN/Card/Wallet)</label>

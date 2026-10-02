@@ -82,7 +82,9 @@ NATURAL_PERSON_FORM = {
     "reporter_name": "Alice MLRO", "reporter_email": "alice@testfirm.ae",
     "first_name": "Ahmed", "last_name": "Al Mansoori", "nationality": "AE",
     "amount": "75000", "transaction_type": "Wire Transfer",
+    "source_institution_name": "Emirates NBD",
     "source_account": "AE070331234567890123456",
+    "destination_institution_name": "ADCB",
     "destination_account": "AE070339876543210987654",
     "reason_description": "Large wire inconsistent with declared income.",
 }

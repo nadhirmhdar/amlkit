@@ -86,3 +86,6 @@ SQLite with WAL mode. Schema is in `db.py:SCHEMA`. Migrations are additive colum
 - `SCHEDULER_SECRET` — bearer token for `/system/refresh`
 - `ADMIN_API_SECRET` — bearer token for `/system/create-operator`
 - `AMLKIT_SINGLE_OPERATOR_MODE` — skip four-eyes review requirement
+- `AMLKIT_GCP_PROJECT_ID` — GCP billing project for the daily GDELT/BigQuery
+  adverse-media net-cast (`ingest/gdelt_gkg.py`, `/system/gdelt-watch`).
+  Opt-in: unset disables the feature (200, `ran: false`) rather than erroring.

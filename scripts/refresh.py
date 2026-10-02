@@ -37,6 +37,7 @@ from amlkit.ingest.base import AdapterError  # noqa: E402
 from amlkit.ingest.loader import load, staleness_report  # noqa: E402
 from amlkit.ingest.eocn import uae_local_terrorists  # noqa: E402
 from amlkit.ingest.cia import cia_world_leaders  # noqa: E402
+from amlkit.ingest.wikidata_peps import wikidata_ministers  # noqa: E402
 from amlkit.ingest.un import UNSanctionsAdapter  # noqa: E402
 from amlkit.ingest.ofac import OFACSDNAdapter  # noqa: E402
 from amlkit.ingest.eu import EUSanctionsAdapter  # noqa: E402
@@ -53,6 +54,7 @@ MANDATORY_SOURCES = [
     EUSanctionsAdapter,
     UKSanctionsAdapter,
     cia_world_leaders,
+    wikidata_ministers,
 ]
 
 

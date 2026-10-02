@@ -24,6 +24,8 @@ def _base_payload(**overrides) -> dict:
     payload = {
         "report_type": "STR",
         "customer_type": "natural",
+        "reporting_entity_name": "Test Firm Consultants",
+        "entity_reference": "TF-LIC-0001",
         "reporter_name": "Jane Officer",
         "reporter_email": "jane@grovisor.test",
         "first_name": "Ahmed",
@@ -35,6 +37,29 @@ def _base_payload(**overrides) -> dict:
 
 
 class TestRequiredFields:
+    def test_missing_reporting_entity_name_is_rejected(self) -> None:
+        """Regression test: the serialiser used to silently substitute a
+        hardcoded placeholder company name here instead of failing loudly,
+        which misattributed every tenant's filing to that one placeholder."""
+        payload = _base_payload(reporting_entity_name="")
+        with pytest.raises(GoAMLValidationError):
+            serialize_goaml_xml(payload)
+
+    def test_missing_entity_reference_is_rejected(self) -> None:
+        payload = _base_payload(entity_reference="  ")
+        with pytest.raises(GoAMLValidationError):
+            serialize_goaml_xml(payload)
+
+    def test_reporting_entity_name_is_not_hardcoded(self) -> None:
+        """Each tenant's own reporting entity must appear in the XML -- not
+        a placeholder shared across every org."""
+        payload = _base_payload(reporting_entity_name="Acme Compliance LLC",
+                                 entity_reference="ACME-LIC-9")
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+        assert root.find("reporting_entity/reporting_entity_name").text == "Acme Compliance LLC"
+        assert root.find("entity_reference").text == "ACME-LIC-9"
+
     def test_missing_reporter_name_is_rejected(self) -> None:
         payload = _base_payload(reporter_name="")
         with pytest.raises(GoAMLValidationError):
@@ -66,13 +91,33 @@ class TestRequiredFields:
 
     def test_missing_source_account_is_rejected_when_transaction_present(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="", destination_account="AE1234")
+                                 source_institution_name="Emirates NBD", source_account="",
+                                 destination_institution_name="ADCB", destination_account="AE1234")
         with pytest.raises(GoAMLValidationError):
             serialize_goaml_xml(payload)
 
     def test_missing_destination_account_is_rejected_when_transaction_present(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="AE1234", destination_account="")
+                                 source_institution_name="Emirates NBD", source_account="AE1234",
+                                 destination_institution_name="ADCB", destination_account="")
+        with pytest.raises(GoAMLValidationError):
+            serialize_goaml_xml(payload)
+
+    def test_missing_source_institution_name_is_rejected_when_transaction_present(self) -> None:
+        """Regression test: the serialiser used to silently substitute the
+        fictitious literal "Originating Bank" here instead of failing loudly,
+        so every filing looked like it named a real counterparty bank when it
+        did not."""
+        payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
+                                 source_institution_name="", source_account="AE1234",
+                                 destination_institution_name="ADCB", destination_account="AE5678")
+        with pytest.raises(GoAMLValidationError):
+            serialize_goaml_xml(payload)
+
+    def test_missing_destination_institution_name_is_rejected_when_transaction_present(self) -> None:
+        payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
+                                 source_institution_name="Emirates NBD", source_account="AE1234",
+                                 destination_institution_name="", destination_account="AE5678")
         with pytest.raises(GoAMLValidationError):
             serialize_goaml_xml(payload)
 
@@ -85,7 +130,8 @@ class TestRequiredFields:
 class TestTransactionNumber:
     def test_transaction_number_is_unique_across_same_second_calls(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="AE1111", destination_account="AE2222")
+                                 source_institution_name="Emirates NBD", source_account="AE1111",
+                                 destination_institution_name="ADCB", destination_account="AE2222")
         numbers = set()
         for _ in range(20):
             xml_content = serialize_goaml_xml(payload)
@@ -97,7 +143,8 @@ class TestTransactionNumber:
         from datetime import datetime, timezone
 
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="AE1111", destination_account="AE2222")
+                                 source_institution_name="Emirates NBD", source_account="AE1111",
+                                 destination_institution_name="ADCB", destination_account="AE2222")
         xml_content = serialize_goaml_xml(payload)
         root = ET.fromstring(xml_content)
         txn_number = root.find("transaction/transactionnumber").text
@@ -108,19 +155,23 @@ class TestTransactionNumber:
 class TestValidPayload:
     def test_full_natural_person_str_serializes(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
-                                 source_account="AE1111", destination_account="AE2222")
+                                 source_institution_name="Emirates NBD", source_account="AE1111",
+                                 destination_institution_name="ADCB", destination_account="AE2222")
         xml_content = serialize_goaml_xml(payload)
         root = ET.fromstring(xml_content)
         assert root.find("subject/person/first_name").text == "Ahmed"
         assert root.find("reporting_person/first_name").text == "Jane"
+        assert root.find("transaction/t_from/account/institution_name").text == "Emirates NBD"
         assert root.find("transaction/t_from/account/account_number").text == "AE1111"
+        assert root.find("transaction/t_to/account/institution_name").text == "ADCB"
         assert root.find("transaction/t_to/account/account_number").text == "AE2222"
 
     def test_dtr_report_type_serializes(self) -> None:
         """DTR (Dealer Transaction Report) is a supported report type."""
         payload = _base_payload(report_type="DTR", amount=10000.0,
-                                 transaction_type="Purchase", source_account="CASH",
-                                 destination_account="AE1111")
+                                 transaction_type="Purchase",
+                                 source_institution_name="Cash desk", source_account="CASH",
+                                 destination_institution_name="ADCB", destination_account="AE1111")
         xml_content = serialize_goaml_xml(payload)
         root = ET.fromstring(xml_content)
         assert root.find("report_code").text == "DTR"

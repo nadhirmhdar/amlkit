@@ -377,7 +377,7 @@ jobs:
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
-            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN}" \
+            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;AMLKIT_GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}" \
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \
@@ -437,6 +437,46 @@ jobs:
               --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
               --schedule "0 */20 * * *" \
               --uri "${URL}/system/refresh" \
+              --http-method POST \
+              --message-body "{}" \
+              --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
+              --attempt-deadline 900s \
+              --max-retry-attempts 3 \
+              --min-backoff 60s \
+              --max-backoff 300s
+          fi
+
+      # Once daily, not every 20 hours like sanctions refresh above: GDELT's
+      # BigQuery GKG table is partitioned per calendar day (see
+      # ingest/gdelt_gkg.py's docstring for the verified cost numbers behind
+      # that design), so running this more than once a day just re-queries
+      # the same partition and re-spends the real per-name DOC API check on
+      # customers it already checked. 04:00 UTC gives GDELT's pipeline a few
+      # hours of margin past UTC midnight to finish writing out "yesterday"'s
+      # partition before this queries it. No-op (200, ran:false per org) if
+      # AMLKIT_GCP_PROJECT_ID isn't set above -- this feature is opt-in.
+      - name: Wire up Cloud Scheduler GDELT watch
+        continue-on-error: true
+        run: |
+          JOB_NAME="amlkit-gdelt-watch"
+          if gcloud scheduler jobs describe "$JOB_NAME" --location "${{ vars.GCP_REGION }}" \
+              --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
+            gcloud scheduler jobs update http "$JOB_NAME" \
+              --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
+              --schedule "0 4 * * *" \
+              --uri "${URL}/system/gdelt-watch" \
+              --http-method POST \
+              --message-body "{}" \
+              --update-headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
+              --attempt-deadline 900s \
+              --max-retry-attempts 3 \
+              --min-backoff 60s \
+              --max-backoff 300s
+          else
+            gcloud scheduler jobs create http "$JOB_NAME" \
+              --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
+              --schedule "0 4 * * *" \
+              --uri "${URL}/system/gdelt-watch" \
               --http-method POST \
               --message-body "{}" \
               --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \

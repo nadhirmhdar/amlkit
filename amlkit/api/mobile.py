@@ -1364,7 +1364,9 @@ class ReportSaveRequest(BaseModel):
     amount: float | None = None
     transaction_type: str = ""
     transaction_date: str = ""
+    source_institution_name: str = ""
     source_account: str = ""
+    destination_institution_name: str = ""
     destination_account: str = ""
     reason_description: str = ""
     action_taken: str = ""
@@ -1393,7 +1395,9 @@ def api_report_save(body: ReportSaveRequest, db: DB, session: Session):
         "id_number": body.id_number.strip(), "amount": body.amount,
         "transaction_type": body.transaction_type.strip() or None,
         "transaction_date": body.transaction_date.strip() or None,
+        "source_institution_name": body.source_institution_name.strip(),
         "source_account": body.source_account.strip(),
+        "destination_institution_name": body.destination_institution_name.strip(),
         "destination_account": body.destination_account.strip(),
         "reason_description": body.reason_description.strip(),
         "action_taken": body.action_taken.strip(),
@@ -1429,6 +1433,12 @@ def api_report_save(body: ReportSaveRequest, db: DB, session: Session):
 
 @router.post("/reports/{report_id}/submit")
 def api_report_submit(report_id: int, db: DB, session: Session):
+    """Finalize and lock a draft report -- does NOT transmit anything to the
+    UAE FIU (goAML has no public submission API; see api/app.py's
+    report_submit for the full explanation). The mobile client must not
+    present this as "filed with the FIU" -- the operator still has to
+    download the XML (GET /reports/{report_id}/export) and upload it
+    themselves through the goAML portal."""
     rep = queries.report(db, report_id, session.org_id)
     if not rep:
         raise HTTPException(status_code=404, detail="Report not found.")
@@ -1440,7 +1450,7 @@ def api_report_submit(report_id: int, db: DB, session: Session):
             "UPDATE reports SET status='submitted', submitted_at=? WHERE id=? AND org_id=?",
             (now, report_id, session.org_id),
         )
-        audit(db, session.operator_name, "report.submit", "report", report_id,
+        audit(db, session.operator_name, "report.finalize", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
     return {"ok": True}
 

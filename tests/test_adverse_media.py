@@ -23,6 +23,7 @@ from amlkit.cases.manager import (  # noqa: E402
     onboard,
     run_adverse_media,
     run_due_adverse_media,
+    run_gdelt_watch,
 )
 from amlkit.db import connect, upsert_dataset, utcnow  # noqa: E402
 from amlkit.screening.adverse_media import (  # noqa: E402
@@ -768,3 +769,97 @@ class TestPeriodicRecheck:
     def test_dashboard_surfaces_the_due_list(self, conn, org_id, customer_id) -> None:
         from amlkit import queries
         assert [c["id"] for c in queries.dashboard(conn, org_id)["adverse_media_due"]] == [customer_id]
+
+
+class StubGKGClient:
+    """Canned daily_flagged_persons() input -- stands in for a real BigQuery
+    call the same way StubClient stands in for the GDELT DOC API above."""
+
+    def __init__(self, persons: list[str] | None = None) -> None:
+        self.persons = persons if persons is not None else []
+        self.calls: list[tuple] = []
+
+    def fetch_persons(self, target_date, *, project_id):
+        self.calls.append((target_date, project_id))
+        return self.persons
+
+
+class TestGdeltWatch:
+    """run_gdelt_watch: the two-stage daily net-cast (see cases/manager.py's
+    docstring for the full design reasoning and cases/manager.py/
+    ingest/gdelt_gkg.py for the verified-live BigQuery cost numbers that
+    shaped it)."""
+
+    def test_not_configured_soft_fails_without_touching_bigquery(self, conn, org_id, monkeypatch) -> None:
+        monkeypatch.delenv("AMLKIT_GCP_PROJECT_ID", raising=False)
+        out = run_gdelt_watch(conn, org_id, actor="tester")
+        assert out == {
+            "ran": False, "reason": "AMLKIT_GCP_PROJECT_ID not configured",
+            "date": out["date"], "flagged_names": 0, "checked": 0, "matched": 0,
+        }
+
+    def test_flagged_name_matching_a_customer_triggers_a_real_adverse_media_check(
+        self, conn, org_id, customer_id
+    ) -> None:
+        gkg = StubGKGClient(["Mohammed Al Mansoori,12"])
+        media = StubClient({"articles": [
+            article("https://a/1", "Mohammed Al Mansoori convicted of fraud"),
+        ]})
+        out = run_gdelt_watch(
+            conn, org_id, project_id="test-proj", client=gkg, media_client=media, actor="tester",
+        )
+        assert out["ran"] is True
+        assert out["flagged_names"] == 1
+        assert out["checked"] == 1
+        assert out["matched"] == 1
+
+        row = conn.execute(
+            "SELECT trigger, severity FROM adverse_media_screenings WHERE customer_id=?",
+            (customer_id,),
+        ).fetchone()
+        assert row["trigger"] == "periodic"
+        assert row["severity"] == SEVERITY_FINANCIAL_CRIME
+
+    def test_flagged_name_not_matching_any_customer_does_not_spend_a_real_check(
+        self, conn, org_id, customer_id
+    ) -> None:
+        gkg = StubGKGClient(["Someone Entirely Different,5"])
+        media = StubClient({"articles": []})
+        out = run_gdelt_watch(
+            conn, org_id, project_id="test-proj", client=gkg, media_client=media, actor="tester",
+        )
+        assert out["flagged_names"] == 1
+        assert out["matched"] == 0
+        assert media.queries == []  # the expensive per-name check was never called
+        count = conn.execute(
+            "SELECT COUNT(*) c FROM adverse_media_screenings WHERE customer_id=?", (customer_id,)
+        ).fetchone()["c"]
+        assert count == 0
+
+    def test_no_flagged_names_checks_nobody(self, conn, org_id, customer_id) -> None:
+        out = run_gdelt_watch(
+            conn, org_id, project_id="test-proj", client=StubGKGClient([]),
+            media_client=StubClient({"articles": []}), actor="tester",
+        )
+        assert out == {"ran": True, "date": out["date"], "flagged_names": 0, "checked": 0, "matched": 0}
+
+    def test_run_is_audited(self, conn, org_id, customer_id) -> None:
+        run_gdelt_watch(
+            conn, org_id, project_id="test-proj", client=StubGKGClient([]),
+            media_client=StubClient({"articles": []}), actor="tester",
+        )
+        row = conn.execute(
+            "SELECT COUNT(*) c FROM audit_log WHERE action='gdelt_watch.run' AND org_id=?",
+            (org_id,),
+        ).fetchone()
+        assert row["c"] == 1
+
+    def test_inactive_customers_are_not_checked(self, conn, org_id, customer_id) -> None:
+        close_relationship(conn, customer_id, org_id, actor="tester")
+        out = run_gdelt_watch(
+            conn, org_id, project_id="test-proj",
+            client=StubGKGClient(["Mohammed Al Mansoori,1"]),
+            media_client=StubClient({"articles": []}), actor="tester",
+        )
+        assert out["checked"] == 0
+        assert out["matched"] == 0

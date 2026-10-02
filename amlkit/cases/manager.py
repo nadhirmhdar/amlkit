@@ -812,6 +812,102 @@ def run_adverse_media(
     return screening_id, result, new_findings
 
 
+def run_gdelt_watch(
+    conn: sqlite3.Connection,
+    org_id: int,
+    *,
+    target_date: date | None = None,
+    project_id: str | None = None,
+    client: Any | None = None,
+    media_client: Any | None = None,
+    actor: str = "system",
+) -> dict[str, Any]:
+    """Proactive daily adverse-media re-screen, made affordable by casting a
+    cheap wide net first instead of searching every customer.
+
+    Two stages, each reusing an existing, already-tested piece:
+
+    1. ingest.gdelt_gkg.daily_flagged_persons() -- one BigQuery query over
+       one day's GKG partition, theme-filtered. Cheap (~400MB, see that
+       module's docstring for the live cost numbers that ruled out
+       alternatives), broad, and deliberately returns names only, no
+       headlines.
+    2. For any ACTIVE customer whose name token-overlaps a flagged name
+       (same blocking_keys() candidate-generation already used for sanctions
+       matching), spend one real run_adverse_media() call -- the existing,
+       rate-limited-but-free GDELT DOC API search -- to get back a real
+       headline and severity classification for that specific name.
+
+    This is what makes "re-screen the whole book against adverse media every
+    day" affordable at all: without stage 1 narrowing the field first, stage
+    2 alone (GDELT's DOC API, ~5.5s per name) would take over half an hour
+    per 400 customers, which is exactly why screening/adverse_media.py's own
+    docstring says periodic re-runs were deliberately NOT automated. A
+    token-overlap candidate is not proof the article is about this
+    customer -- same as every other blocking-key candidate in this
+    codebase -- it only says the real per-name check is worth paying for;
+    the operator still judges the actual finding, same as any other adverse-
+    media result.
+
+    Soft-fails by design: BigQuery being unreachable, misconfigured, or
+    AMLKIT_GCP_PROJECT_ID unset returns {"ran": False, ...} rather than
+    raising. A missed day of proactive net-casting is a gap in extra
+    coverage, not an outage -- the on-demand per-customer check
+    (run_adverse_media, triggered from the UI) is unaffected either way.
+    """
+    import os
+
+    from ..ingest.gdelt_gkg import PROJECT_ENV, daily_flagged_persons
+    from ..names.arabic import blocking_keys
+
+    resolved_date = target_date or (datetime.now(timezone.utc).date() - timedelta(days=1))
+    resolved_project = (project_id or os.environ.get(PROJECT_ENV, "")).strip()
+    if not resolved_project:
+        return {
+            "ran": False, "reason": f"{PROJECT_ENV} not configured",
+            "date": resolved_date.isoformat(), "flagged_names": 0, "checked": 0, "matched": 0,
+        }
+
+    flagged = daily_flagged_persons(resolved_date, project_id=resolved_project, client=client)
+
+    flagged_keys: set[str] = set()
+    for name in flagged:
+        flagged_keys |= blocking_keys(name)
+
+    checked = 0
+    matched = 0
+    if flagged_keys:
+        for row in conn.execute(
+            "SELECT id, full_name, name_arabic FROM customers"
+            " WHERE status='active' AND org_id=?",
+            (org_id,),
+        ).fetchall():
+            checked += 1
+            names = [nm for nm in (row["full_name"], row["name_arabic"]) if nm]
+            if not any(blocking_keys(nm) & flagged_keys for nm in names):
+                continue
+            matched += 1
+            run_adverse_media(
+                conn, org_id=org_id, name=row["full_name"], name_arabic=row["name_arabic"],
+                customer_id=row["id"], trigger="periodic", client=media_client, actor=actor,
+            )
+
+    with conn:
+        audit(
+            conn, actor, "gdelt_watch.run", "organization", org_id,
+            {
+                "date": resolved_date.isoformat(), "flagged_names": len(flagged),
+                "checked": checked, "matched": matched,
+            },
+            org_id=org_id,
+        )
+
+    return {
+        "ran": True, "date": resolved_date.isoformat(), "flagged_names": len(flagged),
+        "checked": checked, "matched": matched,
+    }
+
+
 def disposition_adverse_media_finding(
     conn: sqlite3.Connection,
     finding_id: int,

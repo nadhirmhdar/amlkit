@@ -38,6 +38,7 @@ from ..cases.manager import (
     record_transaction,
     run_adverse_media,
     run_due_adverse_media,
+    run_gdelt_watch,
 )
 from ..cases.review import (
     REASON_CODES,
@@ -95,6 +96,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     from ..ingest.loader import load
     from ..ingest.eocn import uae_local_terrorists
     from ..ingest.cia import cia_world_leaders
+    from ..ingest.wikidata_peps import wikidata_ministers
     from ..ingest.un import UNSanctionsAdapter
     from ..ingest.ofac import OFACSDNAdapter
     from ..ingest.eu import EUSanctionsAdapter
@@ -107,7 +109,8 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     failures: list[str] = []
     mandatory_failures: list[str] = []
     for factory in [uae_local_terrorists, UNSanctionsAdapter, OFACSDNAdapter,
-                     EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders]:
+                     EUSanctionsAdapter, UKSanctionsAdapter, cia_world_leaders,
+                     wikidata_ministers]:
         adapter = factory()
         try:
             result = load(conn, adapter, actor=actor)
@@ -933,9 +936,23 @@ def screen_run(
             "detail": h.detail, "entity_id": h.entity_id,
             "aliases": queries.entity_names(db, h.entity_id),
         })
+
+    # Sanctions/PEP-list matching only covers names on a loaded list. A name
+    # with no list hit can still be a fraud fugitive, a regulatory-enforcement
+    # case, or otherwise adverse -- GDELT adverse media is query-time (see
+    # screening/adverse_media.py), so it can run here too, not just against an
+    # onboarded customer. customer_id=None: this is an ad-hoc search, nobody
+    # has been onboarded yet, but the check and its result are still this
+    # org's compliance record (see adverse_media_screenings.customer_id).
+    _, media_result, _ = run_adverse_media(
+        db, org_id=session.org_id, name=name, customer_id=None,
+        trigger="adhoc", actor=session.operator_name,
+    )
+
     return render(request, "screen.html", {
         "session": session, "query": name, "result": result, "hits": hits,
         "low_confidence": len(name.split()) < 2,
+        "media_result": media_result, "media_attribution": GDELT_ATTRIBUTION,
     })
 
 
@@ -1676,7 +1693,11 @@ def admin_view(request: Request, db: DB):
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
-    org = db.execute("SELECT name, slug FROM organizations WHERE id=?", (session.org_id,)).fetchone()
+    org = db.execute(
+        """SELECT name, slug, legal_name, trade_license_number, mlro_name, mlro_email
+           FROM organizations WHERE id=?""",
+        (session.org_id,)
+    ).fetchone()
     if org is None:
         return back("/", err="Organization not found.")
     from ..ingest.loader import staleness_report
@@ -1763,6 +1784,42 @@ def admin_set_threshold(
           {"threshold": value}, org_id=session.org_id)
     db.commit()
     return back("/admin", msg=f"Alert threshold set to {value}.")
+
+
+@app.post("/admin/organization")
+def admin_set_organization(
+    request: Request, db: DB,
+    legal_name: Annotated[str, Form()] = "",
+    trade_license_number: Annotated[str, Form()] = "",
+    mlro_name: Annotated[str, Form()] = "",
+    mlro_email: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Reporting-entity profile consumed by the STR/SAR builder (str_builder.html)
+    and the goAML XML serialiser (reporting/goaml.py) -- without this, both
+    fell back to a hardcoded placeholder company baked into the template."""
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/admin", err=str(exc))
+
+    with db:
+        db.execute(
+            """UPDATE organizations
+               SET legal_name=?, trade_license_number=?, mlro_name=?, mlro_email=?
+               WHERE id=?""",
+            (legal_name.strip() or None, trade_license_number.strip() or None,
+             mlro_name.strip() or None, mlro_email.strip() or None, session.org_id)
+        )
+        from ..db import audit
+        audit(db, session.operator_name, "org.profile_set", "organization", session.org_id,
+              {"legal_name": legal_name.strip()}, org_id=session.org_id)
+
+    return back("/admin", msg="Reporting-entity profile saved.")
 
 
 @app.post("/admin/operators/{operator_id}/reset-password")
@@ -1955,6 +2012,51 @@ def system_refresh(request: Request):
     return JSONResponse({"status": "complete", **result}, status_code=status_code)
 
 
+# -------------------------------------------------------- system/gdelt-watch
+@app.post("/system/gdelt-watch")
+def system_gdelt_watch(request: Request):
+    """HTTP endpoint for Cloud Scheduler to call once daily (same pattern and
+    secret as /system/refresh -- see that endpoint's docstring for why a
+    scheduler-driven HTTP call, not an in-process timer, is the reliable
+    mechanism on Cloud Run).
+
+    Runs cases.manager.run_gdelt_watch for every active organization: one
+    BigQuery net-cast (see ingest/gdelt_gkg.py for the verified cost numbers
+    that shaped this design) shared across all of them, since the flagged
+    person-name list for a given day is global, not per-tenant, followed by
+    a real GDELT DOC API check only for customers it actually flagged.
+
+    Does nothing (200, ran=False per org) if AMLKIT_GCP_PROJECT_ID is unset
+    -- this feature is opt-in, not a silent requirement for every deployment.
+    """
+    secret = os.environ.get("SCHEDULER_SECRET", "").strip()
+    if not secret:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "endpoint disabled — set SCHEDULER_SECRET"}, status_code=403)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    from ..db import connect
+    from fastapi.responses import JSONResponse
+
+    conn = None
+    try:
+        conn = connect(db_path())
+        orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
+        results = []
+        for org in orgs:
+            outcome = run_gdelt_watch(conn, org["id"], actor="cloud-scheduler")
+            results.append({"org_id": org["id"], "org_name": org["name"], **outcome})
+    finally:
+        if conn is not None:
+            conn.close()
+
+    return JSONResponse({"status": "complete", "organizations": results}, status_code=200)
+
+
 @app.post("/system/create-operator")
 async def system_create_operator(request: Request):
     """Provision an operator without a browser session.
@@ -2076,7 +2178,7 @@ def report_build_view(
     cust_data = queries.customer(db, customer_id, session.org_id)
     if not cust_data:
         return back("/reports", err="Customer not found")
-        
+
     payload = {}
     if report_id:
         existing = queries.report(db, report_id, session.org_id)
@@ -2084,12 +2186,18 @@ def report_build_view(
             import json
             payload = json.loads(existing["payload"] or "{}")
 
+    org = db.execute(
+        "SELECT name, legal_name, trade_license_number FROM organizations WHERE id=?",
+        (session.org_id,)
+    ).fetchone()
+
     return render(request, "str_builder.html", {
         "session": session,
         "customer": cust_data["customer"],
         "type": report_type,
         "payload": payload,
         "report_id": report_id,
+        "org": dict(org) if org else {},
     })
 
 
@@ -2112,7 +2220,9 @@ def report_save(
     amount: Annotated[str, Form()] = "",
     transaction_type: Annotated[str, Form()] = "",
     transaction_date: Annotated[str, Form()] = "",
+    source_institution_name: Annotated[str, Form()] = "",
     source_account: Annotated[str, Form()] = "",
+    destination_institution_name: Annotated[str, Form()] = "",
     destination_account: Annotated[str, Form()] = "",
     reason_description: Annotated[str, Form()] = "",
     action_taken: Annotated[str, Form()] = "",
@@ -2163,7 +2273,9 @@ def report_save(
         "amount": parsed_amount,
         "transaction_type": transaction_type.strip() if transaction_type else None,
         "transaction_date": transaction_date.strip() if transaction_date else None,
+        "source_institution_name": source_institution_name.strip(),
         "source_account": source_account.strip(),
+        "destination_institution_name": destination_institution_name.strip(),
         "destination_account": destination_account.strip(),
         "reason_description": reason_description.strip(),
         "action_taken": action_taken.strip(),
@@ -2224,6 +2336,17 @@ def report_detail_view(request: Request, db: DB, report_id: int):
 
 @app.post("/reports/{report_id}/submit")
 def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotated[str, Form()] = ""):
+    """Finalize and lock a draft report.
+
+    This does NOT transmit anything to the UAE FIU. goAML has no public
+    submission API (confirmed: it is a manual-XML-upload-via-web-portal
+    system) -- this route only freezes the local draft from further editing
+    and records who finalized it. The actual filing is the operator
+    downloading the XML (/reports/{report_id}/export) and uploading it
+    themselves through the goAML portal. The status/messaging below must
+    never claim otherwise, however that reads to an operator who has not
+    yet done that upload.
+    """
     try:
         session = require_session(request, db)
         require_csrf(request, csrf_token)
@@ -2241,10 +2364,14 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
             (now, report_id, session.org_id)
         )
         from ..db import audit
-        audit(db, session.operator_name, "report.submit", "report", report_id,
+        audit(db, session.operator_name, "report.finalize", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
 
-    return back(f"/reports/{report_id}", msg="Report submitted to UAE FIU successfully.")
+    return back(
+        f"/reports/{report_id}",
+        msg="Report finalized and locked. This does not file it with the UAE FIU — "
+            "download the goAML XML above and upload it yourself via the goAML portal.",
+    )
 
 
 @app.get("/reports/{report_id}/export")

@@ -104,6 +104,15 @@ def client(tmp_path, monkeypatch):
 
     _seed_sanctions_data(db_file)
 
+    # /screen now also runs an adverse-media (GDELT) check -- stub the network
+    # seam (same MediaClient protocol test_adverse_media.py uses) so route
+    # tests stay fast, deterministic, and off the real rate-limited provider.
+    from amlkit.screening import adverse_media as _am
+    monkeypatch.setattr(
+        _am.GDELTClient, "fetch",
+        lambda self, query, *, window_months, max_records: {"articles": []},
+    )
+
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
 

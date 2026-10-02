@@ -44,6 +44,34 @@
 </div>
 
 <div class="panel mb-6">
+  <h2>Reporting-entity profile</h2>
+  <p class="muted small mt-0">
+    Consumed by the STR/SAR builder and goAML XML export so every filing
+    identifies this organization correctly, not a placeholder.
+  </p>
+  <form method="post" action="/admin/organization" class="row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div>
+      <label>Legal name</label>
+      <input type="text" name="legal_name" value="{{ org.legal_name or '' }}" placeholder="{{ org.name }}">
+    </div>
+    <div>
+      <label>Trade licence #</label>
+      <input type="text" name="trade_license_number" value="{{ org.trade_license_number or '' }}">
+    </div>
+    <div>
+      <label>MLRO name</label>
+      <input type="text" name="mlro_name" value="{{ org.mlro_name or '' }}">
+    </div>
+    <div>
+      <label>MLRO contact email</label>
+      <input type="email" name="mlro_email" value="{{ org.mlro_email or '' }}">
+    </div>
+    <div><button type="submit">Save</button></div>
+  </form>
+</div>
+
+<div class="panel mb-6">
   <h2>Screening threshold</h2>
   <p class="muted small mt-0">
     Score at or above this clears the alert bar. Default is

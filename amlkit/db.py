@@ -706,6 +706,13 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("ubo_links", "parent_ubo_id", "ALTER TABLE ubo_links ADD COLUMN parent_ubo_id INTEGER REFERENCES ubo_links(id) ON DELETE SET NULL"),
     ("datasets",  "last_error",    "ALTER TABLE datasets ADD COLUMN last_error TEXT"),
     ("datasets",  "error_at",      "ALTER TABLE datasets ADD COLUMN error_at TEXT"),
+    # Reporting-entity profile. Consumed by the STR/SAR builder and the goAML
+    # XML serialiser so every org's filings identify that org -- not a
+    # hardcoded placeholder company baked into the template/serialiser.
+    ("organizations", "legal_name",            "ALTER TABLE organizations ADD COLUMN legal_name TEXT"),
+    ("organizations", "trade_license_number",  "ALTER TABLE organizations ADD COLUMN trade_license_number TEXT"),
+    ("organizations", "mlro_name",             "ALTER TABLE organizations ADD COLUMN mlro_name TEXT"),
+    ("organizations", "mlro_email",            "ALTER TABLE organizations ADD COLUMN mlro_email TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)

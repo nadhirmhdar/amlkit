@@ -47,8 +47,8 @@
         <div class="list-row"><div class="side">Amount</div><div class="grow right"><strong>{{ payload.amount }} AED</strong></div></div>
         <div class="list-row"><div class="side">Type</div><div class="grow right">{{ payload.transaction_type }}</div></div>
         <div class="list-row"><div class="side">Date</div><div class="grow right">{{ payload.transaction_date or '—' }}</div></div>
-        <div class="list-row"><div class="side">Source account</div><div class="grow right mono">{{ payload.source_account or '—' }}</div></div>
-        <div class="list-row"><div class="side">Destination account</div><div class="grow right mono">{{ payload.destination_account or '—' }}</div></div>
+        <div class="list-row"><div class="side">Source institution / account</div><div class="grow right mono">{{ payload.source_institution_name or '—' }} / {{ payload.source_account or '—' }}</div></div>
+        <div class="list-row"><div class="side">Destination institution / account</div><div class="grow right mono">{{ payload.destination_institution_name or '—' }} / {{ payload.destination_account or '—' }}</div></div>
       </div>
     {% else %}
       <p class="muted small">No direct financial transactions reported (non-financial/pure match activity).</p>
@@ -76,21 +76,25 @@
 
 {% if report.status == 'draft' %}
   <div class="panel" style="border-color:var(--danger);">
-    <h2 style="color:var(--danger);">Finalize and submit to UAE FIU</h2>
+    <h2 style="color:var(--danger);">Finalize draft</h2>
     <p class="small muted mt-0">
-      Submitting marks the report as officially filed and freezes the draft from further editing.
-      Ensure all details match your goAML portal expectations.
+      Finalizing locks this draft from further editing. <strong>It does not file this report
+      with the UAE FIU</strong> — amlkit has no automated goAML submission (goAML only
+      accepts XML uploaded manually through its own portal). After finalizing, download the
+      goAML XML below and upload it yourself at goaml.uaefiu.gov.ae.
     </p>
-    <form method="post" action="/reports/{{ report.id }}/submit" onsubmit="return confirm('Officially submit this report? This action is irreversible.');">
+    <form method="post" action="/reports/{{ report.id }}/submit" onsubmit="return confirm('Finalize and lock this draft? This action is irreversible. You still need to upload the XML to goAML yourself.');">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit" class="danger mt-4">Confirm submission</button>
+      <button type="submit" class="danger mt-4">Finalize &amp; lock</button>
     </form>
   </div>
 {% else %}
   <div class="panel">
-    <h2 style="color:var(--good);">Filing completed</h2>
+    <h2 style="color:var(--good);">Finalized</h2>
     <p class="small muted mt-0">
-      This report was submitted on <strong>{{ report.submitted_at }}</strong>. It is locked and archived.
+      This report was finalized and locked on <strong>{{ report.submitted_at }}</strong>.
+      If you have not already done so, download the goAML XML above and upload it via the
+      goAML portal — finalizing here does not submit it to the UAE FIU.
     </p>
   </div>
 {% endif %}
