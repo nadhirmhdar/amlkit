@@ -12,7 +12,6 @@ force-completed.
 
 ## Backlog
 
-- [ ] #266 (high) Add tenant-isolation regression test suite covering the cross-module leaks (new tests only; fixes to existing logic → proposal)
 - [ ] #268 (high) goAML reporting: add tests asserting org/transaction data comes from tenant rows, not hardcoded values
 - [ ] #79 (high) retention_until migration: additive backfill script/migration for rows stored under the old 5-year rule
 - [ ] #261 (medium) goAML serialize_goaml_xml institution-name coverage test (Originating/Beneficiary Bank from tx data)
@@ -34,4 +33,5 @@ _(none)_
 
 ## Done
 
+- [x] #266 (high) Tenant-isolation regression suite (tests/test_tenant_isolation.py, 16 tests) — 400c5e0 — 2026-10-03
 - [x] Bootstrap this Kanban board so the improvement loop has a real backlog to consume — 2026-10-02
