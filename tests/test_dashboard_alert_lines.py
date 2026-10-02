@@ -108,7 +108,7 @@ def test_dots_are_capped_and_the_rest_is_stated(mlro):
     assert "+3" in html
     # Rows are capped like the dots, and the rest are one click away.
     assert html.count('data-alert-id="') == 12
-    assert "3 more in the full queue (all categories)" in html
+    assert "3 more &middot; Open all Sanctions alerts in the queue" in html and "/alerts?category=sanction" in html
 
 
 def test_row_subject_is_the_screened_party_not_the_listed_person(mlro):
@@ -196,7 +196,7 @@ def test_a_queue_over_the_cap_keeps_the_oldest_and_says_so(mlro):
     assert "205 waiting for a decision" in html
     assert "Open the queue (205)" in html
     assert _line_count(html, "sanction") == 205
-    assert "193 more in the full queue" in html   # 205 alerts, 12 shown
+    assert "193 more &middot; Open all" in html   # 205 alerts, 12 shown
 
 
 def test_alert_lines_does_not_mutate_the_dashboard_payload_dicts():
@@ -247,3 +247,33 @@ def test_home_banner_uses_the_real_queue_size(mlro):
     _seed_alerts([(["sanction"], "open", f"L{i}", f"S{i:03d}") for i in range(205)])
     html = mlro.get("/").text
     assert "205 alerts need your action" in html
+
+
+def test_alerts_page_filters_by_category(mlro):
+    _seed_alerts([(["sanction"], "open", "Sanc One"), (["sanction"], "open", "Sanc Two"),
+                  (["role.pep"], "open", "Pep One")])
+    everything = mlro.get("/alerts").text
+    assert "Sanc One" in everything and "Pep One" in everything
+    only = mlro.get("/alerts?category=pep").text
+    assert "Pep One" in only and "Sanc One" not in only
+    assert "Showing <strong>PEP</strong> alerts only" in only
+    # The filter survives switching tab or view.
+    assert "status=pending_review&amp;category=pep" in only
+    assert "group_by=customer&amp;category=pep" in only
+
+
+def test_alerts_category_filter_ignores_unknown_values(mlro):
+    _seed_alerts([(["sanction"], "open", "Sanc One")])
+    html = mlro.get("/alerts?category=bogus").text
+    assert "Sanc One" in html and "alerts only" not in html
+
+
+def test_category_filter_is_not_capped_by_the_sql_limit(mlro):
+    from amlkit import queries
+    _seed_alerts([(["role.pep"], "open", f"Pep {i}") for i in range(3)]
+                 + [(["sanction"], "open", f"Sanc {i}") for i in range(5)])
+    conn = _db()
+    org_id = conn.execute("SELECT id FROM organizations ORDER BY id LIMIT 1").fetchone()["id"]
+    got = queries.alert_queue(conn, org_id, status="open", limit=4, category="pep")
+    conn.close()
+    assert len(got) == 3 and {a["category"] for a in got} == {"pep"}

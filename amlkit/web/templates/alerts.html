@@ -13,17 +13,22 @@
   </p>
 </div>
 
+{% set cq = ("&category=" ~ category) if category else "" %}
+{% if category %}
+<p class="cat-filter-chip">Showing <strong>{{ category_label }}</strong> alerts only
+  <a href="/alerts?status={{ status }}{% if group_by %}&group_by={{ group_by }}{% endif %}" aria-label="Clear the {{ category_label }} filter">Show all categories &times;</a></p>
+{% endif %}
 <div class="tab-filter">
   {% for s, label in [('open','Open'), ('pending_review','Awaiting review'),
                       ('false_positive','Dismissed'), ('true_positive','Confirmed'),
                       ('escalated','Escalated'), ('all','All')] %}
-    <a class="{{ 'on' if status == s else '' }}" href="/alerts?status={{ s }}{% if group_by %}&group_by={{ group_by }}{% endif %}">{{ label }}</a>
+    <a class="{{ 'on' if status == s else '' }}" href="/alerts?status={{ s }}{% if group_by %}&group_by={{ group_by }}{% endif %}{{ cq }}">{{ label }}</a>
   {% endfor %}
   <div style="flex:1;"></div>
   {% if group_by == 'customer' %}
-    <a href="/alerts?status={{ status }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Flat view</a>
+    <a href="/alerts?status={{ status }}{{ cq }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Flat view</a>
   {% else %}
-    <a href="/alerts?status={{ status }}&group_by=customer" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Group by customer</a>
+    <a href="/alerts?status={{ status }}&group_by=customer{{ cq }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Group by customer</a>
   {% endif %}
   <a href="/alerts.csv?status={{ status }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Export CSV</a>
 </div>

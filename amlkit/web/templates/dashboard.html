@@ -112,7 +112,7 @@
         <div class="num"><span class="visually-hidden">Match score </span>{{ '%.3f'|format(a.score) }}</div>
       </a>
       {% endfor %}
-      {% if line.rest %}<a href="/alerts" class="cat-line__more">{{ line.rest }} more in the full queue (all categories) &rarr;</a>{% endif %}
+      <a href="/alerts?category={{ line.key }}" class="cat-line__more">{% if line.rest %}{{ line.rest }} more &middot; {% endif %}Open all {{ line.label }} alerts in the queue &rarr;</a>
     </div>
   </details>
   {% endif %}

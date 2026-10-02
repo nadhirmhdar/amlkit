@@ -29,6 +29,8 @@ from .screening.pf import classify_programs, obligation_note
 # Triage order. Proliferation first: it is a standalone offence under Law
 # 10/2025 and the least familiar to an operator, so it should never be buried
 # under a longer list of ordinary sanctions hits.
+CATEGORY_LABELS = {"proliferation": "Proliferation financing", "terrorism": "Terrorism",
+                   "sanction": "Sanctions", "pep": "PEP", "other": "Other"}
 CATEGORY_RANK = {"proliferation": 0, "terrorism": 1, "sanction": 2, "pep": 3, "other": 4}
 DASHBOARD_LINE_DOTS = 12
 DASHBOARD_ALERT_CAP = 200
@@ -439,13 +441,17 @@ def dashboard_kpis(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
 
 def alert_queue(
     conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
-    alert_id: int | None = None, customer_id: int | None = None, sort_by: str | None = None
+    alert_id: int | None = None, customer_id: int | None = None, sort_by: str | None = None,
+    category: str | None = None,
 ) -> list[dict[str, Any]]:
     """Alerts with the entity and customer context needed to triage them,
     scoped to one organization.
 
     sort_by: "age_asc" for oldest-first, "age_desc" for newest-first,
              None for default (score-based) sorting.
+    category: only alerts in this category (see _category). The category is
+             derived in Python, so the limit is applied after filtering rather
+             than in SQL -- otherwise a filter could miss alerts past the cap.
     """
     sql = """
         SELECT a.id, a.score, a.score_detail, a.matched_name, a.status,
@@ -485,7 +491,7 @@ def alert_queue(
         sql += " ORDER BY a.score DESC LIMIT ?"
 
     out: list[dict[str, Any]] = []
-    for row in conn.execute(sql, (*params, limit)):
+    for row in conn.execute(sql, (*params, -1 if category else limit)):
         topics = json.loads(row["topics"] or "[]")
         programs = json.loads(row["programs"] or "[]")
         cat = _category(topics, programs)
@@ -506,6 +512,8 @@ def alert_queue(
                 "via_ubo": bool(row["ubo_name"]),
             }
         )
+    if category:
+        out = [a for a in out if a["category"] == category][:limit]
     # When using age-based sorting, preserve SQL sort order; otherwise apply category/score sort
     if sort_by not in ("age_asc", "age_desc"):
         out.sort(key=lambda a: (CATEGORY_RANK.get(a["category"], 9), -a["score"]))
@@ -514,9 +522,10 @@ def alert_queue(
 
 def alert_queue_grouped(
     conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
+    category: str | None = None,
 ) -> list[dict[str, Any]]:
     """Alerts bucketed by customer, for the group-by-customer view."""
-    flat = alert_queue(conn, org_id, status=status, limit=limit)
+    flat = alert_queue(conn, org_id, status=status, limit=limit, category=category)
     buckets: dict[int | None, dict[str, Any]] = {}
     for a in flat:
         cid = a.get("customer_id")
