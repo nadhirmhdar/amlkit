@@ -3,9 +3,7 @@
 {% block title %}Blog — groAML by Grovisor{% endblock %}
 {% block meta_description %}<meta name="description" content="Practical guidance on sanctions screening, CDD and AML/CFT compliance for UAE DNFBPs, from the team building groAML.">{% endblock %}
 {% block canonical %}<link rel="canonical" href="https://groaml.grovisor.ae/blog">{% endblock %}
-{% block json_ld %}
-<script type="application/ld+json">
-{
+{% set ld = {
   "@context": "https://schema.org",
   "@graph": [
     {
@@ -22,9 +20,8 @@
       "publisher": { "@type": "Organization", "name": "Grovisor Business Consultants LLC", "url": "https://grovisor.ae/" }
     }
   ]
-}
-</script>
-{% endblock %}
+} %}
+{% block json_ld %}<div hidden data-jsonld='{{ ld | tojson }}'></div>{% endblock %}
 {% block body %}
 
 <div style="max-width:680px;">

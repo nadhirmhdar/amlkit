@@ -13,7 +13,6 @@
 <meta property="og:description" content="Sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs.">
 <meta name="twitter:card" content="summary">
 {% endblock %}
-{% block json_ld %}{% endblock %}
 <link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
@@ -296,8 +295,15 @@
   <button type="button" data-action="dismiss-cookie-notice">Got it</button>
 </div>
 
+{# schema.org JSON-LD: pages set this block to a hidden [data-jsonld] div,
+   never a script tag -- CSP here is script-src 'self' with no exceptions.
+   jsonld.js turns it into a real ld+json tag at runtime, which crawlers that
+   render JS (Googlebot included) still pick up. #}
+{% block json_ld %}{% endblock %}
+
 <script src="/static/js/countries.js"></script>
 <script src="/static/js/app.js"></script>
+<script src="/static/js/jsonld.js" defer></script>
 {% if session %}<script src="/static/js/search-palette.js"></script>{% endif %}
 </body>
 </html>

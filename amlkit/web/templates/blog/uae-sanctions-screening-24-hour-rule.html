@@ -11,9 +11,7 @@
 <meta property="og:url" content="https://groaml.grovisor.ae/blog/{{ post.slug }}">
 <meta name="twitter:card" content="summary">
 {% endblock %}
-{% block json_ld %}
-<script type="application/ld+json">
-{
+{% set ld = {
   "@context": "https://schema.org",
   "@graph": [
     {
@@ -21,15 +19,15 @@
       "itemListElement": [
         { "@type": "ListItem", "position": 1, "name": "groAML", "item": "https://groaml.grovisor.ae/about" },
         { "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://groaml.grovisor.ae/blog" },
-        { "@type": "ListItem", "position": 3, "name": "{{ post.title }}", "item": "https://groaml.grovisor.ae/blog/{{ post.slug }}" }
+        { "@type": "ListItem", "position": 3, "name": post.title, "item": "https://groaml.grovisor.ae/blog/" ~ post.slug }
       ]
     },
     {
       "@type": "BlogPosting",
-      "headline": "{{ post.title }}",
-      "description": "{{ post.description }}",
-      "datePublished": "{{ post.published }}",
-      "dateModified": "{{ post.updated }}",
+      "headline": post.title,
+      "description": post.description,
+      "datePublished": post.published,
+      "dateModified": post.updated,
       "author": { "@type": "Organization", "name": "Grovisor Business Consultants LLC", "url": "https://grovisor.ae/" },
       "publisher": { "@type": "Organization", "name": "Grovisor Business Consultants LLC", "url": "https://grovisor.ae/" }
     },
@@ -59,9 +57,8 @@
       ]
     }
   ]
-}
-</script>
-{% endblock %}
+} %}
+{% block json_ld %}<div hidden data-jsonld='{{ ld | tojson }}'></div>{% endblock %}
 {% block body %}
 
 <article style="max-width:680px;">
