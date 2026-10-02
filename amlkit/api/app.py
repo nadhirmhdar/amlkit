@@ -2207,12 +2207,14 @@ def alert_assign_route(
 
 
 @app.get("/alerts.csv")
-def alerts_csv(request: Request, db: DB, status: str = "all"):
+def alerts_csv(request: Request, db: DB, status: str = "all", category: str = ""):
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status)
+    cat = category if category in queries.CATEGORY_LABELS else None
+    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status,
+                                category=cat)
     return _csv_response(
         "alerts.csv",
         ["id", "category", "score", "caption", "matched_party", "status", "reason_code",

@@ -30,7 +30,7 @@
   {% else %}
     <a href="/alerts?status={{ status }}&group_by=customer{{ cq }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Group by customer</a>
   {% endif %}
-  <a href="/alerts.csv?status={{ status }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Export CSV</a>
+  <a href="/alerts.csv?status={{ status }}{{ cq }}" style="padding-bottom:12px; font-size:13px; color:var(--ink-3); font-weight:600;">Export CSV</a>
 </div>
 
 {% if group_by == 'customer' and grouped %}

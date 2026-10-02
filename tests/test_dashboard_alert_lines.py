@@ -277,3 +277,13 @@ def test_category_filter_is_not_capped_by_the_sql_limit(mlro):
     got = queries.alert_queue(conn, org_id, status="open", limit=4, category="pep")
     conn.close()
     assert len(got) == 3 and {a["category"] for a in got} == {"pep"}
+
+
+def test_alerts_csv_export_honours_the_category_filter(mlro):
+    _seed_alerts([(["sanction"], "open", "Sanc One"), (["role.pep"], "open", "Pep One")])
+    everything = mlro.get("/alerts.csv?status=open").text
+    assert "Sanc One" in everything and "Pep One" in everything
+    only = mlro.get("/alerts.csv?status=open&category=pep").text
+    assert "Pep One" in only and "Sanc One" not in only
+    page = mlro.get("/alerts?category=pep").text
+    assert "/alerts.csv?status=open&amp;category=pep" in page
