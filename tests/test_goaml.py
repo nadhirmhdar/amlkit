@@ -122,14 +122,16 @@ class TestValidPayload:
         "Originating Bank"/"Beneficiary Bank" here regardless of the real
         counterparty, so every filing looked like it named a real
         institution when it did not. No form field collects a real value
-        yet, so it must export blank -- never a value that looks real but
-        isn't."""
+        yet, so the element must be OMITTED entirely -- not present with
+        empty text -- since there is no XSD in this repo to confirm an
+        empty <institution_name/> validates, and omitting an optional
+        element is the strictly safer choice."""
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
                                  source_account="AE1111", destination_account="AE2222")
         xml_content = serialize_goaml_xml(payload)
         root = ET.fromstring(xml_content)
-        assert root.find("transaction/t_from/account/institution_name").text is None
-        assert root.find("transaction/t_to/account/institution_name").text is None
+        assert root.find("transaction/t_from/account/institution_name") is None
+        assert root.find("transaction/t_to/account/institution_name") is None
 
     def test_institution_name_passes_through_when_provided(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",

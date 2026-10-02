@@ -255,15 +255,24 @@ def serialize_goaml_xml(report_data: dict) -> str:
         # name yet, so "Originating Bank"/"Beneficiary Bank" was a
         # fabricated value that looked like a real institution to anyone
         # reading the filed XML (and to the FIU). Export blank until a real
-        # field exists to source this from, rather than inventing one.
+        # field exists to source this from, rather than inventing one. The
+        # element is OMITTED entirely rather than emitted empty: this repo
+        # has no access to the goAML 5.0 XSD to confirm an empty
+        # <institution_name/> validates against whatever FIU ingests these
+        # filings, and omitting an optional element is the strictly safer
+        # choice relative to emitting one with no content either way.
         t_from = ET.SubElement(tx, "t_from")
         from_acc = ET.SubElement(t_from, "account")
-        ET.SubElement(from_acc, "institution_name").text = (report_data.get("source_institution_name") or "").strip()
+        source_institution = (report_data.get("source_institution_name") or "").strip()
+        if source_institution:
+            ET.SubElement(from_acc, "institution_name").text = source_institution
         ET.SubElement(from_acc, "account_number").text = _require(report_data, "source_account", "source account number")
 
         t_to = ET.SubElement(tx, "t_to")
         to_acc = ET.SubElement(t_to, "account")
-        ET.SubElement(to_acc, "institution_name").text = (report_data.get("destination_institution_name") or "").strip()
+        destination_institution = (report_data.get("destination_institution_name") or "").strip()
+        if destination_institution:
+            ET.SubElement(to_acc, "institution_name").text = destination_institution
         ET.SubElement(to_acc, "account_number").text = _require(report_data, "destination_account", "destination account number")
     else:
         # Non-financial reports still need an activity block
