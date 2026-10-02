@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}groAML by Grovisor{% endblock %}</title>
 <link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
 </head>
 <body>
 
@@ -45,7 +45,7 @@
      replaces the old "More" tab and includes logout. #}
   <header class="mobile-header no-print">
     <a href="/" class="mobile-header__logo">
-      <img src="/static/img/grovisor-logo.png" alt="groAML" class="mobile-header__logo-img">
+      <img src="/static/img/grovisor-logo.png" alt="" class="mobile-header__logo-img">
       groAML
     </a>
     <a class="notif-bell" href="/notifications" aria-label="Notifications">

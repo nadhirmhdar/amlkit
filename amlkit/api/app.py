@@ -200,6 +200,7 @@ app.include_router(mobile_router)
 app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))
 templates.env.globals["has_arabic"] = has_arabic_script
+templates.env.globals["asset_v"] = int((WEB / "static" / "app.css").stat().st_mtime)
 
 
 async def _async_form(request: Request) -> FormData:

@@ -1702,3 +1702,17 @@ class TestRouteErrorHandling:
         TypeError: unhashable type: 'dict'."""
         r = client.get("/policies/999999/download", follow_redirects=False)
         assert r.status_code == 404, r.text[:300]
+
+
+def test_no_lowercase_brand_in_user_facing_text():
+    """User-facing brand is 'groAML'; lowercase 'groaml' is only allowed in URLs/hostnames/identifiers."""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent / "amlkit"
+    pat = re.compile(r"(?<![\w./@-])groaml(?![\w./-])")
+    offenders = []
+    for path in list((root / "web" / "templates").glob("*.html")) + [root / "mail.py"]:
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if pat.search(line):
+                offenders.append(f"{path.name}:{n}: {line.strip()}")
+    assert not offenders, offenders

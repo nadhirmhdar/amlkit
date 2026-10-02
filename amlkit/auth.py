@@ -617,7 +617,8 @@ def mfa_enroll(conn, operator_id: int) -> tuple[str, str]:
         )
         conn.commit()
 
-    qr_uri = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name="groAML")
+    # Issuer stays lowercase: existing authenticator entries were enrolled under it.
+    qr_uri = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name="groaml")
     return secret, qr_uri
 
 
