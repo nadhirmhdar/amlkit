@@ -44,7 +44,8 @@ class TestPasswordToggleAria:
         """Password toggle button is present on login page."""
         r = client.get("/login")
         assert r.status_code == 200
-        assert '<button type="button" data-action="toggle-password"' in r.text
+        import re
+        assert re.search(r'<button[^>]*type="button"[^>]*data-action="toggle-password"', r.text)
 
     def test_password_input_has_correct_id(self, client) -> None:
         """Password input has id="password-input" for JS to target."""

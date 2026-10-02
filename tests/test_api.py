@@ -756,8 +756,11 @@ class TestCsvExport:
             ("-1-1", "'-1-1"),            # Minus sign
             ("@A1", "'@A1"),              # At sign
         ]
-        for name, escaped in dangerous_names:
-            ref = f"FORMULA-{hash(name) % 1000}"
+        for i, (name, escaped) in enumerate(dangerous_names):
+            # Deterministic: hash() of a str is randomized per process, so a
+            # hash-derived reference collided now and then, the duplicate
+            # customer was rejected, and one expected CSV row went missing.
+            ref = f"FORMULA-{i}"
             client.post("/customers", data={
                 "reference": ref, "full_name": name,
                 "customer_type": "natural", "csrf_token": _csrf(client),
