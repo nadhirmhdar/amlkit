@@ -441,6 +441,14 @@ jobs:
           # default and refuses to start without it, so fail here, before a
           # revision that cannot boot is rolled out.
           LITESTREAM_REPLICA_URL: ${{ vars.LITESTREAM_REPLICA_URL }}
+          # UAE PASS (operator SSO + customer CDD verification) — repo secrets
+          # UAEPASS_CLIENT_ID / UAEPASS_CLIENT_SECRET and repo variable
+          # UAEPASS_ENV (staging | production). Passed here for the same
+          # reason as above. Either secret unset = UAE PASS stays switched off
+          # (no button, routes 404); UAEPASS_ENV unset = staging.
+          UAEPASS_CLIENT_ID: ${{ secrets.UAEPASS_CLIENT_ID }}
+          UAEPASS_CLIENT_SECRET: ${{ secrets.UAEPASS_CLIENT_SECRET }}
+          UAEPASS_ENV: ${{ vars.UAEPASS_ENV }}
         run: |
           if [ -z "$LITESTREAM_REPLICA_URL" ]; then
             echo "::error::Repo variable LITESTREAM_REPLICA_URL is not set; the container would refuse to start. Set it to the production replica (litestream-v2/)."
@@ -452,7 +460,7 @@ jobs:
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
-            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;GEMINI_API_KEY=${GEMINI_API_KEY};;AMLKIT_REGISTRATION_INVITE_CODE=${AMLKIT_REGISTRATION_INVITE_CODE};;LITESTREAM_REPLICA_URL=${LITESTREAM_REPLICA_URL}" \
+            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;GEMINI_API_KEY=${GEMINI_API_KEY};;AMLKIT_REGISTRATION_INVITE_CODE=${AMLKIT_REGISTRATION_INVITE_CODE};;LITESTREAM_REPLICA_URL=${LITESTREAM_REPLICA_URL};;UAEPASS_CLIENT_ID=${UAEPASS_CLIENT_ID};;UAEPASS_CLIENT_SECRET=${UAEPASS_CLIENT_SECRET};;UAEPASS_ENV=${UAEPASS_ENV}" \
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \
