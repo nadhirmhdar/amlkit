@@ -110,6 +110,38 @@ class TestComplianceRoute:
         assert "FAIL" in r.text
         assert "429" in r.text
 
+    def test_dataset_with_a_longer_sla_is_not_flagged_stale_within_it(self, client) -> None:
+        """A dataset with a 90-day refresh window (same shape as FATF country
+        risk, which load_fatf_data() re-stamps to a fixed version date on
+        every connect() -- a real dataset key would fight this test, so this
+        uses a synthetic one) refreshed 48 hours ago is fully within its own
+        SLA and must show OK, not STALE -- the dashboard must use each
+        dataset's own max_age_hours, not a flat 24h assumption."""
+        import os
+        from datetime import datetime, timedelta, timezone
+        from amlkit.db import connect, upsert_dataset
+
+        conn = connect(os.environ["AMLKIT_DB"])
+        upsert_dataset(conn, "quarterly_test_source", "Quarterly Test Source", is_mandatory=False)
+        two_days_ago = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        conn.execute(
+            "UPDATE datasets SET last_refresh=?, entity_count=1, max_age_hours=2160 WHERE key='quarterly_test_source'",
+            (two_days_ago,),
+        )
+        conn.commit()
+        conn.close()
+
+        r = client.get("/admin/compliance")
+        assert r.status_code == 200
+        # Scope the assertion to this dataset's own row -- the dashboard
+        # also lists the pre-seeded fatf_country_risk dataset, which is
+        # genuinely past its own 90-day window by now and legitimately
+        # shows STALE; that's unrelated to this test.
+        idx = r.text.index("Quarterly Test Source")
+        row = r.text[idx:idx + 600]
+        assert "STALE" not in row
+        assert "OK" in row
+
     def test_compliance_requires_auth(self) -> None:
         """An unauthenticated request is redirected to /login, never served
         the dashboard."""

@@ -359,6 +359,19 @@ class TestOnboarding:
         r = client.post("/customers", data=data, follow_redirects=True)
         assert "already exists" in r.text
 
+    def test_stale_datasets_blocks_onboarding_with_a_clean_error_not_a_500(
+        self, client, monkeypatch
+    ) -> None:
+        import amlkit.ingest.loader as loader
+        monkeypatch.setattr(loader, "datasets_fresh", lambda conn: False)
+
+        r = client.post("/customers", data={
+            "reference": "C-STALE", "full_name": "Stale Test Co", "customer_type": "legal",
+            "csrf_token": _csrf(client),
+        }, follow_redirects=True)
+        assert r.status_code == 200
+        assert "Cannot onboard" in r.text
+
     def test_same_reference_allowed_for_a_different_org(self, client, tmp_path) -> None:
         """References are unique per firm, not globally."""
         client.post("/customers", data={

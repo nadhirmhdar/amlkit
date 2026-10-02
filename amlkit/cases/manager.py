@@ -10,13 +10,16 @@ an inspection. Three obligations drive the design:
 * **Identify the UBO at 25%, with fallback.** Cabinet Res. 134/2025 sets the
   threshold and requires falling back to the senior managing official where no
   one meets it. Inability to identify a UBO is scored as opacity, not ignored.
-* **Retain for eight years after the relationship ends.** The retention date is
-  computed and stored rather than left to policy.
+* **Retain for five years after the relationship ends.** Cabinet Decision
+  10/2019 Art. 24 sets this floor. The retention date is computed and stored
+  rather than left to policy.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -39,13 +42,38 @@ from ..screening.adverse_media import (
     worst_severity,
 )
 
+log = logging.getLogger("amlkit.cases")
+
 
 class StaleDatasetsError(Exception):
     """Raised when onboarding is attempted with stale or empty sanctions data."""
 
 
+def purge_enabled() -> bool:
+    """Whether purge_expired() may actually delete expired customer records.
+
+    Defaults to False -- deleting compliance records is irreversible, and a
+    firm's own retention policy, not the mere existence of a caller, should
+    decide when that's safe to automate. A firm that wants scheduled purging
+    sets this explicitly, the same way AMLKIT_SINGLE_OPERATOR_MODE must be
+    explicitly set to weaken four-eyes (see cases/review.py).
+    """
+    return os.environ.get("AMLKIT_PURGE_ENABLED", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 UBO_THRESHOLD_PCT = 25.0
 RETENTION_YEARS = 5
+
+# /system/gdelt-watch runs under a hard 900s Cloud Run timeout / Scheduler
+# attempt-deadline (see .github/workflows/source-canary.yml), all orgs in one
+# request. Each match costs one real GDELT DOC API call through the
+# process-wide rate gate: ~5.5s, or ~11s if a customer also has name_arabic
+# set (screening/adverse_media.py's search() throttles each query
+# separately). 60 matches * 11s = 660s, leaving headroom for the BigQuery
+# net-cast and per-org DB work across however many orgs share the run.
+MAX_GDELT_MATCHES_PER_RUN = 60
 
 
 @dataclass(slots=True)
@@ -427,8 +455,27 @@ def purge_expired(
     Only purges customers with status='closed' AND retention_until < now.
     Audit entry is written BEFORE each deletion so the record of purging
     survives the customer row being gone.
+
+    A no-op, not an error, unless AMLKIT_PURGE_ENABLED is set (dry_run=True
+    is exempt -- previewing doesn't delete anything, so it's safe regardless
+    of the gate). Deleting compliance records is irreversible, so disabled-
+    by-default must look like "nothing happened, on purpose" to any caller,
+    with its own evidence trail -- not an exception a caller has to know to
+    catch, and not a silent gap that looks identical to a bug.
     """
     from pathlib import Path
+
+    if not dry_run and not purge_enabled():
+        log.warning(
+            "purge_expired: no-op for org %s -- AMLKIT_PURGE_ENABLED not set to true", org_id,
+        )
+        with conn:
+            audit(
+                conn, actor, "retention.purge_disabled", "organization", org_id,
+                {"reason": "AMLKIT_PURGE_ENABLED not set to true"},
+                org_id=org_id,
+            )
+        return {"purged": 0, "details": [], "disabled": True}
 
     now = date.today().isoformat()
     rows = conn.execute(
@@ -821,6 +868,8 @@ def run_gdelt_watch(
     client: Any | None = None,
     media_client: Any | None = None,
     actor: str = "system",
+    flagged_names: list[str] | None = None,
+    max_matches: int | None = None,
 ) -> dict[str, Any]:
     """Proactive daily adverse-media re-screen, made affordable by casting a
     cheap wide net first instead of searching every customer.
@@ -831,7 +880,12 @@ def run_gdelt_watch(
        one day's GKG partition, theme-filtered. Cheap (~400MB, see that
        module's docstring for the live cost numbers that ruled out
        alternatives), broad, and deliberately returns names only, no
-       headlines.
+       headlines. The flagged-name list for a given day is global, not
+       per-tenant, so callers that watch multiple orgs in one run (see
+       api/app.py's system_gdelt_watch) should fetch it ONCE and pass it in
+       via `flagged_names` rather than letting each org's call re-run this
+       query -- passing `flagged_names` skips stage 1 entirely. Leave it
+       unset to fetch independently, e.g. when calling for a single org.
     2. For any ACTIVE customer whose name token-overlaps a flagged name
        (same blocking_keys() candidate-generation already used for sanctions
        matching), spend one real run_adverse_media() call -- the existing,
@@ -849,11 +903,27 @@ def run_gdelt_watch(
     the operator still judges the actual finding, same as any other adverse-
     media result.
 
+    `max_matches` bounds how many stage-2 calls this invocation will spend,
+    so a caller watching several orgs in one HTTP request (a hard 900s
+    budget) can share one global cap across all of them instead of each org
+    unboundedly consuming the whole window -- see MAX_GDELT_MATCHES_PER_RUN.
+    Customers past the cap are left unchecked for this run, not skipped
+    forever: they're picked up the same way next time stage 1 flags them.
+
     Soft-fails by design: BigQuery being unreachable, misconfigured, or
     AMLKIT_GCP_PROJECT_ID unset returns {"ran": False, ...} rather than
     raising. A missed day of proactive net-casting is a gap in extra
     coverage, not an outage -- the on-demand per-customer check
     (run_adverse_media, triggered from the UI) is unaffected either way.
+
+    Deliberately NOT @retry_on_lock: this function's per-customer loop has
+    real external side effects (a billed, rate-limited GDELT call plus a
+    committed screening row and audit entry per match). retry_on_lock
+    reruns the WHOLE decorated call on a lock error, which would redo
+    every match already committed earlier in the same run -- duplicate
+    GDELT spend, duplicate screening rows, duplicate audit entries. A lock
+    error on one customer's write is instead caught per-customer below and
+    counted as `errors`, same soft-fail philosophy as the BigQuery stage.
     """
     import os
 
@@ -861,14 +931,17 @@ def run_gdelt_watch(
     from ..names.arabic import blocking_keys
 
     resolved_date = target_date or (datetime.now(timezone.utc).date() - timedelta(days=1))
-    resolved_project = (project_id or os.environ.get(PROJECT_ENV, "")).strip()
-    if not resolved_project:
-        return {
-            "ran": False, "reason": f"{PROJECT_ENV} not configured",
-            "date": resolved_date.isoformat(), "flagged_names": 0, "checked": 0, "matched": 0,
-        }
 
-    flagged = daily_flagged_persons(resolved_date, project_id=resolved_project, client=client)
+    if flagged_names is not None:
+        flagged = flagged_names
+    else:
+        resolved_project = (project_id or os.environ.get(PROJECT_ENV, "")).strip()
+        if not resolved_project:
+            return {
+                "ran": False, "reason": f"{PROJECT_ENV} not configured",
+                "date": resolved_date.isoformat(), "flagged_names": 0, "checked": 0, "matched": 0,
+            }
+        flagged = daily_flagged_persons(resolved_date, project_id=resolved_project, client=client)
 
     flagged_keys: set[str] = set()
     for name in flagged:
@@ -876,6 +949,8 @@ def run_gdelt_watch(
 
     checked = 0
     matched = 0
+    capped = False
+    errors = 0
     if flagged_keys:
         for row in conn.execute(
             "SELECT id, full_name, name_arabic FROM customers"
@@ -886,25 +961,41 @@ def run_gdelt_watch(
             names = [nm for nm in (row["full_name"], row["name_arabic"]) if nm]
             if not any(blocking_keys(nm) & flagged_keys for nm in names):
                 continue
+            if max_matches is not None and matched >= max_matches:
+                capped = True
+                break
             matched += 1
-            run_adverse_media(
-                conn, org_id=org_id, name=row["full_name"], name_arabic=row["name_arabic"],
-                customer_id=row["id"], trigger="periodic", client=media_client, actor=actor,
-            )
+            try:
+                run_adverse_media(
+                    conn, org_id=org_id, name=row["full_name"], name_arabic=row["name_arabic"],
+                    customer_id=row["id"], trigger="periodic", client=media_client, actor=actor,
+                )
+            except Exception:
+                # A DB-level failure (e.g. a transient lock) on one
+                # customer must not abort the whole run and lose the
+                # matches/budget already spent on earlier customers --
+                # see the no-retry_on_lock note above. Picked up again
+                # next time stage 1 flags this customer, same as a
+                # cap-skipped one.
+                errors += 1
+                log.exception(
+                    "gdelt_watch: run_adverse_media failed for customer %s (org %s)",
+                    row["id"], org_id,
+                )
 
     with conn:
         audit(
             conn, actor, "gdelt_watch.run", "organization", org_id,
             {
                 "date": resolved_date.isoformat(), "flagged_names": len(flagged),
-                "checked": checked, "matched": matched,
+                "checked": checked, "matched": matched, "capped": capped, "errors": errors,
             },
             org_id=org_id,
         )
 
     return {
         "ran": True, "date": resolved_date.isoformat(), "flagged_names": len(flagged),
-        "checked": checked, "matched": matched,
+        "checked": checked, "matched": matched, "capped": capped, "errors": errors,
     }
 
 

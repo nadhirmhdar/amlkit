@@ -103,23 +103,38 @@ class TestRequiredFields:
         with pytest.raises(GoAMLValidationError):
             serialize_goaml_xml(payload)
 
-    def test_missing_source_institution_name_is_rejected_when_transaction_present(self) -> None:
-        """Regression test: the serialiser used to silently substitute the
-        fictitious literal "Originating Bank" here instead of failing loudly,
-        so every filing looked like it named a real counterparty bank when it
-        did not."""
+    def test_missing_source_institution_name_exports_blank_not_rejected(self) -> None:
+        """Institution name is optional, unlike account number: a blank
+        source_institution_name must export as an empty element, not raise."""
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
                                  source_institution_name="", source_account="AE1234",
                                  destination_institution_name="ADCB", destination_account="AE5678")
-        with pytest.raises(GoAMLValidationError):
-            serialize_goaml_xml(payload)
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+        assert root.find("transaction/t_from/account/institution_name").text is None
 
-    def test_missing_destination_institution_name_is_rejected_when_transaction_present(self) -> None:
+    def test_missing_destination_institution_name_exports_blank_not_rejected(self) -> None:
         payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
                                  source_institution_name="Emirates NBD", source_account="AE1234",
                                  destination_institution_name="", destination_account="AE5678")
-        with pytest.raises(GoAMLValidationError):
-            serialize_goaml_xml(payload)
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+        assert root.find("transaction/t_to/account/institution_name").text is None
+
+    def test_export_succeeds_when_transaction_has_no_counterparty_institution_recorded(self) -> None:
+        """Regression test for the exact failure mode PR #314 was rejected
+        for (see .claude/manager/BRIEF-MGR-01.md): a report saved before the
+        institution-name fields existed has no source_institution_name /
+        destination_institution_name key in its payload at all -- not even
+        an empty string. Export must still succeed."""
+        payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
+                                 source_account="AE1234", destination_account="AE5678")
+        assert "source_institution_name" not in payload
+        assert "destination_institution_name" not in payload
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+        assert root.find("transaction/t_from/account/account_number").text == "AE1234"
+        assert root.find("transaction/t_to/account/account_number").text == "AE5678"
 
     def test_accounts_not_required_when_no_transaction(self) -> None:
         payload = _base_payload()

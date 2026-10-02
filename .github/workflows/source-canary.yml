@@ -94,6 +94,13 @@ jobs:
               "uk_sanctions": 4000,
               "us_cia_world_leaders": 4000,
               "eu_sanctions": 2000,
+              # Conservative floor -- ~195 countries' current cabinet
+              # ministers should be in the low thousands on Wikidata, but
+              # this is a new, non-mandatory source with no observed
+              # production count yet. Catches a collapse to near-zero
+              # (broken SPARQL query/endpoint) without over-fitting to an
+              # exact number; tighten once real counts are observed.
+              "wikidata_ministers": 300,
           }
 
           conn = connect(":memory:")

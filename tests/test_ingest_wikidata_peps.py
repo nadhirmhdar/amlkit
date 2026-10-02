@@ -192,3 +192,42 @@ class TestFetch:
         stub([[]], labels={})
         with pytest.raises(AdapterError, match="0 position-holder rows"):
             WikidataPEPAdapter().fetch()
+
+    def test_transient_statement_failure_is_retried_not_fatal(self, stub, monkeypatch):
+        """The module docstring itself says this endpoint "reliably times
+        out" under load across ~95-120 sequential calls -- a single
+        transient failure must be retried, not abort the whole run."""
+        import time
+        monkeypatch.setattr(time, "sleep", lambda *_: None)
+
+        page = [_binding(
+            person="http://www.wikidata.org/entity/Q1",
+            position="http://www.wikidata.org/entity/Q83307",
+        )]
+        transport = stub([page], labels={"Q1": "Someone Important", "Q83307": "Minister"})
+
+        real_handle = transport.handle_request
+        calls = {"n": 0}
+
+        def flaky_handle(request):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return httpx.Response(503, text="temporarily unavailable")
+            return real_handle(request)
+
+        transport.handle_request = flaky_handle
+
+        payload = WikidataPEPAdapter().fetch()
+        rows = [json.loads(line) for line in payload.splitlines()]
+        assert len(rows) == 1
+        assert calls["n"] >= 2  # first call failed, a retry actually happened
+
+    def test_statement_failure_exhausting_retries_raises_adapter_error(self, stub, monkeypatch):
+        import time
+        monkeypatch.setattr(time, "sleep", lambda *_: None)
+
+        transport = stub([[]], labels={})
+        transport.handle_request = lambda request: httpx.Response(503, text="still down")
+
+        with pytest.raises(AdapterError, match="statement query failed"):
+            WikidataPEPAdapter().fetch()

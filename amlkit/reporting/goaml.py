@@ -129,23 +129,26 @@ def serialize_goaml_xml(report_data: dict) -> str:
         ET.SubElement(tx, "transmode_code").text = report_data.get("transaction_type") or "Wire Transfer"
         ET.SubElement(tx, "amount_local").text = str(report_data.get("amount") or 0.0)
 
-        # Source/Destination Accounts. A blank account number, or a fictitious
-        # "Originating Bank"/"Beneficiary Bank" institution name standing in
-        # for the real counterparty, is not a harmless gap -- it silently
-        # exports as a real-looking value in a regulator-facing filing, so
-        # both are required rather than defaulted.
+        # Source/Destination Accounts. A blank account number is not a
+        # harmless gap -- it silently exports as a real-looking value in a
+        # regulator-facing filing -- so account numbers are required. The
+        # institution name is NOT required the same way: unlike the account
+        # number, a report saved before this field existed has no key for it
+        # at all, and rejecting that report's export would make a
+        # previously-filed-fine transaction suddenly unexportable. A
+        # fictitious "Originating Bank"/"Beneficiary Bank" default was the
+        # original bug (it silently looked like a real counterparty); the
+        # fix for that is to export blank when genuinely unknown, same as
+        # entity_reference's "or ''" fallback above, not to reject the
+        # export outright.
         t_from = ET.SubElement(tx, "t_from")
         from_acc = ET.SubElement(t_from, "account")
-        ET.SubElement(from_acc, "institution_name").text = _require(
-            report_data, "source_institution_name", "source institution name"
-        )
+        ET.SubElement(from_acc, "institution_name").text = (report_data.get("source_institution_name") or "").strip()
         ET.SubElement(from_acc, "account_number").text = _require(report_data, "source_account", "source account number")
 
         t_to = ET.SubElement(tx, "t_to")
         to_acc = ET.SubElement(t_to, "account")
-        ET.SubElement(to_acc, "institution_name").text = _require(
-            report_data, "destination_institution_name", "destination institution name"
-        )
+        ET.SubElement(to_acc, "institution_name").text = (report_data.get("destination_institution_name") or "").strip()
         ET.SubElement(to_acc, "account_number").text = _require(report_data, "destination_account", "destination account number")
     else:
         # Non-financial reports still need an activity block

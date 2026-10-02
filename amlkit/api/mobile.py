@@ -41,6 +41,7 @@ from pydantic import BaseModel
 from .. import auth, mail, queries, storage
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
+    StaleDatasetsError,
     add_case_note,
     add_ubo,
     close_relationship,
@@ -519,6 +520,8 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
         raise HTTPException(
             status_code=400, detail=f"Reference {body.reference!r} already exists."
         ) from exc
+    except StaleDatasetsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "customer_id": result.customer_id, "reference": result.reference,
         "blocked": result.blocked, "risk_rating": result.risk.rating,

@@ -26,7 +26,13 @@
     <div class="row">
       <div>
         <label>Reporting Entity Name</label>
-        <input type="text" name="reporting_entity_name" value="{{ payload.reporting_entity_name or org.legal_name or org.name or '' }}" required>
+        {# Deliberately NOT falling back to org.name: that column is never
+           blank (it's the original tenancy slug/display name, e.g. the
+           legacy "Grovisor Business Consultants" literal), so falling back
+           to it would silently satisfy this required field without the
+           MLRO ever having set a real legal_name, defeating the point of
+           requiring it. #}
+        <input type="text" name="reporting_entity_name" value="{{ payload.reporting_entity_name or org.legal_name or '' }}" required>
       </div>
       <div>
         <label>Entity Reference / Licence #</label>

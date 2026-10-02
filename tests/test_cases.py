@@ -314,7 +314,7 @@ class TestRetention:
         assert len(nominee_ubos) == 1
         assert nominee_ubos[0]["person_name"] == "Visible Nominee"
 
-    def test_retention_years_is_eight(self) -> None:
+    def test_retention_years_is_five(self) -> None:
         assert RETENTION_YEARS == 5
 
     def test_close_relationship_sets_five_year_retention(self, conn, org_id) -> None:
@@ -331,6 +331,49 @@ class TestRetention:
 
 
 class TestPurgeExpired:
+    @pytest.fixture(autouse=True)
+    def _enable_purge(self, monkeypatch):
+        monkeypatch.setenv("AMLKIT_PURGE_ENABLED", "1")
+
+    def test_purge_disabled_by_default_is_a_noop_with_an_audit_trail(self, conn, org_id, monkeypatch) -> None:
+        """AMLKIT_PURGE_ENABLED must default to disabled -- deleting
+        compliance records is irreversible, so a caller must opt in
+        explicitly. The pause must be a no-op with its own evidence trail
+        (not an exception a caller has to know to catch, and not a silent
+        gap that looks identical to a bug) -- this is the documented
+        contract (.claude/manager/DONE-P0-AND-314.md, MANAGER-REVIEW-314-
+        319.md): a disabled run returns {"purged": 0, "disabled": True} and
+        writes a 'retention.purge_disabled' audit entry."""
+        monkeypatch.delenv("AMLKIT_PURGE_ENABLED", raising=False)
+        res = onboard(conn, org_id=org_id, reference="P-0", full_name="Gated Customer")
+        conn.execute(
+            "UPDATE customers SET status='closed', retention_until='2020-01-01' WHERE id=?",
+            (res.customer_id,),
+        )
+        conn.commit()
+        result = purge_expired(conn, org_id)
+        assert result == {"purged": 0, "details": [], "disabled": True}
+        row = conn.execute("SELECT id FROM customers WHERE id=?", (res.customer_id,)).fetchone()
+        assert row is not None
+
+        audit_row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action='retention.purge_disabled' AND org_id=?",
+            (org_id,),
+        ).fetchone()
+        assert audit_row is not None
+        assert "AMLKIT_PURGE_ENABLED not set to true" in audit_row["detail"]
+
+    def test_dry_run_works_even_when_purge_is_disabled(self, conn, org_id, monkeypatch) -> None:
+        monkeypatch.delenv("AMLKIT_PURGE_ENABLED", raising=False)
+        res = onboard(conn, org_id=org_id, reference="P-0B", full_name="Dry Run Gated Customer")
+        conn.execute(
+            "UPDATE customers SET status='closed', retention_until='2020-01-01' WHERE id=?",
+            (res.customer_id,),
+        )
+        conn.commit()
+        result = purge_expired(conn, org_id, dry_run=True)
+        assert result["purged"] == 1
+
     def test_purge_expired_deletes_closed_customer(self, conn, org_id) -> None:
         """Closed customer past retention_until is purged."""
         res = onboard(conn, org_id=org_id, reference="P-1", full_name="Old Customer")

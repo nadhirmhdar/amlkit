@@ -747,6 +747,28 @@ def _backfill_email_verified(conn: sqlite3.Connection) -> None:
     )
 
 
+def _backfill_legal_name(conn: sqlite3.Connection) -> None:
+    """One-time grandfathering, run only in the same connect() call that adds
+    the legal_name column to an existing (pre-reporting-entity-profile)
+    database.
+
+    Every org that already exists was, until now, filing goAML reports with
+    `name` (the pre-tenancy slug/display name) as its reporting-entity name
+    via a template fallback. Introducing the dedicated `legal_name` field and
+    removing that fallback (see api/app.py's /admin/organization and
+    web/templates/str_builder.html) must not retroactively blank a required
+    field on every existing firm's report builder with no explanation --
+    backfilling here preserves today's effective value as a starting point,
+    which the MLRO can still edit to the firm's actual registered legal name.
+    A fresh install never calls this: there are no org rows yet when the
+    column is added, so there is nothing to backfill. An org created AFTER
+    this migration has already run intentionally starts with legal_name
+    unset -- that is the fix this backfill is paired with, not something it
+    should undo for new orgs.
+    """
+    conn.execute("UPDATE organizations SET legal_name=name WHERE legal_name IS NULL")
+
+
 def _migrate_operators_table(conn: sqlite3.Connection) -> None:
     """Rebuild `operators` to change its uniqueness constraint.
 
@@ -980,9 +1002,14 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     _operators_cols_before_migrate = {
         r["name"] for r in conn.execute("PRAGMA table_info(operators)")
     }
+    _orgs_cols_before_migrate = {
+        r["name"] for r in conn.execute("PRAGMA table_info(organizations)")
+    }
     _migrate(conn)
     if "email_verified_at" not in _operators_cols_before_migrate:
         _backfill_email_verified(conn)
+    if "legal_name" not in _orgs_cols_before_migrate:
+        _backfill_legal_name(conn)
     _create_org_indexes(conn)
     from .ingest.fatf import load_fatf_data
     load_fatf_data(conn)

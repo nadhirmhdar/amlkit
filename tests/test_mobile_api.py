@@ -183,6 +183,16 @@ class TestCustomers:
         r = client.get("/api/v1/customers/999999", headers=headers)
         assert r.status_code == 404
 
+    def test_stale_datasets_is_a_clean_409_not_a_500(self, api, monkeypatch):
+        import amlkit.ingest.loader as loader
+        monkeypatch.setattr(loader, "datasets_fresh", lambda conn: False)
+
+        client, headers = api
+        r = client.post("/api/v1/customers", headers=headers, json={
+            "reference": "CUST-STALE", "full_name": "Stale Test Person",
+        })
+        assert r.status_code == 409
+
     def test_note_and_close(self, api):
         client, headers = api
         cid = client.post("/api/v1/customers", headers=headers, json={

@@ -100,6 +100,31 @@ def _qid(uri: str) -> str:
     return uri.rsplit("/", 1)[-1]
 
 
+def _sparql_get(client: httpx.Client, query: str, *, max_attempts: int = 3) -> list[dict]:
+    """Run one SPARQL query with exponential-backoff retry on transient
+    errors. ingest/base.py's fetch_with_retry isn't reusable here: this
+    adapter holds one shared httpx.Client across ~95-120 sequential calls
+    (one per statement page / label batch) and needs parsed JSON bindings
+    back, not a one-shot GET returning raw bytes. Without this, a single
+    transient timeout among that many calls aborted the whole adapter run
+    with zero records -- worth absorbing given the module's own docstring
+    says this endpoint "reliably times out" under load.
+    """
+    import time
+
+    last_exc: BaseException | None = None
+    for attempt in range(max_attempts):
+        try:
+            r = client.get(ENDPOINT, params={"query": query, "format": "json"})
+            r.raise_for_status()
+            return r.json()["results"]["bindings"]
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                time.sleep(2 ** attempt)
+    raise AdapterError(f"sparql query failed after {max_attempts} attempt(s) - {last_exc}") from last_exc
+
+
 class WikidataPEPAdapter:
     """Ministers/cabinet-level PEPs, direct from Wikidata's own endpoint."""
 
@@ -152,10 +177,8 @@ class WikidataPEPAdapter:
         for page in range(MAX_PAGES):
             offset = page * PAGE_SIZE
             try:
-                r = client.get(ENDPOINT, params={"query": _statement_query(PAGE_SIZE, offset), "format": "json"})
-                r.raise_for_status()
-                bindings = r.json()["results"]["bindings"]
-            except (httpx.HTTPError, KeyError, ValueError) as exc:
+                bindings = _sparql_get(client, _statement_query(PAGE_SIZE, offset))
+            except AdapterError as exc:
                 raise AdapterError(f"{self.key}: statement query failed at offset {offset} - {exc}") from exc
 
             if not bindings:
@@ -174,13 +197,11 @@ class WikidataPEPAdapter:
         for i in range(0, len(qids), LABEL_BATCH_SIZE):
             batch = qids[i:i + LABEL_BATCH_SIZE]
             try:
-                r = client.get(ENDPOINT, params={"query": _label_query(batch), "format": "json"})
-                r.raise_for_status()
-                bindings = r.json()["results"]["bindings"]
-            except (httpx.HTTPError, KeyError, ValueError) as exc:
-                # Non-fatal: a handful of unresolved labels fall back to the
-                # bare QID in parse() rather than losing the whole batch's
-                # entities over one transient label-service hiccup.
+                bindings = _sparql_get(client, _label_query(batch))
+            except AdapterError:
+                # Non-fatal, even after retries: a handful of unresolved
+                # labels fall back to the bare QID in parse() rather than
+                # losing the whole batch's entities over this label lookup.
                 continue
             for b in bindings:
                 labels[_qid(b["id"]["value"])] = b["label"]["value"]

@@ -841,7 +841,7 @@ class TestGdeltWatch:
             conn, org_id, project_id="test-proj", client=StubGKGClient([]),
             media_client=StubClient({"articles": []}), actor="tester",
         )
-        assert out == {"ran": True, "date": out["date"], "flagged_names": 0, "checked": 0, "matched": 0}
+        assert out == {"ran": True, "date": out["date"], "flagged_names": 0, "checked": 0, "matched": 0, "capped": False, "errors": 0}
 
     def test_run_is_audited(self, conn, org_id, customer_id) -> None:
         run_gdelt_watch(
@@ -862,4 +862,83 @@ class TestGdeltWatch:
             media_client=StubClient({"articles": []}), actor="tester",
         )
         assert out["checked"] == 0
-        assert out["matched"] == 0
+
+    def test_flagged_names_param_skips_the_bigquery_fetch(
+        self, conn, org_id, customer_id
+    ) -> None:
+        """A caller watching several orgs in one run (system_gdelt_watch)
+        fetches the day's flagged names once and passes them in -- this must
+        skip stage 1 entirely rather than re-querying BigQuery per org."""
+        gkg = StubGKGClient(["Mohammed Al Mansoori,12"])
+        media = StubClient({"articles": [
+            article("https://a/1", "Mohammed Al Mansoori convicted of fraud"),
+        ]})
+        out = run_gdelt_watch(
+            conn, org_id, client=gkg, media_client=media, actor="tester",
+            flagged_names=["Mohammed Al Mansoori"],
+        )
+        assert gkg.calls == []  # stage 1 never touched
+        assert out["ran"] is True
+        assert out["flagged_names"] == 1
+        assert out["matched"] == 1
+
+    def test_a_single_customer_failure_does_not_abort_the_run(
+        self, conn, org_id, monkeypatch
+    ) -> None:
+        """A DB-level failure (e.g. a transient lock) on one customer's
+        run_adverse_media call must not abort the whole run -- there is no
+        @retry_on_lock on this function precisely because retrying it whole
+        would replay already-committed real GDELT calls for customers
+        processed earlier in the same run. It must be caught, counted, and
+        the run must continue to the next customer and still return/audit
+        normally."""
+        onboard(conn, org_id=org_id, reference="C-AM-ERR", full_name="Fatima Al Suwaidi",
+                customer_type="natural", nationality="ae")
+        onboard(conn, org_id=org_id, reference="C-AM-ERR2", full_name="Khalid Al Nuaimi",
+                customer_type="natural", nationality="ae")
+
+        import amlkit.cases.manager as manager
+        real = manager.run_adverse_media
+        calls = {"n": 0}
+
+        def flaky(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise manager.sqlite3.OperationalError("database is locked")
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(manager, "run_adverse_media", flaky)
+
+        out = run_gdelt_watch(
+            conn, org_id, client=StubGKGClient([]),
+            media_client=StubClient({"articles": []}), actor="tester",
+            flagged_names=["Fatima Al Suwaidi", "Khalid Al Nuaimi"],
+        )
+        assert out["ran"] is True
+        assert out["matched"] == 2
+        assert out["errors"] == 1
+        assert calls["n"] == 2  # the second customer was still attempted
+
+        row = conn.execute(
+            "SELECT COUNT(*) c FROM audit_log WHERE action='gdelt_watch.run' AND org_id=?",
+            (org_id,),
+        ).fetchone()
+        assert row["c"] == 1  # the run-level audit entry still gets written
+
+    def test_max_matches_caps_spend_and_reports_capped(self, conn, org_id) -> None:
+        """A shared per-run budget (see MAX_GDELT_MATCHES_PER_RUN) must stop
+        spending real GDELT DOC API calls once exhausted, rather than letting
+        one org's matches consume the whole request's time budget."""
+        onboard(conn, org_id=org_id, reference="C-AM-2", full_name="Fatima Al Suwaidi",
+                customer_type="natural", nationality="ae")
+        onboard(conn, org_id=org_id, reference="C-AM-3", full_name="Khalid Al Nuaimi",
+                customer_type="natural", nationality="ae")
+        media = StubClient({"articles": []})
+        out = run_gdelt_watch(
+            conn, org_id, client=StubGKGClient([]), media_client=media, actor="tester",
+            flagged_names=["Fatima Al Suwaidi", "Khalid Al Nuaimi"],
+            max_matches=1,
+        )
+        assert out["matched"] == 1
+        assert out["capped"] is True
+        assert len(media.queries) == 1

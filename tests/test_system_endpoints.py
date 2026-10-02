@@ -177,3 +177,100 @@ class TestSystemCreateOperatorBehavior:
         )
         assert r.status_code == 200
         assert r.json()["organization"] == "Test Org"
+
+
+class TestSystemGdeltWatchBehavior:
+    """/system/gdelt-watch: must share one BigQuery net-cast across every
+    org in the run (not re-query per org) and must surface a per-org failure
+    as a non-2xx so Cloud Scheduler actually retries it."""
+
+    @pytest.fixture(autouse=True)
+    def _secret_and_project(self, client, monkeypatch):
+        monkeypatch.setenv("SCHEDULER_SECRET", "test-scheduler-secret")
+        monkeypatch.setenv("AMLKIT_GCP_PROJECT_ID", "test-proj")
+        self.headers = {"Authorization": "Bearer test-scheduler-secret"}
+
+    @pytest.fixture()
+    def two_orgs(self, client):
+        import sqlite3
+        from amlkit.db import utcnow
+
+        conn = sqlite3.connect(os.environ["AMLKIT_DB"])
+        conn.row_factory = sqlite3.Row
+        now = utcnow()
+        conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
+            ("Org One", "org-one", "active", now),
+        )
+        conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
+            ("Org Two", "org-two", "active", now),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_bigquery_net_cast_is_fetched_once_for_every_org_in_the_run(
+        self, client, two_orgs, monkeypatch
+    ) -> None:
+        calls = []
+
+        def _stub(target_date, *, project_id, client=None):
+            calls.append((target_date, project_id))
+            return []
+
+        import amlkit.ingest.gdelt_gkg as gdelt_gkg
+        monkeypatch.setattr(gdelt_gkg, "daily_flagged_persons", _stub)
+
+        r = client.post("/system/gdelt-watch", headers=self.headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["organizations"]) == 2
+        assert all(o["ran"] for o in body["organizations"])
+        assert len(calls) == 1  # not once per org
+
+    def test_shared_fetch_failure_still_produces_structured_500(
+        self, client, two_orgs, monkeypatch
+    ) -> None:
+        """daily_flagged_persons only soft-fails its OWN expected provider
+        error; anything else must still produce the documented structured
+        per-org JSON shape, not a bare FastAPI 500 with no body."""
+        import amlkit.ingest.gdelt_gkg as gdelt_gkg
+
+        def _boom(target_date, *, project_id, client=None):
+            raise RuntimeError("bigquery auth misconfigured")
+
+        monkeypatch.setattr(gdelt_gkg, "daily_flagged_persons", _boom)
+
+        r = client.post("/system/gdelt-watch", headers=self.headers)
+        assert r.status_code == 500
+        body = r.json()
+        assert len(body["organizations"]) == 2
+        assert all(o["error"] for o in body["organizations"])
+        assert all(o["checked"] == 0 and o["matched"] == 0 for o in body["organizations"])
+
+    def test_an_org_failure_surfaces_as_500_so_scheduler_retries(
+        self, client, two_orgs, monkeypatch
+    ) -> None:
+        import amlkit.api.app as app_module
+
+        def _stub_fetch(target_date, *, project_id, client=None):
+            return []
+
+        import amlkit.ingest.gdelt_gkg as gdelt_gkg
+        monkeypatch.setattr(gdelt_gkg, "daily_flagged_persons", _stub_fetch)
+
+        calls = {"n": 0}
+
+        def _flaky_run_gdelt_watch(conn, org_id, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("simulated DB lock")
+            return {"ran": True, "date": "2026-01-01", "flagged_names": 0, "checked": 0, "matched": 0, "capped": False}
+
+        monkeypatch.setattr(app_module, "run_gdelt_watch", _flaky_run_gdelt_watch)
+
+        r = client.post("/system/gdelt-watch", headers=self.headers)
+        assert r.status_code == 500
+        body = r.json()
+        assert any(o.get("error") for o in body["organizations"])
+        assert any(o["ran"] for o in body["organizations"])  # the other org still ran

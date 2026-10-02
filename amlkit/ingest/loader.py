@@ -212,6 +212,7 @@ def staleness_report(conn: sqlite3.Connection) -> list[dict]:
                 "mandatory": bool(row["is_mandatory"]),
                 "entities": row["entity_count"],
                 "hours_since_refresh": hours,
+                "max_age_hours": max_age,
                 "breach": bool(row["is_mandatory"] and (hours is None or hours > max_age)),
             }
         )

@@ -28,6 +28,7 @@ from fastapi.templating import Jinja2Templates
 from .. import auth, queries
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
+    StaleDatasetsError,
     add_case_note,
     add_ubo,
     close_relationship,
@@ -1041,6 +1042,12 @@ def customer_create(
         )
     except sqlite3.IntegrityError:
         return back("/customers/new", err=f"Reference {reference!r} already exists.")
+    except StaleDatasetsError:
+        return back(
+            "/customers/new",
+            err="Cannot onboard: no mandatory sanctions dataset has refreshed recently enough. "
+                "Check /admin/compliance, or run a refresh, before onboarding.",
+        )
 
     note = (
         "Onboarded. MATCH FOUND - see alerts, freeze without delay and do not tip off."
@@ -1731,7 +1738,11 @@ def compliance_health_view(request: Request, db: DB):
         ei = error_info.get(ds["key"], {})
         last_error = ei.get("last_error")
         error_at = ei.get("error_at")
-        max_age = 24  # default
+        # Each dataset's own SLA window (e.g. FATF's 90-day refresh cycle vs
+        # EOCN's 24-hour one) -- not a flat 24h for every dataset, or a
+        # long-window dataset would always show STALE despite being fully
+        # within its real schedule.
+        max_age = ds["max_age_hours"]
         # Determine status
         if last_error:
             status = "FAIL"
@@ -2028,6 +2039,11 @@ def system_gdelt_watch(request: Request):
 
     Does nothing (200, ran=False per org) if AMLKIT_GCP_PROJECT_ID is unset
     -- this feature is opt-in, not a silent requirement for every deployment.
+
+    Returns 500 if any org's run raised, so Cloud Scheduler's
+    --max-retry-attempts actually retries a broken run instead of seeing a
+    200 and never trying again (mirrors /system/refresh's status-code
+    contract above).
     """
     secret = os.environ.get("SCHEDULER_SECRET", "").strip()
     if not secret:
@@ -2039,22 +2055,88 @@ def system_gdelt_watch(request: Request):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-    from ..db import connect
+    from datetime import datetime, timedelta, timezone
+
     from fastapi.responses import JSONResponse
 
+    from ..cases.manager import MAX_GDELT_MATCHES_PER_RUN
+    from ..db import connect
+    from ..ingest.gdelt_gkg import PROJECT_ENV, daily_flagged_persons
+
+    resolved_project = os.environ.get(PROJECT_ENV, "").strip()
+    resolved_date = datetime.now(timezone.utc).date() - timedelta(days=1)
+
     conn = None
+    had_error = False
     try:
         conn = connect(db_path())
         orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
         results = []
-        for org in orgs:
-            outcome = run_gdelt_watch(conn, org["id"], actor="cloud-scheduler")
-            results.append({"org_id": org["id"], "org_name": org["name"], **outcome})
+
+        if not resolved_project:
+            for org in orgs:
+                results.append({
+                    "org_id": org["id"], "org_name": org["name"], "ran": False,
+                    "reason": f"{PROJECT_ENV} not configured",
+                    "date": resolved_date.isoformat(), "flagged_names": 0, "checked": 0, "matched": 0,
+                })
+        else:
+            # One BigQuery net-cast for the whole run, shared across every
+            # org below -- the flagged-name list for a given day is global,
+            # not per-tenant. Fetching it once here, instead of letting each
+            # org's run_gdelt_watch call re-fetch it, is what keeps this
+            # endpoint's BigQuery cost flat as the org count grows.
+            try:
+                flagged = daily_flagged_persons(resolved_date, project_id=resolved_project)
+            except Exception as exc:
+                # daily_flagged_persons only soft-fails its OWN expected
+                # provider error (GKGUnavailable); anything else (e.g. a
+                # genuine auth/library bug) must still produce the
+                # documented structured-500 shape, not a bare FastAPI 500
+                # with no body.
+                log.exception("gdelt_watch: shared BigQuery net-cast failed")
+                had_error = True
+                for org in orgs:
+                    results.append({
+                        "org_id": org["id"], "org_name": org["name"],
+                        "ran": False, "error": str(exc),
+                        "date": resolved_date.isoformat(), "flagged_names": 0,
+                        "checked": 0, "matched": 0, "capped": False,
+                    })
+                flagged = None
+
+            if flagged is not None:
+                remaining_budget = MAX_GDELT_MATCHES_PER_RUN
+                for org in orgs:
+                    try:
+                        outcome = run_gdelt_watch(
+                            conn, org["id"], target_date=resolved_date,
+                            flagged_names=flagged, max_matches=remaining_budget,
+                            actor="cloud-scheduler",
+                        )
+                    except Exception as exc:
+                        had_error = True
+                        log.exception("gdelt_watch failed for org %s", org["id"])
+                        # Same key shape as the success/not-configured
+                        # outcomes below, so a consumer iterating
+                        # organizations[] uniformly never KeyErrors on
+                        # whichever org failed.
+                        outcome = {
+                            "ran": False, "error": str(exc),
+                            "date": resolved_date.isoformat(), "flagged_names": len(flagged),
+                            "checked": 0, "matched": 0, "capped": False,
+                        }
+                    else:
+                        remaining_budget -= outcome.get("matched", 0)
+                    results.append({"org_id": org["id"], "org_name": org["name"], **outcome})
     finally:
         if conn is not None:
             conn.close()
 
-    return JSONResponse({"status": "complete", "organizations": results}, status_code=200)
+    return JSONResponse(
+        {"status": "complete", "organizations": results},
+        status_code=500 if had_error else 200,
+    )
 
 
 @app.post("/system/create-operator")
