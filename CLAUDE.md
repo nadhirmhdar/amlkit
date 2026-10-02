@@ -71,7 +71,7 @@ amlkit/
 - **Test style**: Integration tests with real SQLite databases (no mocks for DB). `TestClient` from FastAPI for HTTP tests. Register + verify email flow via `_register()` helper in test_api.py.
 - **DB writes**: `busy_timeout=30000` PRAGMA + `retry_on_lock` decorator in db.py for long operations.
 - **CSRF**: Synchronizer token pattern — cookie + hidden form field, validated on every POST.
-- **No MFA yet**: Auth is email + password + session cookie only.
+- **MFA (TOTP)**: Mandatory for MLROs only. Every path that mints a session (password login, verify-email auto-login, setup-token claim, UAE PASS SSO, mobile) calls `auth.mfa_lock_session()` right after `create_session()`, which locks an MLRO's session until `/mfa/verify` (or `/mfa/setup` if not enrolled). Backup codes, a 5-miss/15-min lockout, and a 30-day "remember this device" cookie (`amlkit_trusted_device`) are supported. Other roles are not challenged.
 
 ## Database
 
