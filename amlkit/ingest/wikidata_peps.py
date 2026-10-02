@@ -70,6 +70,8 @@ avoid. Both sides of the keyset comparison must use the identical cast.
 
 from __future__ import annotations
 
+import os
+
 from typing import Iterator
 
 import httpx
@@ -77,7 +79,13 @@ import httpx
 from .base import AdapterError, SourceEntity
 
 ENDPOINT = "https://query.wikidata.org/sparql"
-USER_AGENT = "amlkit/0.1 (UAE AML screening; compliance tooling)"
+# Wikimedia's User-Agent policy asks every client for a name/version and a way
+# to contact the operator (a URL or email). Override with
+# AMLKIT_WIKIDATA_USER_AGENT if you run this under a different contact.
+USER_AGENT = os.environ.get(
+    "AMLKIT_WIKIDATA_USER_AGENT",
+    "groAML/1.0 (https://groaml.grovisor.ae; info@grovisor.ae) python-httpx",
+)
 
 # Q83307 = "minister" (government). wdt:P279* walks the subclass hierarchy,
 # so this also catches country-specific minister subclasses (e.g. "Minister
@@ -159,8 +167,20 @@ def _sparql_get(client: httpx.Client, query: str, *, max_attempts: int = 3) -> l
     for attempt in range(max_attempts):
         try:
             r = client.get(ENDPOINT, params={"query": query, "format": "json"})
+            if r.status_code == 403:
+                # Wikimedia's robot-policy block ("Please respect our robot
+                # policy"). It is applied per client IP, and retrying only
+                # adds to the traffic that caused it -- fail fast and say why.
+                raise AdapterError(
+                    "Wikidata refused this client with HTTP 403 (Wikimedia robot policy, "
+                    "applied per IP -- common from cloud and CI addresses). Retrying will "
+                    "not help; contact bot-traffic@wikimedia.org to be allowed, or run the "
+                    "refresh from an unblocked network. " + r.text[:120].strip()
+                )
             r.raise_for_status()
             return r.json()["results"]["bindings"]
+        except AdapterError:
+            raise
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             last_exc = exc
             if attempt < max_attempts - 1:

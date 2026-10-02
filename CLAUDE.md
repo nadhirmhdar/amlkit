@@ -118,4 +118,5 @@ HH:55  GitHub Issues Sync  →  updates My Tasks artifact DB
 - `AMLKIT_INTEGRITY_TIMEOUT` — startup integrity-check budget in seconds (default 60)
 - `AMLKIT_RESTORE_ATTEMPTS` / `AMLKIT_RESTORE_RETRY_DELAY` — startup litestream restore retries (default 3 attempts, 5s apart) before refusing to start
 - `UAEPASS_CLIENT_ID` / `UAEPASS_CLIENT_SECRET` — UAE PASS OIDC credentials; unset (either one) disables the whole UAE PASS integration (operator SSO + customer CDD verification) — no button shown, routes 404
+- `AMLKIT_WIKIDATA_USER_AGENT` — User-Agent (name + contact) sent to Wikidata's SPARQL endpoint; default identifies groAML and info@grovisor.ae per Wikimedia's policy. Wikimedia blocks some cloud/CI IPs with HTTP 403 ("robot policy"); the adapter fails fast with that cause rather than retrying
 - `UAEPASS_ENV` — `staging` (default) or `production`; selects UAE PASS's `stg-id.uaepass.ae` vs `id.uaepass.ae` endpoints

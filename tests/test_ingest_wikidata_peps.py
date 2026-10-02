@@ -335,3 +335,29 @@ class TestFetch:
 
         with pytest.raises(AdapterError, match="statement query failed"):
             WikidataPEPAdapter().fetch()
+
+
+class TestRobotPolicyBlock:
+    def test_403_fails_fast_without_retrying_and_says_why(self, stub, monkeypatch):
+        """Wikimedia answers a blocked IP with 403 'Please respect our robot
+        policy'. Retrying adds to the traffic that caused it, so the adapter
+        must stop at once and name the cause."""
+        import time
+        monkeypatch.setattr(time, "sleep", lambda *_: pytest.fail("must not back off and retry a 403"))
+
+        transport = stub([[]], labels={})
+        calls = {"n": 0}
+
+        def blocked(request):
+            calls["n"] += 1
+            return httpx.Response(403, text="Please respect our robot policy https://w.wiki/4wJS")
+
+        transport.handle_request = blocked
+        with pytest.raises(AdapterError, match="robot policy") as exc:
+            WikidataPEPAdapter().fetch()
+        assert calls["n"] == 1
+        assert "bot-traffic@wikimedia.org" in str(exc.value)
+
+    def test_user_agent_names_the_product_and_a_contact(self):
+        from amlkit.ingest import wikidata_peps as w
+        assert "groAML" in w.USER_AGENT and ("@" in w.USER_AGENT or "http" in w.USER_AGENT)
