@@ -660,6 +660,13 @@ details.evidence summary * { display: none; }
 }
 .tab-filter a:hover { color: var(--ink); text-decoration: none; }
 .tab-filter a.on { color: var(--ink); border-bottom-color: var(--ink); }
+/* Tabs scroll as one strip on narrow screens; the secondary actions
+   (group / export) stay together on their own row instead of wrapping. */
+.tab-filter__tabs { display: flex; gap: 24px; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.tab-filter__tabs::-webkit-scrollbar { display: none; }
+.tab-filter__tabs a { white-space: nowrap; }
+.tab-filter__actions { display: flex; gap: 20px; margin-left: auto; }
+.tab-filter__actions a { white-space: nowrap; }
 
 .progress-track { height: 4px; background: var(--line); border-radius: 999px; width: 100%; position: relative; }
 .progress-track__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; transition: width 150ms ease; }
@@ -966,7 +973,8 @@ form.is-submitting button[type="submit"] {
      bar, blocking that tab entirely. Measured clearance: the tab bar is
      ~61px tall (--tabbar-h: 62px is the app's own estimate), so lift the
      button's own 56px box clear of it with a visible gap above. */
-  .feedback-btn { bottom: calc(var(--tabbar-h) + 20px); right: 16px; }
+  .feedback-btn { bottom: calc(var(--tabbar-h) + 20px); right: 16px; width: 44px; height: 44px; }
+  .feedback-btn svg { width: 20px; height: 20px; }
 }
 
 /* Body scroll lock while the feedback (or disclaimer) modal is open --
@@ -1178,3 +1186,14 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .notif-row.is-unread{background:var(--accent-soft)}
 .notif-title{font-weight:700}
 .notif-dot{display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:var(--accent)}
+
+/* alerts tabs + touch targets on phones (kept after the base mobile block) */
+@media (max-width: 680px) {
+  .tab-filter:has(.tab-filter__tabs) { gap: 0; }
+  .tab-filter__tabs { flex: 0 0 100%; padding-right: 32px; box-sizing: border-box;
+    -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .tab-filter__actions { flex: 0 0 100%; margin: 0; padding: 10px 0 0; }
+  .tab-filter__actions a { padding: 0 0 10px !important; min-height: 44px; display: inline-flex; align-items: center; }
+  /* Touch targets: 44px minimum for the compact in-page buttons on phones. */
+  main button.small, main .btn.small { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+}
