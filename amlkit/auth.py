@@ -911,11 +911,26 @@ def resolve_uaepass_operator(conn: sqlite3.Connection, profile) -> tuple[Any, bo
     # this operator may already have linked -- one-UAE-PASS-identity-per-
     # operator, enforced here at the application layer (see db.py's
     # migration comment for why not a SQL UNIQUE constraint).
-    conn.execute(
+    cur = conn.execute(
         "UPDATE operators SET uaepass_uuid=? WHERE id=? AND uaepass_uuid IS NULL",
         (profile.uuid, candidate["id"]),
     )
     conn.commit()
+    if cur.rowcount == 0:
+        # Lost a race: something else set this operator's uaepass_uuid
+        # between our SELECT above and this UPDATE (e.g. two concurrent UAE
+        # PASS logins for the same not-yet-linked operator). Re-check what
+        # actually won rather than assuming it was us -- returning
+        # (candidate, True) unconditionally here would silently log this
+        # session in even if a *different* UAE PASS identity won the race,
+        # and would leave that identity's own uuid unpersisted for any
+        # future direct lookup.
+        recheck = conn.execute(
+            "SELECT uaepass_uuid FROM operators WHERE id=?", (candidate["id"],)
+        ).fetchone()
+        if recheck is None or recheck["uaepass_uuid"] != profile.uuid:
+            return None, False
+        return candidate, False  # same identity won concurrently; not a fresh link
     return candidate, True
 
 

@@ -951,7 +951,7 @@ def record_uaepass_verification(
     now = utcnow()
     with conn:
         owned = conn.execute(
-            "SELECT id, nationality, id_number, id_type, email, phone, gender"
+            "SELECT id, nationality, nationalities, id_number, id_type, email, phone, gender"
             " FROM customers WHERE id=? AND org_id=?",
             (customer_id, org_id),
         ).fetchone()
@@ -986,6 +986,15 @@ def record_uaepass_verification(
             try:
                 validate_country_code(alpha2)
                 updates["nationality"] = alpha2
+                # customers.nationalities is the parallel JSON list
+                # customer.html renders separately (see db.py's
+                # _backfill_nationalities -- connect() guarantees this is
+                # never NULL, "[]" is the empty value). Keep both in sync
+                # on this backfill, same as onboard() does at creation time,
+                # so a verified nationality doesn't fill one column while
+                # leaving the other stale/empty.
+                if owned["nationalities"] in (None, "[]"):
+                    updates["nationalities"] = json.dumps([alpha2])
             except ValueError:
                 pass  # unrecognised code -- leave nationality unset rather than guess
         if not owned["email"] and profile.email:

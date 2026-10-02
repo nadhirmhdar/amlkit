@@ -615,22 +615,25 @@ def login_submit(
 
 
 # ------------------------------------------------------------- UAE PASS SSO
-def _uaepass_redirect_uri(request: Request, path: str) -> str:
+def _uaepass_redirect_uri(path: str) -> str:
     """Absolute callback URL for UAE PASS to redirect back to.
 
-    Honours AMLKIT_BEHIND_PROXY the same way the secure-cookie flags
-    elsewhere in this module do: behind a TLS-terminating reverse proxy the
-    app itself sees plain http, but the URL registered with UAE PASS -- and
-    echoed back to it unchanged on token exchange, which OAuth2 requires --
-    must be the externally-reachable https one.
+    Built from mail.app_base_url() -- the same trusted, operator-configured
+    base URL already used for every other externally-echoed link (email
+    verification, alert notifications) -- not from request.base_url, which
+    is derived from the client-controlled Host header. An OAuth redirect_uri
+    is part of this flow's own CSRF/hijack defense: if it were taken from an
+    untrusted header, a forged Host could register a state bound to an
+    attacker's URL and have UAE PASS hand the authorization code to it
+    instead of this app.
     """
-    base = str(request.base_url).rstrip("/")
-    if os.environ.get("AMLKIT_BEHIND_PROXY") == "1" and base.startswith("http://"):
-        base = "https://" + base[len("http://"):]
-    return base + path
+    from .. import mail
+
+    return mail.app_base_url() + path
 
 
 @app.get("/auth/uaepass/start")
+@limiter.limit("10/minute")  # IP ceiling, matching /login's: an alternative way to get a session
 def uaepass_operator_start(request: Request, db: DB):
     """Redirect to UAE PASS for "Sign in with UAE PASS" (operator/MLRO SSO).
 
@@ -641,7 +644,7 @@ def uaepass_operator_start(request: Request, db: DB):
     config = uaepass.load_config()
     if config is None:
         raise HTTPException(status_code=404)
-    redirect_uri = _uaepass_redirect_uri(request, "/auth/uaepass/callback")
+    redirect_uri = _uaepass_redirect_uri("/auth/uaepass/callback")
     state = auth.create_uaepass_state(db, purpose="operator_sso", redirect_uri=redirect_uri)
     return RedirectResponse(
         uaepass.build_authorize_url(
@@ -652,6 +655,7 @@ def uaepass_operator_start(request: Request, db: DB):
 
 
 @app.get("/auth/uaepass/callback")
+@limiter.limit("10/minute")  # IP ceiling, matching /login's: unthrottled otherwise unlike every other auth entry point
 def uaepass_operator_callback(request: Request, db: DB, code: str = "", state: str = ""):
     """UAE PASS redirects here with ?code=&state=. See
     auth.resolve_uaepass_operator() for the operator-linking policy (never
@@ -1720,7 +1724,7 @@ def uaepass_customer_start(request: Request, db: DB, customer_id: int):
     if owned is None:
         return back("/customers", err=f"Customer {customer_id} not found.")
 
-    redirect_uri = _uaepass_redirect_uri(request, f"/customers/{customer_id}/uaepass/callback")
+    redirect_uri = _uaepass_redirect_uri(f"/customers/{customer_id}/uaepass/callback")
     # state is bound to (org_id, customer_id): a captured callback cannot be
     # replayed against a different customer, even within the same org -- see
     # auth.consume_uaepass_state().
