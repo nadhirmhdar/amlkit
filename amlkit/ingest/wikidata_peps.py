@@ -70,8 +70,11 @@ avoid. Both sides of the keyset comparison must use the identical cast.
 
 from __future__ import annotations
 
+import gzip
+import json
 import os
-
+from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Iterator
 
 import httpx
@@ -96,6 +99,45 @@ POSITION_ROOT = "wd:Q83307"
 # included; one still open (no P582 end-time qualifier) always is. See
 # module docstring for the live-verified row count this produces.
 SINCE_YEAR = "1995"
+
+# --- static snapshot -------------------------------------------------------
+# Wikimedia blocks many cloud and CI addresses from query.wikidata.org (HTTP 403,
+# "robot policy"), so production does not query it live by default: it loads a
+# committed snapshot of the same data. The snapshot is Wikidata content, which is
+# CC0, so committing it is permitted (unlike the CC-BY-NC OpenSanctions data the
+# repo's .gitignore keeps out). Refresh it with scripts/snapshot_wikidata_peps.py.
+#
+# AMLKIT_WIKIDATA_MODE: "auto" (default; snapshot if present, else live),
+# "snapshot" (snapshot only), "live" (query Wikidata). A snapshot older than
+# SNAPSHOT_MAX_AGE_DAYS is refused so out-of-date PEP data fails loudly instead
+# of being reloaded as if it were fresh.
+SNAPSHOT_DIR = Path(__file__).resolve().parent / "data"
+SNAPSHOT_FILE = SNAPSHOT_DIR / "wikidata_peps.jsonl.gz"
+SNAPSHOT_META = SNAPSHOT_DIR / "wikidata_peps.meta.json"
+SNAPSHOT_MAX_AGE_DAYS = int(os.environ.get("AMLKIT_WIKIDATA_SNAPSHOT_MAX_AGE_DAYS", "62"))
+
+
+def snapshot_paths() -> tuple[Path, Path]:
+    """(data file, meta file); AMLKIT_WIKIDATA_SNAPSHOT overrides the data
+    file's path (its meta sits beside it) -- used by tests and by operators who
+    keep the snapshot outside the image."""
+    override = os.environ.get("AMLKIT_WIKIDATA_SNAPSHOT", "").strip()
+    if override:
+        data = Path(override)
+        return data, data.with_suffix("").with_suffix(".meta.json")
+    return SNAPSHOT_FILE, SNAPSHOT_META
+
+
+def snapshot_info() -> dict | None:
+    """The snapshot's meta (as_of, rows, people, ...), or None when absent."""
+    data, meta = snapshot_paths()
+    if not data.exists() or not meta.exists():
+        return None
+    try:
+        return json.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
 
 PAGE_SIZE = 2000
 LABEL_BATCH_SIZE = 400
@@ -206,8 +248,39 @@ class WikidataPEPAdapter:
     # -- fetch --------------------------------------------------------------
 
     def fetch(self) -> bytes:
-        import json
+        mode = os.environ.get("AMLKIT_WIKIDATA_MODE", "auto").strip().lower()
+        if mode not in ("auto", "snapshot", "live"):
+            raise AdapterError(f"{self.key}: AMLKIT_WIKIDATA_MODE must be auto, snapshot or live, not {mode!r}")
+        if mode != "live":
+            info = snapshot_info()
+            if info is not None:
+                return self._fetch_snapshot(info)
+            if mode == "snapshot":
+                raise AdapterError(
+                    f"{self.key}: no snapshot found. Create one with "
+                    "scripts/snapshot_wikidata_peps.py (see AMLKIT_WIKIDATA_SNAPSHOT)."
+                )
+        return self.fetch_live()
 
+    def _fetch_snapshot(self, info: dict) -> bytes:
+        as_of = info.get("as_of", "")
+        try:
+            age = (datetime.now(timezone.utc).date() - date.fromisoformat(as_of)).days
+        except ValueError:
+            raise AdapterError(f"{self.key}: snapshot meta has no valid as_of date")
+        if age > SNAPSHOT_MAX_AGE_DAYS:
+            raise AdapterError(
+                f"{self.key}: snapshot is {age} days old (as of {as_of}; limit {SNAPSHOT_MAX_AGE_DAYS}). "
+                "Refresh it with scripts/snapshot_wikidata_peps.py rather than keep screening against stale PEP data."
+            )
+        data, _ = snapshot_paths()
+        payload = gzip.decompress(data.read_bytes())
+        if not payload.strip():
+            raise AdapterError(f"{self.key}: snapshot file is empty")
+        return payload
+
+    def fetch_live(self) -> bytes:
+        """Query Wikidata directly (blocked from many cloud/CI addresses)."""
         with httpx.Client(timeout=90, headers={
             "User-Agent": USER_AGENT, "Accept": "application/sparql-results+json",
         }) as client:
