@@ -375,3 +375,85 @@ def send_screening_match_alert(to_emails: list[str], *, summary: str, alert_url:
     except (OSError, smtplib.SMTPException):
         logger.exception("Failed to send screening match alert")
         return FAILED
+
+
+DEFAULT_QUOTE_TO = "info@grovisor.ae"
+
+
+def quote_recipients() -> list[str]:
+    """Where quotation requests go: AMLKIT_QUOTE_TO (comma separated), else the
+    Grovisor info inbox."""
+    configured = os.environ.get("AMLKIT_QUOTE_TO", "").strip()
+    if not configured:
+        return [DEFAULT_QUOTE_TO]
+    return [a.strip() for a in configured.split(",") if a.strip()]
+
+
+def send_application_notice(application_id: int, a: dict) -> str:
+    """Email a quotation request to the Grovisor inbox, Reply-To the applicant.
+
+    `a` is the cleaned form from cases.applications.validate (single-line
+    fields already stripped of CR/LF, so nothing can inject a header).
+    Returns SENT, NOT_CONFIGURED or FAILED and never raises: the request is
+    already saved in the database, so a mail outage must not lose it or fail
+    the applicant's submission.
+    """
+    needs = ", ".join(a.get("needs") or []) or "(none selected)"
+    lines = [
+        f"New groAML quotation request #{application_id}",
+        "",
+        f"Applying as:     {a['applicant_type']}"
+        + (f" (would run {a['client_firms']} client firms)" if a.get("client_firms") else ""),
+        (f"Firm:            {a['org_name']}" if a["applicant_type"] != "Natural person"
+         else "Firm:            (none: applying as an individual)"),
+        f"Business type:   {a['category']}",
+        f"Licensed in:     {a['jurisdiction']}",
+        "",
+        f"Contact:         {a['contact_name']}" + (f" ({a['job_title']})" if a.get("job_title") else ""),
+        f"Email:           {a['email']}",
+        f"Phone:           {a.get('phone') or '(not given)'}",
+        "",
+        f"Users:           {a['team_size']}",
+        f"Customers/year:  {a['customers_per_year']}",
+        f"Screenings/mo:   {a.get('screenings_per_month') or '(not given)'}",
+        f"Needs:           {needs}",
+        "",
+        "Message:",
+        a.get("message") or "(none)",
+        "",
+        "The applicant agreed to be contacted about this request.",
+        "Reply to this email to answer them directly.",
+    ]
+    msg = EmailMessage()
+    msg["Subject"] = f"groAML quotation request: {a['org_name']}"[:150]
+    recipients = quote_recipients()
+    msg["To"] = ", ".join(recipients)
+    msg["Reply-To"] = formataddr((a["contact_name"], a["email"]))
+    msg.set_content("\n".join(lines))
+
+    if not is_configured():
+        print(
+            "\n" + "=" * 72 +
+            f"\namlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- printing quotation\n"
+            f"request #{application_id} for {', '.join(recipients)} instead of emailing it.\n\n"
+            + "\n".join(lines) + "\n" + "=" * 72 + "\n"
+        )
+        return NOT_CONFIGURED
+
+    user = os.environ.get("AMLKIT_SMTP_USER", "")
+    msg["From"] = from_header(sender_address(user))
+    try:
+        with smtplib.SMTP(os.environ["AMLKIT_SMTP_HOST"],
+                          int(os.environ.get("AMLKIT_SMTP_PORT", "587")), timeout=15) as smtp:
+            if os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0":
+                smtp.starttls()
+            if user:
+                smtp.login(user, os.environ.get("AMLKIT_SMTP_PASSWORD", ""))
+            smtp.send_message(msg)
+        return SENT
+    except (OSError, smtplib.SMTPException):
+        # Stdout is shipped to Cloud Logging unredacted: no applicant details here.
+        logger.exception("Failed to send quotation request email")
+        print(f"\namlkit: SMTP send FAILED for quotation request #{application_id}; it is saved "
+              "in the applications table.\n")
+        return FAILED

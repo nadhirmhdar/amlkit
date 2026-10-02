@@ -1037,6 +1037,96 @@ def register_org_submit(
     return render(request, "register_organization.html", ctx)
 
 
+# ----------------------------------------------------------------- apply
+# Public quotation-request form. Creates a lead (saved + emailed to Grovisor),
+# never an account. Replaces "self-serve register" as the front door until
+# plans and payment exist.
+
+def _apply_ctx(extra: dict | None = None) -> dict:
+    from ..cases import applications as apps
+    ctx = {
+        "session": None, "categories": apps.CATEGORIES, "jurisdictions": apps.JURISDICTIONS,
+        "applicant_types": apps.APPLICANT_TYPES, "client_firm_counts": apps.CLIENT_FIRMS,
+        "consultant": apps.CONSULTANT, "name_optional_types": sorted(apps.NAME_OPTIONAL_TYPES),
+        "no_firm_types": sorted(apps.NO_FIRM_TYPES),
+        "team_sizes": apps.TEAM_SIZES, "customers_per_year": apps.CUSTOMERS_PER_YEAR,
+        "screenings_per_month": apps.SCREENINGS_PER_MONTH, "needs_options": apps.NEEDS,
+        "values": {}, "errors": {},
+        "invite_registration": bool(os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()),
+    }
+    ctx.update(extra or {})
+    return ctx
+
+
+@app.get("/apply", response_class=HTMLResponse)
+def apply_form(request: Request, db: DB):
+    return render(request, "apply.html", _apply_ctx())
+
+
+@app.post("/apply")
+@limiter.limit("5/hour")
+@limiter.limit("30/day")
+def apply_submit(
+    request: Request, db: DB,
+    applicant_type: Annotated[str, Form()] = "",
+    client_firms: Annotated[str, Form()] = "",
+    org_name: Annotated[str, Form()] = "",
+    category: Annotated[str, Form()] = "",
+    jurisdiction: Annotated[str, Form()] = "",
+    contact_name: Annotated[str, Form()] = "",
+    job_title: Annotated[str, Form()] = "",
+    email: Annotated[str, Form()] = "",
+    phone: Annotated[str, Form()] = "",
+    team_size: Annotated[str, Form()] = "",
+    customers_per_year: Annotated[str, Form()] = "",
+    screenings_per_month: Annotated[str, Form()] = "",
+    needs: Annotated[list[str] | None, Form()] = None,
+    message: Annotated[str, Form()] = "",
+    consent: Annotated[str, Form()] = "",
+    company_website: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    from ..cases import applications as apps
+    from .. import mail
+
+    values = {
+        "applicant_type": applicant_type, "client_firms": client_firms,
+        "org_name": org_name, "category": category, "jurisdiction": jurisdiction,
+        "contact_name": contact_name, "job_title": job_title, "email": email, "phone": phone,
+        "team_size": team_size, "customers_per_year": customers_per_year,
+        "screenings_per_month": screenings_per_month, "needs": needs or [],
+        "message": message, "consent": consent,
+    }
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return render(request, "apply.html", _apply_ctx({"values": values, "err": str(exc)}))
+
+    # Honeypot: real people never see or fill this field. Pretend it worked.
+    # Not logged to auth_log: bots would add one row per hit, unbounded.
+    if company_website.strip():
+        return RedirectResponse("/apply/thanks", status_code=303)
+
+    clean, errors = apps.validate(values)
+    if errors:
+        return render(request, "apply.html", _apply_ctx({
+            "values": values, "errors": errors,
+            "err": "Please fix the highlighted fields and send it again.",
+        }))
+
+    application_id = apps.save(db, clean)
+    outcome = mail.send_application_notice(application_id, clean)
+    apps.record_delivery(db, application_id, outcome)
+    auth._log_auth_event(db, "application_submitted", clean["email"],
+                         {"application_id": application_id, "email_delivery": outcome})
+    return RedirectResponse("/apply/thanks", status_code=303)
+
+
+@app.get("/apply/thanks", response_class=HTMLResponse)
+def apply_thanks(request: Request, db: DB):
+    return render(request, "apply_thanks.html", {"session": None})
+
+
 @app.get("/verify-email", response_class=HTMLResponse)
 @limiter.limit("10/minute")
 def verify_email(request: Request, db: DB, token: str = ""):

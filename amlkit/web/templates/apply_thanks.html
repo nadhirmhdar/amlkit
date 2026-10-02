@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Request received — groAML by Grovisor{% endblock %}
+{% block body %}
+<main class="apply" id="main-content">
+  <div style="text-align:center; margin-bottom:32px;">
+    <span class="wm wm--accent" style="font-size:30px;" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></span>
+  </div>
+  <div class="panel">
+    <h1 class="apply__title">Request received</h1>
+    <p class="apply__lede">
+      Thank you. The Grovisor team has your details and will contact you about a quotation
+      using the email address you gave.
+    </p>
+    <p class="muted small">
+      Nothing has been created or charged: this was a request, not a sign-up.
+    </p>
+    <a href="/login" class="btn-glow" style="display:block; text-align:center; text-decoration:none;">Back to sign in</a>
+  </div>
+</main>
+{% endblock %}

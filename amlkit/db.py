@@ -179,6 +179,33 @@ CREATE TABLE IF NOT EXISTS auth_log (
 CREATE INDEX IF NOT EXISTS ix_authlog_ts    ON auth_log(ts);
 CREATE INDEX IF NOT EXISTS ix_authlog_email ON auth_log(email_attempted);
 
+-- Quotation / access requests from the public /apply form. NOT org-scoped: the
+-- applicant has no organization yet, and nothing here grants access to
+-- anything. Kept in the database as well as emailed so a request is never lost
+-- to a mail outage or an unconfigured SMTP host.
+CREATE TABLE IF NOT EXISTS applications (
+    id                    INTEGER PRIMARY KEY,
+    created_at            TEXT NOT NULL,
+    status                TEXT NOT NULL DEFAULT 'new',   -- new|contacted|quoted|won|lost
+    applicant_type        TEXT NOT NULL DEFAULT 'Single entity',  -- single entity|b2b consultant|natural person|professional
+    client_firms          TEXT,            -- consultants only: how many client firms they would run
+    org_name              TEXT NOT NULL,
+    category              TEXT NOT NULL,   -- DNFBP category
+    jurisdiction          TEXT NOT NULL,   -- emirate or free zone
+    contact_name          TEXT NOT NULL,
+    job_title             TEXT,
+    email                 TEXT NOT NULL,
+    phone                 TEXT,
+    team_size             TEXT NOT NULL,
+    customers_per_year    TEXT NOT NULL,
+    screenings_per_month  TEXT,
+    needs                 TEXT,            -- JSON list
+    message               TEXT,
+    consent_at            TEXT NOT NULL,
+    email_delivery        TEXT             -- sent|not_configured|failed
+);
+CREATE INDEX IF NOT EXISTS ix_applications_created ON applications(created_at);
+
 -- One-time tokens for claiming the first admin login after a fresh-from-v1
 -- migration. Hashed at rest like everything else login-adjacent; the raw
 -- value only ever appears once, printed to the console at startup.
@@ -876,6 +903,11 @@ EMAIL_VERIFY_TOKEN_LIFETIME = timedelta(days=3)
 # This is a deliberate, stated tradeoff: a hand-edited database bypassing the
 # application is not caught by the schema alone.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    # /apply: who is applying (and, for consultants, how many client firms).
+    # Only matters to a database that created the table before these existed.
+    ("applications", "applicant_type",
+     "ALTER TABLE applications ADD COLUMN applicant_type TEXT NOT NULL DEFAULT 'Single entity'"),
+    ("applications", "client_firms", "ALTER TABLE applications ADD COLUMN client_firms TEXT"),
     # p15: a secret is only "enrolled" once its first TOTP has been verified;
     # merely opening /mfa/setup must not lock an operator behind a code they
     # never scanned. Pre-existing rows stay unconfirmed and re-enrol at login.
