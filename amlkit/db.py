@@ -965,6 +965,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("applications", "applicant_type",
      "ALTER TABLE applications ADD COLUMN applicant_type TEXT NOT NULL DEFAULT 'Single entity'"),
     ("applications", "client_firms", "ALTER TABLE applications ADD COLUMN client_firms TEXT"),
+    ("applications", "consent_version", "ALTER TABLE applications ADD COLUMN consent_version TEXT"),
+    ("applications", "status_changed_at", "ALTER TABLE applications ADD COLUMN status_changed_at TEXT"),
     # p15: a secret is only "enrolled" once its first TOTP has been verified;
     # merely opening /mfa/setup must not lock an operator behind a code they
     # never scanned. Pre-existing rows stay unconfirmed and re-enrol at login.

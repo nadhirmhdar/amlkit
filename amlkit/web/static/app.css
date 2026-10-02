@@ -1227,3 +1227,9 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .apply-type:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .apply-types[aria-invalid="true"] .apply-type { border-color: var(--danger); }
 @media (max-width: 680px) { .apply-types { grid-template-columns: 1fr; } }
+
+/* Admin: quotation requests */
+dl.kv > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding: 4px 0; font-size: 14px; }
+dl.kv dt { color: var(--ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding-top: 2px; }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+

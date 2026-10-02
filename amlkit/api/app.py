@@ -271,6 +271,9 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         # own 24-hour-rule breach banner when a mandatory list is stale.
         if session.super_admin:
             ctx.setdefault("dataset_banner", queries.dataset_health_banner(db))
+            from ..mail import quote_recipients
+            ctx.setdefault("applications_viewer",
+                           session.email.lower() in {a.lower() for a in quote_recipients()})
         # Check for MFA lockouts (show to admin/MLRO roles)
         if session.operator_role in ("mlro", "admin"):
             mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
@@ -1250,6 +1253,91 @@ def apply_submit(
 @app.get("/apply/thanks", response_class=HTMLResponse)
 def apply_thanks(request: Request, db: DB):
     return render(request, "apply_thanks.html", {"session": None})
+
+
+# ------------------------------------------------- applications (admin viewer)
+def _applications_viewer(request: Request, db: DB):
+    """The platform admin who receives quotation requests, or None.
+
+    Applications are not tenant data (no org_id), so this is not an org-role
+    check: the session must be a super-admin whose own email is one of the
+    quote recipients (AMLKIT_QUOTE_TO, default info@grovisor.ae). Anyone else
+    gets a plain 404 so the page's existence is not revealed.
+    """
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return None
+    from ..mail import quote_recipients
+    allowed = {a.lower() for a in quote_recipients()}
+    if session.super_admin and session.email.lower() in allowed:
+        return session
+    return None
+
+
+def _not_found(request: Request, db: DB):
+    return HTMLResponse("Not found", status_code=404)
+
+
+@app.get("/admin/applications", response_class=HTMLResponse)
+def applications_view(request: Request, db: DB, status: str = ""):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    rows = apps.list_applications(db, status=status or None)
+    return render(request, "admin_applications.html", {
+        "session": session, "applications": rows, "status": status if status in apps.STATUSES else "",
+        "statuses": apps.STATUSES, "counts": apps.counts_by_status(db),
+        "retention_days": apps.RETENTION_DAYS, "expired": apps.expired_count(db),
+    }, db)
+
+
+@app.post("/admin/applications/{application_id}/status")
+def applications_set_status(
+    request: Request, db: DB, application_id: int,
+    status: Annotated[str, Form()], csrf_token: Annotated[str, Form()] = "",
+):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    try:
+        require_csrf(request, csrf_token)
+        apps.set_status(db, application_id, status, actor=session.operator_name)
+    except (PermissionError, ValueError) as exc:
+        return back("/admin/applications", err=str(exc))
+    return back("/admin/applications", msg=f"Request #{application_id} marked {status}.")
+
+
+@app.post("/admin/applications/{application_id}/delete")
+def applications_delete(
+    request: Request, db: DB, application_id: int, csrf_token: Annotated[str, Form()] = "",
+):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/admin/applications", err=str(exc))
+    apps.delete_application(db, application_id, actor=session.operator_name)
+    return back("/admin/applications", msg=f"Request #{application_id} deleted.")
+
+
+@app.post("/admin/applications/purge")
+def applications_purge(request: Request, db: DB, csrf_token: Annotated[str, Form()] = ""):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/admin/applications", err=str(exc))
+    n = apps.purge_expired(db, actor=session.operator_name)
+    return back("/admin/applications", msg=f"Deleted {n} expired request(s).")
 
 
 @app.get("/verify-email", response_class=HTMLResponse)
@@ -3556,6 +3644,11 @@ def system_refresh(request: Request):
         # Check for staleness and notify MLROs if needed
         staleness_result = check_and_notify_staleness(conn)
         result["staleness_check"] = staleness_result
+        try:
+            from ..cases.applications import purge_expired
+            result["applications_purged"] = purge_expired(conn, actor="cloud-scheduler")
+        except Exception:  # retention clean-up must never fail the list refresh
+            log.exception("applications purge failed")
     finally:
         if conn is not None:
             conn.close()

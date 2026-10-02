@@ -8,10 +8,13 @@ manual step later; the stored fields are the ones a quote needs.)
 Pure validation plus one insert -- no web or mail concerns -- so routes stay
 thin and the rules are testable on their own.
 
-Known gaps (deliberately not built yet): applicant personal data (name, email,
-phone) sits in the unscoped `applications` table with no retention period and
-no admin screen to view or delete requests. Before launch, decide a retention
-period under the UAE PDPL and add a viewer plus a delete/anonymise action.
+Personal data (name, email, phone) sits in the unscoped `applications` table.
+UAE PDPL (Federal Decree-Law 45/2021) rules this follows: consent must be
+clear and provable (we store when, and which wording: CONSENT_VERSION), and
+data is not kept once its purpose is exhausted (RETENTION_DAYS, see
+purge_expired). Applications are viewed and deleted from /admin/applications
+by the platform admin only (see app.py). The retention period is a policy
+choice, not a figure the law sets -- have counsel confirm it.
 """
 
 from __future__ import annotations
@@ -21,8 +24,21 @@ import re
 import sqlite3
 from typing import Any
 
+from datetime import datetime, timedelta, timezone
+
 from ..auth import looks_like_email
-from ..db import utcnow
+from ..db import audit, utcnow
+
+# Bump when the consent wording on apply.html changes, so each stored consent
+# can be traced to the exact text the applicant agreed to.
+CONSENT_VERSION = "2026-10-v1"
+
+# Applications are kept this long after their last activity (creation, or the
+# last status change), then deleted -- except "won", which becomes a customer
+# relationship and is deleted by an admin when that ends.
+RETENTION_DAYS = 365
+
+STATUSES = ("new", "contacted", "quoted", "won", "lost")
 
 # Who will use groAML. This drives how a quotation is built: a consultant
 # needs several isolated client workspaces, the others need one.
@@ -149,12 +165,13 @@ def save(conn: sqlite3.Connection, clean: dict[str, Any]) -> int:
     cur = conn.execute(
         """INSERT INTO applications
            (created_at, applicant_type, client_firms, org_name, category, jurisdiction, contact_name, job_title, email, phone,
-            team_size, customers_per_year, screenings_per_month, needs, message, consent_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            team_size, customers_per_year, screenings_per_month, needs, message, consent_at,
+            consent_version, status_changed_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (now, clean["applicant_type"], clean["client_firms"] or None, clean["org_name"], clean["category"], clean["jurisdiction"], clean["contact_name"],
          clean["job_title"] or None, clean["email"], clean["phone"] or None, clean["team_size"],
          clean["customers_per_year"], clean["screenings_per_month"] or None,
-         json.dumps(clean["needs"]), clean["message"] or None, now),
+         json.dumps(clean["needs"]), clean["message"] or None, now, CONSENT_VERSION, now),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -163,3 +180,72 @@ def save(conn: sqlite3.Connection, clean: dict[str, Any]) -> int:
 def record_delivery(conn: sqlite3.Connection, application_id: int, outcome: str) -> None:
     conn.execute("UPDATE applications SET email_delivery=? WHERE id=?", (outcome, application_id))
     conn.commit()
+
+
+# --------------------------------------------------------------- admin viewer
+def list_applications(conn: sqlite3.Connection, status: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+    sql = "SELECT * FROM applications"
+    params: list[Any] = []
+    if status in STATUSES:
+        sql += " WHERE status = ?"
+        params.append(status)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    out = []
+    for r in conn.execute(sql, params):
+        d = dict(r)
+        d["needs"] = json.loads(d.get("needs") or "[]")
+        out.append(d)
+    return out
+
+
+def counts_by_status(conn: sqlite3.Connection) -> dict[str, int]:
+    got = {r["status"]: r["n"] for r in conn.execute("SELECT status, COUNT(*) AS n FROM applications GROUP BY status")}
+    return {s: got.get(s, 0) for s in STATUSES}
+
+
+def set_status(conn: sqlite3.Connection, application_id: int, status: str, actor: str) -> bool:
+    if status not in STATUSES:
+        raise ValueError("Unknown status.")
+    cur = conn.execute(
+        "UPDATE applications SET status=?, status_changed_at=? WHERE id=?",
+        (status, utcnow(), application_id),
+    )
+    if cur.rowcount:
+        audit(conn, actor, "application.status", "application", application_id, {"status": status}, org_id=None)
+    conn.commit()
+    return bool(cur.rowcount)
+
+
+def delete_application(conn: sqlite3.Connection, application_id: int, actor: str) -> bool:
+    cur = conn.execute("DELETE FROM applications WHERE id=?", (application_id,))
+    if cur.rowcount:
+        audit(conn, actor, "application.deleted", "application", application_id, None, org_id=None)
+    conn.commit()
+    return bool(cur.rowcount)
+
+
+def _expiry_cutoff(now: datetime | None = None) -> str:
+    return ((now or datetime.now(timezone.utc)) - timedelta(days=RETENTION_DAYS)).isoformat(timespec="seconds")
+
+
+def expired_count(conn: sqlite3.Connection, now: datetime | None = None) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM applications WHERE status != 'won' AND COALESCE(status_changed_at, created_at) < ?",
+        (_expiry_cutoff(now),),
+    ).fetchone()[0]
+
+
+def purge_expired(conn: sqlite3.Connection, actor: str = "system", now: datetime | None = None) -> int:
+    """Delete applications idle for RETENTION_DAYS (never 'won' ones). Returns
+    how many were removed; writes one audit entry when any were."""
+    cur = conn.execute(
+        "DELETE FROM applications WHERE status != 'won' AND COALESCE(status_changed_at, created_at) < ?",
+        (_expiry_cutoff(now),),
+    )
+    if cur.rowcount:
+        audit(conn, actor, "application.purged", "application", None,
+              {"deleted": cur.rowcount, "retention_days": RETENTION_DAYS}, org_id=None)
+    conn.commit()
+    return int(cur.rowcount)
+

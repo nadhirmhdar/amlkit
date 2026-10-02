@@ -128,7 +128,7 @@
         <label class="apply-check" for="ap-consent">
           <input type="checkbox" name="consent" id="ap-consent" value="yes" {{ 'checked' if values.get('consent') }} required
                  {% if errors.get('consent') %}aria-invalid="true" aria-describedby="ap-consent-err"{% endif %}>
-          I agree that Grovisor may contact me by email or phone about this request.
+          I agree that Grovisor may use the details above to contact me by email or phone about this request. They are kept for up to 12 months after our last contact, then deleted. I can withdraw this consent or ask for deletion at any time by writing to info@grovisor.ae. <a href="/privacy">Privacy notice</a>.
         </label>
         {% if errors.get('consent') %}<div class="field-error" id="ap-consent-err">{{ errors['consent'] }}</div>{% endif %}
       </div>
