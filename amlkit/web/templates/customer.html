@@ -105,10 +105,10 @@
     {% endif %}
     <form method="post" action="/customers/{{ c.id }}/ubo" class="row mt-4">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div><label>Add owner</label><input type="text" name="person_name" dir="auto" required></div>
-      <div><label>%</label><input type="number" name="ownership_pct" step="0.01" min="0" max="100"></div>
-      <div><label>Control</label>
-        <select name="control_type">
+      <div><label for="cust-person-name">Add owner</label><input type="text" id="cust-person-name" name="person_name" dir="auto" required></div>
+      <div><label for="cust-ownership-pct">%</label><input type="number" id="cust-ownership-pct" name="ownership_pct" step="0.01" min="0" max="100"></div>
+      <div><label for="cust-control-type">Control</label>
+        <select id="cust-control-type" name="control_type">
           <option value="ownership">Ownership</option>
           <option value="senior_official">Senior managing official</option>
           <option value="nominee">Nominee</option>
@@ -265,7 +265,7 @@
         <form method="post" action="/transaction-alerts/{{ ta.id }}/disposition" class="row mt-4">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="customer_id" value="{{ c.id }}">
-          <div><label>Note</label><input type="text" name="note" placeholder="Rationale for disposition"></div>
+          <div><label for="ta-note-{{ ta.id }}">Note</label><input type="text" id="ta-note-{{ ta.id }}" name="note" placeholder="Rationale for disposition"></div>
           <div class="btn-pair">
             <button class="small" type="submit" name="status" value="false_positive">Mark false positive</button>
             <button class="small ghost" type="submit" name="status" value="true_positive">Mark true positive</button>
@@ -302,13 +302,13 @@
   <form method="post" action="/customers/{{ c.id }}/transactions" class="row mt-4">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="currency" value="AED">
-    <div><label>Direction</label>
-      <select name="direction">
+    <div><label for="cust-direction">Direction</label>
+      <select id="cust-direction" name="direction">
         <option value="inbound">Inbound</option>
         <option value="outbound">Outbound</option>
       </select></div>
-    <div><label>Method</label>
-      <select name="method">
+    <div><label for="cust-method">Method</label>
+      <select id="cust-method" name="method">
         <option value="cash">Cash</option>
         <option value="wire">Wire</option>
         <option value="cheque">Cheque</option>
@@ -316,10 +316,10 @@
         <option value="crypto">Crypto</option>
         <option value="other">Other</option>
       </select></div>
-    <div><label>Amount (AED)</label><input type="number" name="amount" step="0.01" min="0.01" required></div>
-    <div><label>Counterparty</label><input type="text" name="counterparty_name" dir="auto"></div>
-    <div><label>Counterparty country</label><input type="text" name="counterparty_country" data-country-dropdown placeholder="Type to search countries..."></div>
-    <div><label>Date</label><input type="date" name="occurred_at" required></div>
+    <div><label for="cust-amount">Amount (AED)</label><input type="number" id="cust-amount" name="amount" step="0.01" min="0.01" required></div>
+    <div><label for="cust-counterparty-name">Counterparty</label><input type="text" id="cust-counterparty-name" name="counterparty_name" dir="auto"></div>
+    <div><label for="cust-counterparty-country">Counterparty country</label><input type="text" id="cust-counterparty-country" name="counterparty_country" data-country-dropdown placeholder="Type to search countries..."></div>
+    <div><label for="cust-occurred-at">Date</label><input type="date" id="cust-occurred-at" name="occurred_at" required></div>
     <div><button class="small" type="submit">Record</button></div>
   </form>
 </div>
@@ -381,7 +381,7 @@
         <form method="post" action="/adverse-media/{{ f.id }}/disposition" class="row mt-4">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="customer_id" value="{{ c.id }}">
-          <div><label>Note</label><input type="text" name="note" placeholder="Rationale for disposition"></div>
+          <div><label for="am-note-{{ f.id }}">Note</label><input type="text" id="am-note-{{ f.id }}" name="note" placeholder="Rationale for disposition"></div>
           <div class="btn-pair">
             <button class="small ghost" type="submit" name="status" value="not_relevant">Not this customer</button>
             <button class="small" type="submit" name="status" value="relevant">Confirm relevant</button>
@@ -399,8 +399,8 @@
 
   <form method="post" action="/customers/{{ c.id }}/adverse-media" class="row mt-4">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div><label>Look back (months)</label>
-      <input type="number" name="window_months" value="24" min="1" max="120"></div>
+    <div><label for="cust-window-months">Look back (months)</label>
+      <input type="number" id="cust-window-months" name="window_months" value="24" min="1" max="120"></div>
     <div><button class="small" type="submit" data-loading="Checking…">Run adverse media check</button></div>
   </form>
   <p class="muted small mt-2">
@@ -439,7 +439,7 @@
   <form method="post" action="/customers/{{ c.id }}/notes" class="mt-4">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
-      <textarea name="body" placeholder="Add a note to this case file" required></textarea>
+      <textarea name="body" aria-label="Case note" placeholder="Add a note to this case file" required></textarea>
     </div>
     <button class="small" type="submit">Add note</button>
   </form>
@@ -506,18 +506,18 @@
   <form method="post" action="/customers/{{ c.id }}/signatures" class="mt-4">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="row">
-      <div><label>Purpose</label>
-        <input type="text" name="purpose" placeholder="e.g. Risk acknowledgment" required></div>
-      <div><label>Signer name</label><input type="text" name="signer_name" dir="auto" required></div>
-      <div><label>Role</label>
-        <select name="signer_role">
+      <div><label for="cust-purpose">Purpose</label>
+        <input type="text" id="cust-purpose" name="purpose" placeholder="e.g. Risk acknowledgment" required></div>
+      <div><label for="cust-signer-name">Signer name</label><input type="text" id="cust-signer-name" name="signer_name" dir="auto" required></div>
+      <div><label for="cust-signer-role">Role</label>
+        <select id="cust-signer-role" name="signer_role">
           <option value="customer">Customer</option>
           <option value="operator">Operator</option>
         </select></div>
     </div>
     <div class="field mt-4">
-      <label>Statement being acknowledged</label>
-      <textarea name="statement" placeholder="The exact text the signer is agreeing to" required></textarea>
+      <label for="cust-statement">Statement being acknowledged</label>
+      <textarea id="cust-statement" name="statement" placeholder="The exact text the signer is agreeing to" required></textarea>
     </div>
     <button class="small mt-4" type="submit">Capture signature</button>
   </form>

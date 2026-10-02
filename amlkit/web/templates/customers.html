@@ -16,7 +16,7 @@
 </div>
 
 <form method="get" action="/customers" style="display:flex; gap:8px; max-width:400px; margin-bottom:24px;">
-  <input type="text" name="q" value="{{ search_query or '' }}" class="input-underline" style="flex:1; font-size:15px;"
+  <input type="text" name="q" aria-label="Search customers" value="{{ search_query or '' }}" class="input-underline" style="flex:1; font-size:15px;"
          placeholder="Search customers…" autofocus>
   <button type="submit" class="btn small ghost">Search</button>
   {% if search_query %}<a class="btn small ghost" href="/customers">Clear</a>{% endif %}

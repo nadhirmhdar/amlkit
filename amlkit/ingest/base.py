@@ -12,9 +12,10 @@ meant that data had to be either licensed or replaced.
 Every source normalises into one `SourceEntity` shape behind one interface,
 so replacing it was a configuration change rather than a rewrite. That swap
 has now happened: the shipped refresh path reads primary sources only --
-`eocn.py` (UAE), `un.py`, `ofac.py`, `uk.py`, `eu.py`, `cia.py` -- all of them
-free to redistribute commercially. `opensanctions.py` stays behind the same
-interface for non-commercial and comparison use.
+`eocn.py` (UAE), `un.py`, `ofac.py`, `uk.py`, `eu.py`, `cia.py`,
+`wikidata_peps.py` -- all of them free to redistribute commercially.
+`opensanctions.py` stays behind the same interface for non-commercial and
+comparison use.
 
 The boundary earned its keep exactly once, and that was enough: retrofitting
 it later would have meant touching matching, storage and reporting at once.

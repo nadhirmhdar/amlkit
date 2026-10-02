@@ -44,6 +44,7 @@ amlkit/
     eocn.py         UAE Executive Office (Local Terrorist List)
     un.py, ofac.py, eu.py, uk.py  International sanctions sources
     cia.py          CIA World Leaders (PEP list)
+    wikidata_peps.py  Wikidata ministers/cabinet-level PEPs (CC0)
     fatf.py         FATF high-risk jurisdictions
   match/
     engine.py       Screening engine + rescreen_all

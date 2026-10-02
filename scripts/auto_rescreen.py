@@ -29,6 +29,7 @@ from amlkit.ingest.un import UNSanctionsAdapter  # noqa: E402
 from amlkit.ingest.ofac import OFACSDNAdapter  # noqa: E402
 from amlkit.ingest.eu import EUSanctionsAdapter  # noqa: E402
 from amlkit.ingest.uk import UKSanctionsAdapter  # noqa: E402
+from amlkit.ingest.wikidata_peps import wikidata_ministers  # noqa: E402
 from amlkit.match.engine import rescreen_all  # noqa: E402
 from amlkit.cases.manager import reassess_risk  # noqa: E402
 
@@ -39,6 +40,7 @@ REFRESH_SOURCES = [
     EUSanctionsAdapter,
     UKSanctionsAdapter,
     cia_world_leaders,
+    wikidata_ministers,
 ]
 
 # If all mandatory lists were refreshed within this window, skip the refresh

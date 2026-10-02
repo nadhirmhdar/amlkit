@@ -90,8 +90,8 @@
       <input type="hidden" name="back_to" value="{{ back_to }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="field">
-        <label>Reviewer note (optional if you agree)</label>
-        <textarea name="narrative" placeholder="Basis for confirming or overriding"></textarea>
+        <label for="review_note_{{ alert.id }}">Reviewer note (optional if you agree)</label>
+        <textarea name="narrative" id="review_note_{{ alert.id }}" placeholder="Basis for confirming or overriding"></textarea>
       </div>
       <div class="btn-pair">
         <button type="submit" name="agree" value="yes">Confirm dismissal</button>
@@ -104,7 +104,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="row">
         <div>
-          <label>Decision</label>
+          <label for="status_{{ alert.id }}">Decision</label>
           <select name="status" id="status_{{ alert.id }}">
             <option value="false_positive">Not a match — dismiss</option>
             <option value="true_positive">Confirmed match</option>
@@ -112,7 +112,7 @@
           </select>
         </div>
         <div>
-          <label>Reason</label>
+          <label for="reason_code_{{ alert.id }}">Reason</label>
           <select name="reason_code" id="reason_code_{{ alert.id }}">
             {% for code, label in reason_codes.items() %}
               <option value="{{ code }}">{{ label }}</option>
@@ -121,8 +121,8 @@
         </div>
       </div>
       <div class="field">
-        <label>Narrative — required for a confirmed match or an escalation</label>
-        <textarea name="narrative" placeholder="What was checked, and what it showed"></textarea>
+        <label for="narrative_{{ alert.id }}">Narrative — required for a confirmed match or an escalation</label>
+        <textarea name="narrative" id="narrative_{{ alert.id }}" placeholder="What was checked, and what it showed"></textarea>
       </div>
       <button type="submit">Record decision</button>
     </form>
