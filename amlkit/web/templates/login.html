@@ -5,19 +5,19 @@
 <style>
 .si { min-height:100vh; position:relative; overflow:hidden; color:#e9f1f2;
   background: radial-gradient(60% 75% at 20% 60%, rgb(0 81 94 / .6), transparent 72%), #04141a;
-  display:grid; grid-template-columns: 68fr 32fr; }
+  display:grid; grid-template-columns: minmax(0, 1fr) max(32%, 420px); }
 .si-strands { position:absolute; left:0; top:0; z-index:0; pointer-events:none; display:none; }
 .si-strands text { font: 700 11px/1 Manrope, sans-serif; letter-spacing:.14em; fill: rgba(233,241,242,.78); text-transform:uppercase; stroke:#04141a; stroke-width:4px; paint-order:stroke; }
 .si-left, .si-right { position:relative; z-index:1; }
 .si-left { padding:56px 72px; display:flex; flex-direction:column; justify-content:space-between; gap:40px; }
 .si-left .wm { font-size:34px; color:#fff; }
-.si-copy { margin-bottom:144px; }
+.si-copy { margin-bottom:224px; }
 .si-h1 { margin:0; font-size:clamp(44px, 6vw, 92px); }
 .si-row { display:flex; align-items:center; line-height:.98; letter-spacing:-.035em; }
 .si-row .si-w { display:block; font-weight:200; color:#e9f1f2; }
 .si-row .si-decide { font-weight:800; color:#4eccd3; }
 .si-h1 { text-shadow: 0 0 22px #04141a, 0 0 10px #04141a, 0 0 4px #04141a; }
-.si-right { display:flex; align-items:center; padding:48px 8.3vw 48px 0; }
+.si-right { display:flex; align-items:center; padding:48px clamp(32px, 8.3vw, 160px) 48px 0; }
 .si-form { width:100%; max-width:340px; }
 .si-form h1 { font-size:34px; font-weight:300; letter-spacing:-.02em; margin:0 0 4px; color:#fff; }
 .si-form .si-to { font-size:13px; color:rgba(233,241,242,.7); margin-bottom:34px; }
@@ -31,7 +31,7 @@
 .si-btn:hover { background:#7ee0e5; }
 .si-btn:active { background:#3ab8bf; transform:translateY(1px); }
 .si-btn:focus-visible, .si-eye:focus-visible, .si a:focus-visible { outline:2px solid #fff; outline-offset:3px; }
-.si-or { display:flex; align-items:center; gap:12px; margin:22px 0 14px; color:rgb(233 241 242 / .7); font-size:11px; text-transform:uppercase; letter-spacing:.1em; }
+.si-or { display:flex; align-items:center; gap:12px; margin:24px 0 16px; color:rgb(233 241 242 / .7); font-size:11px; text-transform:uppercase; letter-spacing:.1em; }
 .si-or::before, .si-or::after { content:""; flex:1; height:1px; background:rgb(233 241 242 / .25); }
 .si-alt { display:block; text-align:center; text-decoration:none; padding:13px; border:1px solid #4eccd3; border-radius:var(--radius-sm); color:#4eccd3; font-weight:700; font-size:14px; }
 .si .si-alt, .si .si-alt:hover { text-decoration:none; }
@@ -46,7 +46,7 @@
 .si-eye[aria-pressed="true"] { color:#4eccd3; }
 .si-small { font-size:13px; line-height:1.8; color:rgba(233,241,242,.7); }
 .si-foot { display:flex; align-items:center; gap:12px; font-size:12px; color:rgba(233,241,242,.7); }
-.si-foot img { height:26px; width:auto; padding:4px 8px; filter:brightness(0) invert(1); }
+.si-foot img { height:28px; width:auto; filter:brightness(0) invert(1); }
 @media (max-width: 999px) {
   .si { grid-template-columns: 1fr; }
   .si-left { padding:32px 24px 8px; gap:20px; }
@@ -85,7 +85,7 @@
       {% if err %}<div class="si-note si-note--err" role="alert">{{ err }}</div>{% endif %}
       {% if msg %}<div class="si-note si-note--ok" role="status">{{ msg }}</div>{% endif %}
 
-      <form method="post" action="/login" style="display:flex; flex-direction:column; gap:22px;">
+      <form method="post" action="/login" style="display:flex; flex-direction:column; gap:24px;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="field" style="margin-bottom:0;">
           <label for="login-email">Email</label>
@@ -100,7 +100,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
-        <button type="submit" id="si-btn" class="si-btn" style="margin-top:10px;" data-loading="Signing in…">Sign in</button>
+        <button type="submit" id="si-btn" class="si-btn" style="margin-top:8px;" data-loading="Signing in…">Sign in</button>
       </form>
 
       {% if uaepass_enabled %}
@@ -118,7 +118,7 @@
       </form>
       {% endif %}
 
-      <div class="si-small" style="margin-top:22px;">
+      <div class="si-small" style="margin-top:24px;">
         <div>Forgot your password? Contact your MLRO to reset it.</div>
         <div>New organization? <a href="/register-organization">Register one</a>.</div>
       </div>
