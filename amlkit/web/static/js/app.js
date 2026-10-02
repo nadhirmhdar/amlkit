@@ -575,3 +575,11 @@ document.addEventListener('DOMContentLoaded', function() {
   refresh();
   setInterval(refresh, 30000);
 })();
+
+// Keep the selected tab visible when a tab strip scrolls sideways (phones).
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var on = document.querySelector('.tab-filter__tabs a.on');
+    if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  });
+})();

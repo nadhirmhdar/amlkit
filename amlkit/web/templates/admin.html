@@ -24,32 +24,32 @@
   <form method="post" action="/admin/org-profile" class="row">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div>
-      <label>Organization Address</label>
-      <input type="text" name="org_address"
+      <label for="admin-org-address">Organization Address</label>
+      <input type="text" id="admin-org-address" name="org_address"
              value="{{ org.org_address or '' }}"
              placeholder="Street, building, city">
     </div>
     <div>
-      <label>Reporting Person Name</label>
-      <input type="text" name="reporting_person_name"
+      <label for="admin-reporting-person-name">Reporting Person Name</label>
+      <input type="text" id="admin-reporting-person-name" name="reporting_person_name"
              value="{{ org.reporting_person_name or '' }}"
              placeholder="Full name of MLRO or compliance officer">
     </div>
     <div>
-      <label>Reporting Person Title</label>
-      <input type="text" name="reporting_person_title"
+      <label for="admin-reporting-person-title">Reporting Person Title</label>
+      <input type="text" id="admin-reporting-person-title" name="reporting_person_title"
              value="{{ org.reporting_person_title or '' }}"
              placeholder="e.g. MLRO, Chief Compliance Officer">
     </div>
     <div>
-      <label>Reporting Person Phone</label>
-      <input type="tel" name="reporting_person_phone"
+      <label for="admin-reporting-person-phone">Reporting Person Phone</label>
+      <input type="tel" id="admin-reporting-person-phone" name="reporting_person_phone"
              value="{{ org.reporting_person_phone or '' }}"
              placeholder="+971501234567">
     </div>
     <div>
-      <label>goAML Entity Reference *</label>
-      <input type="text" name="goaml_entity_reference"
+      <label for="admin-goaml-entity-reference">goAML Entity Reference *</label>
+      <input type="text" id="admin-goaml-entity-reference" name="goaml_entity_reference"
              value="{{ org.goaml_entity_reference or '' }}"
              placeholder="e.g. AML-ORG-12345"
              required>
@@ -79,7 +79,7 @@
           <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Reset password</summary>
           <form method="post" action="/admin/operators/{{ op.id }}/reset-password" class="mt-4">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="password" name="new_password" placeholder="New password" minlength="10" required
+            <input type="password" name="new_password" aria-label="New password for {{ op.email }}" placeholder="New password" minlength="10" required
                    class="d-inline-block w-180">
             <button class="small" type="submit">Set</button>
           </form>
@@ -117,8 +117,8 @@
   <form method="post" action="/admin/threshold" class="row">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div>
-      <label>Threshold (0.0–1.0)</label>
-      <input type="number" name="threshold" step="0.001" min="0" max="1"
+      <label for="admin-threshold">Threshold (0.0–1.0)</label>
+      <input type="number" id="admin-threshold" name="threshold" step="0.001" min="0" max="1"
              value="{{ threshold if threshold is not none else '' }}"
              placeholder="{{ default_threshold }} (engine default)">
     </div>
@@ -144,8 +144,8 @@
   <form method="post" action="/admin/single-operator" class="row">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div>
-      <label>Single-operator mode</label>
-      <select name="mode">
+      <label for="admin-mode">Single-operator mode</label>
+      <select id="admin-mode" name="mode">
         <option value="off" {% if single_operator_setting == false %}selected{% endif %}>Off — require a second operator</option>
         <option value="on" {% if single_operator_setting == true %}selected{% endif %}>On — record the review gap</option>
         <option value="default" {% if single_operator_setting is none %}selected{% endif %}>Instance default</option>
@@ -165,11 +165,11 @@
   <h2>Add operator</h2>
   <form method="post" action="/admin/operators" class="row">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div><label>Name</label><input type="text" name="name" required></div>
-    <div><label>Email</label><input type="email" name="email" required></div>
-    <div><label>Password</label><input type="password" name="password" minlength="10" required></div>
-    <div><label>Role</label>
-      <select name="role">
+    <div><label for="admin-name">Name</label><input type="text" id="admin-name" name="name" required></div>
+    <div><label for="admin-email">Email</label><input type="email" id="admin-email" name="email" required></div>
+    <div><label for="admin-password">Password</label><input type="password" id="admin-password" name="password" minlength="10" required></div>
+    <div><label for="admin-role">Role</label>
+      <select id="admin-role" name="role">
         <option value="officer">Officer</option>
         <option value="mlro">MLRO</option>
       </select></div>

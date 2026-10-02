@@ -117,3 +117,27 @@ class TestValidPayload:
         assert root.find("transaction/t_from/account/account_number").text == "AE1111"
         assert root.find("transaction/t_to/account/account_number").text == "AE2222"
 
+    def test_institution_name_is_not_a_fabricated_placeholder(self) -> None:
+        """Regression test: the serialiser used to hardcode the literals
+        "Originating Bank"/"Beneficiary Bank" here regardless of the real
+        counterparty, so every filing looked like it named a real
+        institution when it did not. No form field collects a real value
+        yet, so it must export blank -- never a value that looks real but
+        isn't."""
+        payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
+                                 source_account="AE1111", destination_account="AE2222")
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+        assert root.find("transaction/t_from/account/institution_name").text is None
+        assert root.find("transaction/t_to/account/institution_name").text is None
+
+    def test_institution_name_passes_through_when_provided(self) -> None:
+        payload = _base_payload(amount=10000.0, transaction_type="Wire Transfer",
+                                 source_account="AE1111", destination_account="AE2222",
+                                 source_institution_name="Emirates NBD",
+                                 destination_institution_name="ADCB")
+        xml_content = serialize_goaml_xml(payload)
+        root = ET.fromstring(xml_content)
+        assert root.find("transaction/t_from/account/institution_name").text == "Emirates NBD"
+        assert root.find("transaction/t_to/account/institution_name").text == "ADCB"
+
