@@ -116,3 +116,5 @@ HH:55  GitHub Issues Sync  →  updates My Tasks artifact DB
 - `AMLKIT_ALLOW_FRESH_START` — `1` lets a brand-new deployment boot with no replica; otherwise a missing replica refuses to start
 - `AMLKIT_INTEGRITY_TIMEOUT` — startup integrity-check budget in seconds (default 60)
 - `AMLKIT_RESTORE_ATTEMPTS` / `AMLKIT_RESTORE_RETRY_DELAY` — startup litestream restore retries (default 3 attempts, 5s apart) before refusing to start
+- `UAEPASS_CLIENT_ID` / `UAEPASS_CLIENT_SECRET` — UAE PASS OIDC credentials; unset (either one) disables the whole UAE PASS integration (operator SSO + customer CDD verification) — no button shown, routes 404
+- `UAEPASS_ENV` — `staging` (default) or `production`; selects UAE PASS's `stg-id.uaepass.ae` vs `id.uaepass.ae` endpoints
