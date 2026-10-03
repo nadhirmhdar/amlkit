@@ -134,6 +134,7 @@ Merged in #361. **Switched on in production against the UAE PASS staging sandbox
 - `SCHEDULER_SECRET` — bearer token for `/system/refresh`
 - `ADMIN_API_SECRET` — bearer token for `/system/create-operator`
 - `AMLKIT_SINGLE_OPERATOR_MODE` — skip four-eyes review requirement
+- `AMLKIT_QUOTE_TO` — where `/apply` quotation requests are emailed (comma separated; default `info@grovisor.ae`). Needs `AMLKIT_SMTP_HOST` (and friends, see `mail.py`) or requests are only saved and printed to the log
 - `LITESTREAM_REPLICA_URL` — production replica (container refuses to start if unset; no default)
 - `AMLKIT_ALLOW_FRESH_START` — `1` lets a brand-new deployment boot with no replica; otherwise a missing replica refuses to start
 - `AMLKIT_INTEGRITY_TIMEOUT` — startup integrity-check budget in seconds (default 60)

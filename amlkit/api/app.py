@@ -228,6 +228,20 @@ DB = Annotated[sqlite3.Connection, Depends(get_db)]
 _COOKIE_MAX_AGE = int(auth.SESSION_LIFETIME.total_seconds())
 
 
+def _is_applications_viewer(session) -> bool:
+    """Whether `session` is the platform admin who receives quotation requests.
+
+    Applications are not tenant data (no org_id): the session must be a
+    super-admin whose own email is one of the quote recipients (AMLKIT_QUOTE_TO,
+    default info@grovisor.ae). Shared by render() (sidebar link visibility) and
+    _applications_viewer() (the route guard) so the two checks can't drift.
+    """
+    if session is None or not session.super_admin:
+        return False
+    from ..mail import quote_recipients
+    return session.email.lower() in {a.lower() for a in quote_recipients()}
+
+
 def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None = None) -> HTMLResponse:
     """Render with the context every page needs, including a fresh CSRF token
     for any form on the page.
@@ -279,6 +293,7 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         # own 24-hour-rule breach banner when a mandatory list is stale.
         if session.super_admin:
             ctx.setdefault("dataset_banner", queries.dataset_health_banner(db))
+            ctx.setdefault("applications_viewer", _is_applications_viewer(session))
         # Check for MFA lockouts (show to admin/MLRO roles)
         if session.operator_role in ("mlro", "admin"):
             mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
@@ -1168,6 +1183,184 @@ def register_org_submit(
         )
         ctx["err"] = "Verification email could not be sent."
     return render(request, "register_organization.html", ctx)
+
+
+# ----------------------------------------------------------------- apply
+# Public quotation-request form. Creates a lead (saved + emailed to Grovisor),
+# never an account. Replaces "self-serve register" as the front door until
+# plans and payment exist.
+
+def _apply_ctx(extra: dict | None = None) -> dict:
+    from ..cases import applications as apps
+    ctx = {
+        "session": None, "categories": apps.CATEGORIES, "jurisdictions": apps.JURISDICTIONS,
+        "applicant_types": apps.APPLICANT_TYPES, "client_firm_counts": apps.CLIENT_FIRMS,
+        "consultant": apps.CONSULTANT, "name_optional_types": sorted(apps.NAME_OPTIONAL_TYPES),
+        "no_firm_types": sorted(apps.NO_FIRM_TYPES),
+        "team_sizes": apps.TEAM_SIZES, "customers_per_year": apps.CUSTOMERS_PER_YEAR,
+        "screenings_per_month": apps.SCREENINGS_PER_MONTH, "needs_options": apps.NEEDS,
+        "values": {}, "errors": {},
+        "invite_registration": bool(os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()),
+    }
+    ctx.update(extra or {})
+    return ctx
+
+
+@app.get("/apply", response_class=HTMLResponse)
+def apply_form(request: Request, db: DB):
+    return render(request, "apply.html", _apply_ctx())
+
+
+@app.post("/apply")
+@limiter.limit("5/hour")
+@limiter.limit("30/day")
+def apply_submit(
+    request: Request, db: DB,
+    applicant_type: Annotated[str, Form()] = "",
+    client_firms: Annotated[str, Form()] = "",
+    org_name: Annotated[str, Form()] = "",
+    category: Annotated[str, Form()] = "",
+    jurisdiction: Annotated[str, Form()] = "",
+    contact_name: Annotated[str, Form()] = "",
+    job_title: Annotated[str, Form()] = "",
+    email: Annotated[str, Form()] = "",
+    phone: Annotated[str, Form()] = "",
+    team_size: Annotated[str, Form()] = "",
+    customers_per_year: Annotated[str, Form()] = "",
+    screenings_per_month: Annotated[str, Form()] = "",
+    needs: Annotated[list[str] | None, Form()] = None,
+    message: Annotated[str, Form()] = "",
+    consent: Annotated[str, Form()] = "",
+    company_website: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    from ..cases import applications as apps
+    from .. import mail
+
+    values = {
+        "applicant_type": applicant_type, "client_firms": client_firms,
+        "org_name": org_name, "category": category, "jurisdiction": jurisdiction,
+        "contact_name": contact_name, "job_title": job_title, "email": email, "phone": phone,
+        "team_size": team_size, "customers_per_year": customers_per_year,
+        "screenings_per_month": screenings_per_month, "needs": needs or [],
+        "message": message, "consent": consent,
+    }
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return render(request, "apply.html", _apply_ctx({"values": values, "err": str(exc)}))
+
+    # Honeypot: real people never see or fill this field. Pretend it worked.
+    # Not logged to auth_log: bots would add one row per hit, unbounded.
+    if company_website.strip():
+        return RedirectResponse("/apply/thanks", status_code=303)
+
+    clean, errors = apps.validate(values)
+    if errors:
+        return render(request, "apply.html", _apply_ctx({
+            "values": values, "errors": errors,
+            "err": "Please fix the highlighted fields and send it again.",
+        }))
+
+    application_id = apps.save(db, clean)
+    outcome = mail.send_application_notice(application_id, clean)
+    apps.record_delivery(db, application_id, outcome)
+    # No email here: auth_log is outside the 12-month applications purge, so
+    # storing it would outlive the retention period and an erasure request.
+    auth._log_auth_event(db, "application_submitted", None,
+                         {"application_id": application_id, "email_delivery": outcome})
+    return RedirectResponse("/apply/thanks", status_code=303)
+
+
+@app.get("/apply/thanks", response_class=HTMLResponse)
+def apply_thanks(request: Request, db: DB):
+    return render(request, "apply_thanks.html", {"session": None})
+
+
+# ------------------------------------------------- applications (admin viewer)
+def _applications_viewer(request: Request, db: DB):
+    """The platform admin who receives quotation requests, or None.
+
+    Applications are not tenant data (no org_id), so this is not an org-role
+    check: the session must be a super-admin whose own email is one of the
+    quote recipients (AMLKIT_QUOTE_TO, default info@grovisor.ae). Anyone else
+    gets a plain 404 so the page's existence is not revealed.
+    """
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return None
+    if _is_applications_viewer(session):
+        return session
+    return None
+
+
+def _not_found(request: Request, db: DB):
+    return HTMLResponse("Not found", status_code=404)
+
+
+@app.get("/admin/applications", response_class=HTMLResponse)
+def applications_view(request: Request, db: DB, status: str = ""):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    rows = apps.list_applications(db, status=status or None)
+    return render(request, "admin_applications.html", {
+        "session": session, "applications": rows, "status": status if status in apps.STATUSES else "",
+        "statuses": apps.STATUSES, "counts": apps.counts_by_status(db),
+        "retention_days": apps.RETENTION_DAYS, "expired": apps.expired_count(db),
+    }, db)
+
+
+@app.post("/admin/applications/{application_id}/status")
+def applications_set_status(
+    request: Request, db: DB, application_id: int,
+    status: Annotated[str, Form()], csrf_token: Annotated[str, Form()] = "",
+):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    try:
+        require_csrf(request, csrf_token)
+        found = apps.set_status(db, application_id, status, actor=session.operator_name)
+    except (PermissionError, ValueError) as exc:
+        return back("/admin/applications", err=str(exc))
+    if not found:
+        return back("/admin/applications", err=f"Request #{application_id} not found.")
+    return back("/admin/applications", msg=f"Request #{application_id} marked {status}.")
+
+
+@app.post("/admin/applications/{application_id}/delete")
+def applications_delete(
+    request: Request, db: DB, application_id: int, csrf_token: Annotated[str, Form()] = "",
+):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/admin/applications", err=str(exc))
+    if not apps.delete_application(db, application_id, actor=session.operator_name):
+        return back("/admin/applications", err=f"Request #{application_id} not found.")
+    return back("/admin/applications", msg=f"Request #{application_id} deleted.")
+
+
+@app.post("/admin/applications/purge")
+def applications_purge(request: Request, db: DB, csrf_token: Annotated[str, Form()] = ""):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/admin/applications", err=str(exc))
+    n = apps.purge_expired(db, actor=session.operator_name)
+    return back("/admin/applications", msg=f"Deleted {n} expired request(s).")
 
 
 @app.get("/verify-email", response_class=HTMLResponse)
@@ -2600,7 +2793,9 @@ def about_view(request: Request, db: DB):
 @app.get("/privacy", response_class=HTMLResponse)
 def privacy_view(request: Request, db: DB):
     session = current_session(request, db)
-    return render(request, "privacy.html", {"session": session}, db)
+    from ..mail import quote_recipients
+    return render(request, "privacy.html",
+                  {"session": session, "quote_to": quote_recipients()[0]}, db)
 
 
 # ------------------------------------------------------------------------ blog
@@ -3609,6 +3804,11 @@ def system_refresh(request: Request):
         # Check for staleness and notify MLROs if needed
         staleness_result = check_and_notify_staleness(conn)
         result["staleness_check"] = staleness_result
+        try:
+            from ..cases.applications import purge_expired
+            result["applications_purged"] = purge_expired(conn, actor="cloud-scheduler")
+        except Exception:  # retention clean-up must never fail the list refresh
+            log.exception("applications purge failed")
     finally:
         if conn is not None:
             conn.close()

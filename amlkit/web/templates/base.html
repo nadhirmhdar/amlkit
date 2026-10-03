@@ -42,6 +42,7 @@
       <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
+        {% if applications_viewer %}<a href="/admin/applications" class="{{ 'on' if nav=='applications' }}">Quotation requests</a>{% endif %}
       {% endif %}
     </nav>
   </aside>

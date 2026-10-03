@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Request a quotation — groAML by Grovisor{% endblock %}
+{% block flash %}{% endblock %}
+{% block body %}
+
+{% macro select(name, label, options, hint='') %}
+  <div class="field">
+    <label for="ap-{{ name }}">{{ label }}</label>
+    <select name="{{ name }}" id="ap-{{ name }}" required
+            {% if errors.get(name) %}aria-invalid="true" aria-describedby="ap-{{ name }}-err"{% endif %}>
+      <option value="" disabled {{ 'selected' if not values.get(name) }}>Choose one</option>
+      {% for o in options %}<option value="{{ o }}" {{ 'selected' if values.get(name) == o }}>{{ o }}</option>{% endfor %}
+    </select>
+    {% if hint %}<div class="muted small mt-4">{{ hint }}</div>{% endif %}
+    {% if errors.get(name) %}<div class="field-error" id="ap-{{ name }}-err">{{ errors[name] }}</div>{% endif %}
+  </div>
+{% endmacro %}
+
+{% macro text(name, label, type='text', required=True, autocomplete='off', hint='') %}
+  <div class="field">
+    <label for="ap-{{ name }}">{{ label }}{% if not required %} <span class="muted" style="text-transform:none; letter-spacing:0; font-weight:500;">(optional)</span>{% endif %}</label>
+    <input type="{{ type }}" name="{{ name }}" id="ap-{{ name }}" value="{{ values.get(name, '') }}"
+           autocomplete="{{ autocomplete }}" {{ 'required' if required }}
+           {% if errors.get(name) %}aria-invalid="true" aria-describedby="ap-{{ name }}-err"{% endif %}>
+    {% if hint %}<div class="muted small mt-4">{{ hint }}</div>{% endif %}
+    {% if errors.get(name) %}<div class="field-error" id="ap-{{ name }}-err">{{ errors[name] }}</div>{% endif %}
+  </div>
+{% endmacro %}
+
+<main class="apply" id="main-content">
+  <div style="text-align:center; margin-bottom:32px;">
+    <a href="/login" class="text-decoration-none" aria-label="groAML, back to sign in">
+      <span class="wm wm--accent" style="font-size:30px;" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></span>
+    </a>
+  </div>
+
+  <div class="panel">
+    <h1 class="apply__title">Request a quotation</h1>
+    <p class="apply__lede">
+      Tell us about yourself or your firm and what you need, and we will prepare a quotation.
+      This sends a request to the Grovisor team. It does not create an account, and nothing is charged.
+    </p>
+
+    {% if err %}<div class="banner err" role="alert" tabindex="-1" id="apply-err">{{ err }}</div>{% endif %}
+
+    <form method="post" action="/apply" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="hp" aria-hidden="true">
+        <label for="ap-company_website">Leave this empty</label>
+        <input type="text" name="company_website" id="ap-company_website" tabindex="-1" autocomplete="off">
+      </div>
+
+      <fieldset class="apply__group">
+        <legend>Who will use groAML?</legend>
+        <div class="apply-types" role="radiogroup"
+             {% if errors.get('applicant_type') %}aria-invalid="true" aria-describedby="ap-applicant_type-err"{% endif %}>
+          {% for value, desc in applicant_types %}
+            <label class="apply-type">
+              <input type="radio" name="applicant_type" value="{{ value }}" required
+                     data-name-optional="{{ 'yes' if value in name_optional_types else 'no' }}"
+                     data-no-firm="{{ 'yes' if value in no_firm_types else 'no' }}"
+                     data-consultant="{{ 'yes' if value == consultant else 'no' }}"
+                     {{ 'checked' if values.get('applicant_type') == value }}>
+              <span><strong>{{ value }}</strong><span class="apply-type__desc">{{ desc }}</span></span>
+            </label>
+          {% endfor %}
+        </div>
+        {% if errors.get('applicant_type') %}<div class="field-error" id="ap-applicant_type-err">{{ errors['applicant_type'] }}</div>{% endif %}
+      </fieldset>
+
+      <fieldset class="apply__group">
+        <legend id="ap-firm-legend">{{ 'Your activity' if values.get('applicant_type') in no_firm_types else 'Your firm' }}</legend>
+        <div class="field" id="ap-org-field" {{ 'hidden' if values.get('applicant_type') in no_firm_types }}>
+          <label for="ap-org_name"><span id="ap-org-label">Firm name</span><span id="ap-org-optional" class="muted" style="text-transform:none; letter-spacing:0; font-weight:500;" hidden> (optional, we will use your name)</span></label>
+          <input type="text" name="org_name" id="ap-org_name" value="{{ values.get('org_name', '') }}" autocomplete="organization" required
+                 {% if errors.get('org_name') %}aria-invalid="true" aria-describedby="ap-org_name-err"{% endif %}>
+          {% if errors.get('org_name') %}<div class="field-error" id="ap-org_name-err">{{ errors['org_name'] }}</div>{% endif %}
+        </div>
+        <div id="ap-consultant-fields" {{ 'hidden' if values.get('applicant_type') and values.get('applicant_type') != consultant }}>
+          {{ select('client_firms', 'Client firms you would run', client_firm_counts, hint='We will confirm how this would be set up in your quotation.') }}
+        </div>
+        <div class="apply-grid">
+          {{ select('category', 'Type of business', categories) }}
+          {{ select('jurisdiction', 'Licensed in', jurisdictions) }}
+        </div>
+      </fieldset>
+
+      <fieldset class="apply__group">
+        <legend>You</legend>
+        <div class="apply-grid">
+          {{ text('contact_name', 'Your name', autocomplete='name') }}
+          <div id="ap-job-field" {{ 'hidden' if values.get('applicant_type') in no_firm_types }}>
+            {{ text('job_title', 'Job title', required=False, autocomplete='organization-title') }}
+          </div>
+          {{ text('email', 'Work email', type='email', autocomplete='email') }}
+          {{ text('phone', 'Phone or WhatsApp', type='tel', required=False, autocomplete='tel') }}
+        </div>
+      </fieldset>
+
+      <fieldset class="apply__group">
+        <legend>What you need</legend>
+        <div class="apply-grid">
+          {{ select('team_size', 'People who will use it', team_sizes) }}
+          {{ select('customers_per_year', 'Customers onboarded per year', customers_per_year) }}
+          <div class="field">
+            <label for="ap-screenings_per_month">Name screenings per month <span class="muted" style="text-transform:none; letter-spacing:0; font-weight:500;">(optional)</span></label>
+            <select name="screenings_per_month" id="ap-screenings_per_month">
+              <option value="">Choose one</option>
+              {% for o in screenings_per_month %}<option value="{{ o }}" {{ 'selected' if values.get('screenings_per_month') == o }}>{{ o }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="field" role="group" aria-labelledby="ap-needs-label">
+          <div id="ap-needs-label" class="apply__label">What would you use it for? <span class="muted" style="text-transform:none; letter-spacing:0; font-weight:500;">(optional)</span></div>
+          <div class="apply-needs">
+            {% for n in needs_options %}
+              <label class="apply-check"><input type="checkbox" name="needs" value="{{ n }}" {{ 'checked' if n in values.get('needs', []) }}> {{ n }}</label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="field">
+          <label for="ap-message">Anything else we should know <span class="muted" style="text-transform:none; letter-spacing:0; font-weight:500;">(optional)</span></label>
+          <textarea name="message" id="ap-message" rows="4" maxlength="2000">{{ values.get('message', '') }}</textarea>
+        </div>
+      </fieldset>
+
+      <div class="field">
+        <label class="apply-check" for="ap-consent">
+          <input type="checkbox" name="consent" id="ap-consent" value="yes" {{ 'checked' if values.get('consent') }} required
+                 {% if errors.get('consent') %}aria-invalid="true" aria-describedby="ap-consent-err"{% endif %}>
+          I agree that Grovisor may use the details above to contact me by email or phone about this request. They are kept for up to 12 months after our last contact, then deleted. I can withdraw this consent or ask for deletion at any time by writing to info@grovisor.ae. <a href="/privacy">Privacy notice</a>.
+        </label>
+        {% if errors.get('consent') %}<div class="field-error" id="ap-consent-err">{{ errors['consent'] }}</div>{% endif %}
+      </div>
+
+      <button type="submit" class="btn-glow" data-loading="Sending…">Send request</button>
+    </form>
+  </div>
+
+  <p class="muted small" style="text-align:center; margin-top:20px;">
+    Already have an account? <a href="/login">Sign in</a>.
+    {% if invite_registration %}Have an invite code? <a href="/register-organization">Register with it</a>.{% endif %}
+  </p>
+</main>
+<script src="/static/js/apply.js"></script>
+
+{% endblock %}
