@@ -23,14 +23,9 @@
     <div class="field">
       <label>goAML report type</label>
       <select name="report_type" required>
-        <option value="STR">STR — Suspicious Transaction Report</option>
-        <option value="SAR">SAR — Suspicious Activity Report</option>
-        <option value="PNMR">PNMR — Partial Name Match Report</option>
-        <option value="FFR">FFR — Fund Freeze Report</option>
-        <option value="HRCT">HRCT — High Risk Country Transaction Report</option>
-        <option value="HRCA">HRCA — High Risk Country Activity Report</option>
-        <option value="DPMSR">DPMSR — Dealers in Precious Metals and Stones Report</option>
-        <option value="REAR">REAR — Real Estate Activity Report</option>
+        {% for code, label in report_types %}
+          <option value="{{ code }}">{{ label }}</option>
+        {% endfor %}
       </select>
     </div>
     <div class="mt-6">

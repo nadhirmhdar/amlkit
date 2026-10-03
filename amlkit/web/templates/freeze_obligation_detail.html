@@ -54,9 +54,14 @@
         <strong>✓ Reported</strong><br>
         {{ obligation.reported_at }}<br>
         <a href="/reports/{{ obligation.report_id }}">Report #{{ obligation.report_id }}</a>
+      {% elif obligation.report_id %}
+        <strong>⏳ Pending Report</strong><br>
+        <em>CNMR draft created, not yet filed</em><br>
+        <a href="/reports/{{ obligation.report_id }}">CNMR draft #{{ obligation.report_id }}</a>:
+        finalise it and file it on goAML within five business days of the freeze.
       {% else %}
         <strong>⏳ Pending Report</strong><br>
-        <em>FFR not yet filed</em>
+        <em>CNMR not yet filed</em>
       {% endif %}
     </div>
     
@@ -125,12 +130,13 @@
     {% if can_file_ffr %}
     <form method="post" action="/freeze-obligations/{{ obligation.id }}/file-ffr" class="freeze-action">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <h2>File Funds Freeze Report</h2>
+      <h2>File Confirmed Name Match Report (CNMR)</h2>
+      <p class="muted small">Formerly the Funds Freeze Report (FFR). File it on goAML within five business days of the freeze.</p>
       <div class="form-group">
         <label for="ffr-reporter-email">Reporter email (optional)</label>
         <input type="email" id="ffr-reporter-email" name="reporter_email" autocomplete="email">
       </div>
-      <button type="submit" class="btn btn-primary">File FFR Report</button>
+      <button type="submit" class="btn btn-primary">File CNMR</button>
     </form>
     {% endif %}
 

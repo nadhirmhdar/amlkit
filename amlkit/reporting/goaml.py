@@ -4,7 +4,10 @@ Generates XML files compliant with goAML 5.x schema requirements for:
 - STR (Suspicious Transaction Report)
 - SAR (Suspicious Activity Report)
 - PNMR (Partial Name Match Report)
-- FFR (Fund Freeze Report)
+- FFR (Fund Freeze Report) -- shown to users as CNMR (Confirmed Name Match
+  Report), EOCN's current name for it. The stored report_type and the XML
+  report_code stay "FFR" until goAML UAE's accepted code for a CNMR is
+  confirmed; changing the code goAML receives could get filings rejected.
 - HRCT (High Risk Country Transaction Report)
 - HRCA (High Risk Country Activity Report)
 - DPMSR (Dealers in Precious Metals and Stones Report)
@@ -39,6 +42,25 @@ def _require(report_data: dict, key: str, label: str) -> str:
 
 # Report types with UI creation routes
 SUPPORTED_REPORT_TYPES = {"STR", "SAR", "FFR"}
+
+# Display labels for report types, in the order the new-report picker lists them.
+REPORT_TYPE_LABELS = {
+    "STR": "STR — Suspicious Transaction Report",
+    "SAR": "SAR — Suspicious Activity Report",
+    "FFR": "CNMR — Confirmed Name Match Report (formerly FFR)",
+}
+
+# FFR is exportable but only filed via /freeze-obligations/{id}/file-ffr: its
+# export requires a freeze_obligation_id that the generic report form never
+# sets, so a generic-form FFR draft could never be exported.
+_FREEZE_FLOW_ONLY_TYPES = {"FFR"}
+
+# Report types the generic report form (/reports/new -> POST /reports) and the
+# mobile API may create: whatever the exporter supports, minus freeze-only types.
+CREATABLE_REPORT_TYPES = tuple(
+    t for t in REPORT_TYPE_LABELS
+    if t in SUPPORTED_REPORT_TYPES and t not in _FREEZE_FLOW_ONLY_TYPES
+)
 
 
 def inject_reporting_entity(payload: dict, db, org_id: int) -> None:
@@ -110,7 +132,7 @@ def serialize_goaml_xml(report_data: dict) -> str:
         freeze_id = report_data.get("freeze_obligation_id")
         if not freeze_id:
             raise GoAMLValidationError(
-                "Cannot export FFR: freeze obligation ID is required."
+                "Cannot export CNMR: freeze obligation ID is required."
             )
 
     root = ET.Element("report")

@@ -78,7 +78,7 @@ amlkit/
 
 SQLite with WAL mode. Schema is in `db.py:SCHEMA`. Migrations are additive column-adds in `_MIGRATIONS`. Table rebuilds for constraint changes in dedicated functions.
 
-`connect()` handles schema creation + all migrations on every open — safe for fresh installs and upgrades alike.
+`connect()` handles schema creation + all migrations (plus the `fatf_countries` rebuild) — safe for fresh installs and upgrades alike — but runs that pass (`db._initialise`) **at most once per database file per process**. Later opens only set the per-connection PRAGMAs (WAL, `busy_timeout`, `foreign_keys`), so per-request `get_db()` does no DDL/writes. The cache key is (resolved path, `st_dev`, `st_ino`) checked against `PRAGMA schema_version`, so a file replaced at the same path (restore, a test recreating its DB) or out-of-band DDL re-runs the init; `:memory:` is always initialised. `db._reset_init_cache()` forces a re-init on the next open.
 
 ## Automated routines
 
@@ -86,7 +86,7 @@ Recurring triggers registered in the claude.ai Routines UI (Settings → Routine
 
 | ID | Name | Schedule (UTC) | Environment | Purpose |
 |----|------|----------------|-------------|---------|
-| `trig_01ETKZRFYHGqii6o5K8WH9wR` | Issue triage | `50 */6 * * *` | Default (trusted network) | CI health check, GitHub issue triage, Monday improvement log |
+| `trig_01ETKZRFYHGqii6o5K8WH9wR` | Issue triage | `50 */6 * * *` | Default (trusted network) | CI health check, GitHub issue triage, Monday improvement log. One issue per unresolved condition, updated in place (#252). Prompt is versioned in `docs/routines/issue-triage.md`; paste it into the routine when changing it |
 | `trig_01JHC5b92KEvfhgnk5yVdbkM` | amlkit GitHub Issues Sync | `55 */6 * * *` | Full access to internet | Syncs open GitHub issues → artifact DB task tracker (`LvtQxP7THXZEvM1zS8f34p`) |
 
 **Sequence every 6 hours (UTC):**

@@ -1287,6 +1287,30 @@ def customer_completeness(customer: dict[str, Any]) -> float:
 
     filled = sum(1 for field in required_fields if customer.get(field))
     return round((filled / len(required_fields)) * 100, 1)
+
+
+def recent_adhoc_screenings(conn: sqlite3.Connection, org_id: int, limit: int = 6) -> list[dict[str, Any]]:
+    """The org's latest ad-hoc name checks, newest first, one row per distinct
+    name (a re-screen replaces its older row rather than listing the name twice)."""
+    rows = conn.execute(
+        """SELECT query_name, hits, run_at FROM screenings
+           WHERE org_id = ? AND trigger = 'adhoc' AND customer_id IS NULL
+           ORDER BY run_at DESC, id DESC LIMIT 100""",
+        (org_id,),
+    ).fetchall()
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        key = r["query_name"].strip().casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": r["query_name"], "hits": r["hits"], "run_at": r["run_at"]})
+        if len(out) == limit:
+            break
+    return out
+
+
 def has_screening_history(conn: sqlite3.Connection, org_id: int) -> bool:
     """Check if org has performed any screenings (p51 onboarding step 1)."""
     count = conn.execute(

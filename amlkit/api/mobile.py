@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import sqlite3
 from pathlib import Path
 from typing import Annotated, Any
@@ -1329,6 +1330,8 @@ def api_alert_assign(alert_id: int, body: AlertAssignRequest, db: DB, session: S
 @router.get("/alerts.csv")
 def api_alerts_csv(db: DB, session: Session, status: str = "all"):
     queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status)
+    _audit_export(db, session, "export.alerts_csv", None, None,
+                  {"status": status, "rows": len(queue), "via": "mobile"})
     return _csv(
         "alerts.csv",
         ["id", "category", "score", "caption", "matched_party", "status", "reason_code",
@@ -1342,6 +1345,8 @@ def api_alerts_csv(db: DB, session: Session, status: str = "all"):
 @router.get("/customers.csv")
 def api_customers_csv(db: DB, session: Session):
     rows = queries.customer_list(db, session.org_id)
+    _audit_export(db, session, "export.customers_csv", None, None,
+                  {"rows": len(rows), "via": "mobile"})
     return _csv(
         "customers.csv",
         ["reference", "full_name", "customer_type", "sector", "status", "rating",
@@ -1350,6 +1355,15 @@ def api_customers_csv(db: DB, session: Session):
           c["status"], c.get("rating") or "", c.get("risk_score") or "",
           c["open_alerts"], c.get("last_screened") or "", c["review_overdue"]] for c in rows],
     )
+
+
+def _audit_export(db, session, action: str, object_type: str | None = None,
+                  object_id=None, detail=None) -> None:
+    """Mirror of app._audit_export: one audit row per successful export."""
+    from ..db import audit
+    audit(db, session.operator_name, action, object_type, object_id, detail,
+          org_id=session.org_id)
+    db.commit()
 
 
 def _csv(filename: str, header: list[str], rows: list[list]) -> Response:
@@ -1537,12 +1551,22 @@ class ReportSaveRequest(BaseModel):
 
 @router.post("/reports")
 def api_report_save(body: ReportSaveRequest, db: DB, session: Session):
+    # Same rule as the web path's cases.reports.save_report.
+    if body.amount is not None and not (math.isfinite(body.amount) and body.amount >= 0):
+        raise HTTPException(status_code=400, detail="Amount must be zero or a positive number.")
     cust_row = db.execute(
         "SELECT customer_type FROM customers WHERE id=? AND org_id=?",
         (body.customer_id, session.org_id),
     ).fetchone()
     if cust_row is None:
         raise HTTPException(status_code=404, detail="Customer not found.")
+    from ..reporting.goaml import CREATABLE_REPORT_TYPES
+    if body.report_type not in CREATABLE_REPORT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Report type {body.report_type!r} is not supported. "
+                   f"Supported types: {', '.join(CREATABLE_REPORT_TYPES)}.",
+        )
 
     payload_dict = {
         "customer_id": body.customer_id, "customer_type": cust_row["customer_type"],
@@ -1571,6 +1595,14 @@ def api_report_save(body: ReportSaveRequest, db: DB, session: Session):
             existing = queries.report(db, body.report_id, session.org_id)
             if not existing:
                 raise HTTPException(status_code=404, detail="Report not found.")
+            # Same rule as the web path (cases.reports.save_report): a
+            # finalised report is a filed regulatory record and is never
+            # overwritten.
+            if existing["status"] != "draft":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Report {body.report_id} has been finalized and can no longer be edited.",
+                )
             db.execute(
                 "UPDATE reports SET payload=?, reference=? WHERE id=? AND org_id=?",
                 (payload_json, f"goAML-{body.report_type}-{body.report_id}",
@@ -1611,6 +1643,9 @@ def api_report_submit(report_id: int, db: DB, session: Session):
         )
         audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
+        # A finalised CNMR is what moves its freeze to 'reported'.
+        from ..cases.freeze import mark_freeze_reported
+        mark_freeze_reported(db, report_id, session.org_id, session.operator_name, now)
     return {
         "ok": True,
         "finalized": True,
@@ -1643,6 +1678,8 @@ def api_report_export(report_id: int, db: DB, session: Session):
         xml_content = serialize_goaml_xml(payload)
     except GoAMLValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _audit_export(db, session, "export.goaml_xml", "report", report_id,
+                  {"report_type": rep["report_type"], "via": "mobile"})
     return Response(
         content=xml_content, media_type="application/xml",
         headers={"Content-Disposition": f"attachment; filename=goAML_{rep['report_type']}_{report_id}.xml"},
@@ -1676,6 +1713,8 @@ def api_audit_export(
 
     query += " ORDER BY ts DESC"
     rows = db.execute(query, params).fetchall()
+    _audit_export(db, session, "export.audit_csv", None, None,
+                  {"from": from_date, "to": to_date, "rows": len(rows), "via": "mobile"})
 
     from ..pii import redact as _redact_pii
 

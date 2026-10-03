@@ -436,6 +436,43 @@ class TestReports:
         r = client.get("/api/v1/reports", headers=headers)
         assert any(rep["id"] == rid for rep in r.json()["reports"])
 
+    def test_finalised_report_cannot_be_overwritten(self, api):
+        """A submitted report is a filed regulatory record: the mobile save
+        route must refuse to overwrite it, like the web save does."""
+        import json
+        import os
+        import sqlite3
+
+        client, headers = api
+        cid = client.post("/api/v1/customers", headers=headers, json={
+            "reference": "CUST-LOCK", "full_name": "Locked Subject",
+        }).json()["customer_id"]
+        body = {
+            "customer_id": cid, "report_type": "STR",
+            "reporting_entity_name": "Test Firm", "entity_reference": "TF-1",
+            "reporter_name": "alice", "reporter_email": "alice@testfirm.ae",
+            "first_name": "Locked", "last_name": "Subject",
+            "reason_description": "original narrative",
+        }
+        rid = client.post("/api/v1/reports", headers=headers, json=body).json()["report_id"]
+
+        # A draft can still be edited.
+        r = client.post("/api/v1/reports", headers=headers,
+                        json={**body, "report_id": rid, "reason_description": "edited draft"})
+        assert r.status_code == 200, r.text
+
+        conn = sqlite3.connect(os.environ["AMLKIT_DB"])
+        conn.execute("UPDATE reports SET status='submitted' WHERE id=?", (rid,))
+        conn.commit()
+
+        r = client.post("/api/v1/reports", headers=headers,
+                        json={**body, "report_id": rid, "reason_description": "tampered"})
+        assert r.status_code == 409, r.text
+        assert "finalized" in r.json()["detail"]
+        payload = json.loads(conn.execute("SELECT payload FROM reports WHERE id=?", (rid,)).fetchone()[0])
+        conn.close()
+        assert payload["reason_description"] == "edited draft"
+
 
 class TestTransactionEndpoints:
     """GET /customers/{id}/transactions and GET /transaction-alerts."""

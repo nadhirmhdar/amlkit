@@ -178,7 +178,7 @@ def provision_operator(
         raise ValueError("name and email are required")
     if len(password) < 10:
         raise ValueError("password must be at least 10 characters")
-    if role not in ("officer", "mlro"):
+    if role not in auth.OPERATOR_ROLES:
         raise ValueError("role must be 'officer' or 'mlro'")
 
     clean_email = email.strip().lower()
