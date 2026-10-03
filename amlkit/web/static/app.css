@@ -465,7 +465,8 @@ a.list-row:hover, .list-row.clickable:hover { text-decoration: none; background:
 .list-row .side { font-size: 13px; color: var(--ink-3); }
 
 .list-head {
-  display: grid; padding: 12px 4px; font-size: 11.5px; font-weight: 700;
+  /* column-gap matches .list-row's gap, so headings sit over their columns */
+  display: grid; column-gap: 18px; padding: 12px 4px; font-size: 11.5px; font-weight: 700;
   letter-spacing: 0.06em; color: var(--ink-3); text-transform: uppercase;
   border-bottom: 1px solid var(--line); white-space: nowrap;
 }
@@ -1013,7 +1014,7 @@ body.modal-open { overflow: hidden; }
 }
 .feedback-modal-close svg { width: 18px; height: 18px; }
 .feedback-modal-close:hover { color: var(--ink); background: var(--line-soft); }
-.feedback-modal h3 { margin: 0 0 8px 0; padding-right: 28px; }
+.feedback-modal h3 { margin: 0 0 8px 0; padding-right: 28px; font-size: 17px; }
 .feedback-modal label.feedback-label {
   display: block; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--ink-3); margin: 14px 0 8px;
@@ -1213,3 +1214,15 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   /* Touch targets: 44px minimum for the compact in-page buttons on phones. */
   main button.small, main .btn.small { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 }
+
+/* Customer detail: the risk / status tags sit beside the name they describe. */
+.title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.title-row h1 { margin: 0; }
+
+/* Admin organisation profile: fields top-aligned in even columns; the hint
+   under the goAML reference no longer lifts that field above its neighbours. */
+.row.profile-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; gap: 20px 24px; }
+.profile-grid input { width: 100%; box-sizing: border-box; }
+.profile-grid .muted.small { display: block; margin-top: 6px; line-height: 1.5; }
+.profile-grid__actions { grid-column: 1 / -1; }
+

@@ -433,6 +433,16 @@ jobs:
           # on the next deploy. Unset/empty = registration closed. Must not
           # contain ";;" (the delimiter used below).
           AMLKIT_REGISTRATION_INVITE_CODE: ${{ secrets.AMLKIT_REGISTRATION_INVITE_CODE }}
+          # UAE PASS (operator SSO + customer CDD verification) — repo secrets
+          # UAEPASS_CLIENT_ID / UAEPASS_CLIENT_SECRET and repo variable
+          # UAEPASS_ENV (staging|production; empty = staging). Must be passed
+          # here for the same reason as above (--set-env-vars replaces the
+          # whole list). Either secret unset/empty = integration stays inert
+          # (no button, routes 404) -- see uaepass.load_config(). Values must
+          # not contain ";;".
+          UAEPASS_CLIENT_ID: ${{ secrets.UAEPASS_CLIENT_ID }}
+          UAEPASS_CLIENT_SECRET: ${{ secrets.UAEPASS_CLIENT_SECRET }}
+          UAEPASS_ENV: ${{ vars.UAEPASS_ENV }}
           # Litestream replica location — repo variable LITESTREAM_REPLICA_URL.
           # Must be passed here for the same reason as above (--set-env-vars
           # replaces the whole list). Moved to litestream-v2/ after the
@@ -452,7 +462,7 @@ jobs:
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
-            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;GEMINI_API_KEY=${GEMINI_API_KEY};;AMLKIT_REGISTRATION_INVITE_CODE=${AMLKIT_REGISTRATION_INVITE_CODE};;LITESTREAM_REPLICA_URL=${LITESTREAM_REPLICA_URL}" \
+            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;GEMINI_API_KEY=${GEMINI_API_KEY};;AMLKIT_REGISTRATION_INVITE_CODE=${AMLKIT_REGISTRATION_INVITE_CODE};;LITESTREAM_REPLICA_URL=${LITESTREAM_REPLICA_URL};;UAEPASS_CLIENT_ID=${UAEPASS_CLIENT_ID};;UAEPASS_CLIENT_SECRET=${UAEPASS_CLIENT_SECRET};;UAEPASS_ENV=${UAEPASS_ENV}" \
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \

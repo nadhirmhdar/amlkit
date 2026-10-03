@@ -44,14 +44,14 @@ def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int
         },
         node_attr={
             "fontname": "system-ui, -apple-system, sans-serif",
-            "fontsize": "11",
+            "fontsize": "12",
             "shape": "box",
             "style": "filled,rounded",
             "penwidth": "1.5",
         },
         edge_attr={
             "fontname": "system-ui, -apple-system, sans-serif",
-            "fontsize": "9",
+            "fontsize": "10",
             "penwidth": "1.2",
             "color": "#1E9B8F",  # Teal accent from Grovisor branding
             "arrowsize": "0.8",
