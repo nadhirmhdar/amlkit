@@ -1342,6 +1342,8 @@ def api_alert_assign(alert_id: int, body: AlertAssignRequest, db: DB, session: S
 @router.get("/alerts.csv")
 def api_alerts_csv(db: DB, session: Session, status: str = "all"):
     queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status)
+    _audit_export(db, session, "export.alerts_csv", None, None,
+                  {"status": status, "rows": len(queue), "via": "mobile"})
     return _csv(
         "alerts.csv",
         ["id", "category", "score", "caption", "matched_party", "status", "reason_code",
@@ -1355,6 +1357,8 @@ def api_alerts_csv(db: DB, session: Session, status: str = "all"):
 @router.get("/customers.csv")
 def api_customers_csv(db: DB, session: Session):
     rows = queries.customer_list(db, session.org_id)
+    _audit_export(db, session, "export.customers_csv", None, None,
+                  {"rows": len(rows), "via": "mobile"})
     return _csv(
         "customers.csv",
         ["reference", "full_name", "customer_type", "sector", "status", "rating",
@@ -1363,6 +1367,15 @@ def api_customers_csv(db: DB, session: Session):
           c["status"], c.get("rating") or "", c.get("risk_score") or "",
           c["open_alerts"], c.get("last_screened") or "", c["review_overdue"]] for c in rows],
     )
+
+
+def _audit_export(db, session, action: str, object_type: str | None = None,
+                  object_id=None, detail=None) -> None:
+    """Mirror of app._audit_export: one audit row per successful export."""
+    from ..db import audit
+    audit(db, session.operator_name, action, object_type, object_id, detail,
+          org_id=session.org_id)
+    db.commit()
 
 
 def _csv(filename: str, header: list[str], rows: list[list]) -> Response:
@@ -1663,6 +1676,8 @@ def api_report_export(report_id: int, db: DB, session: Session):
         xml_content = serialize_goaml_xml(payload)
     except GoAMLValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _audit_export(db, session, "export.goaml_xml", "report", report_id,
+                  {"report_type": rep["report_type"], "via": "mobile"})
     return Response(
         content=xml_content, media_type="application/xml",
         headers={"Content-Disposition": f"attachment; filename=goAML_{rep['report_type']}_{report_id}.xml"},
@@ -1696,6 +1711,8 @@ def api_audit_export(
 
     query += " ORDER BY ts DESC"
     rows = db.execute(query, params).fetchall()
+    _audit_export(db, session, "export.audit_csv", None, None,
+                  {"from": from_date, "to": to_date, "rows": len(rows), "via": "mobile"})
 
     from ..pii import redact as _redact_pii
 
