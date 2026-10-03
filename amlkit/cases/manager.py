@@ -200,7 +200,10 @@ def onboard(
     rating to high regardless of every other factor -- the two are not
     independent inputs.
     """
-    from ..datamodel import validate_country_code, validate_emirate
+    from ..datamodel import (
+        validate_birth_date, validate_country_code, validate_customer_type,
+        validate_emirate, validate_name_length,
+    )
     from ..ingest.loader import datasets_fresh
 
     if not datasets_fresh(conn):
@@ -222,6 +225,10 @@ def onboard(
                 f"Total UBO ownership is {round(total_ownership, 2)}% (cannot exceed 100%)"
             )
 
+    validate_customer_type(customer_type)
+    validate_name_length("full_name", full_name)
+    validate_name_length("name_arabic", name_arabic)
+    validate_birth_date(birth_date)
     validate_country_code(nationality)
     validate_country_code(country)
     if nationalities:

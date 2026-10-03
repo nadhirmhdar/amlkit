@@ -8,6 +8,9 @@ No database access, no side effects — only validation and string mapping.
 
 from __future__ import annotations
 
+import re
+from datetime import date
+
 COUNTRY_CODES: frozenset[str] = frozenset({
     "AD", "AE", "AF", "AG", "AL", "AM", "AO", "AR", "AT", "AU",
     "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ",
@@ -88,6 +91,15 @@ CIVIL_STATUS_CODES: frozenset[str] = frozenset({
 
 MAX_OCCUPATION_LENGTH = 200
 
+# Customer names (full_name / name_arabic). Generous for long legal-entity
+# names and multi-part Arabic names, but bounds what a hand-crafted POST can
+# store and feed into screening.
+MAX_NAME_LENGTH = 200
+
+# Strict YYYY-MM-DD: date.fromisoformat alone (3.11+) also takes "20200101"
+# and ISO week dates like "2020-W01-1".
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
 
 def map_customer_type(customer_type: str) -> str:
     key = customer_type.lower()
@@ -132,3 +144,33 @@ def validate_occupation(occupation: str | None) -> None:
         raise ValueError(
             f"occupation exceeds {MAX_OCCUPATION_LENGTH} characters"
         )
+
+
+def validate_customer_type(customer_type: str) -> None:
+    # Exact match (no lower()): the stored value drives natural-vs-legal
+    # branching elsewhere, so 'Natural' must not slip in as a third type.
+    if customer_type not in _CUSTOMER_TYPE_MAP:
+        raise ValueError(
+            f"Unknown customer_type {customer_type!r}; expected 'natural' or 'legal'"
+        )
+
+
+def validate_name_length(field: str, value: str | None) -> None:
+    if value and len(value) > MAX_NAME_LENGTH:
+        raise ValueError(f"{field} exceeds {MAX_NAME_LENGTH} characters")
+
+
+def validate_birth_date(birth_date: str | None) -> None:
+    """Empty is allowed; otherwise a real YYYY-MM-DD date not in the future."""
+    if not birth_date:
+        return
+    try:
+        if not _ISO_DATE_RE.match(birth_date):
+            raise ValueError
+        parsed = date.fromisoformat(birth_date)
+    except ValueError:
+        raise ValueError(
+            f"Invalid birth_date {birth_date!r}; expected a date as YYYY-MM-DD"
+        ) from None
+    if parsed > date.today():
+        raise ValueError("birth_date cannot be in the future")

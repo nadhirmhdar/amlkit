@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import sqlite3
 from pathlib import Path
 from typing import Annotated, Any
@@ -1550,6 +1551,9 @@ class ReportSaveRequest(BaseModel):
 
 @router.post("/reports")
 def api_report_save(body: ReportSaveRequest, db: DB, session: Session):
+    # Same rule as the web path's cases.reports.save_report.
+    if body.amount is not None and not (math.isfinite(body.amount) and body.amount >= 0):
+        raise HTTPException(status_code=400, detail="Amount must be zero or a positive number.")
     cust_row = db.execute(
         "SELECT customer_type FROM customers WHERE id=? AND org_id=?",
         (body.customer_id, session.org_id),
