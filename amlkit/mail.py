@@ -293,7 +293,7 @@ def send_freeze_obligation_alert(
         "- Review the freeze obligation details immediately\n"
         "- Execute asset freeze without delay\n"
         "- Document all frozen assets\n"
-        "- File FFR (Fund Freeze Report) to FIU\n\n"
+        "- File a CNMR (Confirmed Name Match Report) on goAML within 5 business days\n\n"
         "Cabinet Resolution 134/2025 places personal liability on senior management\n"
         "for TFS compliance failures. Asset freezes must be executed immediately upon\n"
         "identification per UAE law.\n\n"

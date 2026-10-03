@@ -19,7 +19,7 @@
   <div class="flat-list">
     {% for r in reports %}
       <div class="list-row">
-        <span class="tag {{ 'high' if r.report_type in ('STR','SAR','FFR') else 'other' }}" style="width:80px;">{{ r.report_type }}</span>
+        <span class="tag {{ 'high' if r.report_type in ('STR','SAR','FFR') else 'other' }}" style="width:80px;">{{ 'CNMR' if r.report_type == 'FFR' else r.report_type }}</span>
         <div class="grow">
           <div class="primary">{{ r.reference or 'DRAFT-' ~ r.id }}</div>
           <div class="secondary">{{ r.customer_name or 'No associated customer' }} &middot; created {{ r.created_at[:16].replace('T', ' ') }}</div>
