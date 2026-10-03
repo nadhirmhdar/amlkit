@@ -3942,8 +3942,12 @@ def report_new_view(request: Request, db: DB):
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
 
+    from ..reporting.goaml import CREATABLE_REPORT_TYPES, REPORT_TYPE_LABELS
     customers = queries.customer_list(db, session.org_id)
-    return render(request, "report_new.html", {"session": session, "customers": customers}, db)
+    report_types = [(t, REPORT_TYPE_LABELS[t]) for t in CREATABLE_REPORT_TYPES]
+    return render(request, "report_new.html", {
+        "session": session, "customers": customers, "report_types": report_types,
+    }, db)
 
 
 @app.get("/reports/build", response_class=HTMLResponse)

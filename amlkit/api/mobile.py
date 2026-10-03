@@ -1556,6 +1556,13 @@ def api_report_save(body: ReportSaveRequest, db: DB, session: Session):
     ).fetchone()
     if cust_row is None:
         raise HTTPException(status_code=404, detail="Customer not found.")
+    from ..reporting.goaml import CREATABLE_REPORT_TYPES
+    if body.report_type not in CREATABLE_REPORT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Report type {body.report_type!r} is not supported. "
+                   f"Supported types: {', '.join(CREATABLE_REPORT_TYPES)}.",
+        )
 
     payload_dict = {
         "customer_id": body.customer_id, "customer_type": cust_row["customer_type"],
