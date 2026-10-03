@@ -4,7 +4,10 @@ Generates XML files compliant with goAML 5.x schema requirements for:
 - STR (Suspicious Transaction Report)
 - SAR (Suspicious Activity Report)
 - PNMR (Partial Name Match Report)
-- FFR (Fund Freeze Report)
+- FFR (Fund Freeze Report) -- shown to users as CNMR (Confirmed Name Match
+  Report), EOCN's current name for it. The stored report_type and the XML
+  report_code stay "FFR" until goAML UAE's accepted code for a CNMR is
+  confirmed; changing the code goAML receives could get filings rejected.
 - HRCT (High Risk Country Transaction Report)
 - HRCA (High Risk Country Activity Report)
 - DPMSR (Dealers in Precious Metals and Stones Report)
@@ -110,7 +113,7 @@ def serialize_goaml_xml(report_data: dict) -> str:
         freeze_id = report_data.get("freeze_obligation_id")
         if not freeze_id:
             raise GoAMLValidationError(
-                "Cannot export FFR: freeze obligation ID is required."
+                "Cannot export CNMR: freeze obligation ID is required."
             )
 
     root = ET.Element("report")

@@ -75,12 +75,12 @@ def file_ffr_report(
         raise ValueError(f"Freeze obligation {freeze_id} not found")
 
     if freeze["status"] != "executed_pending_report":
-        raise ValueError("Freeze not ready for FFR filing")
+        raise ValueError("Freeze not ready for CNMR filing")
 
     # Guard against blank names (would raise IndexError on split()[0])
     full_name = freeze["full_name"] or ""
     if not full_name.strip():
-        raise ValueError(f"Cannot file FFR: customer full_name is blank (customer_id={freeze['customer_id']})")
+        raise ValueError(f"Cannot file CNMR: customer full_name is blank (customer_id={freeze['customer_id']})")
 
     # For legal entities, use full entity name (not split())
     # goAML entity node uses first_name field for the entity's full name

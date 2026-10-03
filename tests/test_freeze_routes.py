@@ -132,6 +132,11 @@ def test_mlro_can_file_ffr_and_resolve(client):
     conn.commit()
     conn.close()
 
+    # The page names the report by EOCN's current name, CNMR (formerly FFR).
+    page = client.get(f"/freeze-obligations/{freeze_id}").text
+    assert "File CNMR" in page and "CNMR not yet filed" in page
+    assert "File FFR" not in page and "FFR not yet filed" not in page
+
     # MLRO files FFR
     r = client.post(f"/freeze-obligations/{freeze_id}/file-ffr",
                     data={
@@ -151,6 +156,11 @@ def test_mlro_can_file_ffr_and_resolve(client):
     assert row["status"] == "reported"
     assert row["reported_at"] is not None
     assert row["report_id"] is not None
+    # Stored as "FFR" (the goAML code), listed as CNMR.
+    reports_page = client.get("/reports").text
+    assert ">CNMR</span>" in reports_page and ">FFR</span>" not in reports_page
+    detail = client.get(f"/reports/{row['report_id']}").text
+    assert "CNMR report</h1>" in detail
 
     # Now resolve it
     r2 = client.post(f"/freeze-obligations/{freeze_id}/resolve",

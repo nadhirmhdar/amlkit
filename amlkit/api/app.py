@@ -1519,7 +1519,7 @@ def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, form: An
 
 @app.post("/freeze-obligations/{freeze_id}/file-ffr")
 def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: Annotated[FormData, Depends(_async_form)]):
-    """Create FFR report from freeze obligation."""
+    """Create a CNMR (formerly FFR) report from a freeze obligation."""
     try:
         session = require_session(request, db)
         csrf_token = form.get("csrf_token", "")
@@ -1528,7 +1528,7 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
 
     if session.operator_role != "mlro":
-        return back(f"/freeze-obligations/{freeze_id}", err="File FFR requires MLRO role")
+        return back(f"/freeze-obligations/{freeze_id}", err="Filing a CNMR requires the MLRO role")
 
     from ..cases import freeze as freeze_ops
     reporter_name = form.get("reporter_name") or session.operator_name

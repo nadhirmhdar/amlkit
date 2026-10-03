@@ -6,7 +6,7 @@
 <div class="page-head" style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
   <div>
     <div class="eyebrow">Compliance</div>
-    <h1 style="font-size:32px;">{{ report.report_type }} report</h1>
+    <h1 style="font-size:32px;">{{ 'CNMR' if report.report_type == 'FFR' else report.report_type }} report</h1>
     <div class="muted small mt-2">
       Filing ID {{ report.id }} ·
       <span class="tag {{ 'low' if report.status == 'submitted' else 'other' }}">{{ report.status }}</span>
