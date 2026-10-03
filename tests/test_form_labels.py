@@ -80,3 +80,38 @@ def test_labelled_templates_have_no_unassociated_sibling_labels() -> None:
     for name in ("customer.html", "admin.html", "dashboard.html", "freeze_obligations.html"):
         src = (TEMPLATES / name).read_text()
         assert not _BARE_SIBLING.search(src), f"{name}: bare <label> beside a control"
+
+
+def test_screen_page_lists_recent_checks_once_per_name(client) -> None:
+    import re as _re
+    tok = _re.search(r'name="csrf_token" value="([^"]+)"', client.get("/screen").text).group(1)
+    for nm in ("Jane Roe", "jane roe", "John Doe"):
+        r = client.post("/screen", data={"name": nm, "csrf_token": tok})
+        assert r.status_code == 200
+    page = client.get("/screen").text
+    assert "Recent checks" in page
+    assert page.count("/screen?name=") == 2      # Jane (once, newest spelling) and John
+    assert "/screen?name=John%20Doe" in page
+
+
+def test_screen_prefills_name_from_query_string(client) -> None:
+    r = client.get("/screen?name=Jane%20Roe")
+    assert 'value="Jane Roe"' in r.text
+
+
+def test_recent_checks_never_cross_organisations(tmp_path, monkeypatch) -> None:
+    """Recent checks are org-wide (every operator in a firm sees the firm's checks)
+    but strictly per organisation: another firm never sees these names."""
+    import re as _re
+    from conftest import register_org
+    from fastapi.testclient import TestClient
+    from amlkit.api.app import app
+
+    monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "iso.db"))
+    a, b = TestClient(app), TestClient(app)
+    register_org(a, "Firm A", "Alice", "alice@firm-a.example")
+    register_org(b, "Firm B", "Bob", "bob@firm-b.example")
+    tok = _re.search(r'name="csrf_token" value="([^"]+)"', a.get("/screen").text).group(1)
+    assert a.post("/screen", data={"name": "Secret Subject", "csrf_token": tok}).status_code == 200
+    assert "Secret Subject" in a.get("/screen").text
+    assert "Secret Subject" not in b.get("/screen").text

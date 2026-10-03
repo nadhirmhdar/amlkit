@@ -4,7 +4,8 @@
 {% block title %}Screen a name — groAML{% endblock %}
 {% block body %}
 
-<div style="max-width:640px;">
+<div class="screen-layout">
+<div class="screen-main">
   <div class="page-head">
     <div class="eyebrow">Ad-hoc check</div>
     <h1>Screen a name</h1>
@@ -82,6 +83,22 @@
       </div>
     {% endif %}
   {% endif %}
+</div>
+
+{% if recent %}
+<aside class="screen-recent" aria-labelledby="recent-h">
+  <h2 id="recent-h">Recent checks</h2>
+  <ul>
+    {% for r in recent %}
+    <li>
+      <a href="/screen?name={{ r.name|urlencode }}" dir="auto">{{ r.name }}</a>
+      <span class="{{ 'recent-hit' if r.hits else 'muted' }}">{% if r.hits %}{{ r.hits }} match{{ 'es' if r.hits != 1 }}{% else %}No match{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="muted small">Select a name to check it again.</p>
+</aside>
+{% endif %}
 </div>
 
 {% endblock %}

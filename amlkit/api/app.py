@@ -1639,12 +1639,13 @@ def dashboard(request: Request, db: DB):
 
 # --------------------------------------------------------------------- screen
 @app.get("/screen", response_class=HTMLResponse)
-def screen_form(request: Request, db: DB):
+def screen_form(request: Request, db: DB, name: str = ""):
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    return render(request, "screen.html", {"session": session, "result": None, "query": ""}, db)
+    return render(request, "screen.html", {"session": session, "result": None, "query": name.strip()[:200],
+                                           "recent": queries.recent_adhoc_screenings(db, session.org_id)}, db)
 
 
 @app.post("/screen", response_class=HTMLResponse)
@@ -1694,6 +1695,7 @@ def screen_run(
     return render(request, "screen.html", {
         "session": session, "query": name, "result": result, "hits": hits,
         "low_confidence": len(name.split()) < 2,
+        "recent": queries.recent_adhoc_screenings(db, session.org_id),
     }, db)
 
 
