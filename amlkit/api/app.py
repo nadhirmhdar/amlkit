@@ -31,6 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, notifications, queries, uaepass
+from ..web import blog
 from .limits import limiter, login_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
@@ -84,6 +85,7 @@ WEB = Path(__file__).resolve().parent.parent / "web"
 
 # ---------------------------------------------------------------------- scheduler
 import contextlib
+import json
 import logging
 import os
 import secrets
@@ -202,6 +204,12 @@ app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))
 templates.env.globals["has_arabic"] = has_arabic_script
 templates.env.globals["asset_v"] = int((WEB / "static" / "app.css").stat().st_mtime)
+# blog.css/blog.js change independently of app.css, so they get their own cache-buster.
+templates.env.filters["blog_date"] = blog.format_date
+templates.env.globals["blog_asset_v"] = int(max(
+    (WEB / "static" / "blog.css").stat().st_mtime,
+    (WEB / "static" / "js" / "blog.js").stat().st_mtime,
+))
 
 
 async def _async_form(request: Request) -> FormData:
@@ -1909,12 +1917,29 @@ def customer_detail(request: Request, db: DB, customer_id: int):
         return back("/customers", err=f"Customer {customer_id} not found.")
     from ..cases.diagram import generate_ubo_diagram
     diagram_svg = generate_ubo_diagram(db, customer_id, session.org_id)
+    # Stored as JSON lists; show "AE, GB" rather than ["AE", "GB"] (and nothing for []).
+    for key in ("nationalities", "tax_residencies"):
+        data["customer"][key] = _code_list(data["customer"].get(key))
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
                  data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
                          "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
+
+
+def _code_list(value) -> str:
+    """'["AE","GB"]' (or a list) -> 'AE, GB'; empty or unparseable -> ''."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return value.strip()
+    if not value:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v).strip() for v in value if str(v).strip())
+    return str(value)
 
 
 @app.get("/customers/{customer_id}/uaepass/start")
@@ -2768,6 +2793,60 @@ def privacy_view(request: Request, db: DB):
                   {"session": session, "quote_to": quote_recipients()[0]}, db)
 
 
+# ------------------------------------------------------------------------ blog
+# Public, same as /about -- educational content for DNFBPs researching their
+# screening obligations, meant to be found by search rather than reached from
+# inside the product.
+@app.get("/blog", response_class=HTMLResponse)
+def blog_index(request: Request, db: DB, topic: str = "", q: str = ""):
+    session = current_session(request, db)
+    active = blog.get_topic(topic) if topic else None
+    if topic and active is None:
+        raise HTTPException(status_code=404)
+    q = q.strip()[:100]
+    posts = blog.posts_in_topic(active.slug) if active else blog.all_posts()
+    if q:  # no-JS fallback; blog.js filters the same cards instantly in the browser
+        posts = blog.search(q, posts)
+    featured = next((p for p in posts if p.featured), None) if not (active or q) else None
+    return render(request, "blog_index.html", {
+        "session": session, "posts": posts, "featured": featured, "q": q,
+        "active_topic": active, "topics": blog.topic_counts(),
+    }, db)
+
+
+@app.get("/blog/{slug}", response_class=HTMLResponse)
+def blog_post_view(request: Request, slug: str, db: DB):
+    post = blog.get_post(slug)
+    if post is None:
+        raise HTTPException(status_code=404)
+    session = current_session(request, db)
+    return render(request, f"blog/{post.slug}.html", {
+        "session": session, "post": post, "related": blog.related_posts(post),
+    }, db)
+
+
+@app.get("/robots.txt", response_class=Response)
+def robots_txt():
+    body = "User-agent: *\nAllow: /\nSitemap: https://groaml.grovisor.ae/sitemap.xml\n"
+    return Response(body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml", response_class=Response)
+def sitemap_xml():
+    urls = ["/about", "/privacy", "/blog"] + [f"/blog/{p.slug}" for p in blog.all_posts()]
+    lastmods = {"/blog": blog.all_posts()[0].updated if blog.all_posts() else None}
+    for p in blog.all_posts():
+        lastmods[f"/blog/{p.slug}"] = p.updated
+    entries = "\n".join(
+        f'  <url><loc>https://groaml.grovisor.ae{u}</loc>'
+        + (f'<lastmod>{lastmods[u]}</lastmod>' if lastmods.get(u) else '')
+        + '</url>'
+        for u in urls
+    )
+    body = f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{entries}\n</urlset>\n'
+    return Response(body, media_type="application/xml")
+
+
 # ---------------------------------------------------------------------- feedback
 @app.post("/feedback")
 def feedback_submit(
@@ -2806,6 +2885,70 @@ def feedback_submit(
 
     from fastapi.responses import JSONResponse
     return JSONResponse({"success": True, "message": "Thank you for your feedback!"})
+
+
+@app.get("/admin/feedback", response_class=HTMLResponse)
+def feedback_view(request: Request, db: DB, page: int = 1):
+    """MLRO-only viewer for feedback submitted via the in-app widget above.
+
+    Same pagination shape as /audit: no COUNT query, just "is this page
+    full?" to decide whether a Next link is shown.
+    """
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
+
+    per_page = 50
+    offset = (page - 1) * per_page
+
+    return render(request, "feedback_admin.html", {
+        "session": session,
+        "entries": queries.feedback_list(db, session.org_id, limit=per_page, offset=offset),
+        "page": page,
+        "per_page": per_page,
+    })
+
+
+@app.get("/admin/feedback/export")
+def feedback_export(request: Request, db: DB):
+    """Export this org's feedback as CSV. MLRO only, same shape as /audit/export."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import Response as _R
+        return _R(status_code=403)
+
+    import csv
+    import io as _io
+    from fastapi.responses import StreamingResponse
+
+    from ..pii import redact as _redact_pii
+
+    entries = queries.feedback_list(db, session.org_id, limit=100000)
+    buf = _io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["created_at", "operator", "page", "message"])
+    for e in entries:
+        writer.writerow([
+            _escape_csv_formula(e.get("created_at", "")),
+            _escape_csv_formula(e.get("operator_name") or ""),
+            _escape_csv_formula(e.get("page", "")),
+            _escape_csv_formula(_redact_pii(e.get("message", ""))),
+        ])
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=feedback.csv"},
+    )
 
 
 # ---------------------------------------------------------------------- audit

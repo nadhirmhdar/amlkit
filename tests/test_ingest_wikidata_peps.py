@@ -335,3 +335,123 @@ class TestFetch:
 
         with pytest.raises(AdapterError, match="statement query failed"):
             WikidataPEPAdapter().fetch()
+
+
+class TestRobotPolicyBlock:
+    def test_403_fails_fast_without_retrying_and_says_why(self, stub, monkeypatch):
+        """Wikimedia answers a blocked IP with 403 'Please respect our robot
+        policy'. Retrying adds to the traffic that caused it, so the adapter
+        must stop at once and name the cause."""
+        import time
+        monkeypatch.setattr(time, "sleep", lambda *_: pytest.fail("must not back off and retry a 403"))
+
+        transport = stub([[]], labels={})
+        calls = {"n": 0}
+
+        def blocked(request):
+            calls["n"] += 1
+            return httpx.Response(403, text="Please respect our robot policy https://w.wiki/4wJS")
+
+        transport.handle_request = blocked
+        with pytest.raises(AdapterError, match="robot policy") as exc:
+            WikidataPEPAdapter().fetch()
+        assert calls["n"] == 1
+        assert "bot-traffic@wikimedia.org" in str(exc.value)
+
+    def test_user_agent_names_the_product_and_a_contact(self):
+        from amlkit.ingest import wikidata_peps as w
+        assert "groAML" in w.USER_AGENT and ("@" in w.USER_AGENT or "http" in w.USER_AGENT)
+
+
+# ---------------------------------------------------------------- snapshot
+@pytest.fixture(autouse=True)
+def _live_unless_a_test_says_otherwise(monkeypatch):
+    """Existing fetch tests drive the live path through a stub transport; keep
+    them independent of any snapshot committed to the repo."""
+    monkeypatch.setenv("AMLKIT_WIKIDATA_MODE", "live")
+
+
+def _write_snapshot(tmp_path, rows, as_of):
+    import gzip
+    data = tmp_path / "wikidata_peps.jsonl.gz"
+    data.write_bytes(gzip.compress("\n".join(json.dumps(r) for r in rows).encode()))
+    (tmp_path / "wikidata_peps.meta.json").write_text(json.dumps({"as_of": as_of, "rows": len(rows)}))
+    return data
+
+
+_ROW = {"person": "Q1", "person_label": "Layla Haddad", "position": "Q83307", "position_label": "Minister",
+        "country": "Q878", "country_label": "United Arab Emirates", "start": "2020-01-01T00:00:00Z", "end": None}
+
+
+class TestSnapshot:
+    def test_auto_mode_reads_the_snapshot_and_never_calls_wikidata(self, tmp_path, monkeypatch, stub):
+        from datetime import date
+        data = _write_snapshot(tmp_path, [_ROW], date.today().isoformat())
+        monkeypatch.setenv("AMLKIT_WIKIDATA_MODE", "auto")
+        monkeypatch.setenv("AMLKIT_WIKIDATA_SNAPSHOT", str(data))
+        transport = stub([[]], labels={})
+        transport.handle_request = lambda request: pytest.fail("snapshot mode must not query Wikidata")
+        adapter = WikidataPEPAdapter()
+        entities = list(adapter.parse(adapter.fetch()))
+        assert len(entities) == 1 and entities[0].caption == "Layla Haddad"
+
+    def test_auto_mode_falls_back_to_live_when_there_is_no_snapshot(self, tmp_path, monkeypatch, stub):
+        monkeypatch.setenv("AMLKIT_WIKIDATA_MODE", "auto")
+        monkeypatch.setenv("AMLKIT_WIKIDATA_SNAPSHOT", str(tmp_path / "missing.jsonl.gz"))
+        page = [_binding(person="http://www.wikidata.org/entity/Q1", position="http://www.wikidata.org/entity/Q83307")]
+        stub([page], labels={"Q1": "Someone", "Q83307": "Minister"})
+        assert WikidataPEPAdapter().fetch()
+
+    def test_snapshot_only_mode_fails_clearly_without_a_snapshot(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AMLKIT_WIKIDATA_MODE", "snapshot")
+        monkeypatch.setenv("AMLKIT_WIKIDATA_SNAPSHOT", str(tmp_path / "missing.jsonl.gz"))
+        with pytest.raises(AdapterError, match="no snapshot found"):
+            WikidataPEPAdapter().fetch()
+
+    def test_a_stale_snapshot_is_refused(self, tmp_path, monkeypatch):
+        from datetime import date, timedelta
+        old = (date.today() - timedelta(days=200)).isoformat()
+        monkeypatch.setenv("AMLKIT_WIKIDATA_MODE", "snapshot")
+        monkeypatch.setenv("AMLKIT_WIKIDATA_SNAPSHOT", str(_write_snapshot(tmp_path, [_ROW], old)))
+        with pytest.raises(AdapterError, match="days old"):
+            WikidataPEPAdapter().fetch()
+
+    def test_live_mode_ignores_the_snapshot(self, tmp_path, monkeypatch, stub):
+        from datetime import date
+        monkeypatch.setenv("AMLKIT_WIKIDATA_SNAPSHOT", str(_write_snapshot(tmp_path, [_ROW], date.today().isoformat())))
+        monkeypatch.setenv("AMLKIT_WIKIDATA_MODE", "live")
+        transport = stub([[]], labels={})
+        with pytest.raises(AdapterError, match="0 position-holder rows"):
+            WikidataPEPAdapter().fetch()
+
+    def test_bad_mode_is_rejected(self, monkeypatch):
+        monkeypatch.setenv("AMLKIT_WIKIDATA_MODE", "sometimes")
+        with pytest.raises(AdapterError, match="must be auto, snapshot or live"):
+            WikidataPEPAdapter().fetch()
+
+
+class TestSnapshotScript:
+    def _payload(self, n):
+        rows = [dict(_ROW, person=f"Q{i}", person_label=f"Person {i}") for i in range(n)]
+        return "\n".join(json.dumps(r) for r in rows).encode()
+
+    def test_writes_a_loadable_snapshot_with_meta(self, tmp_path, monkeypatch):
+        import importlib.util, sys as _sys
+        spec = importlib.util.spec_from_file_location("snap", str(__import__("pathlib").Path(__file__).resolve().parent.parent / "scripts" / "snapshot_wikidata_peps.py"))
+        snap = importlib.util.module_from_spec(spec); spec.loader.exec_module(snap)
+        meta = snap.build_snapshot(tmp_path, payload=self._payload(10))
+        assert meta["rows"] == 10 and meta["people"] == 10 and meta["licence"].startswith("CC0")
+        monkeypatch.setenv("AMLKIT_WIKIDATA_MODE", "snapshot")
+        monkeypatch.setenv("AMLKIT_WIKIDATA_SNAPSHOT", str(tmp_path / "wikidata_peps.jsonl.gz"))
+        adapter = WikidataPEPAdapter()
+        assert len(list(adapter.parse(adapter.fetch()))) == 10
+
+    def test_refuses_to_replace_with_a_sharply_smaller_snapshot(self, tmp_path):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("snap2", str(__import__("pathlib").Path(__file__).resolve().parent.parent / "scripts" / "snapshot_wikidata_peps.py"))
+        snap = importlib.util.module_from_spec(spec); spec.loader.exec_module(snap)
+        snap.build_snapshot(tmp_path, payload=self._payload(100))
+        with pytest.raises(AdapterError, match="truncated or blocked"):
+            snap.build_snapshot(tmp_path, payload=self._payload(10))
+        assert snap.build_snapshot(tmp_path, payload=self._payload(10), force=True)["rows"] == 10
+

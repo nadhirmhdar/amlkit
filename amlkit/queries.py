@@ -767,6 +767,24 @@ def audit_trail(
     ]
 
 
+def feedback_list(
+    conn: sqlite3.Connection, org_id: int, limit: int = 50, offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Feedback submitted via the in-app feedback widget, newest first, for
+    one organization (see api/app.py's feedback_submit()).
+
+    LEFT JOIN, not JOIN: feedback.operator_id is ON DELETE SET NULL (see
+    db.py's schema comment), so a submission from a since-removed operator
+    still shows here, just without a name.
+    """
+    sql = (
+        "SELECT f.id, f.page, f.message, f.created_at, o.name AS operator_name"
+        " FROM feedback f LEFT JOIN operators o ON o.id = f.operator_id"
+        " WHERE f.org_id=? ORDER BY f.id DESC LIMIT ? OFFSET ?"
+    )
+    return [dict(r) for r in conn.execute(sql, (org_id, limit, offset))]
+
+
 def recent_audit(conn: sqlite3.Connection, org_id: int, limit: int = 6) -> list[dict[str, Any]]:
     """Last N audit entries for the dashboard widget.
 
