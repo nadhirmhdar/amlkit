@@ -41,6 +41,7 @@ from amlkit.ingest.un import UNSanctionsAdapter  # noqa: E402
 from amlkit.ingest.ofac import OFACSDNAdapter  # noqa: E402
 from amlkit.ingest.eu import EUSanctionsAdapter  # noqa: E402
 from amlkit.ingest.uk import UKSanctionsAdapter  # noqa: E402
+from amlkit.ingest.wikidata_peps import wikidata_ministers  # noqa: E402
 from amlkit.match.engine import rescreen_all  # noqa: E402
 
 # Mandatory under UAE law or required for screening. Failure to refresh any
@@ -53,6 +54,7 @@ MANDATORY_SOURCES = [
     EUSanctionsAdapter,
     UKSanctionsAdapter,
     cia_world_leaders,
+    wikidata_ministers,
 ]
 
 

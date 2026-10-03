@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% set nav = 'feedback' %}
+{% block title %}Feedback — groAML{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div class="eyebrow">Pilot feedback</div>
+  <h1>Feedback</h1>
+  <p class="sub">
+    Bug reports, feature requests and UX issues submitted from the feedback
+    button on any page. Visible only to your firm's own submissions — other
+    firms' feedback is never mixed in.
+  </p>
+  <a href="/admin/feedback/export" style="font-size:13px; font-weight:600;">Export CSV →</a>
+</div>
+
+<div class="grid-table">
+<div class="list-head" style="grid-template-columns:160px 150px 120px 1fr;">
+  <div>When</div><div>Operator</div><div>Page</div><div>Message</div>
+</div>
+<div class="flat-list">
+  {% for e in entries %}
+  <div class="list-row" style="display:grid; grid-template-columns:160px 150px 120px 1fr;">
+    <div class="small nowrap mono muted" data-label="When">{{ e.created_at[:19].replace('T',' ') }}</div>
+    <div class="small" style="color:var(--ink-2); font-weight:600;" data-label="Operator">{{ e.operator_name or '—' }}</div>
+    <div class="small mono muted" data-label="Page">{{ e.page }}</div>
+    <div class="small" data-label="Message" style="white-space:pre-wrap;">{{ e.message }}</div>
+  </div>
+  {% else %}
+  <div class="list-row">
+    <div class="small muted">No feedback submitted yet.</div>
+  </div>
+  {% endfor %}
+</div>
+</div>
+
+<div class="pagination" style="margin-top:24px; display:flex; gap:12px; justify-content:center;">
+  {% if page > 1 %}
+    <a href="/admin/feedback?page={{ page - 1 }}" class="btn">Previous</a>
+  {% endif %}
+  {% if entries|length == per_page %}
+    <a href="/admin/feedback?page={{ page + 1 }}" class="btn">Next</a>
+  {% endif %}
+</div>
+
+{% endblock %}

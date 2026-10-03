@@ -756,8 +756,11 @@ class TestCsvExport:
             ("-1-1", "'-1-1"),            # Minus sign
             ("@A1", "'@A1"),              # At sign
         ]
-        for name, escaped in dangerous_names:
-            ref = f"FORMULA-{hash(name) % 1000}"
+        for i, (name, escaped) in enumerate(dangerous_names):
+            # Deterministic: hash() of a str is randomized per process, so a
+            # hash-derived reference collided now and then, the duplicate
+            # customer was rejected, and one expected CSV row went missing.
+            ref = f"FORMULA-{i}"
             client.post("/customers", data={
                 "reference": ref, "full_name": name,
                 "customer_type": "natural", "csrf_token": _csrf(client),
@@ -1304,15 +1307,22 @@ class TestCookieSecurity:
         assert r.status_code != 403, "CSRF validation should pass with rotated token"
 
     def test_no_other_session_cookie_sites(self) -> None:
-        """Verify all SESSION_COOKIE set_cookie() calls are accounted for."""
+        """Verify all SESSION_COOKIE set_cookie() calls are accounted for.
+
+        4, not 3: password login_submit(), the setup-token claim, the
+        verify-email auto-login, and uaepass_operator_callback() (UAE PASS
+        SSO) -- the last one mints a session with the exact same cookie
+        flags as password login, deliberately, so it is one more accounted-
+        for call site rather than a new pattern.
+        """
         import re
         from pathlib import Path
 
         src = (Path(__file__).resolve().parent.parent / "amlkit" / "api" / "app.py").read_text(encoding="utf-8")
         matches = re.findall(r"set_cookie\(\s*SESSION_COOKIE", src)
 
-        assert len(matches) == 3, \
-            f"Expected 3 SESSION_COOKIE set_cookie calls, found {len(matches)}"
+        assert len(matches) == 4, \
+            f"Expected 4 SESSION_COOKIE set_cookie calls, found {len(matches)}"
 
 
 class TestBatchRescreening:

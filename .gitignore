@@ -30,3 +30,8 @@ scratch_*.py
 toolbox/toolbox
 toolbox/toolbox.exe
 
+# Scratch git worktrees created by the Agent tool's isolation:"worktree"
+# option -- full nested checkouts for background sub-agents, never meant
+# to be committed.
+.claude/worktrees/
+

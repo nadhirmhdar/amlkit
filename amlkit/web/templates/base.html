@@ -4,8 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}groAML by Grovisor{% endblock %}</title>
+{% block meta_description %}<meta name="description" content="groAML by Grovisor: sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs under Federal Decree-Law No. 10 of 2025.">{% endblock %}
+{% block canonical %}{% endblock %}
+{% block og %}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="groAML by Grovisor">
+<meta property="og:title" content="groAML by Grovisor">
+<meta property="og:description" content="Sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs.">
+<meta name="twitter:card" content="summary">
+{% endblock %}
 <link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
+{% block head_extra %}{% endblock %}
 </head>
 <body>
 
@@ -18,7 +29,7 @@
   <aside class="sidebar no-print">
     <div class="brand-block">
       <img src="/static/img/grovisor-logo.png" alt="Grovisor">
-      <div class="product">groAML</div>
+      <div class="product wm wm--accent" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></div>
       {% if org_name %}
         <div class="muted small" style="margin-top:4px;">{{ org_name }}</div>
       {% endif %}
@@ -31,6 +42,7 @@
       <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
+        {% if applications_viewer %}<a href="/admin/applications" class="{{ 'on' if nav=='applications' }}">Quotation requests</a>{% endif %}
       {% endif %}
     </nav>
   </aside>
@@ -69,6 +81,7 @@
         <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
         {% if session.operator_role == 'mlro' %}
           <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
+          <a href="/admin/feedback" class="user-dropdown__item" role="menuitem">Feedback</a>
           <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
         {% endif %}
         <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
@@ -133,6 +146,7 @@
         <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
         {% if session.operator_role == 'mlro' %}
           <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
+          <a href="/admin/feedback" class="user-dropdown__item" role="menuitem">Feedback</a>
           <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
         {% endif %}
         <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
@@ -164,11 +178,30 @@
     {% endif %}
 {% else %}
 <div class="fade-in">
+  {# Public pages only (about/privacy/blog) land here unauthenticated and
+     otherwise have no way back to the app or across to grovisor.ae -- the
+     sign-in page overrides this block to keep its own bare layout. #}
+  {% block public_header %}
+  <header class="no-print" style="max-width:860px;margin:0 auto;padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+    <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
+      <img src="/static/img/grovisor-logo.png" alt="" style="height:26px;">
+      <span class="wm wm--accent" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></span>
+    </a>
+    <nav aria-label="Site" style="display:flex;gap:18px;font-size:14px;">
+      <a href="/about">About</a>
+      <a href="/blog">Blog</a>
+      <a href="https://grovisor.ae" target="_blank" rel="noopener">grovisor.ae</a>
+    </nav>
+  </header>
+  {% endblock %}
+  {# Overridable: the sign-in page shows these inside its own layout. #}
+  {% block flash %}
   {% if security_warning %}
     <div class="banner err" style="max-width:600px;margin:16px auto"><strong>{{ security_warning }}</strong></div>
   {% endif %}
   {% if msg %}<div class="banner ok" style="max-width:600px;margin:16px auto">{{ msg }}</div>{% endif %}
   {% if err %}<div class="banner err" style="max-width:600px;margin:16px auto">{{ err }}</div>{% endif %}
+  {% endblock %}
 {% endif %}
 
 {% block body %}{% endblock %}
@@ -239,6 +272,16 @@
   </div>{# /content-col #}
 </div>
 {% else %}
+  {% block public_footer %}
+  <footer class="no-print" style="max-width:860px;margin:40px auto 0;padding:24px 24px;border-top:1px solid var(--line, #e5e7eb);font-size:13px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;">
+    <span>&copy; 2026 Grovisor Business Consultants LLC. groAML by Grovisor.</span>
+    <span style="display:flex;gap:16px;">
+      <a href="/about">About</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/blog">Blog</a>
+    </span>
+  </footer>
+  {% endblock %}
 </div>
 {% endif %}
 
@@ -256,8 +299,16 @@
   <button type="button" data-action="dismiss-cookie-notice">Got it</button>
 </div>
 
+{# schema.org JSON-LD: pages set this block to a hidden [data-jsonld] div,
+   never a script tag -- CSP here is script-src 'self' with no exceptions.
+   jsonld.js turns it into a real ld+json tag at runtime, which crawlers that
+   render JS (Googlebot included) still pick up. #}
+{% block json_ld %}{% endblock %}
+
 <script src="/static/js/countries.js"></script>
 <script src="/static/js/app.js"></script>
+<script src="/static/js/jsonld.js" defer></script>
+{% block scripts_extra %}{% endblock %}
 {% if session %}<script src="/static/js/search-palette.js"></script>{% endif %}
 </body>
 </html>

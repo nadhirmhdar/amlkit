@@ -20,7 +20,7 @@
 }
 
 :root {
-  /* Tokens per the AMLKit redesign spec — cool-neutral base, single blue
+  /* Tokens per the AMLKit redesign spec — cool-neutral base, single teal
      accent, muted semantic hues at similar chroma/lightness. */
   --bg:          oklch(96%   0.004 250);
   --surface:     oklch(99.4% 0.002 250);
@@ -28,13 +28,14 @@
   --line-soft:   oklch(94.5% 0.004 250);
   --ink:         oklch(19%   0.012 250);
   --ink-2:       oklch(46%   0.012 250);
-  --ink-3:       oklch(64%   0.01  250);
-  --accent:      oklch(52%   0.15  250);
-  --accent-soft: oklch(94%   0.035 250);
+  --ink-3:       oklch(54%   0.01  250);
+  --accent:      #00515e; /* groAML deep teal */
+  --accent-soft: #e4f2f3;
+  --teal-on-dark: #4eccd3;
 
   --danger:      oklch(53%   0.16  25);
   --danger-soft: oklch(95%   0.035 25);
-  --warn:        oklch(62%   0.13  70);
+  --warn:        oklch(56%   0.12  68);
   --warn-soft:   oklch(95%   0.04  70);
   --good:        oklch(52%   0.12  150);
   --good-soft:   oklch(95%   0.035 150);
@@ -52,7 +53,6 @@
   --terrorism-soft: oklch(95% 0.035 45);
 
   --sidebar-w: 268px;
-  --brand-orange: oklch(40% 0.1 45);
   --mono: ui-monospace, 'SF Mono', Menlo, monospace;
 
   --radius-lg: 20px;
@@ -74,13 +74,13 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
-::selection { background: oklch(88% 0.05 250); }
+::selection { background: var(--accent-soft); }
 
 a { color: var(--accent); text-decoration: none; }
-a:hover { color: oklch(45% 0.16 250); text-decoration: underline; }
+a:hover { color: color-mix(in oklab, var(--accent), black 25%); text-decoration: underline; }
 
 input, select, textarea, button { font-family: inherit; }
-input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
+input::placeholder, textarea::placeholder { color: oklch(58% 0.008 250); }
 
 [dir="auto"], .name-ar { font-family: 'Manrope', "Tahoma", "Arial", sans-serif; }
 .name-ar { font-size: 1.05em; }
@@ -112,7 +112,7 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
 }
 .sidebar .brand-block { padding: 8px 14px 30px; }
 .sidebar .brand-block img { height: 60px; width: auto; display: block; }
-.sidebar .brand-block .product { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; margin-top: 10px; color: var(--ink-2); }
+.sidebar .brand-block .product { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; margin-top: 10px; }
 
 .sidebar nav { display: flex; flex-direction: column; gap: 2px; }
 .sidebar nav a {
@@ -223,6 +223,11 @@ input::placeholder, textarea::placeholder { color: oklch(72% 0.008 250); }
   /* The single-operator chip widens the corner to roughly 240px. */
   main:has(.mode-chip) > .page-head, main:has(.mode-chip) > .home-head { padding-right: 250px; }
   .canvas-corner:has(.mode-chip) + .banner { margin-right: 250px; }
+  /* A header with an action sits that action below the corner chips, so only
+     the title block (not the action) needs to stay clear of them. */
+  main > .page-head--with-actions, main:has(.mode-chip) > .page-head--with-actions { padding-right: 0; }
+  main > .page-head--with-actions > div:first-child { padding-right: 64px; }
+  main:has(.mode-chip) > .page-head--with-actions > div:first-child { padding-right: 250px; }
 }
 
 /* Phone bottom tab bar -- hidden by default (desktop/tablet keep the
@@ -254,7 +259,8 @@ main {
   display: flex; justify-content: space-between; align-items: flex-end;
   gap: 16px; flex-wrap: wrap;
 }
-.page-head__actions { flex-shrink: 0; }
+.page-head__actions { flex-shrink: 0; margin-left: auto; }
+
 .btn-outline {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 10px 16px; font-size: 14px; font-weight: 600;
@@ -318,7 +324,7 @@ main {
 /* Hero stat card -- dashboard "needs a decision" */
 .hero-stat {
   background:
-    radial-gradient(circle at 100% 0%, oklch(40% 0.1 45 / 0.85), transparent 55%),
+    radial-gradient(circle at 100% 0%, rgb(0 81 94 / 0.9), transparent 55%),
     var(--ink);
   color: white;
   border-radius: var(--radius-lg);
@@ -431,7 +437,7 @@ main {
      px value rather than a %, which would dilute the color across the
      whole width and read as pitch black past the first sliver. */
   color: white;
-  background: radial-gradient(circle 340px at 100% 0%, oklch(40% 0.1 45 / 0.85), var(--ink) 100%);
+  background: radial-gradient(circle 340px at 100% 0%, rgb(0 81 94 / 0.9), var(--ink) 100%);
   --glow-shadow: oklch(19% 0.012 250 / 0.35);
 }
 .alerts-float.is-pending:hover { color: white; }
@@ -465,7 +471,8 @@ a.list-row:hover, .list-row.clickable:hover { text-decoration: none; background:
 .list-row .side { font-size: 13px; color: var(--ink-3); }
 
 .list-head {
-  display: grid; padding: 12px 4px; font-size: 11.5px; font-weight: 700;
+  /* column-gap matches .list-row's gap, so headings sit over their columns */
+  display: grid; column-gap: 18px; padding: 12px 4px; font-size: 11.5px; font-weight: 700;
   letter-spacing: 0.06em; color: var(--ink-3); text-transform: uppercase;
   border-bottom: 1px solid var(--line); white-space: nowrap;
 }
@@ -555,7 +562,7 @@ button.small, .btn.small { padding: 6px 13px; font-size: 12.5px; }
 
 /* Sign-in / primary action button with the brand radial glow */
 .btn-glow {
-  background: radial-gradient(circle at 100% 0%, oklch(40% 0.1 45 / 0.85), transparent 55%), var(--ink);
+  background: radial-gradient(circle at 100% 0%, rgb(0 81 94 / 0.9), transparent 55%), var(--ink);
   color: white; border: none; border-radius: var(--radius-sm);
   padding: 15px; font-size: 14.5px; font-weight: 700; letter-spacing: 0.02em; cursor: pointer;
   width: 100%;
@@ -568,12 +575,12 @@ label {
   text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;
 }
 input[type="text"], input[type="password"], input[type="email"], input[type="number"],
-input[type="date"], select, textarea {
+input[type="tel"], input[type="date"], select, textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
   font-family: inherit; font-size: 14.5px; background: var(--surface); color: var(--ink); outline: none;
 }
 input[type="text"]:focus, input[type="password"]:focus, input[type="email"]:focus,
-input[type="number"]:focus, input[type="date"]:focus, select:focus, textarea:focus {
+input[type="number"]:focus, input[type="tel"]:focus, input[type="date"]:focus, select:focus, textarea:focus {
   border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
 }
 textarea { resize: vertical; min-height: 80px; }
@@ -951,13 +958,13 @@ form.is-submitting button[type="submit"] {
 }
 
 /* ------------------------------------------------------------------- feedback */
-/* Same ink-black + brand-orange radial glow as .btn-glow/.hero-stat, so the
+/* Same ink-black + teal radial glow as .btn-glow/.hero-stat, so the
    floating button reads as part of this app rather than a generic
    accent-blue widget dropped on top of it. */
 .feedback-btn {
   position: fixed; bottom: 24px; right: 24px; z-index: 999;
   width: 56px; height: 56px; border-radius: 50%;
-  background: radial-gradient(circle at 100% 0%, oklch(40% 0.1 45 / 0.85), transparent 55%), var(--ink);
+  background: radial-gradient(circle at 100% 0%, rgb(0 81 94 / 0.9), transparent 55%), var(--ink);
   color: white; border: none;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
@@ -1013,7 +1020,7 @@ body.modal-open { overflow: hidden; }
 }
 .feedback-modal-close svg { width: 18px; height: 18px; }
 .feedback-modal-close:hover { color: var(--ink); background: var(--line-soft); }
-.feedback-modal h3 { margin: 0 0 8px 0; padding-right: 28px; }
+.feedback-modal h3 { margin: 0 0 8px 0; padding-right: 28px; font-size: 17px; }
 .feedback-modal label.feedback-label {
   display: block; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--ink-3); margin: 14px 0 8px;
@@ -1115,7 +1122,7 @@ body.modal-open { overflow: hidden; }
    onto the existing .btn.small / .btn.secondary looks plus an accent primary. */
 .btn.btn-sm { padding: 6px 13px; font-size: 12.5px; }
 .btn.btn-primary { background: var(--accent); border-color: var(--accent); color: white; }
-.btn.btn-primary:hover { background: oklch(45% 0.16 250); border-color: oklch(45% 0.16 250); color: white; }
+.btn.btn-primary:hover { background: color-mix(in oklab, var(--accent), black 25%); border-color: color-mix(in oklab, var(--accent), black 25%); color: white; }
 .btn.btn-secondary { background: none; color: var(--ink); border-color: var(--line); }
 .btn.btn-secondary:hover { background: var(--line-soft); color: var(--ink); }
 
@@ -1187,6 +1194,137 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .notif-title{font-weight:700}
 .notif-dot{display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:var(--accent)}
 
+/* ------------------------------------------------- dashboard: alerts by category
+   One line per category, one dot per alert. Opens only on click. Every row
+   shares one grid (label | count | track | overflow | chevron) so the tracks
+   and dots line up from row to row. */
+.cat-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 8px 24px; margin-bottom: 24px; }
+.cat-card__head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px 24px; padding: 20px 0 16px; border-bottom: 1px solid var(--line-soft); }
+.cat-card__title { flex: 1; min-width: 0; }
+.cat-card__head h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.cat-card__meta { margin-top: 8px; font-size: 13px; color: var(--ink-2); }
+.cat-card__meta strong { color: var(--ink); font-size: 14px; }
+.cat-key { display: inline-flex; align-items: center; gap: 6px; margin-left: 16px; white-space: nowrap; }
+.cat-key + .cat-key { margin-left: 12px; }
+.cat-key i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; background: var(--ink-2); }
+.cat-key i.is-staged { background: transparent; border: 2px solid var(--ink-2); }
+.btn-primary-teal { background: var(--accent); color: #fff; border-radius: var(--radius-sm); padding: 10px 16px; font-size: 13px; font-weight: 700; }
+.btn-primary-teal:hover { background: color-mix(in oklab, var(--accent), black 25%); color: #fff; text-decoration: none; }
+.cat-line { --c: var(--ink-3); }
+.cat-line + .cat-line { border-top: 1px solid var(--line-soft); }
+.cat-line--sanction { --c: var(--danger); } .cat-line--terrorism { --c: var(--terrorism); }
+.cat-line--pep { --c: var(--warn); } .cat-line--proliferation { --c: var(--violet); }
+.cat-line__row { display: grid; grid-template-columns: minmax(120px, 200px) 56px minmax(0, 1fr) 48px 24px; column-gap: 16px; align-items: baseline; padding: 16px 0; }
+.cat-line summary.cat-line__row { cursor: pointer; list-style: none; }
+.cat-line summary::-webkit-details-marker { display: none; }
+.cat-line--zero .cat-line__row { padding: 12px 0; }
+.cat-line summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.cat-line__label { font-weight: 700; font-size: 15px; }
+.cat-line--zero .cat-line__label { color: var(--ink-2); font-weight: 600; }
+.cat-line__n { font-size: 30px; font-weight: 500; line-height: 1; color: var(--c); font-variant-numeric: tabular-nums; }
+.cat-line--zero .cat-line__n { font-size: 18px; font-weight: 400; color: var(--ink-3); }
+.cat-line__track { align-self: center; position: relative; height: 2px; background: color-mix(in oklab, var(--c), transparent 30%); }
+.cat-line__track.is-empty { background: none; border-top: 2px dotted color-mix(in oklab, var(--ink-3), transparent 55%); height: 0; }
+/* Dots sit 28px apart, closing up when the track is narrower than 12 of them
+   need, so the last dot always ends inside the track (never under the count
+   pill or chevron). 11 = gaps between the 12 dots that can be drawn. */
+.cat-dot { position: absolute; top: 50%; left: calc(14px + var(--i, 0) * min(28px, (100% - 28px) / 11)); width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 4px color-mix(in oklab, var(--c), transparent 82%); }
+.cat-dot--staged { box-sizing: border-box; background: var(--surface); border: 2px solid var(--c); box-shadow: none; }
+.cat-line__rest { align-self: center; justify-self: end; font-size: 12px; font-weight: 700; color: var(--ink); background: color-mix(in oklab, var(--c), transparent 86%); border-radius: 999px; padding: 2px 8px; }
+.cat-line__rest:empty { background: none; padding: 0; }
+.cat-line__chev { align-self: center; color: var(--ink-3); transition: transform .15s; }
+.cat-line[open] .cat-line__chev { transform: rotate(180deg); }
+.cat-line__body { background: var(--bg); border-radius: var(--radius-sm); margin: 0 0 16px; padding: 4px 12px; }
+.cat-line__body .list-row .side { font-size: 12px; color: var(--ink-2); }
+.cat-card__note { margin: 16px 0 8px; font-size: 13px; color: var(--ink-2); }
+@media (max-width: 680px) {
+  .dash-main { display: flex; flex-direction: column; }
+  .dash-main .stat-strip { order: 2; margin: 16px 0 0; }
+  .cat-card { padding: 4px 16px 8px; }
+  .cat-card__title { flex-basis: 100%; }
+  .cat-card__head { padding: 16px 0 14px; }
+  .btn-primary-teal { min-height: 44px; display: inline-flex; align-items: center; }
+  .cat-key { margin-left: 0; margin-right: 12px; }
+  .cat-line__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; padding: 16px 0; }
+  .cat-line__label { flex: 1; }
+  .cat-line__track { order: 5; flex-basis: 100%; margin: 4px 0 0; }
+  .cat-line--zero .cat-line__track { display: none; }
+  .cat-line--zero .cat-line__row { padding: 10px 0; }
+  .cat-line__chev { min-width: 24px; text-align: center; }
+  .stat-strip { grid-template-columns: 1fr 1fr; gap: 16px; }
+  .stat-strip__item { padding: 0; border-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .cat-line__chev { transition: none; } }
+.cat-line__more { display: block; padding: 12px 0 8px; font-size: 13px; font-weight: 600; }
+
+/* Counts under the dashboard header: a quiet 4-up row so the alerts card,
+   not these zeros, carries the weight. */
+.stat-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 24px 0; }
+.stat-strip__item { display: flex; flex-direction: column; gap: 2px; padding: 0 24px; }
+.stat-strip__item:first-child { padding-left: 0; }
+.stat-strip__item + .stat-strip__item { border-left: 1px solid var(--line); }
+.stat-strip__item .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-strip__item .label { font-size: 12.5px; color: var(--ink-2); }
+
+/* Alerts page: active category filter chip (linked from the dashboard lines). */
+.cat-filter-chip { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 0 0 16px; font-size: 13.5px; color: var(--ink-2); }
+.cat-filter-chip a { font-weight: 700; min-height: 32px; display: inline-flex; align-items: center; }
+
+/* ------------------------------------------------------------- wordmark
+   "Node-o": the o in groAML is a ring with a dot -- many inputs, one
+   point. Sized in em so it scales with the surrounding text. */
+.wm { font-weight: 800; letter-spacing: -0.02em; white-space: nowrap; }
+.wm .nd {
+  display: inline-block; position: relative; vertical-align: baseline;
+  width: 0.62em; height: 0.62em; margin: 0 0.02em;
+  border: 0.13em solid currentColor; border-radius: 50%;
+}
+.wm .nd::after {
+  content: ""; position: absolute; inset: 0; margin: auto;
+  width: 0.2em; height: 0.2em; border-radius: 50%; background: var(--teal-on-dark);
+}
+.wm--accent { color: var(--accent); }
+.wm--accent .nd::after { background: var(--accent); }
+
+/* ------------------------------------------------------------ apply (quotation request) */
+.apply { max-width: 680px; margin: 0 auto; padding: 56px 20px 72px; }
+.apply__title { margin: 0 0 8px; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; text-transform: none; color: var(--ink); }
+.apply__lede { margin: 0 0 24px; font-size: 14.5px; line-height: 1.6; color: var(--ink-2); }
+.apply__group { border: 0; padding: 0; margin: 0 0 8px; }
+.apply__group legend { padding: 0; margin: 8px 0 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+.apply__label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 10px; }
+.apply-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.apply-needs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
+.apply-check { display: flex; align-items: flex-start; gap: 10px; margin: 0; font-size: 14px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink); cursor: pointer; }
+.apply-check input[type="checkbox"] { width: 18px; height: 18px; margin: 1px 0 0; flex-shrink: 0; accent-color: var(--accent); }
+.field-error { margin-top: 6px; font-size: 13px; color: var(--danger); }
+.field [aria-invalid="true"] { border-color: var(--danger); }
+.apply textarea { width: 100%; resize: vertical; font: inherit; }
+.apply .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+@media (max-width: 680px) {
+  .apply { padding: 28px 16px 56px; }
+  .apply-grid, .apply-needs { grid-template-columns: 1fr; }
+}
+
+/* Who is applying: four option cards. A native radio inside each label keeps
+   keyboard and screen-reader behaviour; the card is just the label's skin. */
+.apply-types { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
+.apply-type { display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; text-transform: none; letter-spacing: 0; font-size: 14px; font-weight: 500; color: var(--ink); }
+.apply-type input[type="radio"] { width: 18px; height: 18px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--accent); }
+.apply-type strong { display: block; font-size: 14.5px; font-weight: 700; }
+.apply-type__desc { display: block; margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--ink-2); font-weight: 400; }
+.apply-type:hover { border-color: var(--ink-3); }
+.apply-type:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.apply-type:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.apply-types[aria-invalid="true"] .apply-type { border-color: var(--danger); }
+@media (max-width: 680px) { .apply-types { grid-template-columns: 1fr; } }
+
+/* Admin: quotation requests */
+dl.kv > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding: 4px 0; font-size: 14px; }
+dl.kv dt { color: var(--ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding-top: 2px; }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+
+
 /* alerts tabs + touch targets on phones (kept after the base mobile block) */
 @media (max-width: 680px) {
   .tab-filter:has(.tab-filter__tabs) { gap: 0; }
@@ -1197,6 +1335,17 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   /* Touch targets: 44px minimum for the compact in-page buttons on phones. */
   main button.small, main .btn.small { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 }
+
+/* Customer detail: the risk / status tags sit beside the name they describe. */
+.title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.title-row h1 { margin: 0; }
+
+/* Admin organisation profile: fields top-aligned in even columns; the hint
+   under the goAML reference no longer lifts that field above its neighbours. */
+.row.profile-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; gap: 20px 24px; }
+.profile-grid input { width: 100%; box-sizing: border-box; }
+.profile-grid .muted.small { display: block; margin-top: 6px; line-height: 1.5; }
+.profile-grid__actions { grid-column: 1 / -1; }
 
 /* Screen a name: form column plus a "recent checks" aside on wide screens. */
 .screen-layout { display: grid; grid-template-columns: minmax(0, 640px); gap: 40px; }
@@ -1210,4 +1359,3 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   .screen-layout { grid-template-columns: minmax(0, 640px) 280px; align-items: start; }
   .screen-recent { padding-top: 96px; }
 }
-

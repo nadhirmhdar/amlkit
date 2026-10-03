@@ -179,6 +179,33 @@ CREATE TABLE IF NOT EXISTS auth_log (
 CREATE INDEX IF NOT EXISTS ix_authlog_ts    ON auth_log(ts);
 CREATE INDEX IF NOT EXISTS ix_authlog_email ON auth_log(email_attempted);
 
+-- Quotation / access requests from the public /apply form. NOT org-scoped: the
+-- applicant has no organization yet, and nothing here grants access to
+-- anything. Kept in the database as well as emailed so a request is never lost
+-- to a mail outage or an unconfigured SMTP host.
+CREATE TABLE IF NOT EXISTS applications (
+    id                    INTEGER PRIMARY KEY,
+    created_at            TEXT NOT NULL,
+    status                TEXT NOT NULL DEFAULT 'new',   -- new|contacted|quoted|won|lost
+    applicant_type        TEXT NOT NULL DEFAULT 'Single entity',  -- single entity|b2b consultant|natural person|professional
+    client_firms          TEXT,            -- consultants only: how many client firms they would run
+    org_name              TEXT NOT NULL,
+    category              TEXT NOT NULL,   -- DNFBP category
+    jurisdiction          TEXT NOT NULL,   -- emirate or free zone
+    contact_name          TEXT NOT NULL,
+    job_title             TEXT,
+    email                 TEXT NOT NULL,
+    phone                 TEXT,
+    team_size             TEXT NOT NULL,
+    customers_per_year    TEXT NOT NULL,
+    screenings_per_month  TEXT,
+    needs                 TEXT,            -- JSON list
+    message               TEXT,
+    consent_at            TEXT NOT NULL,
+    email_delivery        TEXT             -- sent|not_configured|failed
+);
+CREATE INDEX IF NOT EXISTS ix_applications_created ON applications(created_at);
+
 -- One-time tokens for claiming the first admin login after a fresh-from-v1
 -- migration. Hashed at rest like everything else login-adjacent; the raw
 -- value only ever appears once, printed to the console at startup.
@@ -843,6 +870,56 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
     revoked_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_trusted_devices_operator ON trusted_devices(operator_id);
+
+-- ----------------------------------------------------------------- UAE PASS
+-- Short-lived OAuth `state` values for the UAE PASS authorization-code flow
+-- (operator SSO and customer identity verification). This IS the flow's
+-- CSRF/replay defense -- a GET-initiated redirect can't carry the usual
+-- synchronizer form token (see auth.py's csrf_valid()), so the callback
+-- instead rejects any `state` that doesn't match a live, unused,
+-- unexpired row here. `purpose` distinguishes the two use cases; `customer_id`
+-- is NULL for operator SSO and set (together with org_id) for a customer
+-- verification attempt, so a captured callback cannot be replayed against a
+-- different customer -- the callback re-checks both org_id and customer_id
+-- against the row, not just the state string. Modeled on setup_tokens /
+-- email_verify_tokens: hashed at rest, single-use (consumed_at), short TTL.
+CREATE TABLE IF NOT EXISTS uaepass_states (
+    id           INTEGER PRIMARY KEY,
+    state_hash   TEXT NOT NULL UNIQUE,
+    purpose      TEXT NOT NULL,          -- operator_sso | customer_verification
+    org_id       INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id  INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+    redirect_uri TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    consumed_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_uaepass_states_expires ON uaepass_states(expires_at);
+
+-- Append-only, like the audit trail's philosophy elsewhere in this file: a
+-- re-verification inserts a new row rather than overwriting the last one, so
+-- the full history of what UAE PASS asserted about this customer over time
+-- is never lost. `raw`/`detail` lives in the `detail` column of the
+-- accompanying audit_log row (see cases/manager.py or api/app.py's callback),
+-- not duplicated here, to avoid two sources of truth for the full payload --
+-- this table holds the normalized fields CDD/onboarding actually consumes.
+CREATE TABLE IF NOT EXISTS uaepass_verifications (
+    id             INTEGER PRIMARY KEY,
+    org_id         INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id    INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    uaepass_uuid   TEXT NOT NULL,
+    idn            TEXT,               -- Emirates ID number
+    fullname_en    TEXT,
+    fullname_ar    TEXT,
+    nationality_en TEXT,                -- as returned by UAE PASS (alpha-3)
+    mobile         TEXT,
+    email          TEXT,
+    user_type      TEXT,                -- SOP1 | SOP2 | SOP3 assurance level
+    verified_at    TEXT NOT NULL,
+    verified_by    INTEGER REFERENCES operators(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS ix_uaepass_verif_org  ON uaepass_verifications(org_id);
+CREATE INDEX IF NOT EXISTS ix_uaepass_verif_cust ON uaepass_verifications(customer_id);
 """
 
 
@@ -860,6 +937,13 @@ SETUP_TOKEN_LIFETIME = timedelta(days=7)
 # less reason to keep it live for a week. Resending issues a fresh one.
 EMAIL_VERIFY_TOKEN_LIFETIME = timedelta(days=3)
 
+# UAE PASS's own authorization code expires in 10 minutes (UAE PASS's
+# documented behaviour); the `state` row this app issues to start that
+# redirect only needs to outlive a real end-to-end UAE PASS round trip
+# (an app switch to UAE PASS's mobile app and back), not sit around for
+# hours like a password-reset link would.
+UAEPASS_STATE_LIFETIME = timedelta(minutes=15)
+
 
 # Columns added after the initial schema. `CREATE TABLE IF NOT EXISTS` will not
 # alter an existing table, so databases created by an earlier version need the
@@ -876,6 +960,13 @@ EMAIL_VERIFY_TOKEN_LIFETIME = timedelta(days=3)
 # This is a deliberate, stated tradeoff: a hand-edited database bypassing the
 # application is not caught by the schema alone.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    # /apply: who is applying (and, for consultants, how many client firms).
+    # Only matters to a database that created the table before these existed.
+    ("applications", "applicant_type",
+     "ALTER TABLE applications ADD COLUMN applicant_type TEXT NOT NULL DEFAULT 'Single entity'"),
+    ("applications", "client_firms", "ALTER TABLE applications ADD COLUMN client_firms TEXT"),
+    ("applications", "consent_version", "ALTER TABLE applications ADD COLUMN consent_version TEXT"),
+    ("applications", "status_changed_at", "ALTER TABLE applications ADD COLUMN status_changed_at TEXT"),
     # p15: a secret is only "enrolled" once its first TOTP has been verified;
     # merely opening /mfa/setup must not lock an operator behind a code they
     # never scanned. Pre-existing rows stay unconfirmed and re-enrol at login.
@@ -987,6 +1078,17 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # every finding from the pre-pipeline GDELT-only path.
     ("adverse_media_findings", "pipeline_run_id",
      "ALTER TABLE adverse_media_findings ADD COLUMN pipeline_run_id INTEGER REFERENCES media_pipeline_runs(id) ON DELETE SET NULL"),
+    # UAE PASS SSO: links an operator row to the UAE PASS account that
+    # authenticated as them. Nullable -- most operators never use UAE PASS
+    # SSO. One-identity-per-operator is enforced at the application layer
+    # (see api/app.py's UAE PASS callback), not via a SQL UNIQUE constraint:
+    # this schema does not use partial/conditional unique indexes anywhere
+    # else, and a plain UNIQUE column would reject every row beyond the
+    # first NULL=NULL pair on some SQLite configurations' COLLATE handling
+    # inconsistently across versions -- simpler to check explicitly in code,
+    # consistent with how org_id-scoped uniqueness is already handled
+    # elsewhere in this module (e.g. customers.reference).
+    ("operators", "uaepass_uuid", "ALTER TABLE operators ADD COLUMN uaepass_uuid TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)

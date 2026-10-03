@@ -1,0 +1,211 @@
+{% extends "blog/_article.html" %}
+{# Every legal statement in this guide traces to the EOCN "Guidance on
+   Targeted Financial Sanctions for Financial Institutions, DNFBPs and VASPs"
+   (issued January 2021, last amended July 2025) -- paragraph numbers in the
+   comments below refer to that document. Re-check them against the current
+   EOCN guidance before changing `updated` in blog.py. #}
+{% set reviewed_against = "the EOCN Guidance on Targeted Financial Sanctions (last amended July 2025)" %}
+{% set toc = [
+  ("the-rule", "The rule in one paragraph"),
+  ("four-obligations", "The four obligations"),
+  ("which-lists", "Which lists the 24 hours apply to"),
+  ("when-to-screen", "When and whom to screen"),
+  ("match-types", "Confirmed, partial or false positive?"),
+  ("first-24-hours", "The first 24 hours, step by step"),
+  ("partial-match", "Handling a partial match"),
+  ("ownership", "Owned or controlled: the 50% test"),
+  ("records", "Records you must keep"),
+  ("penalties", "What getting it wrong costs"),
+  ("examples", "Three worked examples"),
+  ("checklist", "Your 24-hour readiness checklist"),
+  ("faq", "FAQs"),
+  ("sources", "Sources"),
+] %}
+{% set glance = [
+  "Only two lists carry the 24-hour freezing duty: the UAE Local Terrorist List and the UN Security Council Consolidated List.",
+  "“Without delay” means immediately, and in any case within 24 hours of a designation.",
+  "Freeze first, with no prior notice to the customer. You may tell them only after the freeze is in place.",
+  "Report a confirmed match (CNMR, formerly the FFR) or a partial match (PNMR) on goAML within five business days.",
+  "Keep every screening result, including false positives, for at least five years.",
+] %}
+{% set faqs = [
+  {"q": "Is it tipping off if I tell the customer their funds are frozen?",
+   "a": "Not once the freeze is in place. The EOCN guidance says you may notify the customer after you have taken the freezing measures, but you must not inform them before."},
+  {"q": "We matched a customer to the OFAC or EU list. Do we file a CNMR?",
+   "a": "No. CNMRs and PNMRs are only for matches to the UAE Local Terrorist List and the UN Consolidated List. For OFAC, EU, UK or other lists, consult your supervisory authority on the right course of action, and consider raising an STR or SAR with the FIU through goAML."},
+  {"q": "What if the match is a prospective customer, not an existing one?",
+   "a": "Reject the transaction immediately and submit a CNMR on goAML within five business days. A prospective client is treated the same way as an existing one for reporting."},
+  {"q": "How long does a freeze last?",
+   "a": "There is no time limit. It stays in place until the person is delisted, the EOCN cancels the freeze, or another lawful decision lifts it. On delisting, you lift the measures immediately unless a separate freeze order from a competent authority still applies."},
+  {"q": "Is registering for EOCN alerts enough?",
+   "a": "No. Registration on the EOCN Notification Alert System is the first obligation, but the guidance also expects daily screening of your customer database and checking UN press releases, depending on your business model."},
+  {"q": "We are not registered on goAML. How do we report?",
+   "a": "Reporting entities that are not on goAML email the EOCN at tfs@eocn.gov.ae within five business days of the freezing measure, with the full name of the match, the value of the frozen funds and the supporting documents."},
+] %}
+{% set sources = [
+  {"title": "Guidance on Targeted Financial Sanctions for Financial Institutions, DNFBPs and VASPs", "publisher": "Executive Office for Control and Non-Proliferation (EOCN)", "url": "https://www.uaeiec.gov.ae/API/Upload/DownloadFile?FileID=72713d98-a612-4b96-bd1a-775076b7667e", "note": "Issued January 2021, last amended July 2025"},
+  {"title": "UN Consolidated List and UAE Local Terrorist List", "publisher": "EOCN", "url": "https://www.uaeiec.gov.ae/en-us/un-page"},
+  {"title": "Targeted Financial Sanctions", "publisher": "UAE Ministry of Economy and Tourism", "url": "https://www.moet.gov.ae/en/targeted-financial-sanctions"},
+  {"title": "United Nations Security Council Consolidated List", "publisher": "United Nations", "url": "https://main.un.org/securitycouncil/en/content/un-sc-consolidated-list"},
+  {"title": "Cabinet Decision No. 74 of 2020 on the terrorism lists regulation and implementation of UN Security Council resolutions", "publisher": "UAE Cabinet", "note": "Article 21 sets the four TFS obligations"},
+] %}
+
+{% block article %}
+<h2 id="the-rule">The rule in one paragraph</h2>
+<p>When a person or company is added to the <strong>UAE Local Terrorist List</strong> or the <strong>UN Security Council Consolidated List</strong>, every financial institution, DNFBP and VASP in the UAE must find out whether it holds their funds or deals with them, and freeze those funds <strong>without delay: immediately, and in any case within 24 hours</strong>. It must do that without warning the customer, stop providing them any services, and report what it did on goAML within five business days.</p>
+
+<div class="bl-callout bl-callout--law">
+  <b class="t">Where the rule comes from</b>
+  Article 21 of <strong>Cabinet Decision No. 74 of 2020</strong> sets the obligations, and the EOCN's <em>Guidance on Targeted Financial Sanctions</em> (last amended July 2025) explains how to meet them. The EOCN, the UAE's Executive Office for Control and Non-Proliferation, runs the alert system and receives the reports.
+</div>
+
+<h2 id="four-obligations">The four obligations</h2>
+<p>The EOCN guidance breaks targeted financial sanctions (TFS) down into four steps. Every DNFBP needs all four, whatever its size.</p>
+<ol>
+  <li><strong>Register</strong> on the EOCN <strong>Notification Alert System (NAS)</strong>, so you are told the moment either list changes.</li>
+  <li><strong>Screen</strong> your customers, their owners and the parties to their transactions against the latest lists, regularly and on every update.</li>
+  <li><strong>Freeze</strong> without delay any funds or assets of a designated person, and stop making funds or services available to them.</li>
+  <li><strong>Report</strong> the measures you took to the EOCN and your supervisory authority on goAML.</li>
+</ol>
+
+<h2 id="which-lists">Which lists the 24 hours apply to</h2>
+<p>This is the most common source of confusion. Many firms screen against several international lists, and that is good practice. But the legal freezing duty, with its 24-hour clock, attaches to two lists only.</p>
+<div class="bl-table-wrap">
+  <table class="bl-table">
+    <thead><tr><th>List</th><th>Issued by</th><th>24-hour freeze?</th><th>How you report a match</th></tr></thead>
+    <tbody>
+      <tr><td><strong>UAE Local Terrorist List</strong></td><td>UAE Cabinet</td><td class="bl-yes">Yes</td><td>CNMR or PNMR on goAML</td></tr>
+      <tr><td><strong>UN Security Council Consolidated List</strong></td><td>UN Security Council</td><td class="bl-yes">Yes</td><td>CNMR or PNMR on goAML</td></tr>
+      <tr><td>OFAC, EU, UK (HMT) and other national lists</td><td>Foreign governments</td><td class="bl-no">No</td><td>Not by CNMR/PNMR. Consult your supervisory authority; consider an STR/SAR</td></tr>
+      <tr><td>INTERPOL and other criminal lists</td><td>Various</td><td class="bl-no">No</td><td>As above</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="bl-caption">Based on the EOCN guidance, Sections 4 and 7.</p>
+<div class="bl-callout bl-callout--warn">
+  <b class="t">Don't use the wrong report</b>
+  CNMRs and PNMRs are only for matches against the UAE and UN lists. A hit on OFAC or the EU list is not a CNMR, even if you decide to stop the business. Treat it as a risk decision, and file a suspicious transaction or activity report if the facts support one.
+</div>
+
+<h2 id="when-to-screen">When and whom to screen</h2>
+<p>The 24-hour clock runs from a <em>designation</em>. Screening, though, is not only triggered by list updates. The guidance requires screening:</p>
+<ul>
+  <li><strong>On every update to either list</strong>, immediately, so any freeze happens within 24 hours.</li>
+  <li><strong>Before onboarding</strong> a new customer.</li>
+  <li><strong>At periodic KYC reviews</strong>, and when the nature or ownership of a customer materially changes.</li>
+  <li><strong>Daily</strong>, across your customer database.</li>
+  <li><strong>Before processing any transaction</strong> with a counterparty.</li>
+</ul>
+<p>And it is wider than your current customer list. Screen:</p>
+<ul>
+  <li>existing customers, across every system that holds customer or transaction data;</li>
+  <li>prospective customers, before you transact or start a relationship;</li>
+  <li><strong>former customers from the last five years</strong>, even with no active account;</li>
+  <li>every party to a transaction (buyer, seller, agent, freight forwarder) and the <strong>ultimate beneficial owners</strong>, natural and legal;</li>
+  <li>directors and agents acting for a customer, including anyone with a power of attorney;</li>
+  <li>anyone with a direct or indirect relationship with a designated person.</li>
+</ul>
+<div class="bl-callout bl-callout--tip">
+  <b class="t">Match on the key identifiers first</b>
+  For people: full name, date of birth, nationality, ID or passport number and last known address. For companies: name, trade licence and address details. Only then look at aliases (“a.k.a.”). Arabic names are where most tools struggle: <em>Mohammed</em>, <em>Muhammad</em> and <em>Mohamed</em> are the same name, and a screening tool that misses that will miss real matches.
+</div>
+
+<h2 id="match-types">Confirmed, partial or false positive?</h2>
+<p>Every potential hit ends in one of three outcomes, and each one leads to a different action.</p>
+<div class="bl-table-wrap">
+  <table class="bl-table">
+    <thead><tr><th>Outcome</th><th>What it means</th><th>Example</th><th>What you do</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Confirmed name match</strong></td><td>Your customer's key identifiers match a designated person</td><td>Name, date of birth and nationality all match</td><td>Freeze within 24 hours; file a <strong>CNMR</strong> within 5 business days</td></tr>
+      <tr><td><strong>Partial name match</strong></td><td>Some identifiers match and you can't confirm or rule it out</td><td>Name and date of birth match, but the nationality differs and the spelling is slightly different</td><td>Suspend; get ID; file a <strong>PNMR</strong> within 5 business days</td></tr>
+      <tr><td><strong>False positive</strong></td><td>On examination it is clearly not the designated person</td><td>The listed person is 40; your customer is a 16-year-old student</td><td>Record your reasoning and continue</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="bl-caption">Definitions and examples from the EOCN guidance.</p>
+
+<h2 id="first-24-hours">The first 24 hours, step by step</h2>
+<p>Here is the sequence when the list changes and one of your customers is on it.</p>
+<ol class="bl-timeline">
+  <li><span class="bl-when">Hour<br>0</span><h4>A designation is published</h4><p>The EOCN Notification Alert System emails registered entities. Your clock starts at the designation, not when you happen to notice it.</p></li>
+  <li><span class="bl-when">Now</span><h4>Screen immediately</h4><p>Re-screen your customers, former customers, beneficial owners and counterparties against the updated list.</p></li>
+  <li><span class="bl-when">≤24h</span><h4>Freeze, without notice</h4><p>Freeze all funds and assets owned or controlled, directly or indirectly, by the designated person, anything derived from them, and anything held for someone acting on their behalf. Do not tell the customer first.</p></li>
+  <li><span class="bl-when">≤24h</span><h4>Stop all services</h4><p>You may not make funds, assets or services available to the designated person, directly or indirectly. For a prospective customer, reject the transaction.</p></li>
+  <li><span class="bl-when">≤5<br>days</span><h4>File a CNMR on goAML</h4><p>Report the freeze to the EOCN and your supervisory authority within five business days, with the supporting documents. Not on goAML? Email <a href="mailto:tfs@eocn.gov.ae">tfs@eocn.gov.ae</a> instead.</p></li>
+  <li><span class="bl-when">After</span><h4>Notify the customer, keep the freeze</h4><p>Once frozen, you may inform the customer. The freeze has no time limit and stays until delisting or an EOCN cancellation decision.</p></li>
+</ol>
+<div class="bl-callout bl-callout--law">
+  <b class="t">What can still go into a frozen account</b>
+  Interest, profits or other earnings due on the account, and payments due under contracts agreed before the freeze, can still be credited, as long as they are frozen immediately too.
+</div>
+
+<h2 id="partial-match">Handling a partial match</h2>
+<p>A partial match isn't a freeze, but it isn't business as usual either.</p>
+<ol>
+  <li><strong>Suspend</strong> the transaction or service while you investigate.</li>
+  <li><strong>Ask for identification</strong> documents to confirm or rule out the match.</li>
+  <li>If you can't get them within a reasonable time, which the guidance sets at <strong>10 business days</strong>, <strong>reject</strong> the transaction or service.</li>
+  <li><strong>File a PNMR</strong> on goAML within five business days of the suspension or rejection, saying which applies.</li>
+  <li>If the customer later produces ID, screen again and act on the new result.</li>
+</ol>
+
+<h2 id="ownership">Owned or controlled: the 50% test</h2>
+<p>The freeze reaches beyond names on the list. You must also freeze the assets of a company that a designated person <strong>majority owns</strong>, meaning more than 50% of the proprietary rights, or <strong>controls</strong>. If a designated person owns 51% of an otherwise clean company, that company's funds are frozen too. This is why screening beneficial owners, not just the customer's name, is mandatory.</p>
+
+<h2 id="records">Records you must keep</h2>
+<ul>
+  <li>Every screening result (confirmed matches, partial matches <em>and false positives</em>) for <strong>at least five years</strong>.</li>
+  <li>A CNMR for relationships, transactions and accounts with the designated person in the <strong>five years before the designation</strong>, even if you hold nothing for them today.</li>
+  <li>Your reasoning for each false positive. In an inspection, “we checked and it wasn't him” only counts if you can show how you decided.</li>
+</ul>
+
+<h2 id="penalties">What getting it wrong costs</h2>
+<div class="bl-callout bl-callout--warn">
+  <b class="t">Criminal and regulatory exposure</b>
+  <p>Under the EOCN guidance, failing to comply with Cabinet Decision No. 74 of 2020, or failing to have reasonable procedures to comply, can lead to <strong>imprisonment of one to seven years and/or a fine of AED 50,000 to AED 5,000,000</strong>.</p>
+  <p>On top of that, your supervisory authority can take its own enforcement action.</p>
+</div>
+
+<h2 id="examples">Three worked examples</h2>
+<p>These scenarios are illustrative. They apply the rules above to situations DNFBPs meet every week.</p>
+<h3>A gold dealer and a walk-in buyer</h3>
+<p>A buyer wants to pay for bullion. Before completing the sale, you screen the buyer and get a partial match: same name and year of birth, different nationality. You suspend the sale and ask for the buyer's passport. If it doesn't arrive within 10 business days, you cancel the sale and file a PNMR within five business days of cancelling.</p>
+<h3>A real estate broker and a buyer acting through a POA</h3>
+<p>A property purchase is being signed by an attorney under a power of attorney. You screen the attorney, the buyer behind them and the seller. The buyer is on the UN list. You stop the transaction, freeze any deposit you hold without telling the buyer, and file a CNMR on goAML within five business days.</p>
+<h3>A corporate service provider and a new client company</h3>
+<p>A client asks you to set up a company. The shareholder register shows a 60% shareholder who was added to the Local Terrorist List last night. The 50% test applies: the company is majority owned by a designated person, so you reject the engagement, freeze anything you hold, and file a CNMR.</p>
+
+<div class="bl-product">
+  <div class="ico" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4eccd3" stroke-width="2.2" stroke-linecap="round"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg></div>
+  <div>
+    <b>How groAML handles this</b>
+    <p>groAML refreshes the UAE and UN lists automatically and re-screens your whole customer book each time, including beneficial owners, with Arabic-aware name matching. Every match becomes an alert with a dated decision trail, and each freeze obligation is tracked against its deadline.</p>
+    <a class="bl-btn bl-btn--light" href="/about">See how it works</a>
+  </div>
+</div>
+
+<h2 id="checklist">Your 24-hour readiness checklist</h2>
+<p>Tick these off for your firm. Your progress is saved in this browser, and the page prints cleanly as a handout.</p>
+<div class="bl-check" data-bl-checklist="tfs-24h-v1">
+  <div class="bl-check__head"><b>TFS readiness</b><span class="bl-check__count" data-bl-check-count>12 items</span></div>
+  <ul>
+    {% for item in [
+      "We are registered on the EOCN Notification Alert System, and alerts reach more than one person.",
+      "We screen on every list update, the same day, including weekends and public holidays.",
+      "We also screen our full customer database daily.",
+      "We screen before onboarding and before processing any transaction.",
+      "Screening covers beneficial owners, directors, attorneys and transaction counterparties, not just the customer.",
+      "Former customers from the last five years are included.",
+      "We match on full name, date of birth, nationality and ID, and handle Arabic spelling variants.",
+      "Staff know how to freeze within 24 hours and not to warn the customer first.",
+      "We know how to suspend, request ID and reject after 10 business days for a partial match.",
+      "We can file a CNMR and a PNMR on goAML (or email tfs@eocn.gov.ae) within five business days.",
+      "Every result, including false positives and our reasoning, is kept for at least five years.",
+      "We know that OFAC, EU and UK matches are not CNMRs, and how we escalate them.",
+    ] %}
+    <li><label><input type="checkbox"><span>{{ item }}</span></label></li>
+    {% endfor %}
+  </ul>
+  <p class="bl-check__note no-print">Saved only on this device. Nothing is sent to us.</p>
+</div>
+{% endblock %}

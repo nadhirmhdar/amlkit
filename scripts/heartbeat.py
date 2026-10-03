@@ -25,6 +25,7 @@ from amlkit.ingest.un import UNSanctionsAdapter  # noqa: E402
 from amlkit.ingest.ofac import OFACSDNAdapter  # noqa: E402
 from amlkit.ingest.eu import EUSanctionsAdapter  # noqa: E402
 from amlkit.ingest.uk import UKSanctionsAdapter  # noqa: E402
+from amlkit.ingest.wikidata_peps import wikidata_ministers  # noqa: E402
 
 # THE canonical list of every upstream this deployment screens against, as
 # adapter factories. This is the single source of truth for "which sources do
@@ -42,6 +43,7 @@ ALL_SOURCES = [
     EUSanctionsAdapter,
     UKSanctionsAdapter,
     cia_world_leaders,
+    wikidata_ministers,
 ]
 
 
