@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import sqlite3
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1413,27 +1415,51 @@ def _create_org_indexes(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_org_action_ts ON audit_log(org_id, action, ts DESC)")
 
 
-def connect(path: Path | str | None = None) -> sqlite3.Connection:
-    """Open a connection with sane defaults and the schema applied.
+# Databases this process has already run schema creation + migrations on,
+# keyed by (resolved path, st_dev, st_ino) -> PRAGMA schema_version observed
+# right after init. connect() used to run the full init on every open, which
+# get_db() does once per HTTP request: DDL, backfills and a fatf_countries
+# DELETE/INSERT on every GET -- write locks and Litestream WAL churn for no
+# change. The inode catches a file replaced at the same path (restore, test
+# recreating a DB); schema_version catches an inode being reused by a
+# freshly created file (it starts at 0) and any later out-of-band DDL, both
+# of which simply re-run the (idempotent) init.
+_init_lock = threading.Lock()
+_initialised: dict[tuple[str, int, int], int] = {}
 
-    Migration order matters: the table rebuilds must run before the
+
+def _reset_init_cache() -> None:
+    """Forget which databases were initialised; the next connect() re-inits."""
+    with _init_lock:
+        _initialised.clear()
+
+
+def _init_key(target: Path) -> tuple[str, int, int] | None:
+    name = str(target)
+    if name == ":memory:" or name.startswith("file:"):
+        return None  # each in-memory connection is a brand-new database
+    try:
+        st = os.stat(target)
+    except OSError:
+        return None
+    return (str(target.resolve()), st.st_dev, st.st_ino)
+
+
+def _schema_version(conn: sqlite3.Connection) -> int:
+    # fetchall, not fetchone: finishing the statement releases its read
+    # snapshot instead of leaving it pinned on the connection.
+    return conn.execute("PRAGMA schema_version").fetchall()[0][0]
+
+
+def _initialise(conn: sqlite3.Connection) -> None:
+    """Schema creation, migrations, backfills and FATF reference data.
+
+    Idempotent: safe on a fresh file, an upgraded one, or one already
+    current. Migration order matters: the table rebuilds must run before the
     column-add migrations touch tables that reference them, the org_id
     indexes must be created only after every column they index actually
     exists, and the data backfill must run last of all.
     """
-    target = Path(path) if path else DB_PATH
-    target.parent.mkdir(parents=True, exist_ok=True)
-    # check_same_thread=False: FastAPI runs sync dependencies through
-    # contextmanager_in_threadpool, which can open the connection on one
-    # threadpool worker and run the request body (and the teardown close())
-    # on another. That cross-thread use trips sqlite3's default thread guard
-    # and surfaced as intermittent HTTP 500s under parallel load (QA-04,
-    # 2026-09-21 review). Safe here: deps.get_db() hands each request its own
-    # connection and never shares one between concurrent requests.
-    conn = sqlite3.connect(target, timeout=30, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
     conn.executescript(SCHEMA)
     _migrate_operators_table(conn)
     _migrate_customers_table(conn)
@@ -1448,6 +1474,10 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     _backfill_money_columns(conn)
     _backfill_exit_date(conn)
     _create_org_indexes(conn)
+    # Rebuild fatf_countries from the loaded FATF entities (or the hardcoded
+    # fallback). Once per process per database is enough: a refresh that
+    # loads new FATF entities (scheduler.refresh_all_sources) calls
+    # load_fatf_data() itself straight after.
     from .ingest.fatf import load_fatf_data
     load_fatf_data(conn)
     setup_token = _migrate_tenancy_data(conn)
@@ -1458,6 +1488,41 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
              json.dumps({"note": "setup token generated; see console output"})),
         )
     conn.commit()
+
+
+def connect(path: Path | str | None = None) -> sqlite3.Connection:
+    """Open a connection with sane defaults and the schema applied.
+
+    The schema/migration pass (`_initialise`) runs at most once per database
+    file per process; later opens of the same file only set the
+    per-connection PRAGMAs. `:memory:` databases are always initialised.
+    """
+    target = Path(path) if path else DB_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # check_same_thread=False: FastAPI runs sync dependencies through
+    # contextmanager_in_threadpool, which can open the connection on one
+    # threadpool worker and run the request body (and the teardown close())
+    # on another. That cross-thread use trips sqlite3's default thread guard
+    # and surfaced as intermittent HTTP 500s under parallel load (QA-04,
+    # 2026-09-21 review). Safe here: deps.get_db() hands each request its own
+    # connection and never shares one between concurrent requests.
+    conn = sqlite3.connect(target, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    # Per-connection, so it must be set on every open -- not only by the
+    # PRAGMA at the top of SCHEMA, which the cached path no longer runs.
+    conn.execute("PRAGMA foreign_keys=ON")
+    key = _init_key(target)
+    if key is None:
+        _initialise(conn)
+        return conn
+    if _initialised.get(key) == _schema_version(conn):
+        return conn
+    with _init_lock:
+        if _initialised.get(key) != _schema_version(conn):
+            _initialise(conn)
+            _initialised[key] = _schema_version(conn)
     return conn
 
 

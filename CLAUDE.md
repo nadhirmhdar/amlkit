@@ -78,7 +78,7 @@ amlkit/
 
 SQLite with WAL mode. Schema is in `db.py:SCHEMA`. Migrations are additive column-adds in `_MIGRATIONS`. Table rebuilds for constraint changes in dedicated functions.
 
-`connect()` handles schema creation + all migrations on every open — safe for fresh installs and upgrades alike.
+`connect()` handles schema creation + all migrations (plus the `fatf_countries` rebuild) — safe for fresh installs and upgrades alike — but runs that pass (`db._initialise`) **at most once per database file per process**. Later opens only set the per-connection PRAGMAs (WAL, `busy_timeout`, `foreign_keys`), so per-request `get_db()` does no DDL/writes. The cache key is (resolved path, `st_dev`, `st_ino`) checked against `PRAGMA schema_version`, so a file replaced at the same path (restore, a test recreating its DB) or out-of-band DDL re-runs the init; `:memory:` is always initialised. `db._reset_init_cache()` forces a re-init on the next open.
 
 ## Automated routines
 
