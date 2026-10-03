@@ -84,6 +84,7 @@ WEB = Path(__file__).resolve().parent.parent / "web"
 
 # ---------------------------------------------------------------------- scheduler
 import contextlib
+import json
 import logging
 import os
 import secrets
@@ -1721,12 +1722,29 @@ def customer_detail(request: Request, db: DB, customer_id: int):
         return back("/customers", err=f"Customer {customer_id} not found.")
     from ..cases.diagram import generate_ubo_diagram
     diagram_svg = generate_ubo_diagram(db, customer_id, session.org_id)
+    # Stored as JSON lists; show "AE, GB" rather than ["AE", "GB"] (and nothing for []).
+    for key in ("nationalities", "tax_residencies"):
+        data["customer"][key] = _code_list(data["customer"].get(key))
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
                  data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
                          "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
+
+
+def _code_list(value) -> str:
+    """'["AE","GB"]' (or a list) -> 'AE, GB'; empty or unparseable -> ''."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return value.strip()
+    if not value:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v).strip() for v in value if str(v).strip())
+    return str(value)
 
 
 @app.get("/customers/{customer_id}/uaepass/start")

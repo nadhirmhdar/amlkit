@@ -21,7 +21,7 @@
     Organization details used when generating goAML XML reports (STR, SAR, etc.).
     These fields populate the reporting entity section of the XML submission.
   </p>
-  <form method="post" action="/admin/org-profile" class="row">
+  <form method="post" action="/admin/org-profile" class="row profile-grid">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div>
       <label for="admin-org-address">Organization Address</label>
@@ -43,7 +43,7 @@
     </div>
     <div>
       <label for="admin-reporting-person-phone">Reporting Person Phone</label>
-      <input type="tel" id="admin-reporting-person-phone" name="reporting_person_phone"
+      <input type="text" inputmode="tel" autocomplete="tel" id="admin-reporting-person-phone" name="reporting_person_phone"
              value="{{ org.reporting_person_phone or '' }}"
              placeholder="+971501234567">
     </div>
@@ -55,7 +55,7 @@
              required>
       <span class="muted small">Your organization's unique reference code for goAML submissions. Required for XML export.</span>
     </div>
-    <div>
+    <div class="profile-grid__actions">
       <button type="submit">Save Profile</button>
     </div>
   </form>
