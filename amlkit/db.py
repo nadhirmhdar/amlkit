@@ -713,6 +713,13 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("organizations", "trade_license_number",  "ALTER TABLE organizations ADD COLUMN trade_license_number TEXT"),
     ("organizations", "mlro_name",             "ALTER TABLE organizations ADD COLUMN mlro_name TEXT"),
     ("organizations", "mlro_email",            "ALTER TABLE organizations ADD COLUMN mlro_email TEXT"),
+    # Idempotency/audit marker for the retention backfill
+    # (scripts/backfill_retention.py). NULL until a row's retention_until
+    # has been migrated from an older firm retention policy to the
+    # current one; the backfill skips rows already stamped so repeated
+    # runs never double-extend a date. Additive only -- existing close
+    # and purge logic ignore this column.
+    ("customers", "retention_backfilled_at", "ALTER TABLE customers ADD COLUMN retention_backfilled_at TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
