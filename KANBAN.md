@@ -12,7 +12,6 @@ force-completed.
 
 ## Backlog
 
-- [ ] #268 (high) goAML reporting: add tests asserting org/transaction data comes from tenant rows, not hardcoded values
 - [ ] #79 (high) retention_until migration: additive backfill script/migration for rows stored under the old 5-year rule
 - [ ] #261 (medium) goAML serialize_goaml_xml institution-name coverage test (Originating/Beneficiary Bank from tx data)
 - [ ] #267 (medium) record-retention/purge logic: regression tests pinning correct purge contract
@@ -33,5 +32,6 @@ _(none)_
 
 ## Done
 
+- [x] #268 (high) goAML org/transaction data is tenant-sourced (tests/test_goaml_tenant_data.py, 5 tests) — __SHA__ — 2026-10-03
 - [x] #266 (high) Tenant-isolation regression suite (tests/test_tenant_isolation.py, 16 tests) — 400c5e0 — 2026-10-03
 - [x] Bootstrap this Kanban board so the improvement loop has a real backlog to consume — 2026-10-02
