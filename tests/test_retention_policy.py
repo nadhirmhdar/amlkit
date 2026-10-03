@@ -29,7 +29,7 @@ from amlkit.cases.manager import (  # noqa: E402
     reactivate_customer,
     retention_from,
 )
-from amlkit.db import connect, utcnow  # noqa: E402
+from amlkit.db import _reset_init_cache, connect, utcnow  # noqa: E402
 from conftest import register_org, seed_fresh_dataset  # noqa: E402
 
 # "requires/mandates ... ten years" or "extended ... five to ten years".
@@ -231,6 +231,9 @@ def test_connect_runs_the_fix_once(tmp_path) -> None:
     c.commit()
     c.close()
 
+    # connect() initialises a DB file once per process; the one-shot fix runs
+    # at the first connect of a new process (a deploy), so simulate a restart.
+    _reset_init_cache()
     c = connect(db_file)
     assert _until(c, cid) == "2031-08-11"
     assert len(_ext_audits(c)) == 1
@@ -238,6 +241,7 @@ def test_connect_runs_the_fix_once(tmp_path) -> None:
     c.execute("UPDATE customers SET retention_until='2020-01-01' WHERE id=?", (cid,))
     c.commit()
     c.close()
+    _reset_init_cache()  # another restart: the data_migrations marker must stop a re-run
     c = connect(db_file)
     assert _until(c, cid) == "2020-01-01"
     assert len(_ext_audits(c)) == 1
