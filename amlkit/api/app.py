@@ -2636,6 +2636,70 @@ def feedback_submit(
     return JSONResponse({"success": True, "message": "Thank you for your feedback!"})
 
 
+@app.get("/admin/feedback", response_class=HTMLResponse)
+def feedback_view(request: Request, db: DB, page: int = 1):
+    """MLRO-only viewer for feedback submitted via the in-app widget above.
+
+    Same pagination shape as /audit: no COUNT query, just "is this page
+    full?" to decide whether a Next link is shown.
+    """
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
+
+    per_page = 50
+    offset = (page - 1) * per_page
+
+    return render(request, "feedback_admin.html", {
+        "session": session,
+        "entries": queries.feedback_list(db, session.org_id, limit=per_page, offset=offset),
+        "page": page,
+        "per_page": per_page,
+    })
+
+
+@app.get("/admin/feedback/export")
+def feedback_export(request: Request, db: DB):
+    """Export this org's feedback as CSV. MLRO only, same shape as /audit/export."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import Response as _R
+        return _R(status_code=403)
+
+    import csv
+    import io as _io
+    from fastapi.responses import StreamingResponse
+
+    from ..pii import redact as _redact_pii
+
+    entries = queries.feedback_list(db, session.org_id, limit=100000)
+    buf = _io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["created_at", "operator", "page", "message"])
+    for e in entries:
+        writer.writerow([
+            _escape_csv_formula(e.get("created_at", "")),
+            _escape_csv_formula(e.get("operator_name") or ""),
+            _escape_csv_formula(e.get("page", "")),
+            _escape_csv_formula(_redact_pii(e.get("message", ""))),
+        ])
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=feedback.csv"},
+    )
+
+
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
 def audit_view(request: Request, db: DB, page: int = 1):
