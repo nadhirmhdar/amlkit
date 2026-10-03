@@ -204,6 +204,12 @@ app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))
 templates.env.globals["has_arabic"] = has_arabic_script
 templates.env.globals["asset_v"] = int((WEB / "static" / "app.css").stat().st_mtime)
+# blog.css/blog.js change independently of app.css, so they get their own cache-buster.
+templates.env.filters["blog_date"] = blog.format_date
+templates.env.globals["blog_asset_v"] = int(max(
+    (WEB / "static" / "blog.css").stat().st_mtime,
+    (WEB / "static" / "js" / "blog.js").stat().st_mtime,
+))
 
 
 async def _async_form(request: Request) -> FormData:
@@ -2602,9 +2608,20 @@ def privacy_view(request: Request, db: DB):
 # screening obligations, meant to be found by search rather than reached from
 # inside the product.
 @app.get("/blog", response_class=HTMLResponse)
-def blog_index(request: Request, db: DB):
+def blog_index(request: Request, db: DB, topic: str = "", q: str = ""):
     session = current_session(request, db)
-    return render(request, "blog_index.html", {"session": session, "posts": blog.all_posts()}, db)
+    active = blog.get_topic(topic) if topic else None
+    if topic and active is None:
+        raise HTTPException(status_code=404)
+    q = q.strip()[:100]
+    posts = blog.posts_in_topic(active.slug) if active else blog.all_posts()
+    if q:  # no-JS fallback; blog.js filters the same cards instantly in the browser
+        posts = blog.search(q, posts)
+    featured = next((p for p in posts if p.featured), None) if not (active or q) else None
+    return render(request, "blog_index.html", {
+        "session": session, "posts": posts, "featured": featured, "q": q,
+        "active_topic": active, "topics": blog.topic_counts(),
+    }, db)
 
 
 @app.get("/blog/{slug}", response_class=HTMLResponse)
@@ -2613,7 +2630,9 @@ def blog_post_view(request: Request, slug: str, db: DB):
     if post is None:
         raise HTTPException(status_code=404)
     session = current_session(request, db)
-    return render(request, f"blog/{post.slug}.html", {"session": session, "post": post}, db)
+    return render(request, f"blog/{post.slug}.html", {
+        "session": session, "post": post, "related": blog.related_posts(post),
+    }, db)
 
 
 @app.get("/robots.txt", response_class=Response)

@@ -16,6 +16,7 @@
 <link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
+{% block head_extra %}{% endblock %}
 </head>
 <body>
 
@@ -306,6 +307,7 @@
 <script src="/static/js/countries.js"></script>
 <script src="/static/js/app.js"></script>
 <script src="/static/js/jsonld.js" defer></script>
+{% block scripts_extra %}{% endblock %}
 {% if session %}<script src="/static/js/search-palette.js"></script>{% endif %}
 </body>
 </html>

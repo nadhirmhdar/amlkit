@@ -1,8 +1,25 @@
-{% extends "base.html" %}
-{% set nav = 'blog' %}
-{% block title %}Blog — groAML by Grovisor{% endblock %}
-{% block meta_description %}<meta name="description" content="Practical guidance on sanctions screening, CDD and AML/CFT compliance for UAE DNFBPs, from the team building groAML.">{% endblock %}
-{% block canonical %}<link rel="canonical" href="https://groaml.grovisor.ae/blog">{% endblock %}
+{% extends "blog/_base.html" %}
+{% set blog_nav = 'guides' %}
+{% if active_topic %}
+  {% set page_title = active_topic.name ~ " guides" %}
+  {% set page_url = "https://groaml.grovisor.ae/blog?topic=" ~ active_topic.slug %}
+  {% set page_desc = active_topic.blurb ~ " Practical guides for UAE DNFBPs from groAML by Grovisor." %}
+{% else %}
+  {% set page_title = "UAE AML/CFT compliance guides" %}
+  {% set page_url = "https://groaml.grovisor.ae/blog" %}
+  {% set page_desc = "Practical, sourced guides to sanctions screening, CDD, goAML reporting and risk assessment for UAE DNFBPs, from the team behind groAML." %}
+{% endif %}
+{% block title %}{{ page_title }} — groAML Insights{% endblock %}
+{% block meta_description %}<meta name="description" content="{{ page_desc }}">{% endblock %}
+{% block canonical %}<link rel="canonical" href="{{ page_url }}">{% endblock %}
+{% block og %}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="groAML by Grovisor">
+<meta property="og:title" content="{{ page_title }} — groAML Insights">
+<meta property="og:description" content="{{ page_desc }}">
+<meta property="og:url" content="{{ page_url }}">
+<meta name="twitter:card" content="summary">
+{% endblock %}
 {% set ld = {
   "@context": "https://schema.org",
   "@graph": [
@@ -10,46 +27,138 @@
       "@type": "BreadcrumbList",
       "itemListElement": [
         { "@type": "ListItem", "position": 1, "name": "groAML", "item": "https://groaml.grovisor.ae/about" },
-        { "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://groaml.grovisor.ae/blog" }
+        { "@type": "ListItem", "position": 2, "name": "Insights", "item": "https://groaml.grovisor.ae/blog" }
       ]
     },
     {
       "@type": "Blog",
-      "name": "groAML Blog",
+      "name": "groAML Insights",
+      "description": page_desc,
       "url": "https://groaml.grovisor.ae/blog",
+      "inLanguage": "en",
       "publisher": { "@type": "Organization", "name": "Grovisor Business Consultants LLC", "url": "https://grovisor.ae/" }
     }
   ]
 } %}
 {% block json_ld %}<div hidden data-jsonld='{{ ld | tojson }}'></div>{% endblock %}
-{% block body %}
 
-<div style="max-width:680px;">
-  <div class="page-head">
-    <div class="eyebrow">Blog</div>
-    <h1>AML/CFT compliance, explained.</h1>
-    <p class="sub">
-      Practical guidance on sanctions screening, customer due diligence and
-      regulatory reporting for UAE DNFBPs &mdash; written by the team building
-      groAML.
-    </p>
+{% macro card(p, dup=false) -%}
+<a class="bl-card" href="/blog/{{ p.slug }}" data-bl-card="{{ (p.title ~ ' ' ~ p.description ~ ' ' ~ p.topic_obj.name ~ ' ' ~ p.audience | join(' ')) | lower }}"{% if dup %} data-bl-dup hidden{% endif %}>
+  <span class="bl-pill">{{ p.topic_obj.name }}</span>
+  <h3>{{ p.title }}</h3>
+  <p>{{ p.description }}</p>
+  <div class="bl-meta">
+    <span>{{ p.reading_minutes }} min read</span>
+    <span>Updated <time datetime="{{ p.updated }}">{{ p.updated | blog_date }}</time></span>
   </div>
+</a>
+{%- endmacro %}
 
-  <div class="flat-list">
-    {% for post in posts %}
-    <div class="list-row" style="align-items:flex-start;">
-      <div class="grow">
-        <div class="primary" style="font-size:15px;">
-          <a href="/blog/{{ post.slug }}" style="color:inherit; text-decoration:none;">{{ post.title }}</a>
-        </div>
-        <div class="secondary" style="font-size:13.5px; color:var(--ink-2); margin-top:4px; line-height:1.5;">
-          {{ post.description }}
-        </div>
-        <a href="/blog/{{ post.slug }}" style="font-size:13px; font-weight:600;">Read more &rarr;</a>
-      </div>
+{% block body %}
+<div id="bl-main" class="bl-main"{% if not session %} role="main"{% endif %}>
+  <section class="bl-hero">
+    <div class="bl-wrap">
+      {% if active_topic %}
+        <div class="bl-eyebrow"><a href="/blog" style="color:inherit;text-decoration:none;">Insights</a> / Topic</div>
+        <h1>{{ active_topic.name }}</h1>
+        <p class="bl-lede">{{ active_topic.blurb }}</p>
+      {% else %}
+        <div class="bl-eyebrow">groAML Insights</div>
+        <h1>UAE AML/CFT compliance, made practical.</h1>
+        <p class="bl-lede">Step-by-step guides for real estate brokers, gold dealers, corporate service providers, auditors and law firms. Every guide cites the law and says exactly what to do, not just what the rules are.</p>
+      {% endif %}
+      <form class="bl-search" role="search" action="/blog" data-bl-search-form>
+        <label class="bl-visually-hidden" for="bl-q">Search guides</label>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="bl-q" name="q" value="{{ q }}" type="search" placeholder="Search guides: freezing, goAML, beneficial owner…" autocomplete="off" data-bl-search>
+      {% if active_topic %}<input type="hidden" name="topic" value="{{ active_topic.slug }}">{% endif %}
+      </form>
+      <nav class="bl-chips" aria-label="Topics">
+        <a class="bl-chip" href="/blog" {% if not active_topic %}aria-current="page"{% endif %}>All guides</a>
+        {% for t, n in topics %}
+        <a class="bl-chip" href="/blog?topic={{ t.slug }}" {% if active_topic and active_topic.slug == t.slug %}aria-current="page"{% endif %}>{{ t.name }} <span class="n">{{ n }}</span></a>
+        {% endfor %}
+      </nav>
     </div>
-    {% endfor %}
+  </section>
+
+  <div class="bl-wrap">
+    {% if featured %}
+    <section class="bl-section" data-bl-feature-section aria-labelledby="bl-featured-h">
+      <div class="bl-section__head"><h2 id="bl-featured-h">Featured guide</h2></div>
+      <a class="bl-feature" href="/blog/{{ featured.slug }}">
+        <div class="bl-feature__art" aria-hidden="true">
+          <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <radialGradient id="g1" cx="70%" cy="20%" r="80%"><stop offset="0" stop-color="#4eccd3" stop-opacity=".45"/><stop offset="1" stop-color="#4eccd3" stop-opacity="0"/></radialGradient>
+            </defs>
+            <rect width="400" height="300" fill="url(#g1)"/>
+            <g fill="none" stroke="#4eccd3" stroke-opacity=".35">
+              <circle cx="200" cy="150" r="40"/><circle cx="200" cy="150" r="80"/><circle cx="200" cy="150" r="120"/><circle cx="200" cy="150" r="160"/>
+            </g>
+            <path d="M200 150 L330 70" stroke="#4eccd3" stroke-width="2" stroke-opacity=".8"/>
+            <circle cx="300" cy="88" r="7" fill="#fff"/><circle cx="300" cy="88" r="16" fill="#fff" fill-opacity=".18"/>
+            <g fill="#fff" fill-opacity=".9" font-family="Manrope, sans-serif" font-weight="800">
+              <text x="28" y="262" font-size="54" letter-spacing="-2">24h</text>
+              <text x="30" y="282" font-size="12" fill-opacity=".7" letter-spacing="2">TO FREEZE</text>
+            </g>
+          </svg>
+        </div>
+        <div class="bl-feature__body">
+          <span class="bl-pill">{{ featured.topic_obj.name }}</span>
+          <h3>{{ featured.title }}</h3>
+          <p>{{ featured.dek }}</p>
+          <div class="bl-meta">
+            <span>{{ featured.reading_minutes }} min read</span>
+            <span>Updated <time datetime="{{ featured.updated }}">{{ featured.updated | blog_date }}</time></span>
+          </div>
+          <span class="bl-more">Read the guide &rarr;</span>
+        </div>
+      </a>
+    </section>
+    {% endif %}
+
+    <section class="bl-section" aria-labelledby="bl-latest-h">
+      <div class="bl-section__head">
+        <h2 id="bl-latest-h">{% if active_topic %}All {{ active_topic.name }} guides{% else %}Latest guides{% endif %}</h2>
+        <p>{{ posts | length }} guide{{ '' if posts | length == 1 else 's' }}</p>
+      </div>
+      <div class="bl-grid">
+        {% for p in posts %}
+          {% if featured and p.slug == featured.slug %}{{ card(p, dup=true) }}{% else %}{{ card(p) }}{% endif %}
+        {% endfor %}
+      </div>
+      {% if not posts %}
+        <div class="bl-empty">No guides in this topic yet. <a href="/blog">Browse all guides</a>.</div>
+      {% elif featured and posts | length == 1 %}
+        <p class="bl-meta" style="margin-top:4px;">More guides are on the way. The featured guide above is the latest.</p>
+      {% endif %}
+      <div class="bl-empty" data-bl-noresults hidden>No guides match that search. Try “freeze”, “goAML” or “beneficial owner”.</div>
+    </section>
+
+    <section class="bl-section" id="topics" aria-labelledby="bl-topics-h">
+      <div class="bl-section__head"><h2 id="bl-topics-h">Browse by topic</h2></div>
+      <div class="bl-topics">
+        {% for t, n in topics %}
+        <a class="bl-topic" href="/blog?topic={{ t.slug }}">
+          <strong>{{ t.name }}</strong>
+          <span>{{ t.blurb }}</span>
+          <em>{{ n }} guide{{ '' if n == 1 else 's' }}</em>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="bl-cta-band no-print" aria-label="groAML">
+      <div>
+        <h2>Screening, CDD and goAML reporting in one place</h2>
+        <p>groAML re-screens your whole customer book every time the UAE and UN lists change, matches Arabic names properly, and keeps the evidence trail an inspector will ask for.</p>
+      </div>
+      <div class="bl-actions">
+        <a class="bl-btn bl-btn--light" href="/about">See how groAML works</a>
+        <a class="bl-btn bl-btn--ghost" style="color:#fff !important;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.6);" href="https://grovisor.ae" target="_blank" rel="noopener">Talk to Grovisor</a>
+      </div>
+    </section>
   </div>
 </div>
-
 {% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{# Shared frame for every blog page: own sticky header, footer, stylesheet
+   and script. Signed-in users see the blog inside the normal app shell
+   instead (base.html skips public_header/public_footer for them). #}
+{% set nav = 'blog' %}
+{% block head_extra %}<link rel="stylesheet" href="/static/blog.css?v={{ blog_asset_v }}">{% endblock %}
+{% block body %}{# filled by blog_index.html and blog/_article.html #}{% endblock %}
+
+{% block public_header %}
+<a class="bl-skip" href="#bl-main">Skip to content</a>
+<header class="bl-top no-print">
+  <div class="bl-wrap bl-top__in">
+    <a class="bl-brand" href="/blog" aria-label="groAML Insights, home">
+      <img src="/static/img/grovisor-logo.png" alt="">
+      <span class="wm wm--accent" aria-hidden="true">gr<span class="nd"></span>AML</span>
+      <span class="bl-brand__div" aria-hidden="true"></span>
+      <span class="bl-brand__label">Insights</span>
+    </a>
+    <nav class="bl-nav" aria-label="Blog">
+      <a href="/blog" {% if blog_nav == 'guides' %}aria-current="page"{% endif %}>Guides</a>
+      <a class="bl-hide-sm" href="/blog#topics">Topics</a>
+      <a class="bl-hide-sm" href="/about">About groAML</a>
+      <a class="bl-btn" href="/login">Sign in</a>
+    </nav>
+  </div>
+</header>
+{% endblock %}
+
+{% block public_footer %}
+<footer class="bl-footer no-print">
+  <div class="bl-wrap bl-footer__in">
+    <span>&copy; 2026 Grovisor Business Consultants LLC. groAML by Grovisor.</span>
+    <nav aria-label="Footer">
+      <a href="/blog">Guides</a>
+      <a href="/about">About</a>
+      <a href="/privacy">Privacy</a>
+      <a href="https://grovisor.ae" target="_blank" rel="noopener">grovisor.ae</a>
+    </nav>
+  </div>
+</footer>
+{% endblock %}
+
+{% block scripts_extra %}<script src="/static/js/blog.js?v={{ blog_asset_v }}" defer></script>{% endblock %}

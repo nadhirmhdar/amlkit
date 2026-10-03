@@ -31,9 +31,47 @@ def test_blog_index_lists_every_post(client) -> None:
 def test_blog_post_renders(client) -> None:
     r = client.get("/blog/uae-sanctions-screening-24-hour-rule")
     assert r.status_code == 200
-    assert "24-Hour Rule" in r.text
+    assert "24-hour freezing rule" in r.text
     assert "BlogPosting" in r.text
     assert "FAQPage" in r.text
+    # Every guide cites its sources and says what it was checked against.
+    assert 'id="sources"' in r.text
+    assert "Checked against" in r.text
+
+
+def test_blog_topic_filter(client) -> None:
+    r = client.get("/blog?topic=sanctions")
+    assert r.status_code == 200
+    assert "/blog/uae-sanctions-screening-24-hour-rule" in r.text
+    assert client.get("/blog?topic=no-such-topic").status_code == 404
+    # A real topic with no posts yet renders an empty state, not an error.
+    empty = client.get("/blog?topic=risk")
+    assert empty.status_code == 200
+    assert "No guides in this topic yet" in empty.text
+
+
+def test_blog_search_is_server_side_without_js(client) -> None:
+    hit = client.get("/blog?q=freeze")
+    assert hit.status_code == 200
+    assert "/blog/uae-sanctions-screening-24-hour-rule" in hit.text
+    miss = client.get("/blog?q=zzzznotaword")
+    assert miss.status_code == 200
+    assert 'href="/blog/uae-sanctions-screening-24-hour-rule"' not in miss.text
+
+
+def test_blog_search_matches_every_word() -> None:
+    posts = blog.all_posts()
+    assert blog.search("sanctions DNFBPs", posts)
+    assert blog.search("sanctions zzzz", posts) == []
+
+
+def test_related_posts_never_include_the_post_itself() -> None:
+    for post in blog.all_posts():
+        assert post not in blog.related_posts(post)
+
+
+def test_blog_date_format() -> None:
+    assert blog.format_date("2026-10-03") == "3 Oct 2026"
 
 
 def test_blog_unknown_slug_is_404(client) -> None:
@@ -61,9 +99,15 @@ def test_sitemap_lists_public_pages_but_not_the_authenticated_home(client) -> No
 
 
 def test_public_header_and_footer_appear_on_content_pages_not_auth_flows(client) -> None:
-    for path in ("/about", "/privacy", "/blog", "/blog/uae-sanctions-screening-24-hour-rule"):
+    for path in ("/about", "/privacy"):
         html = client.get(path).text
         assert '<header class="no-print"' in html, path
+        assert "Grovisor Business Consultants LLC. groAML" in html, path
+
+    # Blog pages carry their own header (search, topics) and footer.
+    for path in ("/blog", "/blog/uae-sanctions-screening-24-hour-rule"):
+        html = client.get(path).text
+        assert '<header class="bl-top no-print"' in html, path
         assert "Grovisor Business Consultants LLC. groAML" in html, path
 
     for path in ("/login", "/register-organization", "/setup"):

@@ -1,0 +1,179 @@
+{% extends "blog/_base.html" %}
+{# Article layout. A post template extends this and sets, at top level:
+     toc      -- list of (anchor_id, label) for the "On this page" nav
+     glance   -- list of key-takeaway strings
+     faqs     -- list of {"q": ..., "a": ...} (plain text; also emitted as FAQPage)
+     sources  -- list of {"title", "publisher", "url" (optional), "note" (optional)}
+     reviewed_against -- short string naming what the guide was checked against
+   and fills {% block article %} with the body. Everything else (header,
+   TOC, FAQ, sources, related guides, schema.org) comes from here. #}
+{% set post_url = "https://groaml.grovisor.ae/blog/" ~ post.slug %}
+{% block title %}{{ post.title }} — groAML Insights{% endblock %}
+{% block meta_description %}<meta name="description" content="{{ post.description }}">{% endblock %}
+{% block canonical %}<link rel="canonical" href="{{ post_url }}">{% endblock %}
+{% block og %}
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="groAML by Grovisor">
+<meta property="og:title" content="{{ post.title }}">
+<meta property="og:description" content="{{ post.description }}">
+<meta property="og:url" content="{{ post_url }}">
+<meta property="article:published_time" content="{{ post.published }}">
+<meta property="article:modified_time" content="{{ post.updated }}">
+<meta property="article:section" content="{{ post.topic_obj.name }}">
+<meta name="twitter:card" content="summary">
+{% endblock %}
+
+{% block json_ld %}
+{%- set ld_faq = [] -%}
+{%- for f in faqs -%}{%- set _ = ld_faq.append({"@type": "Question", "name": f.q, "acceptedAnswer": {"@type": "Answer", "text": f.a}}) -%}{%- endfor -%}
+{%- set ld = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {"@type": "BreadcrumbList", "itemListElement": [
+      {"@type": "ListItem", "position": 1, "name": "groAML", "item": "https://groaml.grovisor.ae/about"},
+      {"@type": "ListItem", "position": 2, "name": "Insights", "item": "https://groaml.grovisor.ae/blog"},
+      {"@type": "ListItem", "position": 3, "name": post.topic_obj.name, "item": "https://groaml.grovisor.ae/blog?topic=" ~ post.topic},
+      {"@type": "ListItem", "position": 4, "name": post.title, "item": post_url}
+    ]},
+    {"@type": "BlogPosting",
+     "headline": post.title, "description": post.description, "url": post_url,
+     "mainEntityOfPage": post_url, "datePublished": post.published, "dateModified": post.updated,
+     "articleSection": post.topic_obj.name, "inLanguage": "en", "timeRequired": "PT" ~ post.reading_minutes ~ "M",
+     "audience": {"@type": "BusinessAudience", "audienceType": post.audience | join(", ")},
+     "author": {"@type": "Organization", "name": "groAML compliance team, Grovisor Business Consultants LLC", "url": "https://grovisor.ae/"},
+     "publisher": {"@type": "Organization", "name": "Grovisor Business Consultants LLC", "url": "https://grovisor.ae/",
+                   "logo": {"@type": "ImageObject", "url": "https://groaml.grovisor.ae/static/img/grovisor-logo.png"}}},
+    {"@type": "FAQPage", "mainEntity": ld_faq}
+  ]
+} -%}
+<div hidden data-jsonld='{{ ld | tojson }}'></div>
+{% endblock %}
+
+{% macro toc_list() -%}
+<nav class="bl-toc" aria-label="On this page">
+  <ol>
+    {% for id, label in toc %}<li><a href="#{{ id }}">{{ label }}</a></li>{% endfor %}
+  </ol>
+</nav>
+{%- endmacro %}
+
+{% block body %}
+<div class="bl-progress" data-bl-progress aria-hidden="true"></div>
+<div id="bl-main" class="bl-main bl-wrap"{% if not session %} role="main"{% endif %}>
+  <nav class="bl-crumbs" aria-label="Breadcrumb">
+    <a href="/blog">Insights</a><span aria-hidden="true">/</span>
+    <a href="/blog?topic={{ post.topic }}">{{ post.topic_obj.name }}</a>
+  </nav>
+
+  <header class="bl-art-head">
+    <a class="bl-pill" href="/blog?topic={{ post.topic }}">{{ post.topic_obj.name }}</a>
+    <h1>{{ post.title }}</h1>
+    <p class="bl-dek">{{ post.dek }}</p>
+    <div class="bl-byline">
+      <div class="bl-author">
+        <img src="/static/img/grovisor-icon.png" alt="">
+        <div>
+          <b>groAML compliance team</b>
+          <small>Grovisor Business Consultants LLC</small>
+        </div>
+      </div>
+      <div class="bl-meta">
+        <span>Published <time datetime="{{ post.published }}">{{ post.published | blog_date }}</time></span>
+        <span>Updated <time datetime="{{ post.updated }}">{{ post.updated | blog_date }}</time></span>
+        <span>{{ post.reading_minutes }} min read</span>
+      </div>
+      <div class="bl-share no-print">
+        <button type="button" class="bl-icon-btn" data-bl-copy="{{ post_url }}" title="Copy link to this guide">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+          <span data-label>Copy link</span>
+        </button>
+        <a class="bl-icon-btn" href="https://www.linkedin.com/sharing/share-offsite/?url={{ post_url | urlencode }}" target="_blank" rel="noopener" title="Share on LinkedIn" aria-label="Share on LinkedIn">in</a>
+        <button type="button" class="bl-icon-btn" data-bl-print title="Print or save as PDF">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/></svg>
+          <span>Save PDF</span>
+        </button>
+      </div>
+    </div>
+    {% if reviewed_against %}
+    <p class="bl-meta" style="margin-top:12px;"><span>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg>
+      Checked against {{ reviewed_against }}</span></p>
+    {% endif %}
+  </header>
+
+  <div class="bl-layout">
+    <article class="bl-article" data-bl-article>
+      <details class="bl-toc-mobile no-print">
+        <summary>On this page</summary>
+        {{ toc_list() }}
+      </details>
+
+      <section class="bl-glance" aria-labelledby="glance-h">
+        <h2 id="glance-h">At a glance</h2>
+        <ul>{% for g in glance %}<li>{{ g }}</li>{% endfor %}</ul>
+      </section>
+
+      {% if post.audience %}
+      <div class="bl-applies"><b>Who this is for:</b>{% for a in post.audience %}<span>{{ a }}</span>{% endfor %}</div>
+      {% endif %}
+
+      <div class="bl-prose">
+        {% block article %}{% endblock %}
+
+        {% if faqs %}
+        <h2 id="faq">Frequently asked questions</h2>
+        <div class="bl-faq">
+          {% for f in faqs %}
+          <details{% if loop.first %} open{% endif %}><summary>{{ f.q }}</summary><div>{{ f.a }}</div></details>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if sources %}
+        <h2 id="sources">Sources</h2>
+        <ol class="bl-sources">
+          {% for s in sources %}
+          <li>{% if s.url %}<a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}, {{ s.publisher }}{% if s.note %}. {{ s.note }}{% endif %}</li>
+          {% endfor %}
+        </ol>
+        {% endif %}
+
+        <p class="bl-disclaimer">This guide is general information, not legal advice. It reflects the sources listed above as of {{ post.updated | blog_date }}. Check the current EOCN guidance and confirm with your supervisory authority or a UAE-qualified adviser how these obligations apply to your business.</p>
+      </div>
+
+      {% if related %}
+      <section class="bl-related no-print" aria-labelledby="related-h">
+        <h2 id="related-h">Keep reading</h2>
+        <div class="bl-grid">
+          {% for p in related %}
+          <a class="bl-card" href="/blog/{{ p.slug }}"><span class="bl-pill">{{ p.topic_obj.name }}</span><h3>{{ p.title }}</h3><p>{{ p.description }}</p><div class="bl-meta"><span>{{ p.reading_minutes }} min read</span></div></a>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    </article>
+
+    <aside class="bl-aside no-print" aria-label="On this page">
+      <p class="bl-toc-title">On this page</p>
+      {{ toc_list() }}
+      <div class="bl-mini-cta">
+        <b>Never miss a list update</b>
+        groAML re-screens every customer when the UAE and UN lists change, and tracks each freeze against its deadline.
+        <div style="margin-top:12px;"><a class="bl-btn" href="/about">See how</a></div>
+      </div>
+    </aside>
+  </div>
+
+  <section class="bl-cta-band no-print" aria-label="groAML">
+    <div>
+      <h2>Make the 24-hour rule routine</h2>
+      <p>groAML screens against the UAE Local Terrorist List and the UN Consolidated List, matches Arabic names properly, and keeps a dated record of every check, match and decision.</p>
+    </div>
+    <div class="bl-actions">
+      <a class="bl-btn bl-btn--light" href="/about">See how groAML works</a>
+      <a class="bl-btn bl-btn--ghost" style="color:#fff !important;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.6);" href="https://grovisor.ae" target="_blank" rel="noopener">Talk to Grovisor</a>
+    </div>
+  </section>
+</div>
+<a href="#bl-main" class="bl-btn bl-top-link no-print" data-bl-top aria-label="Back to top">&uarr; Top</a>
+{% endblock %}
