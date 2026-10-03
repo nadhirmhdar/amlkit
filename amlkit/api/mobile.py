@@ -1608,6 +1608,14 @@ def api_report_save(body: ReportSaveRequest, db: DB, session: Session):
             existing = queries.report(db, body.report_id, session.org_id)
             if not existing:
                 raise HTTPException(status_code=404, detail="Report not found.")
+            # Same rule as the web path (cases.reports.save_report): a
+            # finalised report is a filed regulatory record and is never
+            # overwritten.
+            if existing["status"] != "draft":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Report {body.report_id} has been finalized and can no longer be edited.",
+                )
             db.execute(
                 "UPDATE reports SET payload=?, reference=? WHERE id=? AND org_id=?",
                 (payload_json, f"goAML-{body.report_type}-{body.report_id}",
