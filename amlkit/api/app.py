@@ -1624,9 +1624,12 @@ def dashboard(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+    d = queries.dashboard(db, session.org_id)
     ctx = {
         "session": session,
-        "d": queries.dashboard(db, session.org_id),
+        "d": d,
+        "alert_lines": queries.alert_lines(d["open_alerts"], d["alert_counts"]),
+        "greeting": queries.dubai_greeting(),
         "datasets": queries.datasets(db),
     }
     if can_view_audit(session):
@@ -2502,28 +2505,33 @@ def customer_add_signature(
 
 # --------------------------------------------------------------------- alerts
 @app.get("/alerts", response_class=HTMLResponse)
-def alerts(request: Request, db: DB, status: str = "open", sort: str = "age_asc", group_by: str = ""):
+def alerts(request: Request, db: DB, status: str = "open", sort: str = "age_asc", group_by: str = "",
+           category: str = ""):
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
     sort_by = sort if sort in ("age_asc", "age_desc") else "age_asc"
     effective_status = None if status == "all" else status
+    cat = category if category in queries.CATEGORY_LABELS else None
+    cat_ctx = {"category": cat or "", "category_label": queries.CATEGORY_LABELS.get(cat, "")}
     if group_by == "customer":
-        grouped = queries.alert_queue_grouped(db, session.org_id, status=effective_status)
+        grouped = queries.alert_queue_grouped(db, session.org_id, status=effective_status, category=cat)
         for g in grouped:
             for a in g["alerts"]:
                 a["reviews"] = review_history(db, a["id"], session.org_id)
         return render(request, "alerts.html", {
             "session": session, "alerts": [], "grouped": grouped,
             "status": status, "sort": sort_by, "group_by": group_by, "reason_codes": REASON_CODES,
+            **cat_ctx,
         }, db)
-    queue = queries.alert_queue(db, session.org_id, status=effective_status, sort_by=sort_by)
+    queue = queries.alert_queue(db, session.org_id, status=effective_status, sort_by=sort_by, category=cat)
     for a in queue:
         a["reviews"] = review_history(db, a["id"], session.org_id)
     return render(request, "alerts.html", {
         "session": session, "alerts": queue, "grouped": [],
         "status": status, "sort": sort_by, "group_by": group_by, "reason_codes": REASON_CODES,
+        **cat_ctx,
     }, db)
 
 
@@ -2648,12 +2656,14 @@ def alert_assign_route(
 
 
 @app.get("/alerts.csv")
-def alerts_csv(request: Request, db: DB, status: str = "all"):
+def alerts_csv(request: Request, db: DB, status: str = "all", category: str = ""):
     try:
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
-    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status)
+    cat = category if category in queries.CATEGORY_LABELS else None
+    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status,
+                                category=cat)
     return _csv_response(
         "alerts.csv",
         ["id", "category", "score", "caption", "matched_party", "status", "reason_code",
