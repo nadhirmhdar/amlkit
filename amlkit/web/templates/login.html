@@ -24,9 +24,9 @@
 .si-form h1 { font-size:34px; font-weight:300; letter-spacing:-.02em; margin:0 0 4px; color:#fff; }
 .si-form .si-to { font-size:13px; color:rgba(233,241,242,.7); margin-bottom:34px; }
 .si label { color:rgba(233,241,242,.78); font-size:12px; letter-spacing:.08em; }
-.si .input-underline { color:#fff; font-size:16px; border-bottom-color:rgba(233,241,242,.4) !important; }
-.si .input-underline:focus { border-bottom-color:#4eccd3 !important; }
-.si [data-action="toggle-password"] { color:rgba(233,241,242,.75) !important; }
+.si .input-underline { color:#fff; font-size:16px; border-bottom-color:rgba(233,241,242,.4); }
+.si .input-underline:focus { border-bottom-color:#4eccd3; box-shadow:inset 0 -1px 0 #4eccd3; }
+.si .input-underline:focus-visible { outline:2px solid #4eccd3; outline-offset:4px; }
 .si a { color:#4eccd3; font-weight:600; text-decoration:underline; text-underline-offset:3px; }
 .si a:hover { color:#7ee0e5; }
 .si-btn { text-transform:uppercase; width:100%; background:#4eccd3; color:#04141a; border:none; border-radius:var(--radius-sm); padding:15px; font-size:14.5px; font-weight:800; letter-spacing:.08em; cursor:pointer; box-shadow:0 8px 28px rgb(78 204 211 / .25); }
@@ -38,7 +38,6 @@
 .si-alt { display:block; text-align:center; text-decoration:none; padding:13px; border:1px solid #4eccd3; border-radius:var(--radius-sm); color:#4eccd3; font-weight:700; font-size:14px; }
 .si .si-alt, .si .si-alt:hover { text-decoration:none; }
 .si-alt:hover { background:rgb(78 204 211 / .12); color:#7ee0e5; text-decoration:none; }
-.si .input-underline:focus-visible { outline:none; }
 .si-note { margin:-14px 0 24px; padding:12px 14px; border-radius:8px; font-size:13px; line-height:1.5; }
 .si-note--err { color:#ffd9d4; background:rgb(255 120 105 / .12); border:1px solid rgb(255 150 135 / .45); }
 .si-note--ok { color:#c9f3f5; background:rgb(78 204 211 / .12); border:1px solid rgb(78 204 211 / .4); }
@@ -128,7 +127,6 @@
   </div>
 </div>
 
-<script src="/static/js/app.js"></script>
 <script src="/static/js/signin-strands.js"></script>
 
 {% endblock %}

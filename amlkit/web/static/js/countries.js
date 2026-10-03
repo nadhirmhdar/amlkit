@@ -201,30 +201,48 @@ window.COUNTRIES = [
 ];
 
 /**
- * Initialize country dropdown component on an input element
- * Replaces a text input with a searchable dropdown that stores ISO alpha-2 codes
+ * Initialize country dropdown component on an input element.
+ *
+ * Replaces a text input with an ARIA 1.2 combobox (editable, list
+ * autocomplete) that stores the ISO alpha-2 code in a hidden input:
+ *  - role=combobox + aria-expanded/aria-controls/aria-activedescendant on
+ *    the visible input; role=listbox/option (ids unique per instance) on
+ *    the list, so screen readers announce the highlighted country.
+ *  - ArrowDown/ArrowUp move the highlight, Enter picks it, Escape closes.
+ *  - On blur, text that resolves to exactly one country snaps to it;
+ *    anything else clears the code and shows "Choose a country from the
+ *    list" inline, so free text never silently posts an empty value.
+ * The original input's id moves to the visible input, so an existing
+ * <label for="..."> keeps naming the combobox.
  * @param {HTMLInputElement} input - The input element to enhance
  */
+var countryDropdownCount = 0;
+
+function countryLabel(c) { return c.name + ' (' + c.code + ')'; }
+
 function initCountryDropdown(input) {
   if (!input || input.dataset.countryDropdown === 'initialized') return;
   input.dataset.countryDropdown = 'initialized';
+  var uid = 'country-cb-' + (++countryDropdownCount);
+  var labelEl = input.labels && input.labels.length ? input.labels[0] : null;
 
-  // Create wrapper
   var wrapper = document.createElement('div');
   wrapper.className = 'country-dropdown-wrapper';
-  wrapper.style.position = 'relative';
-  wrapper.style.display = 'inline-block';
-  wrapper.style.width = '100%';
 
-  // Create display input (what user sees/types)
+  // Visible combobox input (what the user sees/types)
   var display = document.createElement('input');
   display.type = 'text';
+  display.id = input.id || (uid + '-input');
   display.placeholder = input.placeholder || 'Type to search countries...';
   display.autocomplete = 'off';
   display.className = input.className;
-  display.setAttribute('aria-label', input.getAttribute('aria-label') || 'Search countries');
+  if (input.getAttribute('aria-label') || !labelEl) {
+    display.setAttribute('aria-label', input.getAttribute('aria-label') || 'Search countries');
+  }
+  display.setAttribute('role', 'combobox');
   display.setAttribute('aria-autocomplete', 'list');
-  display.setAttribute('aria-controls', 'country-dropdown-list');
+  display.setAttribute('aria-expanded', 'false');
+  display.setAttribute('aria-controls', uid + '-list');
 
   // Hidden input stores the ISO code (submitted with form)
   var hidden = document.createElement('input');
@@ -232,105 +250,205 @@ function initCountryDropdown(input) {
   hidden.name = input.name;
   hidden.value = input.value || '';
 
-  // Dropdown list
   var dropdown = document.createElement('div');
-  dropdown.id = 'country-dropdown-list';
+  dropdown.id = uid + '-list';
   dropdown.className = 'country-dropdown-list';
   dropdown.setAttribute('role', 'listbox');
-  dropdown.style.display = 'none';
-  dropdown.style.position = 'absolute';
-  dropdown.style.top = '100%';
-  dropdown.style.left = '0';
-  dropdown.style.right = '0';
-  dropdown.style.maxHeight = '200px';
-  dropdown.style.overflowY = 'auto';
-  dropdown.style.background = '#fff';
-  dropdown.style.border = '1px solid #d1d5db';
-  dropdown.style.borderRadius = '4px';
-  dropdown.style.marginTop = '2px';
-  dropdown.style.zIndex = '1000';
-  dropdown.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+  if (labelEl) {
+    if (!labelEl.id) labelEl.id = uid + '-label';
+    dropdown.setAttribute('aria-labelledby', labelEl.id);
+  } else {
+    dropdown.setAttribute('aria-label', 'Countries');
+  }
+  dropdown.hidden = true;
 
-  // Set initial display value from code
+  var error = document.createElement('p');
+  error.id = uid + '-error';
+  error.className = 'field-error';
+  error.setAttribute('role', 'alert');
+  error.hidden = true;
+
+  var matches = [];
+  var active = -1;
+
+  function findByCode(code) {
+    code = (code || '').toUpperCase();
+    return window.COUNTRIES.find(function(c) { return c.code === code; }) || null;
+  }
+
+  function filter(query) {
+    var q = (query || '').trim().toLowerCase();
+    if (!q) return window.COUNTRIES.slice();
+    return window.COUNTRIES.filter(function(c) {
+      return c.name.toLowerCase().indexOf(q) !== -1 || c.code.toLowerCase().indexOf(q) !== -1
+        || countryLabel(c).toLowerCase() === q;
+    });
+  }
+
+  // Exact match on name, ISO code or the "Name (CODE)" display form.
+  function exactMatch(text) {
+    var q = (text || '').trim().toLowerCase();
+    if (!q) return null;
+    return window.COUNTRIES.find(function(c) {
+      return c.name.toLowerCase() === q || c.code.toLowerCase() === q || countryLabel(c).toLowerCase() === q;
+    }) || null;
+  }
+
+  // True when the visible text is exactly the current selection's label.
+  function showingSelection() {
+    var current = findByCode(hidden.value);
+    return !!current && display.value.trim() === countryLabel(current);
+  }
+
   if (hidden.value) {
-    var country = window.COUNTRIES.find(function(c) { return c.code === hidden.value.toUpperCase(); });
-    if (country) display.value = country.name + ' (' + country.code + ')';
+    var initial = findByCode(hidden.value);
+    if (initial) display.value = countryLabel(initial);
   }
 
-  // Filter and render dropdown
-  function renderDropdown(query) {
-    var q = (query || '').toLowerCase();
-    var filtered = q ? window.COUNTRIES.filter(function(c) {
-      return c.name.toLowerCase().indexOf(q) !== -1 || c.code.toLowerCase().indexOf(q) !== -1;
-    }) : window.COUNTRIES;
+  function isOpen() { return !dropdown.hidden; }
 
-    dropdown.innerHTML = '';
-    if (filtered.length === 0) {
-      dropdown.innerHTML = '<div style="padding:8px; color:#6b7280;">No matches</div>';
+  function setActive(i) {
+    var opts = dropdown.querySelectorAll('[role="option"]');
+    if (active >= 0 && opts[active]) {
+      opts[active].classList.remove('is-active');
+      opts[active].setAttribute('aria-selected', 'false');
+    }
+    active = i;
+    if (i >= 0 && opts[i]) {
+      opts[i].classList.add('is-active');
+      opts[i].setAttribute('aria-selected', 'true');
+      display.setAttribute('aria-activedescendant', opts[i].id);
+      if (opts[i].scrollIntoView) opts[i].scrollIntoView({ block: 'nearest' });
     } else {
-      filtered.slice(0, 50).forEach(function(country) {
-        var option = document.createElement('div');
-        option.className = 'country-option';
-        option.textContent = country.name + ' (' + country.code + ')';
-        option.dataset.code = country.code;
-        option.setAttribute('role', 'option');
-        option.style.padding = '8px 12px';
-        option.style.cursor = 'pointer';
-        option.style.borderBottom = '1px solid #f3f4f6';
-
-        option.addEventListener('mousedown', function(e) {
-          e.preventDefault(); // Prevent input blur
-          hidden.value = country.code;
-          display.value = country.name + ' (' + country.code + ')';
-          dropdown.style.display = 'none';
-        });
-
-        option.addEventListener('mouseenter', function() {
-          option.style.background = '#f3f4f6';
-        });
-
-        option.addEventListener('mouseleave', function() {
-          option.style.background = '#fff';
-        });
-
-        dropdown.appendChild(option);
-      });
+      display.removeAttribute('aria-activedescendant');
     }
-
-    dropdown.style.display = 'block';
   }
 
-  // Event handlers
+  function open(query) {
+    matches = filter(query).slice(0, 50);
+    dropdown.textContent = '';
+    active = -1;
+    display.removeAttribute('aria-activedescendant');
+    if (matches.length === 0) {
+      var none = document.createElement('div');
+      none.className = 'country-option country-option--empty';
+      none.textContent = 'No matches';
+      dropdown.appendChild(none);
+    }
+    matches.forEach(function(country, i) {
+      var option = document.createElement('div');
+      option.id = uid + '-opt-' + i;
+      option.className = 'country-option';
+      option.textContent = countryLabel(country);
+      option.dataset.code = country.code;
+      option.setAttribute('role', 'option');
+      option.setAttribute('aria-selected', 'false');
+      option.addEventListener('mousedown', function(e) {
+        e.preventDefault(); // keep focus in the input
+        choose(country);
+      });
+      option.addEventListener('mousemove', function() {
+        if (active !== i) setActive(i);
+      });
+      dropdown.appendChild(option);
+    });
+    dropdown.hidden = false;
+    display.setAttribute('aria-expanded', 'true');
+  }
+
+  function close() {
+    setActive(-1);
+    dropdown.hidden = true;
+    display.setAttribute('aria-expanded', 'false');
+  }
+
+  function showError(on) {
+    error.hidden = !on;
+    error.textContent = on ? 'Choose a country from the list' : '';
+    if (on) {
+      display.setAttribute('aria-invalid', 'true');
+      display.setAttribute('aria-describedby', error.id);
+    } else {
+      display.removeAttribute('aria-invalid');
+      display.removeAttribute('aria-describedby');
+    }
+  }
+
+  function choose(country) {
+    hidden.value = country.code;
+    display.value = countryLabel(country);
+    showError(false);
+    close();
+  }
+
+  // Reconcile the typed text with the hidden code. Returns false when the
+  // text could not be resolved to a single country.
+  function commit() {
+    var text = display.value.trim();
+    if (showingSelection()) { showError(false); return true; }
+    if (!text) { hidden.value = ''; showError(false); return true; }
+    var hit = exactMatch(text);
+    if (!hit) {
+      var candidates = filter(text);
+      if (candidates.length === 1) hit = candidates[0];
+    }
+    if (hit) { choose(hit); return true; }
+    hidden.value = '';
+    showError(true);
+    return false;
+  }
+
   display.addEventListener('focus', function() {
-    renderDropdown(display.value);
+    open(showingSelection() ? '' : display.value);
   });
-
   display.addEventListener('input', function() {
-    renderDropdown(display.value);
+    hidden.value = '';
+    showError(false);
+    open(display.value);
   });
-
   display.addEventListener('blur', function() {
-    // Delay to allow click on option
-    setTimeout(function() {
-      dropdown.style.display = 'none';
-    }, 200);
+    close();
+    commit();
   });
-
   display.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      dropdown.style.display = 'none';
-    } else if (e.key === 'ArrowDown') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      var firstOption = dropdown.querySelector('.country-option');
-      if (firstOption) firstOption.focus();
+      if (!isOpen()) open(showingSelection() ? '' : display.value);
+      if (!matches.length) return;
+      var next = e.key === 'ArrowDown' ? active + 1 : active - 1;
+      if (next >= matches.length) next = 0;
+      if (next < 0) next = matches.length - 1;
+      setActive(next);
+    } else if (e.key === 'Enter') {
+      if (isOpen() && active >= 0 && matches[active]) {
+        e.preventDefault(); // pick the option rather than submit the form
+        choose(matches[active]);
+      }
+    } else if (e.key === 'Escape') {
+      if (isOpen()) {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
     }
   });
 
-  // Build DOM
+  // Never post a country the user typed but didn't resolve.
+  var form = input.form;
+  if (form) {
+    form.addEventListener('submit', function(e) {
+      if (!commit()) {
+        e.preventDefault();
+        display.focus();
+      }
+    });
+  }
+
   input.parentNode.insertBefore(wrapper, input);
   wrapper.appendChild(display);
   wrapper.appendChild(hidden);
   wrapper.appendChild(dropdown);
+  wrapper.appendChild(error);
   input.remove();
 }
 

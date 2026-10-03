@@ -7,6 +7,8 @@
 (function () {
   document.addEventListener('submit', function (e) {
     var form = e.target;
+    // A field's own validation (e.g. the country combobox) cancelled it.
+    if (e.defaultPrevented) return;
     if (form.classList.contains('no-loading')) return;
     var btn = form.querySelector('button[type="submit"]');
     if (!btn || form.classList.contains('is-submitting')) return;
@@ -70,6 +72,34 @@
   });
 }());
 
+// Tablet (681-960px) navigation drawer. The toggle button only shows at that
+// width; CSS keeps the closed drawer visibility:hidden (out of the tab
+// order) and shows a scrim behind the open one.
+(function () {
+  var btn = document.querySelector('[data-action="toggle-nav"]');
+  var shell = document.querySelector('.shell');
+  var sidebar = document.getElementById('sidebar');
+  if (!btn || !shell || !sidebar) return;
+  function isOpen() { return shell.classList.contains('nav-open'); }
+  function setOpen(open, restoreFocus) {
+    shell.classList.toggle('nav-open', open);
+    btn.setAttribute('aria-expanded', String(open));
+    if (open) {
+      var first = sidebar.querySelector('nav a');
+      if (first) first.focus();
+    } else if (restoreFocus) {
+      btn.focus();
+    }
+  }
+  btn.addEventListener('click', function () { setOpen(!isOpen(), false); });
+  document.querySelectorAll('[data-action="close-nav"]').forEach(function (el) {
+    el.addEventListener('click', function () { setOpen(false, true); });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && isOpen()) setOpen(false, true);
+  });
+}());
+
 // Feedback modal functions
 var feedbackLastFocused = null;
 
@@ -87,16 +117,40 @@ function showFeedbackResult(message, kind) {
   resultDiv.appendChild(span);
 }
 
-function openFeedback() {
-  feedbackLastFocused = document.activeElement;
-  document.getElementById('feedback-modal').style.display = 'block';
+// Open a <dialog> modally (focus trap + Escape for free); falls back to a
+// plain open attribute on browsers without showModal().
+function showDialogModal(dialog) {
+  if (typeof dialog.showModal === 'function') {
+    if (dialog.open) dialog.close();
+    dialog.showModal();
+  } else {
+    dialog.setAttribute('open', '');
+  }
   document.body.classList.add('modal-open');
+}
+
+function openFeedback() {
+  var modal = document.getElementById('feedback-modal');
+  feedbackLastFocused = document.activeElement;
+  showDialogModal(modal);
   showFeedbackResult('');
   document.querySelector('#feedback-form textarea').focus();
 }
 
 function closeFeedback() {
-  document.getElementById('feedback-modal').style.display = 'none';
+  var modal = document.getElementById('feedback-modal');
+  if (!modal) return;
+  if (typeof modal.close === 'function' && modal.open) {
+    modal.close(); // fires 'close' -> onFeedbackClosed()
+  } else {
+    modal.removeAttribute('open');
+    onFeedbackClosed();
+  }
+}
+
+// Cleanup for every way the dialog closes: Close/Cancel, backdrop click,
+// Escape (native 'cancel' -> 'close'), or the post-send timer.
+function onFeedbackClosed() {
   document.body.classList.remove('modal-open');
   var form = document.getElementById('feedback-form');
   form.reset();
@@ -139,15 +193,12 @@ function submitFeedback(e) {
   });
 }
 
-// Close modal on click outside, or on Escape while it's open.
+// Close the feedback dialog on a click on its backdrop (the <dialog> itself
+// fills the viewport; the visible card is .feedback-modal-content inside).
+// Escape is handled natively by the <dialog>.
 window.addEventListener('click', function(e) {
   var modal = document.getElementById('feedback-modal');
   if (e.target === modal) closeFeedback();
-});
-document.addEventListener('keydown', function(e) {
-  if (e.key !== 'Escape') return;
-  var modal = document.getElementById('feedback-modal');
-  if (modal && modal.style.display === 'block') closeFeedback();
 });
 
 // Generic confirm handler for buttons and forms with data-confirm attribute
@@ -541,6 +592,22 @@ document.addEventListener('DOMContentLoaded', function() {
   var feedbackForm = document.getElementById('feedback-form');
   if (feedbackForm) {
     feedbackForm.addEventListener('submit', submitFeedback);
+  }
+
+  var feedbackModal = document.getElementById('feedback-modal');
+  if (feedbackModal) {
+    feedbackModal.addEventListener('close', onFeedbackClosed);
+  }
+
+  // First-login disclaimer: server-rendered open (so it shows without JS);
+  // re-open it modally. Escape must not dismiss it -- the operator has to
+  // acknowledge it via the form.
+  var disclaimer = document.getElementById('disclaimer-modal');
+  if (disclaimer) {
+    showDialogModal(disclaimer);
+    disclaimer.addEventListener('cancel', function (e) { e.preventDefault(); });
+    var ack = disclaimer.querySelector('button[type="submit"]');
+    if (ack) ack.focus();
   }
 
   // User menu toggle (mobile)
