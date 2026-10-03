@@ -12,7 +12,6 @@ force-completed.
 
 ## Backlog
 
-- [ ] #79 (high) retention_until migration: additive backfill script/migration for rows stored under the old 5-year rule
 - [ ] #261 (medium) goAML serialize_goaml_xml institution-name coverage test (Originating/Beneficiary Bank from tx data)
 - [ ] #267 (medium) record-retention/purge logic: regression tests pinning correct purge contract
 - [ ] #253 (medium) UBO ownership-percentage validation/computation regression tests
@@ -32,6 +31,7 @@ _(none)_
 
 ## Done
 
+- [x] #79 (high) retention-date backfill: scripts/backfill_retention.py + customers.retention_backfilled_at migration (tests/test_retention_backfill.py, 12 tests) — 1d9e940 — 2026-10-03
 - [x] #268 (high) goAML org/transaction data is tenant-sourced (tests/test_goaml_tenant_data.py, 5 tests) — 1ca2dbc — 2026-10-03
 - [x] #266 (high) Tenant-isolation regression suite (tests/test_tenant_isolation.py, 16 tests) — 400c5e0 — 2026-10-03
 - [x] Bootstrap this Kanban board so the improvement loop has a real backlog to consume — 2026-10-02
