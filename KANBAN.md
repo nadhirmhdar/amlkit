@@ -32,6 +32,6 @@ _(none)_
 
 ## Done
 
-- [x] #268 (high) goAML org/transaction data is tenant-sourced (tests/test_goaml_tenant_data.py, 5 tests) — __SHA__ — 2026-10-03
+- [x] #268 (high) goAML org/transaction data is tenant-sourced (tests/test_goaml_tenant_data.py, 5 tests) — 1ca2dbc — 2026-10-03
 - [x] #266 (high) Tenant-isolation regression suite (tests/test_tenant_isolation.py, 16 tests) — 400c5e0 — 2026-10-03
 - [x] Bootstrap this Kanban board so the improvement loop has a real backlog to consume — 2026-10-02
