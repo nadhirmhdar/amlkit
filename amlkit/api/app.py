@@ -1265,7 +1265,9 @@ def apply_submit(
     application_id = apps.save(db, clean)
     outcome = mail.send_application_notice(application_id, clean)
     apps.record_delivery(db, application_id, outcome)
-    auth._log_auth_event(db, "application_submitted", clean["email"],
+    # No email here: auth_log is outside the 12-month applications purge, so
+    # storing it would outlive the retention period and an erasure request.
+    auth._log_auth_event(db, "application_submitted", None,
                          {"application_id": application_id, "email_delivery": outcome})
     return RedirectResponse("/apply/thanks", status_code=303)
 
@@ -1322,9 +1324,11 @@ def applications_set_status(
         return _not_found(request, db)
     try:
         require_csrf(request, csrf_token)
-        apps.set_status(db, application_id, status, actor=session.operator_name)
+        found = apps.set_status(db, application_id, status, actor=session.operator_name)
     except (PermissionError, ValueError) as exc:
         return back("/admin/applications", err=str(exc))
+    if not found:
+        return back("/admin/applications", err=f"Request #{application_id} not found.")
     return back("/admin/applications", msg=f"Request #{application_id} marked {status}.")
 
 
@@ -1340,7 +1344,8 @@ def applications_delete(
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back("/admin/applications", err=str(exc))
-    apps.delete_application(db, application_id, actor=session.operator_name)
+    if not apps.delete_application(db, application_id, actor=session.operator_name):
+        return back("/admin/applications", err=f"Request #{application_id} not found.")
     return back("/admin/applications", msg=f"Request #{application_id} deleted.")
 
 

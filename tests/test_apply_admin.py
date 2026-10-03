@@ -89,6 +89,16 @@ def test_admin_can_change_status_and_delete(app_client):
     assert {"application.status", "application.deleted"} <= actions
 
 
+def test_acting_on_a_missing_request_reports_an_error_not_success(app_client):
+    admin = _as_admin(app_client)
+    tok = admin.cookies.get("amlkit_csrf")
+    for path, data in (("/admin/applications/999/status", {"status": "contacted"}),
+                       ("/admin/applications/999/delete", {})):
+        page = admin.post(path, data={**data, "csrf_token": tok}).text
+        assert "Request #999 not found." in page, path
+        assert "marked contacted" not in page and "#999 deleted" not in page, path
+
+
 def test_actions_need_csrf_and_the_right_user(app_client):
     _submit(app_client)
     admin = _as_admin(app_client)

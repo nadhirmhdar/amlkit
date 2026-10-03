@@ -434,12 +434,10 @@ def send_application_notice(application_id: int, a: dict) -> str:
     msg.set_content("\n".join(lines))
 
     if not is_configured():
-        print(
-            "\n" + "=" * 72 +
-            f"\namlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- printing quotation\n"
-            f"request #{application_id} for {', '.join(recipients)} instead of emailing it.\n\n"
-            + "\n".join(lines) + "\n" + "=" * 72 + "\n"
-        )
+        # Stdout is shipped to Cloud Logging, which the 12-month purge never
+        # reaches: name the request only, never the applicant's details.
+        print(f"\namlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- quotation request "
+              f"#{application_id} was saved but not emailed; see /admin/applications.\n")
         return NOT_CONFIGURED
 
     user = os.environ.get("AMLKIT_SMTP_USER", "")

@@ -139,6 +139,21 @@ def test_request_is_saved_even_when_mail_is_not_configured_or_failing(client, sm
     assert [r["email_delivery"] for r in _rows()] == ["failed", "not_configured"]
 
 
+def test_no_applicant_details_outlive_the_purge_in_logs(client, smtp, monkeypatch, capsys):
+    """auth_log and stdout (Cloud Logging) are outside the 12-month purge, so
+    neither may hold what the applicant typed."""
+    monkeypatch.delenv("AMLKIT_SMTP_HOST")
+    _post(client)
+    out = capsys.readouterr().out
+    for secret in ("layla", "gulfgold", "555 0100", "Layla Haddad", "MoE inspection"):
+        assert secret.lower() not in out.lower(), secret
+    assert "#1" in out
+    logged = _rows("auth_log")
+    assert [r["event"] for r in logged] == ["application_submitted"]
+    assert logged[0]["email_attempted"] is None
+    assert "gulfgold" not in (logged[0]["detail"] or "").lower()
+
+
 def test_a_request_creates_no_organization_operator_or_access(client, smtp):
     before = (len(_rows("organizations")), len(_rows("operators")))
     _post(client)
