@@ -86,9 +86,10 @@ def test_customer_page_states_policy_not_legal_requirement(web) -> None:
     html = client.get(f"/customers/{res.customer_id}").text
     assert "Records retained until" in html
     flat = " ".join(html.split())
-    assert f"Retained for {RETENTION_YEARS} years (firm policy; statutory minimum is " \
-           f"{STATUTORY_MIN_RETENTION_YEARS} years under Cabinet Resolution 134/2025 " \
-           "Art. 25(2))" in flat
+    assert f"Retained for {RETENTION_YEARS} years (firm policy; UAE AML/CFT law " \
+           f"requires at least {STATUTORY_MIN_RETENTION_YEARS} years)" in flat
+    # The owner chose general wording over citing a specific article.
+    assert "Art. 25" not in flat
     assert not _FALSE_CLAIM.search(flat)
 
 
