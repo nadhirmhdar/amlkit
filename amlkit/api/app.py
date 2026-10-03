@@ -2151,6 +2151,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
         return back(f"/customers/{customer_id}/evidence",
                     err="PDF generation unavailable — WeasyPrint system libraries not installed.")
 
+    _audit_export(db, session, "export.evidence_pdf", "customer", customer_id)
     from fastapi.responses import Response
     # Header values must be latin-1: give an ASCII fallback filename plus the
     # full (possibly Arabic) name via RFC 6266 filename*.
@@ -2666,6 +2667,8 @@ def alerts_csv(request: Request, db: DB, status: str = "all", category: str = ""
     cat = category if category in queries.CATEGORY_LABELS else None
     queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status,
                                 category=cat)
+    _audit_export(db, session, "export.alerts_csv", None, None,
+                  {"status": status, "category": cat, "rows": len(queue)})
     return _csv_response(
         "alerts.csv",
         ["id", "category", "score", "caption", "matched_party", "status", "reason_code",
@@ -2686,6 +2689,7 @@ def customers_csv(request: Request, db: DB):
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
     rows = queries.customer_list(db, session.org_id)
+    _audit_export(db, session, "export.customers_csv", None, None, {"rows": len(rows)})
     return _csv_response(
         "customers.csv",
         ["reference", "full_name", "customer_type", "sector", "status", "rating",
@@ -2697,6 +2701,16 @@ def customers_csv(request: Request, db: DB):
             for c in rows
         ],
     )
+
+
+def _audit_export(db, session, action: str, object_type: str | None = None,
+                  object_id=None, detail=None) -> None:
+    """One audit row per successful data export (who pulled what out of the
+    app, with which filters / how many rows) -- never the exported data."""
+    from ..db import audit
+    audit(db, session.operator_name, action, object_type, object_id, detail,
+          org_id=session.org_id)
+    db.commit()
 
 
 def _csv_response(filename: str, header: list[str], rows: list[list]):
@@ -2949,6 +2963,7 @@ def feedback_export(request: Request, db: DB):
     from ..pii import redact as _redact_pii
 
     entries = queries.feedback_list(db, session.org_id, limit=100000)
+    _audit_export(db, session, "export.feedback_csv", None, None, {"rows": len(entries)})
     buf = _io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["created_at", "operator", "page", "message"])
@@ -3010,6 +3025,7 @@ def audit_export(request: Request, db: DB):
     from ..pii import redact as _redact_pii
 
     entries = queries.audit_trail(db, session.org_id, limit=100000)
+    _audit_export(db, session, "export.audit_csv", None, None, {"rows": len(entries)})
     buf = _io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["timestamp", "action", "user", "object_type", "object_id", "detail"])
@@ -4117,6 +4133,8 @@ def report_export_xml(request: Request, db: DB, report_id: int):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=str(exc))
 
+    _audit_export(db, session, "export.goaml_xml", "report", report_id,
+                  {"report_type": rep["report_type"]})
     from fastapi.responses import Response
     return Response(
         content=xml_content,
