@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% set nav = 'applications' %}
+{% block title %}Quotation requests — groAML{% endblock %}
+{% block body %}
+<div class="page-head">
+  <div class="eyebrow">Admin</div>
+  <h1>Quotation requests</h1>
+  <p class="sub">Requests from the public form. Kept {{ retention_days }} days after their last change, then deleted automatically (won requests are kept until you delete them).</p>
+</div>
+
+<div class="tab-filter">
+  <a class="{{ 'on' if not status }}" href="/admin/applications">All</a>
+  {% for s in statuses %}
+    <a class="{{ 'on' if status == s }}" href="/admin/applications?status={{ s }}">{{ s|capitalize }} ({{ counts[s] }})</a>
+  {% endfor %}
+</div>
+
+{% if expired %}
+<form method="post" action="/admin/applications/purge" class="row" style="margin-bottom:20px; align-items:center;"
+      data-confirm="Permanently delete {{ expired }} request(s) past the {{ retention_days }}-day retention period?">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="muted small">{{ expired }} request(s) are past the retention period.</span>
+  <button class="small danger" type="submit">Delete expired now</button>
+</form>
+{% endif %}
+
+{% if not applications %}
+  <p class="muted">No requests{% if status %} with status “{{ status }}”{% endif %}.</p>
+{% endif %}
+
+<div class="stack">
+{% for a in applications %}
+  <div class="alert-card">
+    <div class="alert-head">
+      <h3>{{ a.org_name }}</h3>
+      <span class="tag">{{ a.status }}</span>
+    </div>
+    <div class="muted small">#{{ a.id }} · {{ a.created_at }} · {{ a.applicant_type }}{% if a.client_firms %} · {{ a.client_firms }} client firms{% endif %}</div>
+    <dl class="kv" style="margin:12px 0;">
+      <div><dt>Contact</dt><dd>{{ a.contact_name }}{% if a.job_title %}, {{ a.job_title }}{% endif %} · <a href="mailto:{{ a.email }}">{{ a.email }}</a>{% if a.phone %} · {{ a.phone }}{% endif %}</dd></div>
+      <div><dt>Category</dt><dd>{{ a.category }} · {{ a.jurisdiction }}</dd></div>
+      <div><dt>Size</dt><dd>{{ a.team_size }} team · {{ a.customers_per_year }} customers/yr{% if a.screenings_per_month %} · {{ a.screenings_per_month }} screenings/mo{% endif %}</dd></div>
+      {% if a.needs %}<div><dt>Needs</dt><dd>{{ a.needs|join(', ') }}</dd></div>{% endif %}
+      {% if a.message %}<div><dt>Message</dt><dd style="white-space:pre-wrap;">{{ a.message }}</dd></div>{% endif %}
+      <div><dt>Consent</dt><dd>{{ a.consent_at }}{% if a.consent_version %} (wording {{ a.consent_version }}){% endif %} · email: {{ a.email_delivery or 'n/a' }}</dd></div>
+    </dl>
+    <div class="row" style="align-items:center; gap:12px;">
+      <form method="post" action="/admin/applications/{{ a.id }}/status" class="row" style="gap:8px; align-items:center;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="st-{{ a.id }}" class="visually-hidden">Status for request {{ a.id }}</label>
+        <select name="status" id="st-{{ a.id }}">
+          {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s == a.status }}>{{ s|capitalize }}</option>{% endfor %}
+        </select>
+        <button class="small ghost" type="submit">Update</button>
+      </form>
+      <form method="post" action="/admin/applications/{{ a.id }}/delete"
+            data-confirm="Permanently delete request #{{ a.id }} from {{ a.org_name }}?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="small danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

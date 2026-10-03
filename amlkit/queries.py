@@ -742,6 +742,7 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
             conn, org_id, status=None, customer_id=customer_id
         ),
         "signatures": signatures_for_customer(conn, customer_id, org_id),
+        "uaepass_verifications": uaepass_verifications_for_customer(conn, customer_id, org_id),
         "adverse_media": adverse_media_for_customer(conn, customer_id, org_id),
         "adverse_media_runs": adverse_media_runs(conn, customer_id, org_id),
         "documents": documents_for_customer(conn, customer_id, org_id),
@@ -849,6 +850,18 @@ def signatures_for_customer(
         (customer_id, org_id))]
 
 
+def uaepass_verifications_for_customer(
+    conn: sqlite3.Connection, customer_id: int, org_id: int
+) -> list[dict[str, Any]]:
+    """Append-only UAE PASS identity-verification history for one customer,
+    newest first -- same shape/ordering convention as signatures_for_customer
+    above."""
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM uaepass_verifications WHERE customer_id=? AND org_id=?"
+        " ORDER BY verified_at DESC",
+        (customer_id, org_id))]
+
+
 def audit_trail(
     conn: sqlite3.Connection, org_id: int, object_type: str | None = None,
     object_id: int | str | None = None, limit: int = 200, offset: int = 0,
@@ -875,6 +888,24 @@ def audit_trail(
         dict(r) | {"detail": json.loads(r["detail"]) if r["detail"] else None}
         for r in conn.execute(sql, params)
     ]
+
+
+def feedback_list(
+    conn: sqlite3.Connection, org_id: int, limit: int = 50, offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Feedback submitted via the in-app feedback widget, newest first, for
+    one organization (see api/app.py's feedback_submit()).
+
+    LEFT JOIN, not JOIN: feedback.operator_id is ON DELETE SET NULL (see
+    db.py's schema comment), so a submission from a since-removed operator
+    still shows here, just without a name.
+    """
+    sql = (
+        "SELECT f.id, f.page, f.message, f.created_at, o.name AS operator_name"
+        " FROM feedback f LEFT JOIN operators o ON o.id = f.operator_id"
+        " WHERE f.org_id=? ORDER BY f.id DESC LIMIT ? OFFSET ?"
+    )
+    return [dict(r) for r in conn.execute(sql, (org_id, limit, offset))]
 
 
 def recent_audit(conn: sqlite3.Connection, org_id: int, limit: int = 6) -> list[dict[str, Any]]:

@@ -30,6 +30,7 @@ from typing import Any
 from ..db import audit, retry_on_lock, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, ScreeningResult, screen
 from ..names.arabic import canonical_key
+from ..uaepass import UaePassProfile
 from ..risk.model import (
     CustomerProfile,
     RiskAssessment,
@@ -905,6 +906,128 @@ def add_case_note(
         audit(conn, author, "case_note.add", "customer", customer_id,
               {"note_id": cur.lastrowid}, org_id=org_id)
         return cur.lastrowid
+
+
+# ---------------------------------------------------------------------- UAE PASS
+def record_uaepass_verification(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    profile: UaePassProfile,
+    *,
+    actor: str,
+    verified_by: int | None,
+) -> int:
+    """Record a UAE PASS identity-verification result as CDD evidence.
+
+    Append-only, like every other evidence table in this module (signatures,
+    documents): a re-verification inserts a new row rather than overwriting
+    the last one. Verifies the customer belongs to org_id first, same
+    "cross-tenant customer_id is not found" contract as add_case_note() above.
+
+    This is ADDITIONAL identity-verification evidence alongside the OCR
+    passport/Emirates-ID-scan flow (cases/ocr.py), not a replacement for it --
+    a customer without UAE PASS still onboards via OCR/manual entry.
+
+    Also best-effort backfills the customer's own identity columns (id_number,
+    id_type, nationality, email, phone, gender) using the same field mapping
+    `cases.manager.onboard()` accepts (id_number <- idn, nationality <-
+    alpha-2 of nationalityEN, phone <- mobile), but ONLY where the existing
+    column is currently empty -- this is stronger evidence arriving for a
+    field nobody had filled in yet, not silent overwrite of whatever an
+    operator or OCR scan already recorded. full_name/name_arabic are
+    deliberately left untouched: changing them here would silently change the
+    customer's canonical_key/screening identity without re-running screen(),
+    which onboard() does but this append-only evidence path does not.
+
+    The full raw UAE PASS userinfo response is kept on the accompanying
+    audit_log row's `detail` (uaepass_verifications itself has no raw/JSON
+    column -- see db.py's schema comment), so a response shape this parser
+    didn't anticipate is still inspectable afterward rather than lost.
+    """
+    from ..datamodel import validate_country_code
+    from ..uaepass import alpha3_to_alpha2, normalize_gender, EMIRATES_ID_TYPE
+
+    now = utcnow()
+    with conn:
+        owned = conn.execute(
+            "SELECT id, nationality, nationalities, id_number, id_type, email, phone, gender"
+            " FROM customers WHERE id=? AND org_id=?",
+            (customer_id, org_id),
+        ).fetchone()
+        if owned is None:
+            raise ValueError(f"customer {customer_id} not found")
+
+        cur = conn.execute(
+            """INSERT INTO uaepass_verifications
+               (org_id, customer_id, uaepass_uuid, idn, fullname_en, fullname_ar,
+                nationality_en, mobile, email, user_type, verified_at, verified_by)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                org_id, customer_id, profile.uuid, profile.idn,
+                profile.fullname_en, profile.fullname_ar, profile.nationality_en,
+                profile.mobile, profile.email, profile.user_type, now, verified_by,
+            ),
+        )
+        verification_id = cur.lastrowid
+
+        audit(conn, actor, "customer.uaepass_verify", "customer", customer_id,
+              {"verification_id": verification_id, "uaepass_uuid": profile.uuid,
+               "user_type": profile.user_type, "raw": profile.raw},
+              org_id=org_id)
+
+        # Best-effort, non-destructive backfill -- see docstring above.
+        updates: dict[str, Any] = {}
+        if not owned["id_number"] and not owned["id_type"] and profile.idn:
+            # id_number and id_type describe one document together. Gating
+            # on id_number alone would let an already-chosen id_type (e.g.
+            # "passport", picked before a number was typed in) survive while
+            # id_number gets overwritten with an Emirates ID number -- a
+            # mismatched pair worse than leaving both alone. Only backfill
+            # when neither half of the pair has a value yet.
+            updates["id_number"] = profile.idn
+            updates["id_type"] = EMIRATES_ID_TYPE
+        if not owned["nationality"] and profile.nationality_en:
+            alpha2 = alpha3_to_alpha2(profile.nationality_en)
+            try:
+                validate_country_code(alpha2)
+                updates["nationality"] = alpha2
+                # customers.nationalities is the parallel JSON list
+                # customer.html renders separately (see db.py's
+                # _backfill_nationalities -- connect() guarantees this is
+                # never NULL, "[]" is the empty value). Keep both in sync
+                # on this backfill, same as onboard() does at creation time,
+                # so a verified nationality doesn't fill one column while
+                # leaving the other stale/empty.
+                if owned["nationalities"] in (None, "[]"):
+                    updates["nationalities"] = json.dumps([alpha2])
+            except ValueError:
+                pass  # unrecognised code -- leave nationality unset rather than guess
+        if not owned["email"] and profile.email:
+            updates["email"] = profile.email
+        if not owned["phone"] and profile.mobile:
+            updates["phone"] = profile.mobile
+        if not owned["gender"] and profile.gender:
+            normalized_gender = normalize_gender(profile.gender)
+            if normalized_gender:
+                updates["gender"] = normalized_gender
+
+        if updates:
+            # Not an f-string: tests/test_tenant_isolation.py's static scan
+            # walks every string node, including a JoinedStr's own literal
+            # Constant children -- an f-string here would re-surface the
+            # "UPDATE customers SET " prefix as its own fragment (split off
+            # by the {set_sql} placeholder) and flag it as missing org_id,
+            # even though the reconstructed statement has it. Keeping the
+            # whole template as one literal, filled by .format(), produces
+            # the identical SQL without tripping that false positive.
+            set_sql = ", ".join(f"{col}=?" for col in updates)
+            conn.execute(
+                "UPDATE customers SET {}, updated_at=? WHERE id=? AND org_id=?".format(set_sql),
+                (*updates.values(), now, customer_id, org_id),
+            )
+
+        return verification_id
 
 
 # ---------------------------------------------------------------- adverse media

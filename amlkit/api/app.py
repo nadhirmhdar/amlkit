@@ -20,7 +20,7 @@ import sqlite3
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -30,7 +30,8 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from .. import auth, notifications, queries
+from .. import auth, notifications, queries, uaepass
+from ..web import blog
 from .limits import limiter, login_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
@@ -45,6 +46,7 @@ from ..cases.manager import (
     onboard,
     record_signature,
     record_transaction,
+    record_uaepass_verification,
     run_adverse_media,
     run_due_adverse_media,
 )
@@ -83,6 +85,7 @@ WEB = Path(__file__).resolve().parent.parent / "web"
 
 # ---------------------------------------------------------------------- scheduler
 import contextlib
+import json
 import logging
 import os
 import secrets
@@ -201,6 +204,12 @@ app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))
 templates.env.globals["has_arabic"] = has_arabic_script
 templates.env.globals["asset_v"] = int((WEB / "static" / "app.css").stat().st_mtime)
+# blog.css/blog.js change independently of app.css, so they get their own cache-buster.
+templates.env.filters["blog_date"] = blog.format_date
+templates.env.globals["blog_asset_v"] = int(max(
+    (WEB / "static" / "blog.css").stat().st_mtime,
+    (WEB / "static" / "js" / "blog.js").stat().st_mtime,
+))
 
 
 async def _async_form(request: Request) -> FormData:
@@ -219,6 +228,20 @@ DB = Annotated[sqlite3.Connection, Depends(get_db)]
 _COOKIE_MAX_AGE = int(auth.SESSION_LIFETIME.total_seconds())
 
 
+def _is_applications_viewer(session) -> bool:
+    """Whether `session` is the platform admin who receives quotation requests.
+
+    Applications are not tenant data (no org_id): the session must be a
+    super-admin whose own email is one of the quote recipients (AMLKIT_QUOTE_TO,
+    default info@grovisor.ae). Shared by render() (sidebar link visibility) and
+    _applications_viewer() (the route guard) so the two checks can't drift.
+    """
+    if session is None or not session.super_admin:
+        return False
+    from ..mail import quote_recipients
+    return session.email.lower() in {a.lower() for a in quote_recipients()}
+
+
 def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None = None) -> HTMLResponse:
     """Render with the context every page needs, including a fresh CSRF token
     for any form on the page.
@@ -235,6 +258,11 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         session = current_session(request, db)
     ctx.setdefault("session", session)
     ctx.setdefault("security_warning", startup_warning())
+    # Gate every "Sign in / Verify via UAE PASS" button on whether the
+    # feature is actually configured (see uaepass.load_config()) -- inert
+    # until UAEPASS_CLIENT_ID/UAEPASS_CLIENT_SECRET are set, so no template
+    # needs to know that detail itself.
+    ctx.setdefault("uaepass_enabled", uaepass.load_config() is not None)
     # single_operator_mode requires db + org_id; only set if both available
     if db and session:
         ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
@@ -265,6 +293,7 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         # own 24-hour-rule breach banner when a mandatory list is stale.
         if session.super_admin:
             ctx.setdefault("dataset_banner", queries.dataset_health_banner(db))
+            ctx.setdefault("applications_viewer", _is_applications_viewer(session))
         # Check for MFA lockouts (show to admin/MLRO roles)
         if session.operator_role in ("mlro", "admin"):
             mfa_banner = queries.mfa_lockout_banner(db, session.org_id)
@@ -606,6 +635,125 @@ def login_submit(
     resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
                     samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
     return resp
+
+
+# ------------------------------------------------------------- UAE PASS SSO
+def _uaepass_redirect_uri(path: str) -> str:
+    """Absolute callback URL for UAE PASS to redirect back to.
+
+    Built from mail.app_base_url() -- the same trusted, operator-configured
+    base URL already used for every other externally-echoed link (email
+    verification, alert notifications) -- not from request.base_url, which
+    is derived from the client-controlled Host header. An OAuth redirect_uri
+    is part of this flow's own CSRF/hijack defense: if it were taken from an
+    untrusted header, a forged Host could register a state bound to an
+    attacker's URL and have UAE PASS hand the authorization code to it
+    instead of this app.
+    """
+    from .. import mail
+
+    return mail.app_base_url() + path
+
+
+def _set_uaepass_state_cookie(resp: RedirectResponse, state: str) -> None:
+    """Bind a freshly issued UAE PASS state to this browser. See
+    auth.UAEPASS_STATE_COOKIE's comment for why this is needed in addition
+    to the state's own DB-side validity check."""
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+    resp.set_cookie(
+        auth.UAEPASS_STATE_COOKIE, state, httponly=True, samesite="lax",
+        secure=_behind_proxy, max_age=int(auth.UAEPASS_STATE_LIFETIME.total_seconds()),
+    )
+
+
+def _clear_uaepass_state_cookie(resp: RedirectResponse) -> RedirectResponse:
+    """Drop the one-shot state cookie once its callback has been handled
+    (success or failure) so it never lingers past a single attempt."""
+    resp.delete_cookie(auth.UAEPASS_STATE_COOKIE)
+    return resp
+
+
+@app.get("/auth/uaepass/start")
+@limiter.limit("10/minute")  # IP ceiling, matching /login's: an alternative way to get a session
+def uaepass_operator_start(request: Request, db: DB):
+    """Redirect to UAE PASS for "Sign in with UAE PASS" (operator/MLRO SSO).
+
+    No session required -- this IS an alternative way to get one, alongside
+    /login. Inert (404) until UAEPASS_CLIENT_ID/UAEPASS_CLIENT_SECRET are
+    configured; see uaepass.load_config().
+    """
+    config = uaepass.load_config()
+    if config is None:
+        raise HTTPException(status_code=404)
+    redirect_uri = _uaepass_redirect_uri("/auth/uaepass/callback")
+    state = auth.create_uaepass_state(db, purpose="operator_sso", redirect_uri=redirect_uri)
+    resp = RedirectResponse(
+        uaepass.build_authorize_url(
+            config, state=state, redirect_uri=redirect_uri, acr=uaepass.ACR_LEVEL_DEFAULT
+        ),
+        status_code=303,
+    )
+    _set_uaepass_state_cookie(resp, state)
+    return resp
+
+
+@app.get("/auth/uaepass/callback")
+@limiter.limit("10/minute")  # IP ceiling, matching /login's: unthrottled otherwise unlike every other auth entry point
+def uaepass_operator_callback(request: Request, db: DB, code: str = "", state: str = ""):
+    """UAE PASS redirects here with ?code=&state=. See
+    auth.resolve_uaepass_operator() for the operator-linking policy (never
+    auto-provisions an account), auth.consume_uaepass_state() for the
+    DB-side state/replay check, and UAEPASS_STATE_COOKIE's comment for why
+    that check alone is not enough (login CSRF / session swapping) and this
+    route also requires the state to match this exact browser's cookie.
+    """
+    config = uaepass.load_config()
+    if config is None:
+        raise HTTPException(status_code=404)
+
+    if not auth.csrf_valid(request.cookies.get(auth.UAEPASS_STATE_COOKIE), state):
+        return _clear_uaepass_state_cookie(
+            back("/login", err="UAE PASS sign-in expired or was already used. Please try again.")
+        )
+    row = auth.consume_uaepass_state(db, state, purpose="operator_sso")
+    if row is None:
+        return _clear_uaepass_state_cookie(
+            back("/login", err="UAE PASS sign-in expired or was already used. Please try again.")
+        )
+    if not code:
+        return _clear_uaepass_state_cookie(
+            back("/login", err="UAE PASS sign-in was cancelled or did not return a code.")
+        )
+
+    try:
+        token_payload = uaepass.exchange_code(config, code=code, redirect_uri=row["redirect_uri"])
+        profile = uaepass.fetch_userinfo(config, token_payload["access_token"])
+    except uaepass.UaePassError as exc:
+        return _clear_uaepass_state_cookie(back("/login", err=f"UAE PASS sign-in failed: {exc}"))
+
+    operator, _newly_linked = auth.resolve_uaepass_operator(db, profile)
+    if operator is None:
+        return _clear_uaepass_state_cookie(back(
+            "/login",
+            err="No groAML account is linked to this UAE PASS identity yet. "
+                "Ask an admin to link your account, then try again.",
+        ))
+
+    token, info = auth.login_via_uaepass(db, operator, ip=client_ip(request))
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+    # Same MFA-lock + redirect-target logic as password login_submit() above
+    # -- no entry point hands an MLRO an unlocked session (see
+    # auth.mfa_lock_session()'s docstring).
+    target = auth.mfa_lock_session(
+        db, token, info.operator_id, info.operator_role,
+        trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
+    ) or "/"
+    resp = RedirectResponse(target, status_code=303)
+    resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
+                    secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
+                    samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    return _clear_uaepass_state_cookie(resp)
 
 
 @app.post("/logout")
@@ -1035,6 +1183,184 @@ def register_org_submit(
         )
         ctx["err"] = "Verification email could not be sent."
     return render(request, "register_organization.html", ctx)
+
+
+# ----------------------------------------------------------------- apply
+# Public quotation-request form. Creates a lead (saved + emailed to Grovisor),
+# never an account. Replaces "self-serve register" as the front door until
+# plans and payment exist.
+
+def _apply_ctx(extra: dict | None = None) -> dict:
+    from ..cases import applications as apps
+    ctx = {
+        "session": None, "categories": apps.CATEGORIES, "jurisdictions": apps.JURISDICTIONS,
+        "applicant_types": apps.APPLICANT_TYPES, "client_firm_counts": apps.CLIENT_FIRMS,
+        "consultant": apps.CONSULTANT, "name_optional_types": sorted(apps.NAME_OPTIONAL_TYPES),
+        "no_firm_types": sorted(apps.NO_FIRM_TYPES),
+        "team_sizes": apps.TEAM_SIZES, "customers_per_year": apps.CUSTOMERS_PER_YEAR,
+        "screenings_per_month": apps.SCREENINGS_PER_MONTH, "needs_options": apps.NEEDS,
+        "values": {}, "errors": {},
+        "invite_registration": bool(os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()),
+    }
+    ctx.update(extra or {})
+    return ctx
+
+
+@app.get("/apply", response_class=HTMLResponse)
+def apply_form(request: Request, db: DB):
+    return render(request, "apply.html", _apply_ctx())
+
+
+@app.post("/apply")
+@limiter.limit("5/hour")
+@limiter.limit("30/day")
+def apply_submit(
+    request: Request, db: DB,
+    applicant_type: Annotated[str, Form()] = "",
+    client_firms: Annotated[str, Form()] = "",
+    org_name: Annotated[str, Form()] = "",
+    category: Annotated[str, Form()] = "",
+    jurisdiction: Annotated[str, Form()] = "",
+    contact_name: Annotated[str, Form()] = "",
+    job_title: Annotated[str, Form()] = "",
+    email: Annotated[str, Form()] = "",
+    phone: Annotated[str, Form()] = "",
+    team_size: Annotated[str, Form()] = "",
+    customers_per_year: Annotated[str, Form()] = "",
+    screenings_per_month: Annotated[str, Form()] = "",
+    needs: Annotated[list[str] | None, Form()] = None,
+    message: Annotated[str, Form()] = "",
+    consent: Annotated[str, Form()] = "",
+    company_website: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    from ..cases import applications as apps
+    from .. import mail
+
+    values = {
+        "applicant_type": applicant_type, "client_firms": client_firms,
+        "org_name": org_name, "category": category, "jurisdiction": jurisdiction,
+        "contact_name": contact_name, "job_title": job_title, "email": email, "phone": phone,
+        "team_size": team_size, "customers_per_year": customers_per_year,
+        "screenings_per_month": screenings_per_month, "needs": needs or [],
+        "message": message, "consent": consent,
+    }
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return render(request, "apply.html", _apply_ctx({"values": values, "err": str(exc)}))
+
+    # Honeypot: real people never see or fill this field. Pretend it worked.
+    # Not logged to auth_log: bots would add one row per hit, unbounded.
+    if company_website.strip():
+        return RedirectResponse("/apply/thanks", status_code=303)
+
+    clean, errors = apps.validate(values)
+    if errors:
+        return render(request, "apply.html", _apply_ctx({
+            "values": values, "errors": errors,
+            "err": "Please fix the highlighted fields and send it again.",
+        }))
+
+    application_id = apps.save(db, clean)
+    outcome = mail.send_application_notice(application_id, clean)
+    apps.record_delivery(db, application_id, outcome)
+    # No email here: auth_log is outside the 12-month applications purge, so
+    # storing it would outlive the retention period and an erasure request.
+    auth._log_auth_event(db, "application_submitted", None,
+                         {"application_id": application_id, "email_delivery": outcome})
+    return RedirectResponse("/apply/thanks", status_code=303)
+
+
+@app.get("/apply/thanks", response_class=HTMLResponse)
+def apply_thanks(request: Request, db: DB):
+    return render(request, "apply_thanks.html", {"session": None})
+
+
+# ------------------------------------------------- applications (admin viewer)
+def _applications_viewer(request: Request, db: DB):
+    """The platform admin who receives quotation requests, or None.
+
+    Applications are not tenant data (no org_id), so this is not an org-role
+    check: the session must be a super-admin whose own email is one of the
+    quote recipients (AMLKIT_QUOTE_TO, default info@grovisor.ae). Anyone else
+    gets a plain 404 so the page's existence is not revealed.
+    """
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return None
+    if _is_applications_viewer(session):
+        return session
+    return None
+
+
+def _not_found(request: Request, db: DB):
+    return HTMLResponse("Not found", status_code=404)
+
+
+@app.get("/admin/applications", response_class=HTMLResponse)
+def applications_view(request: Request, db: DB, status: str = ""):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    rows = apps.list_applications(db, status=status or None)
+    return render(request, "admin_applications.html", {
+        "session": session, "applications": rows, "status": status if status in apps.STATUSES else "",
+        "statuses": apps.STATUSES, "counts": apps.counts_by_status(db),
+        "retention_days": apps.RETENTION_DAYS, "expired": apps.expired_count(db),
+    }, db)
+
+
+@app.post("/admin/applications/{application_id}/status")
+def applications_set_status(
+    request: Request, db: DB, application_id: int,
+    status: Annotated[str, Form()], csrf_token: Annotated[str, Form()] = "",
+):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    try:
+        require_csrf(request, csrf_token)
+        found = apps.set_status(db, application_id, status, actor=session.operator_name)
+    except (PermissionError, ValueError) as exc:
+        return back("/admin/applications", err=str(exc))
+    if not found:
+        return back("/admin/applications", err=f"Request #{application_id} not found.")
+    return back("/admin/applications", msg=f"Request #{application_id} marked {status}.")
+
+
+@app.post("/admin/applications/{application_id}/delete")
+def applications_delete(
+    request: Request, db: DB, application_id: int, csrf_token: Annotated[str, Form()] = "",
+):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/admin/applications", err=str(exc))
+    if not apps.delete_application(db, application_id, actor=session.operator_name):
+        return back("/admin/applications", err=f"Request #{application_id} not found.")
+    return back("/admin/applications", msg=f"Request #{application_id} deleted.")
+
+
+@app.post("/admin/applications/purge")
+def applications_purge(request: Request, db: DB, csrf_token: Annotated[str, Form()] = ""):
+    from ..cases import applications as apps
+    session = _applications_viewer(request, db)
+    if session is None:
+        return _not_found(request, db)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back("/admin/applications", err=str(exc))
+    n = apps.purge_expired(db, actor=session.operator_name)
+    return back("/admin/applications", msg=f"Deleted {n} expired request(s).")
 
 
 @app.get("/verify-email", response_class=HTMLResponse)
@@ -1599,12 +1925,135 @@ def customer_detail(request: Request, db: DB, customer_id: int):
         return back("/customers", err=f"Customer {customer_id} not found.")
     from ..cases.diagram import generate_ubo_diagram
     diagram_svg = generate_ubo_diagram(db, customer_id, session.org_id)
+    # Stored as JSON lists; show "AE, GB" rather than ["AE", "GB"] (and nothing for []).
+    for key in ("nationalities", "tax_residencies"):
+        data["customer"][key] = _code_list(data["customer"].get(key))
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
                  data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
                          "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
+
+
+def _code_list(value) -> str:
+    """'["AE","GB"]' (or a list) -> 'AE, GB'; empty or unparseable -> ''."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return value.strip()
+    if not value:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v).strip() for v in value if str(v).strip())
+    return str(value)
+
+
+@app.get("/customers/{customer_id}/uaepass/start")
+@limiter.limit("10/minute")  # IP ceiling, same as the operator SSO pair above
+def uaepass_customer_start(request: Request, db: DB, customer_id: int):
+    """Redirect the browser to UAE PASS so a customer can verify their
+    identity for CDD -- stronger evidence than the OCR passport/Emirates-ID
+    scan in cases/ocr.py, which remains the fallback.
+
+    Session-gated and org-scoped like every other customer route (see
+    queries.customer()'s tenant-isolation comment): the operator's own
+    session must be valid, and the customer must belong to that operator's
+    org, both checked before anything is sent to UAE PASS.
+    """
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    config = uaepass.load_config()
+    if config is None:
+        raise HTTPException(status_code=404)
+
+    owned = db.execute(
+        "SELECT 1 FROM customers WHERE id=? AND org_id=?", (customer_id, session.org_id)
+    ).fetchone()
+    if owned is None:
+        return back("/customers", err=f"Customer {customer_id} not found.")
+
+    redirect_uri = _uaepass_redirect_uri(f"/customers/{customer_id}/uaepass/callback")
+    # state is bound to (org_id, customer_id): a captured callback cannot be
+    # replayed against a different customer, even within the same org -- see
+    # auth.consume_uaepass_state().
+    state = auth.create_uaepass_state(
+        db, purpose="customer_verification", redirect_uri=redirect_uri,
+        org_id=session.org_id, customer_id=customer_id,
+    )
+    resp = RedirectResponse(
+        uaepass.build_authorize_url(
+            config, state=state, redirect_uri=redirect_uri, acr=uaepass.ACR_LEVEL_DEFAULT
+        ),
+        status_code=303,
+    )
+    _set_uaepass_state_cookie(resp, state)
+    return resp
+
+
+@app.get("/customers/{customer_id}/uaepass/callback")
+@limiter.limit("10/minute")  # IP ceiling, same as the operator SSO pair above
+def uaepass_customer_callback(
+    request: Request, db: DB, customer_id: int, code: str = "", state: str = "",
+):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    config = uaepass.load_config()
+    if config is None:
+        raise HTTPException(status_code=404)
+
+    expired_err = "UAE PASS verification expired, was already used, or does not match this customer."
+    if not auth.csrf_valid(request.cookies.get(auth.UAEPASS_STATE_COOKIE), state):
+        return _clear_uaepass_state_cookie(back(f"/customers/{customer_id}", err=expired_err))
+    row = auth.consume_uaepass_state(
+        db, state, purpose="customer_verification",
+        org_id=session.org_id, customer_id=customer_id,
+    )
+    if row is None:
+        return _clear_uaepass_state_cookie(back(f"/customers/{customer_id}", err=expired_err))
+    if not code:
+        return _clear_uaepass_state_cookie(back(
+            f"/customers/{customer_id}",
+            err="UAE PASS verification was cancelled or did not return a code.",
+        ))
+
+    try:
+        token_payload = uaepass.exchange_code(config, code=code, redirect_uri=row["redirect_uri"])
+        profile = uaepass.fetch_userinfo(config, token_payload["access_token"])
+    except uaepass.UaePassError as exc:
+        return _clear_uaepass_state_cookie(
+            back(f"/customers/{customer_id}", err=f"UAE PASS verification failed: {exc}")
+        )
+
+    if not profile.uuid:
+        # uaepass_verifications.uaepass_uuid is NOT NULL; fetch_userinfo()
+        # parses defensively and never raises on a missing field, so this is
+        # the one place that must still fail loudly rather than let an
+        # unexpected UAE PASS response shape hit a DB constraint as a 500.
+        return _clear_uaepass_state_cookie(back(
+            f"/customers/{customer_id}",
+            err="UAE PASS did not return a verifiable identity. Please try again.",
+        ))
+
+    try:
+        record_uaepass_verification(
+            db, customer_id, session.org_id, profile,
+            actor=session.operator_name, verified_by=session.operator_id,
+        )
+    except ValueError as exc:
+        # record_uaepass_verification() raises when customer_id/org_id don't
+        # match -- same "not found" treatment as every other cross-tenant
+        # customer_id in this file (see add_case_note()'s docstring).
+        return _clear_uaepass_state_cookie(back("/customers", err=str(exc)))
+    db.commit()
+    return _clear_uaepass_state_cookie(
+        back(f"/customers/{customer_id}", msg="Customer identity verified via UAE PASS.")
+    )
 
 
 @app.get("/customers/{customer_id}/evidence", response_class=HTMLResponse)
@@ -2354,7 +2803,63 @@ def about_view(request: Request, db: DB):
 @app.get("/privacy", response_class=HTMLResponse)
 def privacy_view(request: Request, db: DB):
     session = current_session(request, db)
-    return render(request, "privacy.html", {"session": session}, db)
+    from ..mail import quote_recipients
+    return render(request, "privacy.html",
+                  {"session": session, "quote_to": quote_recipients()[0]}, db)
+
+
+# ------------------------------------------------------------------------ blog
+# Public, same as /about -- educational content for DNFBPs researching their
+# screening obligations, meant to be found by search rather than reached from
+# inside the product.
+@app.get("/blog", response_class=HTMLResponse)
+def blog_index(request: Request, db: DB, topic: str = "", q: str = ""):
+    session = current_session(request, db)
+    active = blog.get_topic(topic) if topic else None
+    if topic and active is None:
+        raise HTTPException(status_code=404)
+    q = q.strip()[:100]
+    posts = blog.posts_in_topic(active.slug) if active else blog.all_posts()
+    if q:  # no-JS fallback; blog.js filters the same cards instantly in the browser
+        posts = blog.search(q, posts)
+    featured = next((p for p in posts if p.featured), None) if not (active or q) else None
+    return render(request, "blog_index.html", {
+        "session": session, "posts": posts, "featured": featured, "q": q,
+        "active_topic": active, "topics": blog.topic_counts(),
+    }, db)
+
+
+@app.get("/blog/{slug}", response_class=HTMLResponse)
+def blog_post_view(request: Request, slug: str, db: DB):
+    post = blog.get_post(slug)
+    if post is None:
+        raise HTTPException(status_code=404)
+    session = current_session(request, db)
+    return render(request, f"blog/{post.slug}.html", {
+        "session": session, "post": post, "related": blog.related_posts(post),
+    }, db)
+
+
+@app.get("/robots.txt", response_class=Response)
+def robots_txt():
+    body = "User-agent: *\nAllow: /\nSitemap: https://groaml.grovisor.ae/sitemap.xml\n"
+    return Response(body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml", response_class=Response)
+def sitemap_xml():
+    urls = ["/about", "/privacy", "/blog"] + [f"/blog/{p.slug}" for p in blog.all_posts()]
+    lastmods = {"/blog": blog.all_posts()[0].updated if blog.all_posts() else None}
+    for p in blog.all_posts():
+        lastmods[f"/blog/{p.slug}"] = p.updated
+    entries = "\n".join(
+        f'  <url><loc>https://groaml.grovisor.ae{u}</loc>'
+        + (f'<lastmod>{lastmods[u]}</lastmod>' if lastmods.get(u) else '')
+        + '</url>'
+        for u in urls
+    )
+    body = f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{entries}\n</urlset>\n'
+    return Response(body, media_type="application/xml")
 
 
 # ---------------------------------------------------------------------- feedback
@@ -2395,6 +2900,70 @@ def feedback_submit(
 
     from fastapi.responses import JSONResponse
     return JSONResponse({"success": True, "message": "Thank you for your feedback!"})
+
+
+@app.get("/admin/feedback", response_class=HTMLResponse)
+def feedback_view(request: Request, db: DB, page: int = 1):
+    """MLRO-only viewer for feedback submitted via the in-app widget above.
+
+    Same pagination shape as /audit: no COUNT query, just "is this page
+    full?" to decide whether a Next link is shown.
+    """
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
+
+    per_page = 50
+    offset = (page - 1) * per_page
+
+    return render(request, "feedback_admin.html", {
+        "session": session,
+        "entries": queries.feedback_list(db, session.org_id, limit=per_page, offset=offset),
+        "page": page,
+        "per_page": per_page,
+    })
+
+
+@app.get("/admin/feedback/export")
+def feedback_export(request: Request, db: DB):
+    """Export this org's feedback as CSV. MLRO only, same shape as /audit/export."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import Response as _R
+        return _R(status_code=403)
+
+    import csv
+    import io as _io
+    from fastapi.responses import StreamingResponse
+
+    from ..pii import redact as _redact_pii
+
+    entries = queries.feedback_list(db, session.org_id, limit=100000)
+    buf = _io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["created_at", "operator", "page", "message"])
+    for e in entries:
+        writer.writerow([
+            _escape_csv_formula(e.get("created_at", "")),
+            _escape_csv_formula(e.get("operator_name") or ""),
+            _escape_csv_formula(e.get("page", "")),
+            _escape_csv_formula(_redact_pii(e.get("message", ""))),
+        ])
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=feedback.csv"},
+    )
 
 
 # ---------------------------------------------------------------------- audit
@@ -3245,6 +3814,11 @@ def system_refresh(request: Request):
         # Check for staleness and notify MLROs if needed
         staleness_result = check_and_notify_staleness(conn)
         result["staleness_check"] = staleness_result
+        try:
+            from ..cases.applications import purge_expired
+            result["applications_purged"] = purge_expired(conn, actor="cloud-scheduler")
+        except Exception:  # retention clean-up must never fail the list refresh
+            log.exception("applications purge failed")
     finally:
         if conn is not None:
             conn.close()

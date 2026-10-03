@@ -13,16 +13,16 @@
   <form method="post" action="/screen">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
-      <label>Name — Arabic or Latin script</label>
-      <input type="text" name="name" dir="auto" value="{{ query }}" autofocus class="input-underline"
+      <label for="screen-name">Name — Arabic or Latin script</label>
+      <input type="text" name="name" id="screen-name" dir="auto" value="{{ query }}" autofocus class="input-underline"
              placeholder="e.g. Mohammed bin Rashid  /  محمد بن راشد" style="font-size:18px;" required>
     </div>
     <div class="row">
-      <div><label>Nationality (ISO code)</label>
-        <input type="text" name="country" pattern="[A-Za-z]{2}" data-country-dropdown placeholder="Type to search countries..."></div>
-      <div><label>Date of birth</label><input type="date" name="birth_date"></div>
-      <div><label>Gender</label>
-        <select name="gender">
+      <div><label for="screen-country">Nationality (ISO code)</label>
+        <input type="text" name="country" id="screen-country" pattern="[A-Za-z]{2}" data-country-dropdown placeholder="Type to search countries..."></div>
+      <div><label for="screen-dob">Date of birth</label><input type="date" name="birth_date" id="screen-dob"></div>
+      <div><label for="screen-gender">Gender</label>
+        <select name="gender" id="screen-gender">
           <option value="">—</option><option value="male">Male</option>
           <option value="female">Female</option>
         </select></div>

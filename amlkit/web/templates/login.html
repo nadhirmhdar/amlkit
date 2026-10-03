@@ -1,57 +1,134 @@
 {% extends "base.html" %}
 {% block title %}Sign in — groAML by Grovisor{% endblock %}
+{% block public_header %}{% endblock %}
+{% block public_footer %}{% endblock %}
+{% block flash %}{% endblock %}
 {% block body %}
+<style>
+.si { min-height:100vh; position:relative; overflow:hidden; color:#e9f1f2;
+  background: radial-gradient(60% 75% at 20% 60%, rgb(0 81 94 / .6), transparent 72%), #04141a;
+  display:grid; grid-template-columns: minmax(0, 1fr) max(32%, 420px); }
+.si-strands { position:absolute; left:0; top:0; z-index:0; pointer-events:none; display:none; }
+.si-strands text { font: 700 11px/1 Manrope, sans-serif; letter-spacing:.14em; fill: rgba(233,241,242,.78); text-transform:uppercase; stroke:#04141a; stroke-width:4px; paint-order:stroke; }
+.si-left, .si-right { position:relative; z-index:1; }
+.si-left { padding:56px 72px; display:flex; flex-direction:column; justify-content:space-between; gap:40px; }
+.si-left .wm { font-size:34px; color:#fff; }
+.si-copy { margin-bottom:224px; }
+.si-h1 { margin:0; font-size:clamp(44px, 6vw, 92px); }
+.si-row { display:flex; align-items:center; line-height:.98; letter-spacing:-.035em; }
+.si-row .si-w { display:block; font-weight:200; color:#e9f1f2; }
+.si-row .si-decide { font-weight:800; color:#4eccd3; }
+.si-h1 { text-shadow: 0 0 22px #04141a, 0 0 10px #04141a, 0 0 4px #04141a; }
+.si-right { display:flex; align-items:center; padding:48px clamp(32px, 8.3vw, 160px) 48px 0; }
+.si-form { width:100%; max-width:340px; }
+.si-form h1 { font-size:34px; font-weight:300; letter-spacing:-.02em; margin:0 0 4px; color:#fff; }
+.si-form .si-to { font-size:13px; color:rgba(233,241,242,.7); margin-bottom:34px; }
+.si label { color:rgba(233,241,242,.78); font-size:12px; letter-spacing:.08em; }
+.si .input-underline { color:#fff; font-size:16px; border-bottom-color:rgba(233,241,242,.4) !important; }
+.si .input-underline:focus { border-bottom-color:#4eccd3 !important; }
+.si [data-action="toggle-password"] { color:rgba(233,241,242,.75) !important; }
+.si a { color:#4eccd3; font-weight:600; text-decoration:underline; text-underline-offset:3px; }
+.si a:hover { color:#7ee0e5; }
+.si-btn { text-transform:uppercase; width:100%; background:#4eccd3; color:#04141a; border:none; border-radius:var(--radius-sm); padding:15px; font-size:14.5px; font-weight:800; letter-spacing:.08em; cursor:pointer; box-shadow:0 8px 28px rgb(78 204 211 / .25); }
+.si-btn:hover { background:#7ee0e5; }
+.si-btn:active { background:#3ab8bf; transform:translateY(1px); }
+.si-btn:focus-visible, .si-eye:focus-visible, .si a:focus-visible { outline:2px solid #fff; outline-offset:3px; }
+.si-or { display:flex; align-items:center; gap:12px; margin:24px 0 16px; color:rgb(233 241 242 / .7); font-size:11px; text-transform:uppercase; letter-spacing:.1em; }
+.si-or::before, .si-or::after { content:""; flex:1; height:1px; background:rgb(233 241 242 / .25); }
+.si-alt { display:block; text-align:center; text-decoration:none; padding:13px; border:1px solid #4eccd3; border-radius:var(--radius-sm); color:#4eccd3; font-weight:700; font-size:14px; }
+.si .si-alt, .si .si-alt:hover { text-decoration:none; }
+.si-alt:hover { background:rgb(78 204 211 / .12); color:#7ee0e5; text-decoration:none; }
+.si .input-underline:focus-visible { outline:none; }
+.si-note { margin:-14px 0 24px; padding:12px 14px; border-radius:8px; font-size:13px; line-height:1.5; }
+.si-note--err { color:#ffd9d4; background:rgb(255 120 105 / .12); border:1px solid rgb(255 150 135 / .45); }
+.si-note--ok { color:#c9f3f5; background:rgb(78 204 211 / .12); border:1px solid rgb(78 204 211 / .4); }
+.si-eye { position:absolute; right:-10px; top:16px; width:44px; height:44px; padding:0; display:flex; align-items:center; justify-content:center; background:none; border:0; color:rgba(233,241,242,.78); cursor:pointer; border-radius:8px; }
+.si .si-eye:hover { color:#fff; background:rgb(255 255 255 / .08); }
+.si-eye svg { flex-shrink:0; }
+.si-eye[aria-pressed="true"] { color:#4eccd3; }
+.si-small { font-size:13px; line-height:1.8; color:rgba(233,241,242,.7); }
+.si-foot { display:flex; align-items:center; gap:12px; font-size:12px; color:rgba(233,241,242,.7); }
+.si-foot img { height:28px; width:auto; filter:brightness(0) invert(1); }
+@media (max-width: 999px) {
+  .si { grid-template-columns: 1fr; }
+  .si-left { padding:32px 24px 8px; gap:20px; }
+  .si-copy { margin-bottom:0; }
+  .si-h1 { font-size:48px; }
+  .si-right { padding:24px; justify-content:center; }
+  .si-foot { display:none; }
+}
+</style>
 
-<div style="min-height:100vh; position:relative;">
-  <div style="position:absolute; top:32px; right:40px;">
-    <img src="/static/img/grovisor-logo.png" alt="Grovisor" style="height:48px; width:auto; display:block;">
-  </div>
-  <div style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px 20px;">
-    <div style="width:100%; max-width:340px; display:flex; flex-direction:column; gap:44px;">
-      <div style="text-align:center;">
-        <div style="font-size:36px; font-weight:800; letter-spacing:-0.02em; background:linear-gradient(100deg, var(--ink) 55%, oklch(48% 0.14 45)); -webkit-background-clip:text; background-clip:text; color:transparent;">groAML</div>
-        <div style="font-size:14px; color:var(--ink-3); margin-top:12px;">UAE sanctions screening &amp; CDD</div>
+<div class="si" id="si">
+  <svg class="si-strands" id="si-strands" aria-hidden="true" focusable="false"></svg>
+
+  <div class="si-left">
+    <div class="wm" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></div>
+    <div class="si-copy">
+      <div class="si-h1">
+        <div class="si-row"><span class="si-w">Compliance,</span></div>
+        <div class="si-row"><span class="si-w si-decide">simplified.</span></div>
       </div>
+      <p class="visually-hidden">Screens against the UN, OFAC, EU, UK, UAE, FATF, PEP and adverse media lists.</p>
+    </div>
+    <div class="si-foot">
+      <img src="/static/img/grovisor-logo.png" alt="">
+      <span>A product by <a href="https://grovisor.ae" target="_blank" rel="noopener">Grovisor Business Consultants LLC</a></span>
+    </div>
+  </div>
 
-      <form method="post" action="/login" style="display:flex; flex-direction:column; gap:22px;">
+  <div class="si-right">
+    <div class="si-form">
+      <h1>Sign in</h1>
+      <div class="si-to">to your workspace</div>
+      {# Messages render here, inside the dark layout, not in the light banner
+         strip the base template would put above the page. #}
+      {% if security_warning %}<div class="si-note si-note--err" role="alert">{{ security_warning }}</div>{% endif %}
+      {% if err %}<div class="si-note si-note--err" role="alert">{{ err }}</div>{% endif %}
+      {% if msg %}<div class="si-note si-note--ok" role="status">{{ msg }}</div>{% endif %}
+
+      <form method="post" action="/login" style="display:flex; flex-direction:column; gap:24px;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="field" style="margin-bottom:0;">
           <label for="login-email">Email</label>
           <input type="email" name="email" id="login-email" class="input-underline" autofocus autocomplete="username"
-                 inputmode="email" spellcheck="false" autocapitalize="off" style="font-size:16px;" required>
+                 inputmode="email" spellcheck="false" autocapitalize="off" required>
         </div>
         <div class="field" style="margin-bottom:0; position:relative;">
           <label for="password-input">Password</label>
           <input type="password" name="password" id="password-input" class="input-underline"
-                 autocomplete="current-password" style="font-size:16px;" required>
-          <button type="button" data-action="toggle-password" aria-label="Show password"
-                  style="position:absolute; right:0; top:26px; background:none; border:none; color:var(--ink-3); padding:4px; font-size:15px;">👁</button>
+                 autocomplete="current-password" required>
+          <button type="button" class="si-eye" data-action="toggle-password" aria-label="Show password" aria-pressed="false" aria-controls="password-input">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
         </div>
-        <button type="submit" class="btn-glow" style="margin-top:10px;" data-loading="Signing in…">SIGN IN</button>
+        <button type="submit" id="si-btn" class="si-btn" style="margin-top:8px;" data-loading="Signing in…">Sign in</button>
       </form>
 
-      <div style="text-align:center; font-size:12px; color:var(--ink-3);">Single sign-on across your firm's workspace.</div>
+      {% if uaepass_enabled %}
+      <div class="si-or" aria-hidden="true"><span>or</span></div>
+      {# Plain labelled link for now: UAE PASS publishes official button
+         assets that have not been added to the repo yet. #}
+      <a href="/auth/uaepass/start" class="si-alt">Sign in with UAE PASS</a>
+      {% endif %}
 
       {% if unverified_email %}
-      <form method="post" action="/resend-verification" style="text-align:center;">
+      <form method="post" action="/resend-verification" style="margin-top:18px;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="email" value="{{ unverified_email }}">
-        <button type="submit" class="btn-glow" style="font-size:12px; padding:8px 14px;">Resend verification email</button>
+        <button type="submit" class="si-btn" style="font-size:12px; padding:8px 14px; background:transparent; color:#4eccd3; border:1px solid #4eccd3; box-shadow:none;">Resend verification email</button>
       </form>
       {% endif %}
 
-      <div style="text-align:center; font-size:12px; color:var(--ink-3); line-height:1.8;">
+      <div class="si-small" style="margin-top:24px;">
         <div>Forgot your password? Contact your MLRO to reset it.</div>
-        <div>New organization? <a href="/register-organization">Register one</a>.</div>
-      </div>
-
-      <div style="text-align:center; font-size:11px; color:var(--ink-3); line-height:1.6; border-top:1px solid var(--line); padding-top:16px;">
-        A product by <a href="/about">Grovisor Business Consultants LLC</a>.
+        <div>New organization? <a href="/apply">Request a quotation</a>.</div>
       </div>
     </div>
   </div>
 </div>
 
 <script src="/static/js/app.js"></script>
+<script src="/static/js/signin-strands.js"></script>
 
 {% endblock %}

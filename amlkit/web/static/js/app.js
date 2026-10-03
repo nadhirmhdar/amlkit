@@ -402,6 +402,7 @@ function togglePassword() {
     const isPassword = pwd.type === 'password';
     pwd.type = isPassword ? 'text' : 'password';
     toggle.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+    toggle.setAttribute('aria-pressed', isPassword ? 'true' : 'false');
   }
 }
 
@@ -573,4 +574,12 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   refresh();
   setInterval(refresh, 30000);
+})();
+
+// Keep the selected tab visible when a tab strip scrolls sideways (phones).
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var on = document.querySelector('.tab-filter__tabs a.on');
+    if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  });
 })();
