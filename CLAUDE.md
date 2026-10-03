@@ -105,7 +105,7 @@ HH:55  GitHub Issues Sync  →  updates My Tasks artifact DB
 
 ## UAE PASS integration (operator SSO + customer CDD verification)
 
-Merged in #361, live in production, **inert by default** — see `UAEPASS_*` env vars below. `amlkit/uaepass.py` is a pure OIDC client (no DB access): config loading, authorize-URL building, token exchange, userinfo fetch, plus a UAE-PASS-scoped alpha-3→alpha-2 country lookup (`datamodel.py` has no alpha-3 table) and gender-string normalization.
+Merged in #361. **Switched on in production against the UAE PASS staging sandbox since #378** (the deploy passes the `UAEPASS_*` repo secrets/variable to Cloud Run); inert wherever either credential is unset — see `UAEPASS_*` env vars below. `amlkit/uaepass.py` is a pure OIDC client (no DB access): config loading, authorize-URL building, token exchange, userinfo fetch, plus a UAE-PASS-scoped alpha-3→alpha-2 country lookup (`datamodel.py` has no alpha-3 table) and gender-string normalization.
 
 **Two flows, both session/route-gated the same way as everything else in this codebase:**
 1. **Operator/MLRO SSO** — `/auth/uaepass/start` + `/auth/uaepass/callback`, a "Sign in with UAE PASS" alternative to the email+password form. Never auto-provisions an account (provisioning stays admin-only via `/system/create-operator`): links to an existing operator by a stored `uaepass_uuid` first, falls back to matching `lower(email)` only when that operator's `email_verified_at` is set **and** UAE PASS's own `userType` assurance level is SOP2 or SOP3 (SOP1 is self-registered with no bank/telco/ICA verification behind it, so its email claim isn't trusted for linking). A successful SSO login goes through the exact same `create_session` → `mfa_lock_session` path as password login.
