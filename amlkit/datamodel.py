@@ -9,7 +9,7 @@ No database access, no side effects — only validation and string mapping.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 COUNTRY_CODES: frozenset[str] = frozenset({
     "AD", "AE", "AF", "AG", "AL", "AM", "AO", "AR", "AT", "AU",
@@ -100,6 +100,11 @@ MAX_NAME_LENGTH = 200
 # and ISO week dates like "2020-W01-1".
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+# "Today" for date checks is the UAE calendar date (UTC+4, no DST): the
+# server runs in UTC, so for four hours after midnight in Dubai date.today()
+# would still be yesterday and reject a date the user sees as today.
+_UAE_TZ = timezone(timedelta(hours=4))
+
 
 def map_customer_type(customer_type: str) -> str:
     key = customer_type.lower()
@@ -172,5 +177,5 @@ def validate_birth_date(birth_date: str | None) -> None:
         raise ValueError(
             f"Invalid birth_date {birth_date!r}; expected a date as YYYY-MM-DD"
         ) from None
-    if parsed > date.today():
+    if parsed > datetime.now(_UAE_TZ).date():
         raise ValueError("birth_date cannot be in the future")
