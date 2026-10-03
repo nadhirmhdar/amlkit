@@ -86,7 +86,7 @@ Recurring triggers registered in the claude.ai Routines UI (Settings → Routine
 
 | ID | Name | Schedule (UTC) | Environment | Purpose |
 |----|------|----------------|-------------|---------|
-| `trig_01ETKZRFYHGqii6o5K8WH9wR` | Issue triage | `50 */6 * * *` | Default (trusted network) | CI health check, GitHub issue triage, Monday improvement log. **Disabled since 2026-09-27.** Prompt is versioned in `docs/routines/issue-triage.md`; paste it into the routine when changing it |
+| `trig_01ETKZRFYHGqii6o5K8WH9wR` | Issue triage | `50 */6 * * *` | Default (trusted network) | CI health check, GitHub issue triage, Monday improvement log. One issue per unresolved condition, updated in place (#252). Prompt is versioned in `docs/routines/issue-triage.md`; paste it into the routine when changing it |
 | `trig_01JHC5b92KEvfhgnk5yVdbkM` | amlkit GitHub Issues Sync | `55 */6 * * *` | Full access to internet | Syncs open GitHub issues → artifact DB task tracker (`LvtQxP7THXZEvM1zS8f34p`) |
 
 **Sequence every 6 hours (UTC):**
