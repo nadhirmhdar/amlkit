@@ -88,8 +88,10 @@ def test_alerts_are_grouped_by_category(mlro):
     assert _line_count(html, "terrorism") == 0
     assert html.count('class="cat-dot') == 3
     assert "Open the queue" in html
-    # Adverse media is not an alert category, so it is never a line.
-    assert "cat-line--adverse" not in html
+    # Adverse media has its own line, but with nothing open it is a zero row and
+    # adds no dots and does not change the alert queue count.
+    assert _line_count(html, "adverse") == 0
+    assert "adverse media finding" not in html
 
 
 def test_staged_alerts_are_not_counted_as_waiting_for_you(mlro):
@@ -287,3 +289,72 @@ def test_alerts_csv_export_honours_the_category_filter(mlro):
     assert "Pep One" in only and "Sanc One" not in only
     page = mlro.get("/alerts?category=pep").text
     assert "/alerts.csv?status=open&amp;category=pep" in page
+
+
+def _seed_adverse(specs):
+    """specs: [(customer_name, severity, status)] -> customers with one finding each."""
+    from amlkit.db import utcnow
+    conn = _db()
+    org_id = conn.execute("SELECT id FROM organizations ORDER BY id LIMIT 1").fetchone()["id"]
+    now = utcnow()
+    ids = []
+    for i, (name, severity, status) in enumerate(specs):
+        cid = conn.execute(
+            "INSERT INTO customers (org_id, reference, customer_type, full_name, canonical_key, "
+            "onboarded_at, created_at, updated_at) VALUES (?, ?, 'legal', ?, ?, ?, ?, ?)",
+            (org_id, f"AM-{i}", name, name.lower(), now, now, now)).lastrowid
+        sid = conn.execute(
+            "INSERT INTO adverse_media_screenings (org_id, customer_id, query_name, trigger, window_months, "
+            "status, run_at) VALUES (?, ?, ?, 'adhoc', 12, 'ok', ?)", (org_id, cid, name, now)).lastrowid
+        conn.execute(
+            "INSERT INTO adverse_media_findings (org_id, screening_id, customer_id, url, title, domain, "
+            "severity, matched_terms, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)",
+            (org_id, sid, cid, f"https://example.test/{i}", f"Headline {i}", "example.test", severity, status, now))
+        ids.append(cid)
+    conn.commit()
+    conn.close()
+    return ids
+
+
+def test_adverse_media_is_a_category_line_after_pep(mlro):
+    cids = _seed_adverse([("Alpha Trading", "financial_crime_alleged", "open"),
+                          ("Beta Gold", "regulatory_action", "open"),
+                          ("Gamma LLC", "reputational_only", "relevant")])
+    html = mlro.get("/dashboard").text
+    assert _line_count(html, "adverse") == 2          # only findings still open
+    assert html.index("cat-line--pep") < html.index("cat-line--adverse")
+    assert "2 adverse media findings to review" in html
+    assert f'href="/customers/{cids[0]}#adverse-media"' in html
+    # Not alerts: no alert panel hook, and the queue button and its count stay alert-only.
+    block = html[html.index("cat-line--adverse"):]
+    assert "data-alert-id" not in block.split("</details>")[0]
+    assert "Open the queue" not in html
+    assert "Queue empty" not in html
+
+
+def test_adverse_media_does_not_inflate_the_alert_counts(mlro):
+    _seed_alerts([(["sanction"], "open", "Sample A")])
+    _seed_adverse([("Alpha Trading", "financial_crime_alleged", "open")])
+    html = mlro.get("/dashboard").text
+    assert "1 waiting for a decision" in html
+    assert "1 adverse media finding to review" in html
+    assert "Open the queue (1)" in html
+
+
+def test_customer_page_has_the_adverse_media_anchor(mlro):
+    cid = _seed_adverse([("Alpha Trading", "regulatory_action", "open")])[0]
+    assert 'id="adverse-media"' in mlro.get(f"/customers/{cid}").text
+
+
+def test_adverse_media_shows_the_most_serious_findings_first_when_capped(mlro):
+    """Thirteen open findings, the newest one the most serious: it must be among
+    the twelve shown, and the one that falls into "+1" must be a minor one."""
+    specs = [(f"Minor {i}", "reputational_only", "open") for i in range(12)]
+    specs.append(("Serious Newest", "financial_crime_alleged", "open"))
+    _seed_adverse(specs)
+    html = mlro.get("/dashboard").text
+    block = html[html.index("cat-line--adverse"):].split("</details>")[0]
+    assert _line_count(html, "adverse") == 13
+    assert "Serious Newest" in block
+    assert block.count('class="cat-dot') == 12
+    assert "+1" in block

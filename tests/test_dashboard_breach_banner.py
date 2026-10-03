@@ -81,3 +81,49 @@ class TestBreachBanner:
         assert "scripts/refresh.py" not in r.text
         assert "/admin" in r.text
         assert "Refresh sanctions lists now" in r.text
+
+    def test_banner_message_is_one_block(self, client) -> None:
+        """The banner is a flex row; its sentence and link must sit in a single
+        child, or each fragment becomes its own column."""
+        import re
+
+        html = client.get("/dashboard").text
+        m = re.search(r'<div class="banner err" role="alert">(.*?)\n  </div>\n', html, re.S)
+        assert m, "breach banner missing"
+        body = m.group(1)
+        assert body.lstrip().startswith('<div class="banner__text">')
+        assert body.rstrip().endswith("</div>")
+        # strong, sentence and link all inside that one block
+        inner = body.split('<div class="banner__text">', 1)[1].rsplit("</div>", 1)[0]
+        assert "24-HOUR RULE BREACHED" in inner and 'href="/admin"' in inner
+
+
+class TestDashboardCss:
+    CSS = (Path(__file__).resolve().parent.parent / "amlkit" / "web" / "static" / "app.css").read_text()
+
+    def test_phone_stat_strip_override_comes_after_base_rules(self) -> None:
+        """An equal-specificity mobile rule placed before the base rule loses to it
+        (the strip stayed four cramped columns on phones)."""
+        base = self.CSS.index(".stat-strip { display: grid; grid-template-columns: repeat(4")
+        mobile = self.CSS.rindex(".stat-strip { grid-template-columns: 1fr 1fr")
+        assert mobile > base
+        assert self.CSS.rindex(".stat-strip__item + .stat-strip__item { padding: 0; border-left: 0; }") > mobile
+
+    def test_banner_clears_the_corner_chips(self) -> None:
+        """Chip + bell + avatar measure about 287px; the banner must reserve at least that."""
+        import re
+
+        m = re.search(r"\.canvas-corner:has\(\.mode-chip\) \+ \.banner \{ margin-right: (\d+)px", self.CSS)
+        assert m and int(m.group(1)) >= 290
+
+    def test_phone_dashboard_rows_stack(self) -> None:
+        assert ".cat-line__body .list-row { flex-wrap: wrap;" in self.CSS
+        assert ".cat-line__body .list-row .side.nowrap { white-space: normal;" in self.CSS
+
+    def test_banner_clears_the_corner_without_the_chip(self) -> None:
+        """Bell + avatar alone measure about 106px (this is the normal case: the
+        single-operator chip only shows in that mode)."""
+        import re
+
+        m = re.search(r"\.canvas-corner \+ \.banner \{ margin-right: (\d+)px", self.CSS)
+        assert m and int(m.group(1)) >= 112

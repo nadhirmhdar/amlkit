@@ -8,6 +8,7 @@
    page is informational; this one is a compliance failure in progress. #}
 {% if d.breaches %}
   <div class="banner err" role="alert">
+    <div class="banner__text">
     <strong>24-HOUR RULE BREACHED.</strong>
     {{ d.breaches|map(attribute='title')|join(', ') }}
     {{ 'has' if d.breaches|length == 1 else 'have' }} not been refreshed within
@@ -20,6 +21,7 @@
        data, on every deployment (local or hosted) alike. #}
     An MLRO can fix this now from
     <a href="/admin">Admin &rarr; Refresh sanctions lists now</a>.
+    </div>
   </div>
 {% endif %}
 
@@ -66,11 +68,14 @@
     <div class="cat-card__title">
       <h2 id="cat-title">Alerts by category</h2>
       <div class="cat-card__meta">
-        {% if d.alert_total %}
-          <strong>{{ d.alert_open_total }} waiting for a decision</strong>
-          {% if d.alert_staged_total %}&middot; {{ d.alert_staged_total }} awaiting second review{% endif %}
+        {% if d.alert_total or adverse_open_total %}
+          {% if d.alert_total %}
+            <strong>{{ d.alert_open_total }} waiting for a decision</strong>
+            {% if d.alert_staged_total %}&middot; {{ d.alert_staged_total }} awaiting second review{% endif %}
+          {% endif %}
+          {% if adverse_open_total %}{% if d.alert_total %}&middot; {% endif %}<strong>{{ adverse_open_total }} adverse media finding{{ 's' if adverse_open_total != 1 }} to review</strong>{% endif %}
           {% if d.alerts_truncated %}&middot; showing the oldest 200 &mdash; the queue is longer{% endif %}
-          <span class="cat-key"><i aria-hidden="true"></i>one dot per alert, oldest first</span>
+          <span class="cat-key"><i aria-hidden="true"></i>one dot per alert or finding</span>
           {% if d.alert_staged_total %}<span class="cat-key"><i class="is-staged" aria-hidden="true"></i>second review pending</span>{% endif %}
         {% endif %}
       </div>
@@ -92,7 +97,7 @@
     <summary class="cat-line__row">
       <span class="cat-line__label">{{ line.label }}</span>
       <span class="cat-line__n">{{ line.total }}</span>
-      <span class="visually-hidden">alerts{% if line.staged %}, {{ line.staged }} awaiting second review{% endif %}</span>
+      <span class="visually-hidden">{{ 'findings' if line.key == 'adverse' else 'alerts' }}{% if line.staged %}, {{ line.staged }} awaiting second review{% endif %}</span>
       <span class="cat-line__track" aria-hidden="true">
         {% for a in line.dots %}
           <span class="cat-dot {{ 'cat-dot--staged' if a.status == 'pending_review' }}" style="--i:{{ loop.index0 }}"></span>
@@ -102,6 +107,19 @@
       <span class="cat-line__chev" aria-hidden="true">&#9662;</span>
     </summary>
     <div class="cat-line__body flat-list">
+      {% if line.key == 'adverse' %}
+      {% for a in line.alerts %}
+      {% if a.href %}<a href="{{ a.href }}" class="list-row" aria-label="Review adverse media for {{ a.subject }}: {{ a.title }}, {{ a.severity_label }}" style="text-decoration:none; color:inherit;">{% else %}<div class="list-row">{% endif %}
+        <div class="grow">
+          <div class="primary">{{ a.subject }}</div>
+          <div class="side">{{ a.title }} &middot; {{ a.domain or 'unknown source' }}</div>
+        </div>
+        <div class="side nowrap">{{ a.severity_label }}{% if a.waiting %} &middot; found {{ a.waiting }} ago{% endif %}</div>
+      {% if a.href %}</a>{% else %}</div>{% endif %}
+      {% endfor %}
+      {# No web queue page for these (the mobile API has one): on the web each is marked relevant or not on its customer's page. #}
+      <p class="cat-line__more muted" style="margin:0;font-weight:400;">{% if line.rest %}{{ line.rest }} more &middot; {% endif %}Most serious first. Each finding is reviewed on its customer&rsquo;s page.</p>
+      {% else %}
       {% for a in line.alerts %}
       <a href="/alerts" data-alert-id="{{ a.id }}" class="list-row" aria-expanded="false" aria-label="Open alert details: {{ a.subject }}, {{ a.dataset_title }}, {{ 'awaiting second review' if a.status == 'pending_review' else (a.assigned_to or 'unassigned') }}" style="text-decoration:none; color:inherit;">
         <div class="grow">
@@ -113,11 +131,12 @@
       </a>
       {% endfor %}
       <a href="/alerts?category={{ line.key }}" class="cat-line__more">{% if line.rest %}{{ line.rest }} more &middot; {% endif %}Open all {{ line.label }} alerts in the queue &rarr;</a>
+      {% endif %}
     </div>
   </details>
   {% endif %}
   {% endfor %}
-  {% if not d.alert_total %}
+  {% if not d.alert_total and not adverse_open_total %}
     <p class="cat-card__note"><strong>Queue empty.</strong> No alert is waiting for a decision.</p>
   {% endif %}
 </section>
