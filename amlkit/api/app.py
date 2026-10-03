@@ -3421,6 +3421,10 @@ def admin_create_operator(
 
     if len(password) < 10:
         return back("/admin", err="Password must be at least 10 characters.")
+    if role not in auth.OPERATOR_ROLES:
+        return back("/admin", err="Role must be Officer or MLRO.")
+    if not auth.looks_like_email(email):
+        return back("/admin", err="Enter a valid email address.")
     try:
         now = utcnow()
         cur = db.execute(

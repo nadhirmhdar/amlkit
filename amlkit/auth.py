@@ -97,6 +97,11 @@ class PasswordComplexityError(ValueError):
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+# The only roles the app knows (operators.role: officer | mlro). Every path
+# that writes operators.role checks against this.
+OPERATOR_ROLES: tuple[str, ...] = ("officer", "mlro")
+
+
 def looks_like_email(value: str) -> bool:
     return bool(EMAIL_RE.match(value.strip()))
 

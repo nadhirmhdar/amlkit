@@ -7,6 +7,7 @@ api/app.py validate session + CSRF, then delegate to these functions.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from dataclasses import dataclass
 from typing import Optional
@@ -106,6 +107,8 @@ def save_report(
         parsed_amount = float(amount) if amount.strip() else None
     except ValueError:
         return ReportResult(success=False, error=f"Amount {amount!r} is not a valid number.")
+    if parsed_amount is not None and not (math.isfinite(parsed_amount) and parsed_amount >= 0):
+        return ReportResult(success=False, error=f"Amount {amount!r} must be zero or a positive number.")
 
     # For CTR: fetch org's configured large_cash_threshold to use as validation threshold
     threshold = None
