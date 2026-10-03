@@ -149,13 +149,26 @@ def test_mlro_can_file_ffr_and_resolve(client):
     assert r.status_code == 200
     assert "/reports/" in str(r.url)
 
-    # Verify status changed to reported
+    # Drafting links the CNMR but does not report the freeze: nothing is filed yet.
     conn = _db()
+    row = conn.execute("SELECT status, reported_at, report_id FROM freeze_obligations WHERE id=?",
+                       (freeze_id,)).fetchone()
+    assert row["status"] == "executed_pending_report"
+    assert row["reported_at"] is None
+    assert row["report_id"] is not None
+    page = client.get(f"/freeze-obligations/{freeze_id}").text
+    assert "CNMR draft created, not yet filed" in page
+    assert f'href="/reports/{row["report_id"]}"' in page
+    assert f'action="/freeze-obligations/{freeze_id}/file-ffr"' not in page
+
+    # Finalising the linked CNMR is what moves the freeze to reported.
+    r = client.post(f"/reports/{row['report_id']}/submit",
+                    data={"csrf_token": _csrf(client)}, follow_redirects=True)
+    assert r.status_code == 200
     row = conn.execute("SELECT status, reported_at, report_id FROM freeze_obligations WHERE id=?",
                        (freeze_id,)).fetchone()
     assert row["status"] == "reported"
     assert row["reported_at"] is not None
-    assert row["report_id"] is not None
     # Stored as "FFR" (the goAML code), listed as CNMR.
     reports_page = client.get("/reports").text
     assert ">CNMR</span>" in reports_page and ">FFR</span>" not in reports_page
