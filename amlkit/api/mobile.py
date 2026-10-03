@@ -1201,21 +1201,8 @@ def api_alerts_summary(db: DB, session: Session):
         (session.org_id,),
     ).fetchall()
     by_category: dict[str, int] = {}
-    from ..screening.pf import classify_programs
     for r in cat_rows:
-        topics = json.loads(r["topics"] or "[]")
-        programs = json.loads(r["programs"] or "[]")
-        cats = classify_programs(programs)
-        if "proliferation" in cats:
-            cat = "proliferation"
-        elif "terrorism" in cats:
-            cat = "terrorism"
-        elif "sanction" in topics:
-            cat = "sanction"
-        elif any(t.startswith("role.pep") for t in topics):
-            cat = "pep"
-        else:
-            cat = "other"
+        cat = queries._category(json.loads(r["topics"] or "[]"), json.loads(r["programs"] or "[]"))
         by_category[cat] = by_category.get(cat, 0) + 1
 
     am_open = db.execute(

@@ -219,10 +219,10 @@ input::placeholder, textarea::placeholder { color: oklch(58% 0.008 250); }
    avatar (the mobile header carries it), so they keep the full width. */
 @media (min-width: 681px) {
   main > .page-head, main > .home-head { padding-right: 64px; }
-  .canvas-corner + .banner { margin-right: 64px; }
+  .canvas-corner + .banner { margin-right: 120px; }
   /* The single-operator chip widens the corner to roughly 240px. */
   main:has(.mode-chip) > .page-head, main:has(.mode-chip) > .home-head { padding-right: 250px; }
-  .canvas-corner:has(.mode-chip) + .banner { margin-right: 250px; }
+  .canvas-corner:has(.mode-chip) + .banner { margin-right: 296px; }
   /* A header with an action sits that action below the corner chips, so only
      the title block (not the action) needs to stay clear of them. */
   main > .page-head--with-actions, main:has(.mode-chip) > .page-head--with-actions { padding-right: 0; }
@@ -1213,7 +1213,7 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .cat-line { --c: var(--ink-3); }
 .cat-line + .cat-line { border-top: 1px solid var(--line-soft); }
 .cat-line--sanction { --c: var(--danger); } .cat-line--terrorism { --c: var(--terrorism); }
-.cat-line--pep { --c: var(--warn); } .cat-line--proliferation { --c: var(--violet); }
+.cat-line--pep { --c: var(--warn); } .cat-line--proliferation { --c: var(--violet); } .cat-line--adverse { --c: var(--accent); }
 .cat-line__row { display: grid; grid-template-columns: minmax(120px, 200px) 56px minmax(0, 1fr) 48px 24px; column-gap: 16px; align-items: baseline; padding: 16px 0; }
 .cat-line summary.cat-line__row { cursor: pointer; list-style: none; }
 .cat-line summary::-webkit-details-marker { display: none; }
@@ -1251,8 +1251,6 @@ select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   .cat-line--zero .cat-line__track { display: none; }
   .cat-line--zero .cat-line__row { padding: 10px 0; }
   .cat-line__chev { min-width: 24px; text-align: center; }
-  .stat-strip { grid-template-columns: 1fr 1fr; gap: 16px; }
-  .stat-strip__item { padding: 0; border-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .cat-line__chev { transition: none; } }
 .cat-line__more { display: block; padding: 12px 0 8px; font-size: 13px; font-weight: 600; }
@@ -1347,3 +1345,26 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 .profile-grid .muted.small { display: block; margin-top: 6px; line-height: 1.5; }
 .profile-grid__actions { grid-column: 1 / -1; }
 
+/* A banner whose message is a sentence with an inline link keeps it in one
+   block; as bare children of the flex row it was split into columns. */
+.banner__text { flex: 1; min-width: 0; line-height: 1.5; }
+
+/* Stat strip on phones: two columns, no dividers. These sit after the base
+   .stat-strip rules on purpose; earlier in the file they lost to them and the
+   strip stayed four cramped columns. */
+@media (max-width: 680px) {
+  .stat-strip { grid-template-columns: 1fr 1fr; gap: 16px; }
+  .stat-strip__item,
+  .stat-strip__item:first-child,
+  .stat-strip__item + .stat-strip__item { padding: 0; border-left: 0; }
+}
+
+/* Phones: a dashboard line's rows stack (name and detail on top, status and
+   score beneath) instead of squeezing the name into one word per line beside a
+   no-wrap status. Also gives the stat strip room before the panel below it. */
+@media (max-width: 680px) {
+  .dash-main .stat-strip { margin: 16px 0 24px; }
+  .cat-line__body .list-row { flex-wrap: wrap; gap: 4px 12px; }
+  .cat-line__body .list-row .grow { flex-basis: 100%; }
+  .cat-line__body .list-row .side.nowrap { white-space: normal; flex: 1; }
+}

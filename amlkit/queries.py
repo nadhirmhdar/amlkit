@@ -131,6 +131,43 @@ def alert_lines(alerts: list[dict[str, Any]], counts: dict[str, dict[str, int]] 
     return lines
 
 
+def adverse_media_line(conn: sqlite3.Connection, org_id: int,
+                       now_utc: "datetime | None" = None) -> dict[str, Any]:
+    """The dashboard's 'Adverse media' line, shaped like an alert_lines entry.
+
+    Open findings (not yet marked relevant / not relevant), oldest first, so
+    one dot is one finding. Unlike the alert categories these are not in the
+    alert queue and need no second reviewer: each is triaged on its customer's
+    page, so every row links there. `total` is an uncapped count; dots and rows
+    are capped like the other lines.
+    """
+    from datetime import datetime, timezone
+    now = now_utc or datetime.now(timezone.utc)
+    total = conn.execute(
+        "SELECT COUNT(*) n FROM adverse_media_findings WHERE org_id = ? AND status = 'open'",
+        (org_id,),
+    ).fetchone()["n"]
+    rows = conn.execute(
+        """SELECT f.id, f.customer_id, f.title, f.domain, f.severity, f.status, f.created_at,
+                  c.full_name AS customer_name, c.reference
+           FROM adverse_media_findings f
+           LEFT JOIN customers c ON c.id = f.customer_id
+           WHERE f.org_id = ? AND f.status = 'open'
+           ORDER BY f.created_at ASC, f.id ASC LIMIT ?""",
+        (org_id, DASHBOARD_LINE_DOTS),
+    ).fetchall()
+    items = []
+    for r in rows:
+        a = dict(r)
+        a["subject"] = a["customer_name"] or a["reference"] or "Customer"
+        a["severity_label"] = a["severity"].replace("_", " ")
+        a["waiting"] = _waiting(a["created_at"], now)
+        a["href"] = f"/customers/{a['customer_id']}#adverse-media" if a["customer_id"] else None
+        items.append(a)
+    return {"key": "adverse", "label": "Adverse media", "total": total, "staged": 0,
+            "dots": items, "rest": max(0, total - len(items)), "alerts": items}
+
+
 def organization_name(conn: sqlite3.Connection, org_id: int) -> str | None:
     """Fetch the organization name for the given org_id.
 

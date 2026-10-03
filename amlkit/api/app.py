@@ -1625,10 +1625,16 @@ def dashboard(request: Request, db: DB):
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
     d = queries.dashboard(db, session.org_id)
+    lines = queries.alert_lines(d["open_alerts"], d["alert_counts"])
+    # Adverse media is not an alert category (no queue, no second reviewer), but
+    # it is a stream of findings waiting on a person, so it gets a line after PEP.
+    adverse_line = queries.adverse_media_line(db, session.org_id)
+    lines.insert(next((i + 1 for i, ln in enumerate(lines) if ln["key"] == "pep"), len(lines)), adverse_line)
     ctx = {
         "session": session,
         "d": d,
-        "alert_lines": queries.alert_lines(d["open_alerts"], d["alert_counts"]),
+        "alert_lines": lines,
+        "adverse_open_total": adverse_line["total"],
         "greeting": queries.dubai_greeting(),
         "datasets": queries.datasets(db),
     }
