@@ -56,7 +56,7 @@ def save_report(
         org_id: Organization ID (tenant isolation)
         operator_name: Name of operator saving the report (for audit trail)
         customer_id: Customer this report is about
-        report_type: "STR", "SAR", "CTR", or "DTR"
+        report_type: one of reporting.goaml.CREATABLE_REPORT_TYPES
         reporting_entity_name: Name of the reporting entity
         entity_reference: Entity reference number
         reporter_name: Name of the reporting officer
@@ -92,6 +92,14 @@ def save_report(
     if cust_row is None:
         return ReportResult(success=False, error=f"Customer {customer_id} not found.")
     cust_type = cust_row["customer_type"]
+
+    from ..reporting.goaml import CREATABLE_REPORT_TYPES
+    if report_type not in CREATABLE_REPORT_TYPES:
+        return ReportResult(
+            success=False,
+            error=f"Report type {report_type!r} is not supported. "
+                  f"Supported types: {', '.join(CREATABLE_REPORT_TYPES)}.",
+        )
 
     # Parse and validate amount
     try:
