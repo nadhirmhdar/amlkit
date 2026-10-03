@@ -344,3 +344,17 @@ def test_adverse_media_does_not_inflate_the_alert_counts(mlro):
 def test_customer_page_has_the_adverse_media_anchor(mlro):
     cid = _seed_adverse([("Alpha Trading", "regulatory_action", "open")])[0]
     assert 'id="adverse-media"' in mlro.get(f"/customers/{cid}").text
+
+
+def test_adverse_media_shows_the_most_serious_findings_first_when_capped(mlro):
+    """Thirteen open findings, the newest one the most serious: it must be among
+    the twelve shown, and the one that falls into "+1" must be a minor one."""
+    specs = [(f"Minor {i}", "reputational_only", "open") for i in range(12)]
+    specs.append(("Serious Newest", "financial_crime_alleged", "open"))
+    _seed_adverse(specs)
+    html = mlro.get("/dashboard").text
+    block = html[html.index("cat-line--adverse"):].split("</details>")[0]
+    assert _line_count(html, "adverse") == 13
+    assert "Serious Newest" in block
+    assert block.count('class="cat-dot') == 12
+    assert "+1" in block

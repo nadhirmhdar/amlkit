@@ -75,7 +75,7 @@
           {% endif %}
           {% if adverse_open_total %}{% if d.alert_total %}&middot; {% endif %}<strong>{{ adverse_open_total }} adverse media finding{{ 's' if adverse_open_total != 1 }} to review</strong>{% endif %}
           {% if d.alerts_truncated %}&middot; showing the oldest 200 &mdash; the queue is longer{% endif %}
-          <span class="cat-key"><i aria-hidden="true"></i>one dot per alert or finding, oldest first</span>
+          <span class="cat-key"><i aria-hidden="true"></i>one dot per alert or finding</span>
           {% if d.alert_staged_total %}<span class="cat-key"><i class="is-staged" aria-hidden="true"></i>second review pending</span>{% endif %}
         {% endif %}
       </div>
@@ -117,8 +117,8 @@
         <div class="side nowrap">{{ a.severity_label }}{% if a.waiting %} &middot; found {{ a.waiting }} ago{% endif %}</div>
       {% if a.href %}</a>{% else %}</div>{% endif %}
       {% endfor %}
-      {# No queue page for these: each is marked relevant or not on its customer's page. #}
-      <p class="cat-line__more muted" style="margin:0;font-weight:400;">{% if line.rest %}{{ line.rest }} more &middot; {% endif %}Each finding is reviewed on its customer&rsquo;s page.</p>
+      {# No web queue page for these (the mobile API has one): on the web each is marked relevant or not on its customer's page. #}
+      <p class="cat-line__more muted" style="margin:0;font-weight:400;">{% if line.rest %}{{ line.rest }} more &middot; {% endif %}Most serious first. Each finding is reviewed on its customer&rsquo;s page.</p>
       {% else %}
       {% for a in line.alerts %}
       <a href="/alerts" data-alert-id="{{ a.id }}" class="list-row" aria-expanded="false" aria-label="Open alert details: {{ a.subject }}, {{ a.dataset_title }}, {{ 'awaiting second review' if a.status == 'pending_review' else (a.assigned_to or 'unassigned') }}" style="text-decoration:none; color:inherit;">
