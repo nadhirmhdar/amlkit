@@ -1624,6 +1624,9 @@ def api_report_submit(report_id: int, db: DB, session: Session):
         )
         audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
+        # A finalised CNMR is what moves its freeze to 'reported'.
+        from ..cases.freeze import mark_freeze_reported
+        mark_freeze_reported(db, report_id, session.org_id, session.operator_name, now)
     return {
         "ok": True,
         "finalized": True,

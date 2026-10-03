@@ -1476,7 +1476,10 @@ def freeze_obligation_detail_route(request: Request, db: DB, freeze_id: int):
         return back("/freeze-obligations", err="Freeze obligation not found")
 
     can_execute = obligation["status"] == "pending_execution"
-    can_file_ffr = obligation["status"] == "executed_pending_report"
+    # Once a CNMR draft is linked, the page links to it instead of offering
+    # to draft another (file_ffr_report would just return the same draft).
+    can_file_ffr = (obligation["status"] == "executed_pending_report"
+                    and not obligation["report_id"])
     can_resolve = obligation["status"] in ["executed_pending_report", "reported"]
     
     return render(request, "freeze_obligation_detail.html", {
@@ -4075,6 +4078,9 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
         from ..db import audit
         audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
+        # A finalised CNMR is what moves its freeze to 'reported'.
+        from ..cases.freeze import mark_freeze_reported
+        mark_freeze_reported(db, report_id, session.org_id, session.operator_name, now)
 
     return back(f"/reports/{report_id}",
                msg="Report finalized in groAML. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
