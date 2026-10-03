@@ -1476,7 +1476,10 @@ def freeze_obligation_detail_route(request: Request, db: DB, freeze_id: int):
         return back("/freeze-obligations", err="Freeze obligation not found")
 
     can_execute = obligation["status"] == "pending_execution"
-    can_file_ffr = obligation["status"] == "executed_pending_report"
+    # Once a CNMR draft is linked, the page links to it instead of offering
+    # to draft another (file_ffr_report would just return the same draft).
+    can_file_ffr = (obligation["status"] == "executed_pending_report"
+                    and not obligation["report_id"])
     can_resolve = obligation["status"] in ["executed_pending_report", "reported"]
     
     return render(request, "freeze_obligation_detail.html", {
@@ -2151,6 +2154,7 @@ def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
         return back(f"/customers/{customer_id}/evidence",
                     err="PDF generation unavailable — WeasyPrint system libraries not installed.")
 
+    _audit_export(db, session, "export.evidence_pdf", "customer", customer_id)
     from fastapi.responses import Response
     # Header values must be latin-1: give an ASCII fallback filename plus the
     # full (possibly Arabic) name via RFC 6266 filename*.
@@ -2666,6 +2670,8 @@ def alerts_csv(request: Request, db: DB, status: str = "all", category: str = ""
     cat = category if category in queries.CATEGORY_LABELS else None
     queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status,
                                 category=cat)
+    _audit_export(db, session, "export.alerts_csv", None, None,
+                  {"status": status, "category": cat, "rows": len(queue)})
     return _csv_response(
         "alerts.csv",
         ["id", "category", "score", "caption", "matched_party", "status", "reason_code",
@@ -2686,6 +2692,7 @@ def customers_csv(request: Request, db: DB):
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
     rows = queries.customer_list(db, session.org_id)
+    _audit_export(db, session, "export.customers_csv", None, None, {"rows": len(rows)})
     return _csv_response(
         "customers.csv",
         ["reference", "full_name", "customer_type", "sector", "status", "rating",
@@ -2697,6 +2704,16 @@ def customers_csv(request: Request, db: DB):
             for c in rows
         ],
     )
+
+
+def _audit_export(db, session, action: str, object_type: str | None = None,
+                  object_id=None, detail=None) -> None:
+    """One audit row per successful data export (who pulled what out of the
+    app, with which filters / how many rows) -- never the exported data."""
+    from ..db import audit
+    audit(db, session.operator_name, action, object_type, object_id, detail,
+          org_id=session.org_id)
+    db.commit()
 
 
 def _csv_response(filename: str, header: list[str], rows: list[list]):
@@ -2949,6 +2966,7 @@ def feedback_export(request: Request, db: DB):
     from ..pii import redact as _redact_pii
 
     entries = queries.feedback_list(db, session.org_id, limit=100000)
+    _audit_export(db, session, "export.feedback_csv", None, None, {"rows": len(entries)})
     buf = _io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["created_at", "operator", "page", "message"])
@@ -3010,6 +3028,7 @@ def audit_export(request: Request, db: DB):
     from ..pii import redact as _redact_pii
 
     entries = queries.audit_trail(db, session.org_id, limit=100000)
+    _audit_export(db, session, "export.audit_csv", None, None, {"rows": len(entries)})
     buf = _io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["timestamp", "action", "user", "object_type", "object_id", "detail"])
@@ -3405,6 +3424,10 @@ def admin_create_operator(
 
     if len(password) < 10:
         return back("/admin", err="Password must be at least 10 characters.")
+    if role not in auth.OPERATOR_ROLES:
+        return back("/admin", err="Role must be Officer or MLRO.")
+    if not auth.looks_like_email(email):
+        return back("/admin", err="Enter a valid email address.")
     try:
         now = utcnow()
         cur = db.execute(
@@ -3942,8 +3965,12 @@ def report_new_view(request: Request, db: DB):
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
 
+    from ..reporting.goaml import CREATABLE_REPORT_TYPES, REPORT_TYPE_LABELS
     customers = queries.customer_list(db, session.org_id)
-    return render(request, "report_new.html", {"session": session, "customers": customers}, db)
+    report_types = [(t, REPORT_TYPE_LABELS[t]) for t in CREATABLE_REPORT_TYPES]
+    return render(request, "report_new.html", {
+        "session": session, "customers": customers, "report_types": report_types,
+    }, db)
 
 
 @app.get("/reports/build", response_class=HTMLResponse)
@@ -4075,6 +4102,9 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
         from ..db import audit
         audit(db, session.operator_name, "report.finalized", "report", report_id,
               {"report_type": rep["report_type"]}, org_id=session.org_id)
+        # A finalised CNMR is what moves its freeze to 'reported'.
+        from ..cases.freeze import mark_freeze_reported
+        mark_freeze_reported(db, report_id, session.org_id, session.operator_name, now)
 
     return back(f"/reports/{report_id}",
                msg="Report finalized in groAML. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
@@ -4117,6 +4147,8 @@ def report_export_xml(request: Request, db: DB, report_id: int):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=str(exc))
 
+    _audit_export(db, session, "export.goaml_xml", "report", report_id,
+                  {"report_type": rep["report_type"]})
     from fastapi.responses import Response
     return Response(
         content=xml_content,

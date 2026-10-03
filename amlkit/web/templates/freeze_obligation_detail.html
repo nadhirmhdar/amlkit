@@ -54,6 +54,11 @@
         <strong>✓ Reported</strong><br>
         {{ obligation.reported_at }}<br>
         <a href="/reports/{{ obligation.report_id }}">Report #{{ obligation.report_id }}</a>
+      {% elif obligation.report_id %}
+        <strong>⏳ Pending Report</strong><br>
+        <em>CNMR draft created, not yet filed</em><br>
+        <a href="/reports/{{ obligation.report_id }}">CNMR draft #{{ obligation.report_id }}</a>:
+        finalise it and file it on goAML within five business days of the freeze.
       {% else %}
         <strong>⏳ Pending Report</strong><br>
         <em>CNMR not yet filed</em>

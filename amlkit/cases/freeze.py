@@ -47,7 +47,15 @@ def file_ffr_report(
     reporter_email: str,
     operator: str
 ) -> int:
-    """Create FFR report from executed freeze obligation.
+    """Create the CNMR (internally FFR) draft for an executed freeze obligation.
+
+    Only drafts the report and links it to the freeze (``report_id``). The
+    freeze stays ``executed_pending_report`` until that report is finalised
+    (see ``mark_freeze_reported``) -- a draft is not a filing, so it must not
+    take the freeze off the pending-report views.
+
+    Idempotent while a report is linked: a second call returns the existing
+    report id instead of creating a duplicate draft.
 
     Args:
         db: Database connection
@@ -58,7 +66,7 @@ def file_ffr_report(
         operator: Operator name (for audit trail)
 
     Returns:
-        report_id: ID of created report record
+        report_id: ID of the created (or already-linked) report record
 
     Raises:
         ValueError: If freeze not found or not in correct status
@@ -76,6 +84,16 @@ def file_ffr_report(
 
     if freeze["status"] != "executed_pending_report":
         raise ValueError("Freeze not ready for CNMR filing")
+
+    # One CNMR per freeze: a linked report (draft) already exists, so hand
+    # it back rather than drafting a second one (double-click, back button).
+    if freeze["report_id"] is not None:
+        existing = db.execute(
+            "SELECT id FROM reports WHERE id = ? AND org_id = ?",
+            (freeze["report_id"], org_id),
+        ).fetchone()
+        if existing:
+            return existing["id"]
 
     # Guard against blank names (would raise IndexError on split()[0])
     full_name = freeze["full_name"] or ""
@@ -128,14 +146,48 @@ def file_ffr_report(
     """, (org_id, freeze["customer_id"], json.dumps(report_payload), now))
     report_id = cursor.lastrowid
 
+    # Link only: the freeze moves to 'reported' when this report is finalised.
     db.execute("""
         UPDATE freeze_obligations
-        SET report_id = ?, reported_at = ?, status = 'reported'
-        WHERE id = ?
-    """, (report_id, now, freeze_id))
+        SET report_id = ?
+        WHERE id = ? AND org_id = ?
+    """, (report_id, freeze_id, org_id))
 
-    audit(db, operator, "freeze.reported", "freeze_obligation", freeze_id,
+    audit(db, operator, "freeze.report_drafted", "freeze_obligation", freeze_id,
           {"report_id": report_id}, org_id=org_id)
     db.commit()
 
     return report_id
+
+
+def mark_freeze_reported(
+    db: sqlite3.Connection,
+    report_id: int,
+    org_id: int,
+    operator: str,
+    now: str,
+) -> list[int]:
+    """Move freezes linked to a just-finalised report to ``reported``.
+
+    Called by both report-submit paths (web and mobile) inside the same
+    transaction as the report's own status change, so the freeze and its
+    CNMR can never disagree. Org-scoped; a no-op for reports that aren't
+    linked to a freeze pending report.
+
+    Returns:
+        IDs of the freeze obligations that were marked reported.
+    """
+    rows = db.execute("""
+        SELECT id FROM freeze_obligations
+        WHERE report_id = ? AND org_id = ? AND status = 'executed_pending_report'
+    """, (report_id, org_id)).fetchall()
+    freeze_ids = [r["id"] for r in rows]
+    for freeze_id in freeze_ids:
+        db.execute("""
+            UPDATE freeze_obligations
+            SET reported_at = ?, status = 'reported'
+            WHERE id = ? AND org_id = ?
+        """, (now, freeze_id, org_id))
+        audit(db, operator, "freeze.reported", "freeze_obligation", freeze_id,
+              {"report_id": report_id}, org_id=org_id)
+    return freeze_ids

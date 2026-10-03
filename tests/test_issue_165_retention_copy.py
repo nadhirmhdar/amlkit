@@ -1,7 +1,7 @@
-"""Issue #165: Update retention copy from 5 to 10 years.
+"""Issue #165 (as corrected by #313): customer page states the 10-year period.
 
-Cabinet Resolution No. 134 of 2025 extended UAE AML/CFT record retention
-period from five to ten years. Customer detail page must reflect this.
+Ten years is the firm's retention policy; Cabinet Resolution 134/2025
+Art. 25(2) sets a five-year statutory minimum. See test_retention_policy.py.
 """
 
 from __future__ import annotations
@@ -13,20 +13,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def test_customer_detail_shows_ten_year_retention():
-    """Issue #165: Customer page must show 10-year retention, not 5-year.
-    
-    Cabinet Resolution No. 134/2025 updated retention from 5 to 10 years.
-    The customer detail template must reflect this update.
-    """
+    """Issue #165: Customer page must show the 10-year retention policy."""
     template_path = Path(__file__).parent.parent / "amlkit" / "web" / "templates" / "customer.html"
-    content = template_path.read_text()
-    
-    # Must not mention "five year" or "5 year"
-    assert "five year" not in content.lower(), \
-        "Template still references 'five year' retention (should be 'ten year')"
-    assert "5 year" not in content.lower(), \
-        "Template still references '5 year' retention (should be '10 year')"
-    
-    # Must mention "ten year" or "10 year"  
-    assert "ten year" in content.lower() or "10 year" in content.lower(), \
-        "Template should reference 'ten year' or '10 year' retention per Cabinet Resolution No. 134/2025"
+    content = template_path.read_text().lower()
+
+    assert "five years after" not in content, \
+        "Template still states a five-year retention period"
+    assert "10 years (firm policy" in content, \
+        "Template should state the 10-year period as firm policy"

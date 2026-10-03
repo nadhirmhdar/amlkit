@@ -20,7 +20,7 @@ import os
 import sqlite3
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -266,8 +266,9 @@ CREATE TABLE IF NOT EXISTS customers (
     is_cash_intensive INTEGER NOT NULL DEFAULT 0,
     status         TEXT NOT NULL DEFAULT 'active',
     onboarded_at   TEXT NOT NULL,
-    -- Cabinet Res. 134/2025 requires records retained 8 years after the
-    -- relationship ends; this column is what the retention job reads.
+    -- Kept RETENTION_YEARS (cases/manager.py: 10-year firm policy, above the
+    -- 5-year statutory minimum) after the relationship ends; this column is
+    -- what the retention job reads.
     retention_until TEXT,
     created_at     TEXT NOT NULL,
     updated_at     TEXT NOT NULL,
@@ -805,7 +806,7 @@ CREATE INDEX IF NOT EXISTS ix_audit_ts  ON audit_log(ts);
 -- User feedback from pilot users. Deliberately org-scoped so each firm's
 -- feedback stays with their own data, not mixed into a global pool.
 -- operator_id (not just actor name) so deactivated operators' feedback
--- can be retained per the 10-year rule even after the operator row is gone.
+-- can be retained per the retention policy even after the operator row is gone.
 CREATE TABLE IF NOT EXISTS feedback (
     id          INTEGER PRIMARY KEY,
     org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -922,6 +923,15 @@ CREATE TABLE IF NOT EXISTS uaepass_verifications (
 );
 CREATE INDEX IF NOT EXISTS ix_uaepass_verif_org  ON uaepass_verifications(org_id);
 CREATE INDEX IF NOT EXISTS ix_uaepass_verif_cust ON uaepass_verifications(customer_id);
+
+-- ---------------------------------------------------------- data_migrations
+-- One-shot data fixes that must not re-run on every connect() (unlike the
+-- IS NULL backfills, whose own WHERE clause makes them no-ops). No org_id:
+-- it records schema-level facts about this database file, never tenant data.
+CREATE TABLE IF NOT EXISTS data_migrations (
+    name       TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL
+);
 """
 
 
@@ -1109,12 +1119,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
 def _backfill_retention_until(conn: sqlite3.Connection) -> None:
     """Set retention_until for existing customers where it is NULL.
 
-    UAE Federal Decree-Law No. 10/2025: retention for closed customers runs
-    from relationship termination (updated_at); for active customers it runs
-    from onboarding (onboarded_at). Called once during connect().
+    Retention (RETENTION_YEARS, see cases/manager.py) for closed customers
+    runs from relationship termination (updated_at); for active customers it
+    runs from onboarding (onboarded_at). Called once during connect().
     """
     from .cases.manager import RETENTION_YEARS
-    # Closed customers: 10 years from closure date (updated_at).
+    # Closed customers: RETENTION_YEARS from closure date (updated_at).
     conn.execute(
         "UPDATE customers SET retention_until ="
         " date(substr(COALESCE(updated_at, onboarded_at), 1, 10), '+' || ? || ' years')"
@@ -1122,7 +1132,7 @@ def _backfill_retention_until(conn: sqlite3.Connection) -> None:
         " AND (updated_at IS NOT NULL OR onboarded_at IS NOT NULL)",
         (RETENTION_YEARS,),
     )
-    # Active / other customers: 10 years from onboarding date.
+    # Active / other customers: RETENTION_YEARS from onboarding date.
     conn.execute(
         "UPDATE customers SET retention_until ="
         " date(substr(onboarded_at, 1, 10), '+' || ? || ' years')"
@@ -1139,6 +1149,90 @@ def _backfill_exit_date(conn: sqlite3.Connection) -> None:
         " exit_reason = COALESCE(exit_reason, 'unspecified')"
         " WHERE status = 'closed' AND exit_date IS NULL"
     )
+
+
+def _extend_retention_until(
+    conn: sqlite3.Connection, *, dry_run: bool = False,
+) -> dict[int, list[dict[str, str | int]]]:
+    """Extend retention_until values stored under an older, shorter rule (#79).
+
+    Before #66/#86 retention was 5 (then 8) years; those rows still carry the
+    shorter date, so purge_expired would delete them early. This recomputes
+    each customer's date with retention_from() -- the same function the
+    creation code uses -- from the same base date the code used:
+
+    * closed: exit_date (close_relationship; _backfill_exit_date sets it from
+      updated_at for closures that predate the column, which can only be on
+      or after the real closure, so the result errs towards keeping longer);
+    * otherwise: onboarded_at, or the latest `customer.reactivated` audit
+      entry for that customer in its own org if later (reactivation restarts
+      the clock).
+
+    Only ever extends: a stored date already on or after the recomputed one is
+    left alone, so it never shortens and a second run changes nothing. Rows
+    whose retention_until is NULL (handled by _backfill_retention_until),
+    whose base date can't be parsed, or that have no org_id are skipped.
+    Writes one `retention.extended` audit row per org, scoped to that org.
+    Returns {org_id: [{"id", "from", "to"}, ...]}; dry_run computes without
+    writing anything.
+    """
+    from .cases.manager import retention_from
+
+    rows = conn.execute(
+        """SELECT c.id, c.org_id, c.status, c.exit_date, c.onboarded_at,
+                  c.retention_until,
+                  (SELECT max(a.ts) FROM audit_log a
+                    WHERE a.org_id = c.org_id AND a.action = 'customer.reactivated'
+                      AND a.object_type = 'customer'
+                      AND a.object_id = CAST(c.id AS TEXT)
+                      AND a.ts >= c.created_at) AS reactivated_at
+             FROM customers c
+            WHERE c.org_id IS NOT NULL AND c.retention_until IS NOT NULL"""
+    ).fetchall()
+    changes: dict[int, list[dict[str, str | int]]] = {}
+    for r in rows:
+        if r["status"] == "closed":
+            bases = [r["exit_date"]]
+        else:
+            bases = [r["onboarded_at"], r["reactivated_at"]]
+        try:
+            base = max(date.fromisoformat(b[:10]) for b in bases if b)
+            current = date.fromisoformat(r["retention_until"][:10])
+        except ValueError:
+            continue  # unparseable or missing base date: leave the row alone
+        target = retention_from(base)
+        if current.isoformat() < target:
+            changes.setdefault(r["org_id"], []).append(
+                {"id": r["id"], "from": r["retention_until"], "to": target})
+    if dry_run:
+        return changes
+    from .cases.manager import RETENTION_YEARS
+    for org_id, items in changes.items():
+        for item in items:
+            conn.execute(
+                "UPDATE customers SET retention_until=? WHERE id=? AND org_id=?",
+                (item["to"], item["id"], org_id),
+            )
+        audit(conn, "system", "retention.extended", None, None,
+              {"count": len(items), "retention_years": RETENTION_YEARS,
+               "customers": items}, org_id=org_id)
+    return changes
+
+
+def _run_retention_extension_once(conn: sqlite3.Connection) -> None:
+    """Run _extend_retention_until once per RETENTION_YEARS value, so a later
+    policy change re-runs it but ordinary connect() calls don't rescan."""
+    from .cases.manager import RETENTION_YEARS
+    name = f"extend_retention_until_{RETENTION_YEARS}y"
+    if conn.execute("SELECT 1 FROM data_migrations WHERE name=?", (name,)).fetchone():
+        return
+    # Claim the marker first, in the same transaction as the fix: a concurrent
+    # connect() that loses the race inserts nothing and skips the work.
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO data_migrations (name, applied_at) VALUES (?,?)",
+        (name, utcnow()))
+    if cur.rowcount:
+        _extend_retention_until(conn)
 
 
 def _backfill_email_verified(conn: sqlite3.Connection) -> None:
@@ -1487,6 +1581,9 @@ def _initialise(conn: sqlite3.Connection) -> None:
             (utcnow(), "system", "tenancy.migrated",
              json.dumps({"note": "setup token generated; see console output"})),
         )
+    # After _backfill_exit_date (needs exit_date) and the tenancy migration
+    # (needs org_id on every row).
+    _run_retention_extension_once(conn)
     conn.commit()
 
 
