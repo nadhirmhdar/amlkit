@@ -11,9 +11,9 @@ an inspection. Three obligations drive the design:
   threshold and requires falling back to the senior managing official where no
   one meets it. Inability to identify a UBO is scored as opacity, not ignored.
 * **Retain for ten years after the relationship ends.** The retention date is
-  computed and stored rather than left to policy.
-  Cabinet Resolution No. 134 of 2025 (effective 14 December 2025) extended
-  the UAE AML/CFT record retention period from five to ten years.
+  computed and stored rather than left to policy. Ten years is groAML's
+  internal retention policy, above the statutory minimum of five years under
+  Cabinet Resolution No. 134 of 2025 Art. 25(2) -- see RETENTION_YEARS.
 """
 
 from __future__ import annotations
@@ -84,6 +84,14 @@ def jurisdiction_tier_for_nationalities(
 
 
 UBO_THRESHOLD_PCT = 25.0
+
+# Customer record retention (CDD file, screenings, transactions, STRs).
+# Statutory minimum: five years under Cabinet Resolution 134/2025 Art. 25(2),
+# counted from the end of the business relationship (or the other trigger
+# events listed there). groAML applies a ten-year INTERNAL POLICY above that
+# floor; ten years is not a legal requirement. Every stored retention_until
+# is computed from RETENTION_YEARS via retention_from().
+STATUTORY_MIN_RETENTION_YEARS = 5
 RETENTION_YEARS = 10
 
 EXIT_REASONS: dict[str, str] = {
@@ -255,11 +263,7 @@ def onboard(
     now = utcnow()
     ck = canonical_key(full_name)
 
-    today = date.today()
-    try:
-        retention = today.replace(year=today.year + RETENTION_YEARS).isoformat()
-    except ValueError:
-        retention = (today + timedelta(days=365 * RETENTION_YEARS + 1)).isoformat()
+    retention = retention_from(date.today())
 
     with conn:
         cur = conn.execute(
