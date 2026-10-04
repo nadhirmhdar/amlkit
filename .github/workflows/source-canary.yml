@@ -423,10 +423,10 @@ jobs:
       # back 503/429 while the last deploy (which had booted in time) sat
       # idle. One warm instance means operators never hit the restore path
       # (only deploys do), and the single-writer rule above still holds.
-      # CPU stays request-based (no --no-cpu-throttling), so litestream gets
-      # little CPU between requests; the app runs `litestream sync -wait`
-      # after its critical writes instead (AMLKIT_SYNC_REPLICA, on because
-      # LITESTREAM_REPLICA_URL is set).
+      # The app also runs `litestream sync -wait` after its critical writes
+      # (AMLKIT_SYNC_REPLICA, on because LITESTREAM_REPLICA_URL is set), so
+      # those reach GCS even while litestream gets little CPU between
+      # requests under request-based billing.
       # --startup-probe: 600s (the Cloud Run maximum) instead of the 240s
       # default, so a deploy's own cold start survives a replay that has
       # grown between snapshots; --cpu-boost speeds up that replay.

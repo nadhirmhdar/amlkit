@@ -3867,7 +3867,7 @@ def system_refresh(request: Request):
             conn.close()
         # The refresh rewrites the lists and rescreens every customer: the
         # largest write of the day, and the one most likely to be followed by
-        # an idle spell in which Cloud Run throttles litestream's CPU. Wait
+        # an idle spell in which litestream may get little CPU. Wait
         # for the replica before answering Cloud Scheduler.
         from ..replication import sync_replica
         sync_replica(timeout=30, reason="sanctions refresh")
