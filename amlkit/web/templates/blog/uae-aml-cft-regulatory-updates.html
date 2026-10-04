@@ -1,0 +1,98 @@
+{% extends "blog/_article.html" %}
+{# This is the one post on this blog meant to be revisited and edited as the
+   law moves, rather than written once -- `post.updated` is the "as of" date
+   readers should rely on. Every dated claim below was checked against at
+   least two independent sources (a primary government document plus an
+   independent legal/compliance publisher) as of `post.updated`; anything we
+   could only find on one source is deliberately phrased in general terms,
+   or left out, rather than stated as a precise fact. Re-run that check
+   before bumping `updated`. #}
+{% set reviewed_against = "the Ministry of Economy, the Central Bank Rulebook, and independent legal/compliance publishers, cross-checked as of " ~ (post.updated | blog_date) %}
+{% set toc = [
+  ("headline-change", "The headline change: a new law from the ground up"),
+  ("executive-regulations", "The Executive Regulations: the detail that actually governs you"),
+  ("what-changed", "What changed for DNFBPs specifically"),
+  ("fiu-powers", "Expanded FIU powers: postponement, suspension and freezing"),
+  ("name-match-rename", "A reporting name changed: FFR to CNMR"),
+  ("country-lists", "Country-risk lists keep moving"),
+  ("what-to-do", "What this means for your compliance program"),
+  ("staying-current", "How we keep this page current"),
+  ("faq", "FAQs"),
+  ("sources", "Sources"),
+] %}
+{% set glance = [
+  "Federal Decree-Law No. 10 of 2025 replaced the 2018 AML law on 14 October 2025; its Executive Regulations, Cabinet Resolution No. 134 of 2025, took effect 14 December 2025.",
+  "The Executive Regulations fix the beneficial-ownership threshold at 25%, set AED 55,000 / AED 3,500 CDD trigger thresholds, and bring virtual asset service providers into DNFBP-adjacent scope explicitly.",
+  "Federal Decree-Law No. 10 of 2025 itself gives the FIU power to postpone a suspicious transaction and to suspend it for up to 10 working days or freeze funds for up to 30 days &mdash; a stronger toolkit than the prior law.",
+  "The old Funds Freeze Report is now called the Confirmed Name Match Report (CNMR) across UAE goAML guidance &mdash; same obligation, new name.",
+  "The Ministry of Economy updates its high-risk and increased-monitoring country lists periodically (most recently via a March 2026 circular); each update has to be folded into CDD and EDD decisions, not just noted and filed.",
+] %}
+{% set faqs = [
+  {"q": "Do I need to re-paper every existing customer file because of the new law?",
+   "a": "Not automatically, but you do need to re-check your CDD thresholds, beneficial-ownership documentation and risk methodology against the new Executive Regulations, and update anything that no longer meets them — particularly beneficial-ownership evidence, since the 25% threshold is now explicit in the Executive Regulations themselves."},
+  {"q": "Is Cabinet Decision No. 74 of 2020 (the sanctions freezing rule) still in force?",
+   "a": "Yes. It sits alongside, not underneath, Federal Decree-Law No. 10 of 2025 — it implements the UN Security Council terrorism-list regime specifically, and the EOCN's guidance under it was last amended in July 2025. Our 24-hour rule guide reflects the current version."},
+  {"q": "What actually happens if I keep relying on guidance written for the old 2018 law?",
+   "a": "The specific numbers most likely to have moved are the CDD thresholds, the beneficial-ownership percentage, and references to report names (the Funds Freeze Report is now the CNMR). A policy document that still cites Federal Decree-Law No. 20 of 2018 as current law, or that doesn't reflect the Executive Regulations in force from 14 December 2025, is overdue for a review."},
+  {"q": "How often does this page get updated?",
+   "a": "It's reviewed each time something material changes in UAE AML/CFT law or regulatory guidance, and the “Updated” date above always reflects the last check — not the last time we happened to edit the prose."},
+] %}
+{% set sources = [
+  {"title": "Federal Decree-Law No. (10) of 2025: A Practical Guide for DNFBPs and High-Risk Entities", "publisher": "Lexology", "url": "https://www.lexology.com/library/detail.aspx?g=090a0573-07a1-414f-818d-62e4cc9bc138"},
+  {"title": "Cabinet Resolution No. 134 of 2025 on the Executive Regulations of Federal Decree-Law No. 10 of 2025", "publisher": "UAE Cabinet / Central Bank of the UAE Rulebook", "url": "https://rulebook.centralbank.ae/en/rulebook/cabinet-resolution-no-134-2025-regarding-executive-regulations-federal-decree-law-no-10", "note": "In force 14 December 2025"},
+  {"title": "Circular No. (1) of 2026 on Updating the Lists of High-Risk Countries, Countries Subject to Increased Monitoring, and Related Measures", "publisher": "UAE Ministry of Economy and Tourism", "url": "https://www.moet.gov.ae/documents/20121/0/Circular+No.+(1)+of+2026++on+Updating+the+List.pdf", "note": "Issued 11 March 2026"},
+  {"title": "The UAE's AML Framework: Navigating a New Era of Financial Crime Compliance in 2026", "publisher": "Al Tamimi & Company", "url": "https://www.tamimi.com/our-knowledge/publications/eyes-on-2026/Articles/the-uaes-aml-framework-navigating-a-new-era-of-financial-crime-compliance-in-2026/"},
+  {"title": "A History of AML Regulations in UAE", "publisher": "AML UAE (amluae.com)", "url": "https://amluae.com/history-of-aml-regulations-in-uae/"},
+] %}
+
+{% block article %}
+<h2 id="headline-change">The headline change: a new law from the ground up</h2>
+<p><strong>Federal Decree-Law No. 10 of 2025</strong> on anti-money laundering, combating the financing of terrorism and proliferation financing came into effect on <strong>14 October 2025</strong>, replacing Federal Decree-Law No. 20 of 2018 outright rather than amending it. It's the primary statute every AML/CFT obligation in the UAE now traces back to, including the Executive Regulations below.</p>
+<p>At a structural level, the new law expands scope to proliferation financing as its own standalone offence (not just an adjunct to terrorist financing), brings virtual assets and VASPs explicitly within the federal AML framework, and gives the Financial Intelligence Unit (FIU) a stronger toolkit — covered in more detail below.</p>
+
+<h2 id="executive-regulations">The Executive Regulations: the detail that actually governs you</h2>
+<p>A framework law is only as useful as the regulation that operationalises it. <strong>Cabinet Resolution No. 134 of 2025</strong>, the Executive Regulations to the new law, took effect <strong>14 December 2025</strong> and is where the operational detail — thresholds, categories, specific duties — actually lives. Day to day, this is the document your compliance program needs to match, not the framework law itself.</p>
+
+<h2 id="what-changed">What changed for DNFBPs specifically</h2>
+<div class="bl-table-wrap">
+  <table class="bl-table">
+    <thead><tr><th>Area</th><th>What the Executive Regulations set</th></tr></thead>
+    <tbody>
+      <tr><td>Beneficial ownership</td><td>Explicit <strong>25%</strong> shareholding/voting-rights threshold, with fallback to the senior managing official</td></tr>
+      <tr><td>CDD trigger thresholds</td><td><strong>AED 55,000</strong> for occasional transactions, <strong>AED 3,500</strong> for wire transfers</td></tr>
+      <tr><td>Scope</td><td>Virtual asset service providers brought explicitly within the regulated framework, alongside the existing DNFBP categories (real estate, precious metals and stones, corporate service providers, auditors/accountants, lawyers/notaries)</td></tr>
+    </tbody>
+  </table>
+</div>
+<p>None of this is a wholesale change in philosophy — risk-based CDD, beneficial-ownership identification and suspicion-based reporting were already the model under the 2018 law. What changed is that several numbers that used to live only in guidance are now fixed directly in the Executive Regulations themselves.</p>
+
+<h2 id="fiu-powers">Expanded FIU powers: postponement, suspension and freezing</h2>
+<p>Federal Decree-Law No. 10 of 2025 gives the FIU a materially stronger set of tools than the 2018 law did: the power to <strong>postpone</strong> a suspicious transaction on an urgent basis, to <strong>suspend</strong> it for up to <strong>10 working days</strong>, and to <strong>freeze</strong> funds for up to <strong>30 days</strong>, independent of the separate sanctions-list freezing regime covered in our <a href="/blog/uae-sanctions-screening-24-hour-rule">24-hour rule guide</a>. Follow-on FIU guidance issued during 2026 sets out the operational procedure for exercising these powers in practice. If a reporting entity receives a postponement, suspension or freeze instruction from the FIU under this power, that is a direct order to comply with, separate from and in addition to your own STR/SAR filing duty — see our <a href="/blog/uae-goaml-str-sar-filing-guide">goAML filing guide</a> for how the underlying report gets filed.</p>
+
+<h2 id="name-match-rename">A reporting name changed: FFR to CNMR</h2>
+<p>A smaller but practically important change: the report that used to be called the <strong>Funds Freeze Report (FFR)</strong> for a confirmed sanctions-list match is now referred to throughout current UAE goAML guidance as the <strong>Confirmed Name Match Report (CNMR)</strong>. The underlying obligation — report a confirmed match within five business days of freezing — hasn't changed; only the name has. If your internal procedures or training materials still say "FFR," update the terminology so staff recognise the current form on goAML.</p>
+
+<h2 id="country-lists">Country-risk lists keep moving</h2>
+<p>The Ministry of Economy periodically updates the lists of FATF high-risk and increased-monitoring jurisdictions that feed directly into CDD and enhanced due diligence decisions (see our <a href="/blog/uae-dnfbp-aml-risk-assessment-risk-scoring">risk assessment guide</a> for how geographic risk factors into scoring). The most recent update we've verified was <strong>Circular No. (1) of 2026</strong>, issued <strong>11 March 2026</strong>. These lists move independently of the main legislative changes above, and a stale country-risk list quietly undermines an otherwise-compliant CDD program.</p>
+
+<h2 id="what-to-do">What this means for your compliance program, practically</h2>
+<ol>
+  <li><strong>Re-point every policy document</strong> that still cites Federal Decree-Law No. 20 of 2018 or the pre-December-2025 thresholds to the current law and Executive Regulations.</li>
+  <li><strong>Check beneficial-ownership files</strong> against the explicit 25% threshold, and backfill documentation for structures where that wasn't previously recorded clearly.</li>
+  <li><strong>Update terminology</strong> in training and templates — CNMR, not FFR.</li>
+  <li><strong>Re-check your high-risk-country list</strong> against the latest Ministry of Economy circular, not whatever list you last updated.</li>
+  <li><strong>Know the FIU's postponement/suspension/freeze powers</strong> exist, so an instruction under them doesn't come as a surprise to whoever receives it.</li>
+</ol>
+
+<div class="bl-product">
+  <div class="ico" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4eccd3" stroke-width="2.2" stroke-linecap="round"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg></div>
+  <div>
+    <b>How groAML handles this</b>
+    <p>groAML's risk ruleset carries its own effective-date and version stamp tied to the current Executive Regulations, and its sanctions lists refresh automatically &mdash; so a change like this one doesn't wait for someone to notice a policy document is out of date.</p>
+    <a class="bl-btn bl-btn--light" href="/about">See how it works</a>
+  </div>
+</div>
+
+<h2 id="staying-current">How we keep this page current</h2>
+<p>This guide is checked against primary UAE government sources — the Ministry of Economy, the Central Bank Rulebook and FIU/EOCN guidance — plus at least one independent legal or compliance publisher, each time something material changes. The "Updated" date at the top of this page is that last-checked date, not just the last time the wording changed. Where we could only find a claim in a single source, or sources disagreed on specifics, we've either left it out or described it in general terms rather than stating an unverified figure as fact.</p>
+{% endblock %}

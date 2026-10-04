@@ -1,0 +1,133 @@
+{% extends "blog/_article.html" %}
+{# Legal claims trace to Cabinet Resolution No. 134 of 2025 and the UAE
+   National Risk Assessment methodology referenced throughout MoET/Central
+   Bank guidance. The Google Cloud AML AI / HSBC material is independently
+   sourced industry context (Celent, Google's own case-study PDF, the World
+   Bank AI repository), clearly separated from, and not implying anything
+   about, groAML's own engine -- which this post describes honestly from
+   amlkit/risk/model.py and ruleset.yaml: a weighted-factor rules engine,
+   not a machine-learning model. Re-check before changing `updated`. #}
+{% set reviewed_against = "Cabinet Resolution No. 134 of 2025 and groAML's own risk engine (amlkit/risk/ruleset.yaml, version 2025.12.2)" %}
+{% set toc = [
+  ("two-assessments", "Two risk assessments, not one"),
+  ("business-wide", "The business-wide risk assessment"),
+  ("customer-risk-factors", "The four customer risk factors"),
+  ("from-score-to-tier", "From score to CDD tier"),
+  ("keeping-it-current", "Why it's never a one-time document"),
+  ("industry-shift", "Why risk-scoring methodology is changing industry-wide"),
+  ("how-groaml-scores", "How groAML's own risk engine works"),
+  ("faq", "FAQs"),
+  ("sources", "Sources"),
+] %}
+{% set glance = [
+  "UAE DNFBPs maintain two risk assessments: a business-wide ML/FT/PF risk assessment and a per-customer risk rating &mdash; they feed different decisions.",
+  "The business-wide assessment has to cover customer, product/service, delivery-channel and geographic risk factors, informed by the UAE National Risk Assessment.",
+  "A customer's computed risk tier (simplified, standard or enhanced due diligence) comes out of scoring those same factor categories at the individual level.",
+  "Some factors &mdash; a confirmed sanctions hit, a FATF-blacklisted jurisdiction &mdash; force a high rating outright, regardless of the total score.",
+  "Risk assessment methodology is shifting industry-wide toward machine-learning scoring at large banks; groAML's own engine today is a transparent, weighted-factor rules engine, not an ML model, and this post is honest about which is which.",
+] %}
+{% set faqs = [
+  {"q": "Is the business risk assessment the same thing as a customer's risk rating?",
+   "a": "No. The business-wide assessment looks at your firm as a whole — the ML/FT/PF risks inherent in your products, customer base, delivery channels and geography — and shapes your policies and controls. A customer risk rating applies that same lens to one specific relationship and drives its CDD tier. You need both, and the business-wide one should inform how you score individual customers."},
+  {"q": "How often must we update the risk assessment?",
+   "a": "It has to stay current, not be reviewed on a fixed calendar alone. Update it whenever your business changes materially (new products, new markets, new delivery channels), when the UAE National Risk Assessment or FATF guidance changes, and on a periodic cycle in between — annually is a common baseline, more often for higher-risk firms."},
+  {"q": "Does a high PEP risk always mean enhanced due diligence?",
+   "a": "Yes. PEP status is one of the factors most UAE risk models, including groAML's, treat as mandatory for enhanced due diligence regardless of how the rest of the score lands — it isn't itself suspicion, but it does mandate senior-management approval and closer monitoring."},
+  {"q": "Is machine learning required for AML risk scoring in the UAE?",
+   "a": "No. Nothing in UAE AML/CFT law requires a particular scoring technology. A documented, risk-based, defensible methodology is what's required — a rules engine that scores transparent, weighted factors against a published ruleset meets that bar just as a machine-learning model can, provided either one is reviewed, dated and explainable to a supervisor."},
+  {"q": "What's the UAE National Risk Assessment, and do we need to read it?",
+   "a": "It's the government's own periodic assessment of money-laundering and terrorist-financing risk across sectors, and supervisory authorities expect your business-wide risk assessment to reference and align with it — not to be developed in isolation from how the UAE itself assesses sectoral risk."},
+] %}
+{% set sources = [
+  {"title": "Cabinet Resolution No. 134 of 2025 on the Executive Regulations of Federal Decree-Law No. 10 of 2025", "publisher": "UAE Cabinet / Central Bank of the UAE Rulebook", "url": "https://rulebook.centralbank.ae/en/rulebook/cabinet-resolution-no-134-2025-regarding-executive-regulations-federal-decree-law-no-10"},
+  {"title": "Combatting Money Laundering & Terrorism Financing", "publisher": "UAE Ministry of Economy and Tourism", "url": "https://www.moet.gov.ae/en/aml", "note": "References the UAE National Risk Assessment that business-wide assessments must align with"},
+  {"title": "HSBC: Cloud-Based Financial Crime Detection at Scale", "publisher": "Celent / Google Cloud", "url": "https://services.google.com/fh/files/misc/hsbc_celent_model_risk_manager_of_the_year_2023.pdf", "note": "Independent industry case study on Google Cloud's AML AI, built with HSBC"},
+  {"title": "HSBC Dynamic Risk Assessment AI Reduces AML False Positives by 60 Percent", "publisher": "AI Intel Report", "url": "https://aiintelreport.com/enterprise-ai/hsbc-dynamic-risk-assessment-aml-ai-win", "note": "Corroborates the detection-rate and false-positive figures cited for Google Cloud's AML AI"},
+] %}
+
+{% block article %}
+<h2 id="two-assessments">Two risk assessments, not one</h2>
+<p>"Risk assessment" gets used for two different documents, and mixing them up is a common source of confusion in an inspection:</p>
+<ul>
+  <li>a <strong>business-wide (institutional) risk assessment</strong> — how exposed is your firm, as a whole, to money laundering, terrorist financing and proliferation financing; and</li>
+  <li>a <strong>customer risk assessment</strong> — how risky is this specific relationship, which determines its CDD tier (see our <a href="/blog/uae-dnfbp-cdd-kyc-beneficial-ownership">CDD &amp; KYC guide</a>).</li>
+</ul>
+<p>They're connected — the business-wide assessment should shape how you weight factors at the customer level — but they answer different questions and sit in different places in your compliance program.</p>
+
+<h2 id="business-wide">The business-wide risk assessment</h2>
+<p>Under Cabinet Resolution No. 134 of 2025, every reporting entity has to identify, understand and manage its ML/FT/PF risk, documenting that assessment and keeping it updated. It has to cover, at minimum, four categories of risk factor:</p>
+<div class="bl-table-wrap">
+  <table class="bl-table">
+    <thead><tr><th>Factor category</th><th>What it covers</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Customer</strong></td><td>The types of customers you serve &mdash; individuals vs. entities, PEP exposure, cash-intensive vs. documented income</td></tr>
+      <tr><td><strong>Product / service</strong></td><td>The inherent risk of what you sell &mdash; a bullion sale carries different risk than a bookkeeping engagement</td></tr>
+      <tr><td><strong>Delivery channel</strong></td><td>Face-to-face vs. remote, direct vs. introduced by a third party</td></tr>
+      <tr><td><strong>Geographic</strong></td><td>Where your customers, their funds and their counterparties are based or connected to, including FATF high-risk and increased-monitoring jurisdictions</td></tr>
+    </tbody>
+  </table>
+</div>
+<p>The assessment has to reference the UAE's own <strong>National Risk Assessment</strong>, not just your internal view of your business — a supervisor expects to see that you've taken the national picture into account, not built your risk view in isolation.</p>
+
+<h2 id="customer-risk-factors">The four customer risk factors</h2>
+<p>At the individual customer level, the same four categories get scored for one specific relationship: who the customer is, what product or service they're using, how the relationship was established, and where the geographic risk sits (their nationality, incorporation, and where their funds originate). This is the mechanism that turns "we think this sector is higher risk" at the business-wide level into "this specific customer needs enhanced due diligence" at the file level.</p>
+
+<h2 id="from-score-to-tier">From score to CDD tier</h2>
+<p>A customer risk assessment isn't useful as a number on its own — it has to translate into an action. The usual pattern is a banded score (low / medium / high) that maps directly to the CDD tier (simplified / standard / enhanced), with specific conditions — a sanctions hit, PEP status, a blacklisted jurisdiction, undisclosed beneficial ownership — forcing a high rating and enhanced due diligence regardless of where the rest of the score lands.</p>
+<div class="bl-callout bl-callout--tip">
+  <b class="t">A rating without its reasoning isn't evidence</b>
+  Whatever method produces the score, record <em>why</em>: which factors contributed, how much, and against which version of your methodology. A supervisor asking why a customer was rated medium in one review and high in the next needs a dated, reviewable answer — not "it felt higher risk this time."
+</div>
+
+<h2 id="keeping-it-current">Why it's never a one-time document</h2>
+<p>A risk assessment filed once at onboarding and never revisited stops reflecting reality almost immediately. It needs to move when:</p>
+<ul>
+  <li>the customer's business, ownership or activity changes;</li>
+  <li>new adverse media or a sanctions hit surfaces;</li>
+  <li>the jurisdiction lists themselves change (see our <a href="/blog/uae-aml-cft-regulatory-updates">regulatory updates guide</a> for how often that happens); or</li>
+  <li>the review interval tied to the customer's current rating comes due — shorter for high-risk customers than for low-risk ones.</li>
+</ul>
+<p>Negative-news checks typically need to run on a tighter cycle than a full periodic review: adverse media is an event that can land the week after onboarding, not something that waits politely for your next scheduled review.</p>
+
+<h2 id="industry-shift">Why risk-scoring methodology is changing industry-wide</h2>
+<p>Traditional transaction monitoring and customer risk scoring across the banking industry has mostly relied on fixed, rules-based thresholds — a pattern familiar from compliance programs everywhere, DNFBPs included. That is changing at the largest banks. <strong>Google Cloud's AML AI</strong>, developed in partnership with <strong>HSBC</strong>, replaces that rules-based transaction monitoring with a machine-learning model that assigns each customer a dynamic risk score and flags which factors drove it. HSBC has reported detecting roughly two to four times more suspicious activity while cutting false-positive alert volumes by around 60%, and the system has gone into production across several of HSBC's markets since 2021.</p>
+<p>That's a meaningful data point about where large-institution AML technology is heading, and worth knowing about even if it doesn't change what a DNFBP is required to do today. It does not mean machine-learning scoring is mandatory, or that every firm needs it — a documented, risk-based, explainable methodology is the legal bar, whatever technology produces it.</p>
+
+<h2 id="how-groaml-scores">How groAML's own risk engine works</h2>
+<div class="bl-callout bl-callout--law">
+  <b class="t">Honestly, not an ML model</b>
+  groAML's risk engine is a <strong>weighted-factor rules engine</strong>, not a machine-learning model. Each factor — sanctions/terrorist-list status, PEP status, jurisdiction, business sector, beneficial-ownership transparency, delivery channel, cash intensity, adverse media and legal structure — contributes a documented point value from a published ruleset, versioned and dated, with a confirmed sanctions hit or a FATF-blacklisted jurisdiction forcing a high rating outright. The total maps to a low/medium/high band, which in turn sets the CDD tier and review interval.
+</div>
+<p>That's a deliberate choice, not a gap waiting to be filled: a supervisor asking why a specific customer scored "high" gets an answer that names the exact factors and points involved, against a dated ruleset version — the same explainability a reviewable rules engine has always offered, and the property that matters most in an inspection, whether the number came from a rules engine or a trained model.</p>
+
+<h2 id="checklist">A risk-assessment health check</h2>
+<p>A business-wide risk assessment, and the customer risk model built on top of it, are working if you can say yes to all of these.</p>
+<div class="bl-check" data-bl-checklist="risk-assessment-v1">
+  <div class="bl-check__head"><b>Risk assessment health check</b><span class="bl-check__count" data-bl-check-count>9 items</span></div>
+  <ul>
+    {% for item in [
+      "We maintain a documented business-wide ML/FT/PF risk assessment, separate from individual customer ratings.",
+      "It covers customer, product/service, delivery-channel and geographic risk factors, referencing the UAE National Risk Assessment.",
+      "Our customer risk scoring uses the same four factor categories, scored per relationship.",
+      "Sanctions hits, PEP status and blacklisted jurisdictions force a high rating regardless of the computed total.",
+      "Every rating records which factors drove it and against which version of our methodology.",
+      "Review intervals are shorter for higher-risk customers, and adverse-media checks run on an even tighter cycle than full reviews.",
+      "The business-wide assessment is updated when our business changes, not only on a fixed annual calendar.",
+      "We can explain our scoring methodology to a supervisor in plain terms, whatever technology produces the number.",
+      "We know the difference between what the law requires (a defensible methodology) and what large banks are adopting (ML-based scoring) &mdash; and we don't overstate which one we use.",
+    ] %}
+    <li><label><input type="checkbox"><span>{{ item }}</span></label></li>
+    {% endfor %}
+  </ul>
+  <p class="bl-check__note no-print">Saved only on this device. Nothing is sent to us.</p>
+</div>
+
+<div class="bl-product">
+  <div class="ico" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4eccd3" stroke-width="2.2" stroke-linecap="round"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg></div>
+  <div>
+    <b>How groAML handles this</b>
+    <p>groAML scores every customer against a versioned, published ruleset &mdash; the same factors described above &mdash; and records exactly which ones drove each rating, so a risk score comes with its own explanation built in rather than needing to be reconstructed for an inspector after the fact.</p>
+    <a class="bl-btn bl-btn--light" href="/about">See how it works</a>
+  </div>
+</div>
+{% endblock %}
