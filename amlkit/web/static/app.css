@@ -147,8 +147,7 @@ input::placeholder, textarea::placeholder { color: oklch(58% 0.008 250); }
 .sidebar .operator-box button { border: none; background: none; color: var(--ink-3); font-size: 11.5px; cursor: pointer; font-weight: 600; padding: 4px; }
 .sidebar .operator-box button:hover { color: var(--ink); }
 
-#nav-toggle { display: none; }
-.nav-hamburger { display: none; }
+.nav-hamburger, .nav-scrim { display: none; }
 
 /* Avatar menu in the top-right corner of the canvas (desktop and tablet).
    Replaces the old full-width .desktop-topnav strip, which cost a 68px
@@ -587,12 +586,20 @@ textarea { resize: vertical; min-height: 80px; }
 .field { margin-bottom: 18px; }
 
 /* Underline variant: chromeless hero inputs (login, register, search, screen-a-name) */
-.input-underline {
-  border: none !important; border-bottom: 1px solid var(--line) !important;
-  border-radius: 0 !important; padding: 10px 2px !important; background: transparent !important;
-  box-shadow: none !important;
+/* input.* (0,1,1) ties the input[type=...] rules above and wins by order,
+   so no !important is needed. Focus thickens the hairline and adds a 2px
+   accent outline (keyboard focus only) so the field is visibly focused. */
+input.input-underline, .input-underline {
+  border: none; border-bottom: 1px solid var(--line);
+  border-radius: 0; padding: 10px 2px; background: transparent;
+  box-shadow: none;
 }
-.input-underline:focus { border-bottom-color: var(--accent) !important; }
+input.input-underline:focus, .input-underline:focus {
+  border-bottom-color: var(--accent); box-shadow: inset 0 -1px 0 var(--accent);
+}
+input.input-underline:focus-visible, .input-underline:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 4px;
+}
 
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px 18px; align-items: end; margin-bottom: 4px; }
 
@@ -732,17 +739,31 @@ details.evidence summary * { display: none; }
 @media (max-width: 1200px) { :root { --sidebar-w: 224px; } }
 
 @media (max-width: 960px) {
+  /* Off-canvas drawer. Closed, it is visibility:hidden (delayed until the
+     slide-out ends) so its links leave the tab order; app.js toggles
+     .nav-open on .shell from the hamburger button. Top padding clears the
+     hamburger, which stays above the open drawer as its close control. */
   .sidebar {
     position: fixed; inset: 0 auto 0 0; z-index: 100; background: var(--surface);
-    transform: translateX(-100%); transition: transform 180ms ease; box-shadow: 0 0 0 2000px rgba(0,0,0,0);
+    padding-top: 76px; overflow-y: auto;
+    transform: translateX(-100%); visibility: hidden;
+    transition: transform 180ms ease, visibility 0s linear 180ms;
   }
-  #nav-toggle:checked ~ .sidebar { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,0.15); }
+  .shell.nav-open .sidebar {
+    transform: translateX(0); visibility: visible; box-shadow: 0 0 40px rgba(0,0,0,0.15);
+    transition: transform 180ms ease;
+  }
+  .shell.nav-open .nav-scrim {
+    display: block; position: fixed; inset: 0; z-index: 99;
+    background: oklch(19% 0.012 250 / 0.3);
+  }
   .nav-hamburger {
     display: flex; align-items: center; justify-content: center;
     position: fixed; top: 16px; left: 16px; z-index: 101;
-    width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line);
-    background: var(--surface); cursor: pointer; font-size: 16px;
+    width: 44px; height: 44px; padding: 0; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink); cursor: pointer; font-size: 16px;
   }
+  .nav-hamburger:hover { background: var(--line-soft); color: var(--ink); }
   /* The fixed hamburger (top-left) and the canvas avatar (top-right) share
      the first 68px; content starts below them. */
   main { padding: 76px 20px 40px; max-width: 100%; }
@@ -810,8 +831,17 @@ details.evidence summary * { display: none; }
    four-tab bottom bar plus a top header with user menu; same hairline/dot
    vocabulary as the rest of the app. */
 @media (max-width: 680px) {
-  .sidebar, .nav-hamburger, .canvas-corner { display: none !important; }
+  .sidebar, .nav-hamburger, .nav-scrim, .canvas-corner { display: none !important; }
   :root { --tabbar-h: 62px; --mobile-header-h: 52px; }
+
+  /* Readable phone text: 16px body, and 16px form controls (anything
+     smaller makes iOS Safari zoom the page on focus). Small UI text keeps
+     a 12px floor. */
+  body { font-size: 16px; }
+  input[type="text"], input[type="password"], input[type="email"], input[type="number"],
+  input[type="tel"], input[type="date"], input[type="search"], select, textarea { font-size: 16px; }
+  label { font-size: 12.5px; }
+  .tag { font-size: 12px; }
   main { padding: calc(var(--mobile-header-h) + 16px) 18px calc(var(--tabbar-h) + 28px); }
 
   /* Reduce headline sizes so long names/titles don't overflow on small screens */
@@ -871,7 +901,7 @@ details.evidence summary * { display: none; }
     border: 1.5px solid var(--ink-3); background: none;
   }
   .mobile-tab__icon--screen { border-radius: 50%; }
-  .mobile-tab__label { font-size: 10.5px; font-weight: 600; }
+  .mobile-tab__label { font-size: 12px; font-weight: 600; }
   .mobile-tab.on { color: var(--ink); }
   .mobile-tab.on .mobile-tab__label { font-weight: 700; }
   .mobile-tab.on .mobile-tab__icon { background: var(--ink); border-color: var(--ink); }
@@ -989,10 +1019,20 @@ form.is-submitting button[type="submit"] {
    permanently trap scroll on every page). app.js toggles the class. */
 body.modal-open { overflow: hidden; }
 
+/* Native <dialog>s (feedback + first-login disclaimer). The dialog box
+   itself is a transparent full-viewport layer -- a click that lands on it
+   (not on the card inside) is a backdrop click -- and the dim/blur lives
+   on ::backdrop when opened with showModal(). */
 .feedback-modal {
   display: none; position: fixed; z-index: 1000;
   left: 0; top: 0; width: 100%; height: 100%;
-  background-color: oklch(19% 0.012 250 / 0.45);
+  max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
+  background: rgba(15, 20, 25, 0.45); color: inherit; overflow-y: auto;
+}
+.feedback-modal[open] { display: block; }
+.feedback-modal:modal { background: transparent; }
+.feedback-modal::backdrop {
+  background: rgba(15, 20, 25, 0.45);
   backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
 }
 .feedback-modal-content {
@@ -1012,8 +1052,8 @@ body.modal-open { overflow: hidden; }
   text-transform: uppercase; color: var(--ink-3); margin: 0 0 6px;
 }
 .feedback-modal-close {
-  position: absolute; right: 16px; top: 16px;
-  width: 32px; height: 32px; border-radius: 50%; padding: 0;
+  position: absolute; right: 10px; top: 10px;
+  width: 44px; height: 44px; border-radius: 50%; padding: 0;
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; color: var(--ink-3);
   cursor: pointer;
@@ -1160,7 +1200,36 @@ body.modal-open { overflow: hidden; }
 .skip-to-content:focus {
   position: fixed; left: 16px; top: 16px; width: auto; height: auto; overflow: visible;
 }
+/* Skip-link target: tabindex=-1 so focus actually lands in main; no ring on
+   the whole column (the next Tab moves on to the first control). */
+#main-content:focus { outline: none; }
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+/* Country combobox (countries.js) */
+.country-dropdown-wrapper { position: relative; width: 100%; }
+.country-dropdown-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 1000;
+  max-height: 220px; overflow-y: auto; margin-top: 2px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-xs);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+}
+.country-dropdown-list[hidden] { display: none; }
+.country-option {
+  padding: 10px 12px; cursor: pointer; color: var(--ink);
+  border-bottom: 1px solid var(--line-soft);
+}
+.country-option.is-active { background: var(--accent-soft); color: var(--ink); }
+.country-option--empty { color: var(--ink-2); cursor: default; }
+.country-dropdown-wrapper .field-error { margin: 6px 0 0; }
+
+/* Motion: honour the OS "reduce motion" setting everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important; transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
 select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* Screen reader only content */

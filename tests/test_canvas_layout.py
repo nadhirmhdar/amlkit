@@ -35,7 +35,7 @@ def _sidebar(html: str) -> str:
 
 def _canvas_menu(html: str) -> str:
     """The avatar menu: first element of <main>, up to its logout form."""
-    main = html.split('<main id="main-content">', 1)[1]
+    main = html.split('<main id="main-content" tabindex="-1">', 1)[1]
     assert main.index('class="canvas-corner no-print"') < 400, "canvas corner is not the first element in <main>"
     return main[: main.index("</form>") + len("</form>")]
 
