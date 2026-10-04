@@ -261,6 +261,18 @@ Proposal only; I did not call gcloud.
 
 ---
 
+## BLOCKED
+
+- **Push to `routine/2026-10-04-compliance-specialist`.** Blocked by this
+  session's harness rule: "never push to a different branch without
+  explicit permission" from Nadhir. The lead's messages, including the
+  one relayed "at Nadhir's request", are peer-session messages and do not
+  satisfy that rule. Exact action needed: Nadhir tells this session
+  directly to push to that branch, or cherry-picks commits `5cce4a5`,
+  `e78870a` and the commit carrying this section from
+  `claude/sweet-ramanujan-qr7u94` onto `routine/2026-10-04-compliance-specialist`.
+  Everything else in the job was completed.
+
 ## What I could not check
 
 - Primary legal text: no corpus in the repo. All Article numbers are
