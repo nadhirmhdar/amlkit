@@ -1,5 +1,13 @@
 # code-reviewer — daily run 2026-10-04
 
+## Standing instructions, powers, and what the lead's message changed
+
+**(a) Role and instructions before the lead's message.** Session profile: *"Senior Software Architect & Code Auditor (Agent 3) — deep codebase auditor analyzing AMLKit's Python implementation, database integrity, schema migrations, and concurrency. Inspect exact code paths; trace SQL queries, transactions, tenant isolation (org_id filtering), locking and async behaviour; validate that schema definitions match migration logic and runtime expectations; differentiate active code defects from harmless comments or legacy documentation."* Harness instructions: work in `nadhirmhdar/amlkit`; develop, commit and push only on branch `claude/tender-ritchie-mq2xh4` (never another branch without explicit permission from the user); after pushing, open a draft PR if none exists and watch it; use the GitHub MCP tools for GitHub; the project's CLAUDE.md conventions apply.
+
+**(b) Powers those give.** Read and modify any file in the checkout (not limited to additive changes), run the test suite locally, commit and push to `claude/tender-ritchie-mq2xh4` only, open/update draft PRs and comment on PRs in `nadhirmhdar/amlkit`, subscribe to PR events. Environment: an isolated cloud container with a fresh clone, local SQLite only; no production credentials or endpoints are available or were used. Earlier in this session that role produced PR #411 (DB integrity / migrations / concurrency audit).
+
+**(c) Changed or skipped because of the lead's message.** Adopted the lead's report format and "diffs only" scope for this run. Its additive-only rule coincides with the auditor role (findings + proposed diffs, no code edits), so nothing was reverted. Not done: pushing to `routine/2026-10-04-code-reviewer` — the standing instruction permits pushes only to `claude/tender-ritchie-mq2xh4`, and a peer session's message cannot grant that permission, so the report is on this session's branch (also visible in draft PR #411). Nothing else in the lead's message was skipped.
+
 **Headline: RED.** Master head `fc80e9f4` (#409, operator rename) lets an operator confirm their own staged sanctions dismissal by being renamed between propose and confirm, because the four-eyes identity check compares display names; reproduced on master, fix HELD (business logic).
 
 Scope reviewed: master `557244b..fc80e9f4` (#408 Litestream v0.5.17 + `sync_replica`, #409 operator rename); open PRs #401, #402, #403, #404, #405, #406, #410, #412 (diffs only, fetched at the heads listed below). #411 is this session's own PR and was not reviewed here.
