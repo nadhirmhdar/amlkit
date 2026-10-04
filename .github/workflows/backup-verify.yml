@@ -80,7 +80,29 @@ jobs:
             exit 1
           fi
           mkdir -p /tmp/restore-verify
+          started=$(date +%s)
           litestream restore -o /tmp/restore-verify/amlkit.db "$REPLICA_URL"
+          SECONDS_TAKEN=$(( $(date +%s) - started ))
+          echo "litestream restore took ${SECONDS_TAKEN}s"
+          echo "RESTORE_SECONDS=$SECONDS_TAKEN" >> "$GITHUB_ENV"
+
+      # The restore replays every LTX file since the last snapshot, so its
+      # duration is the leading indicator for the cold-start outage of
+      # 2026-10-04: it had climbed from ~2 min (30 Sep) to 9.4 min (3 Oct)
+      # here while nothing re-snapshotted the replica, until a Cloud Run cold
+      # start no longer fit the startup probe. Fail loudly well before that.
+      # GitHub's runners are in another region, so this takes longer than the
+      # service's own restore; the thresholds are relative to the trend here.
+      - name: Check restore duration
+        run: |
+          echo "restore: ${RESTORE_SECONDS}s"
+          if [ "$RESTORE_SECONDS" -ge 300 ]; then
+            echo "::error::litestream restore took ${RESTORE_SECONDS}s (limit 300s). The replay since the last snapshot has grown too large for a Cloud Run cold start -- check that litestream is snapshotting (litestream.yml snapshot.interval, and that an instance stays up that long)."
+            exit 1
+          fi
+          if [ "$RESTORE_SECONDS" -ge 150 ]; then
+            echo "::warning::litestream restore took ${RESTORE_SECONDS}s (warning at 150s, failure at 300s)."
+          fi
 
       - name: Check restored database integrity
         run: |

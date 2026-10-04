@@ -236,6 +236,22 @@ def test_integrity_timeout_is_configurable_and_duration_logged(tmp_path):
     assert "(limit 7s, exit 0)" in r["out"]
 
 
+def test_restore_duration_is_logged_and_slow_restores_warn(tmp_path):
+    """The replay since the last litestream snapshot is what outgrew the Cloud
+    Run startup window on 2026-10-04, so every boot logs how long the restore
+    took and warns once it passes AMLKIT_RESTORE_WARN_SECONDS."""
+    r = _run(tmp_path, extra_env={"AMLKIT_RESTORE_PARALLELISM": "7"})
+    assert r["rc"] == 0
+    assert "litestream restore finished in " in r["out"]
+    assert "parallelism 7" in r["out"]
+    assert "WARNING: restore took" not in r["out"]
+
+    r = _run(tmp_path / "slow", extra_env={"AMLKIT_RESTORE_WARN_SECONDS": "0"})
+    assert r["rc"] == 0
+    assert "WARNING: restore took" in r["out"]
+    assert "snapshot" in r["out"]
+
+
 def test_transient_restore_failure_is_retried(tmp_path):
     """A live writer compacting LTX files mid-restore makes one attempt fail
     ("reopen ltx file ... file does not exist"); the next one succeeds, and

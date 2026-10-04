@@ -390,15 +390,28 @@ jobs:
           fi
           echo "APP_BASE_URL=${APP_BASE_URL%/}" >> "$GITHUB_ENV"
 
-      # Same shape as the old (removed) manual deploy scripts --
-      # min-instances 0 to keep idle cost at $0, tagged by commit SHA so every
-      # deploy is traceable to the exact commit that produced it. --timeout
-      # 900: /system/refresh runs the sanctions refresh synchronously, so the
-      # request needs to be allowed to run long enough.
+      # Same shape as the old (removed) manual deploy scripts, tagged by
+      # commit SHA so every deploy is traceable to the exact commit that
+      # produced it. --timeout 900: /system/refresh runs the sanctions refresh
+      # synchronously, so the request needs to be allowed to run long enough.
       # --max-instances 1: Litestream supports exactly ONE writer per replica.
       # With 10, concurrent instances interleaved two WAL histories into the
       # same replica and corrupted it (2026-09-27 outage). A rollout can still
       # overlap old and new revisions briefly; that needs a proper lease/lock.
+      # --min-instances 1 (was 0, for $0 idle cost): a cold start restores
+      # the database from the litestream replica, which replays every LTX
+      # file since the last snapshot -- and litestream only snapshots after
+      # snapshot.interval of continuous process uptime, which a service that
+      # scales to zero never reaches. By 2026-10-04 the replay had outgrown
+      # Cloud Run's default 240s TCP startup probe, so every request after an
+      # idle period waited on a cold start that was killed at 240s and came
+      # back 503/429 while the last deploy (which had booted in time) sat
+      # idle. One warm instance means operators never hit the restore path
+      # (only deploys do), the 4h snapshot in litestream.yml can actually
+      # fire, and the single-writer rule above still holds.
+      # --startup-probe: 600s (the Cloud Run maximum) instead of the 240s
+      # default, so a deploy's own cold start survives a replay that has
+      # grown between snapshots; --cpu-boost speeds up that replay.
       # AMLKIT_SMTP_* configure real verification-email delivery via
       # SendGrid's SMTP relay. Host/port/user are SendGrid's fixed relay
       # convention (smtp.sendgrid.net:587, username literally "apikey"), and
@@ -466,8 +479,10 @@ jobs:
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \
-            --min-instances 0 \
+            --min-instances 1 \
             --max-instances 1 \
+            --cpu-boost \
+            --startup-probe tcpSocket.port=8000,initialDelaySeconds=0,periodSeconds=60,failureThreshold=10,timeoutSeconds=60 \
             --timeout 900
 
       - name: Report deployed URL

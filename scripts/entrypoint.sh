@@ -28,15 +28,31 @@ LITESTREAM_CFG=/tmp/litestream.yml
 envsubst < /app/litestream.yml > "$LITESTREAM_CFG"
 
 # Budget per PRAGMA run. verify_db runs at most two (integrity_check, then
-# quick_check), so the worst case is ~2 x (60+10)s = 140s -- inside Cloud
-# Run's default 240s startup window. Overrunning it matters: being killed by
-# the startup probe mid-check is the silent crash-loop of 2026-09-27.
+# quick_check), so the worst case is ~2 x (60+10)s = 140s. Overrunning the
+# service's startup window matters: being killed by the startup probe
+# mid-check is the silent crash-loop of 2026-09-27.
 # AMLKIT_INTEGRITY_TIMEOUT raises the budget if the database outgrows it (a
-# healthy check that times out twice refuses to start); keep 2 x (timeout +
-# kill-after) under the service's startup window. Each check logs its duration
-# so the trend is visible well before that.
+# healthy check that times out twice refuses to start); keep restore +
+# 2 x (timeout + kill-after) under the service's startup window. Each step
+# logs its duration so the trend is visible well before that.
+#
+# The restore is the other, bigger, part of that window. Litestream restores
+# the latest snapshot and then replays every LTX file written since it, and
+# a snapshot is only taken after `snapshot.interval` of *continuous process
+# uptime* (there is no catch-up snapshot at startup). On a service that
+# scales to zero that interval was never reached at the default 24h, so the
+# replay grew by a day's writes every day until a cold start no longer fit
+# Cloud Run's default 240s TCP startup probe: every request after an idle
+# period queued behind a doomed restore and came back 503/429 (2026-10-04).
+# litestream.yml now snapshots every few hours, the deploy keeps one instance
+# warm and extends the startup probe to 600s (see source-canary.yml), and
+# the restore below runs with more parallel downloads and logs how long it
+# took, warning once it passes RESTORE_WARN_SECONDS so the trend is visible
+# in the logs well before it threatens the startup window again.
 RESTORE_ATTEMPTS="${AMLKIT_RESTORE_ATTEMPTS:-3}"
 RESTORE_RETRY_DELAY="${AMLKIT_RESTORE_RETRY_DELAY:-5}"
+RESTORE_PARALLELISM="${AMLKIT_RESTORE_PARALLELISM:-16}"
+RESTORE_WARN_SECONDS="${AMLKIT_RESTORE_WARN_SECONDS:-120}"
 INTEGRITY_TIMEOUT="${AMLKIT_INTEGRITY_TIMEOUT:-60}"
 INTEGRITY_KILL_AFTER="${AMLKIT_INTEGRITY_KILL_AFTER:-10}"
 
@@ -146,11 +162,18 @@ if [ ! -f /app/data/amlkit.db ]; then
     # ... file does not exist"). So retry a few times, starting from a clean
     # slate each time, before calling it a failure.
     attempt=1
+    restore_started=$(date +%s)
     while :; do
         rm -f /app/data/amlkit.db /app/data/amlkit.db-wal /app/data/amlkit.db-shm
         INTEGRITY_CODE=0
-        litestream restore -config "$LITESTREAM_CFG" -if-replica-exists /app/data/amlkit.db || INTEGRITY_CODE=$?
+        litestream restore -config "$LITESTREAM_CFG" -if-replica-exists \
+            -parallelism "$RESTORE_PARALLELISM" /app/data/amlkit.db || INTEGRITY_CODE=$?
         if [ "$INTEGRITY_CODE" -eq 0 ]; then
+            restore_seconds=$(( $(date +%s) - restore_started ))
+            echo "litestream restore finished in ${restore_seconds}s (attempt $attempt, parallelism $RESTORE_PARALLELISM)."
+            if [ "$restore_seconds" -ge "$RESTORE_WARN_SECONDS" ]; then
+                echo "WARNING: restore took ${restore_seconds}s (warn at ${RESTORE_WARN_SECONDS}s). The replay since the last litestream snapshot is growing; check that snapshots are being taken (litestream.yml snapshot.interval needs that much continuous uptime) before this outgrows the Cloud Run startup window."
+            fi
             break
         fi
         if [ "$attempt" -ge "$RESTORE_ATTEMPTS" ]; then
