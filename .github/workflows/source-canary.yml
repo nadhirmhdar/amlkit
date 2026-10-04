@@ -425,6 +425,16 @@ jobs:
       # --startup-probe: 600s (the Cloud Run maximum) instead of the 240s
       # default, so a deploy's own cold start survives a replay that has
       # grown between snapshots; --cpu-boost speeds up that replay.
+      # --no-cpu-throttling (instance-based billing): with the default
+      # request-based billing Cloud Run throttles the CPU outside requests,
+      # even on the --min-instances instance, so `litestream replicate` -- a
+      # background process -- barely runs between requests: WAL changes reach
+      # the replica only when the next request arrives, and the 4h snapshot
+      # timer (and L0 compaction) can starve, which is how the replay grew
+      # unchecked before 2026-10-04. Keeping the CPU allocated keeps the
+      # replica current and lets snapshots fire. Cost: the one instance's
+      # vCPU and memory are billed around the clock instead of only during
+      # requests (roughly USD 50-65/month rather than 10-15).
       # AMLKIT_SMTP_* configure real verification-email delivery via
       # SendGrid's SMTP relay. Host/port/user are SendGrid's fixed relay
       # convention (smtp.sendgrid.net:587, username literally "apikey"), and
@@ -498,6 +508,7 @@ jobs:
             --min-instances 1 \
             --max-instances 1 \
             --cpu-boost \
+            --no-cpu-throttling \
             --startup-probe tcpSocket.port=8000,initialDelaySeconds=0,periodSeconds=60,failureThreshold=10,timeoutSeconds=60 \
             --timeout 900
 
