@@ -21,6 +21,11 @@ on:
   schedule:
     - cron: "0 7 * * *"      # daily, 07:00 UTC -- after source-canary's 05:00 deploy
   workflow_dispatch:
+    inputs:
+      restore_point:
+        description: "Optional point to restore to instead of the latest: an RFC3339 timestamp (2026-10-03T19:50:00Z) or a TXID. Use it to find the last good point after a decode error at the head of the replica."
+        required: false
+        default: ""
 
 jobs:
   verify-restore:
@@ -74,13 +79,34 @@ jobs:
       - name: Restore replica to a scratch path
         env:
           REPLICA_URL: ${{ vars.LITESTREAM_REPLICA_URL }}
+          RESTORE_POINT: ${{ inputs.restore_point }}
         run: |
           if [ -z "$REPLICA_URL" ]; then
             echo "::error::Repo variable LITESTREAM_REPLICA_URL is not set -- cannot tell which replica production writes."
             exit 1
           fi
           mkdir -p /tmp/restore-verify
-          litestream restore -o /tmp/restore-verify/amlkit.db "$REPLICA_URL"
+          POINT_ARGS=""
+          if [ -n "$RESTORE_POINT" ]; then
+            case "$RESTORE_POINT" in
+              *T*) POINT_ARGS="-timestamp $RESTORE_POINT" ;;
+              *)   POINT_ARGS="-txid $RESTORE_POINT" ;;
+            esac
+            echo "Restoring to $RESTORE_POINT ($POINT_ARGS), not the latest position."
+          fi
+          # The plan (which snapshot, how many LTX files) is what decides the
+          # restore time, so print it first; it is also what shows where a
+          # decode error sits. `|| true`: the plan is informational.
+          plan=$(litestream restore -dry-run $POINT_ARGS -o /tmp/restore-verify/amlkit.db "$REPLICA_URL" 2>&1) || true
+          echo "Restore plan ($(printf '%s\n' "$plan" | wc -l) lines):"
+          printf '%s\n' "$plan" | head -n 12
+          echo "..."
+          printf '%s\n' "$plan" | tail -n 6
+          started=$(date +%s)
+          litestream restore $POINT_ARGS -o /tmp/restore-verify/amlkit.db "$REPLICA_URL"
+          SECONDS_TAKEN=$(( $(date +%s) - started ))
+          echo "litestream restore took ${SECONDS_TAKEN}s"
+          echo "RESTORE_SECONDS=$SECONDS_TAKEN" >> "$GITHUB_ENV"
 
       - name: Check restored database integrity
         run: |
@@ -102,3 +128,22 @@ jobs:
           fi
           COUNT=$(sqlite3 /tmp/restore-verify/amlkit.db "SELECT COUNT(*) FROM organizations;")
           echo "organizations in restored replica: $COUNT"
+
+      # The restore replays every LTX file since the last snapshot, so its
+      # duration is the leading indicator for the cold-start outage of
+      # 2026-10-04: it had climbed from ~2 min (30 Sep) to 9.4 min (3 Oct)
+      # here while nothing re-snapshotted the replica, until a Cloud Run cold
+      # start no longer fit the startup probe. Fail loudly well before that --
+      # after the integrity verdict above, which matters more than the timing.
+      # GitHub's runners are in another region, so this takes longer than the
+      # service's own restore; the thresholds are relative to the trend here.
+      - name: Check restore duration
+        run: |
+          echo "restore: ${RESTORE_SECONDS}s"
+          if [ "$RESTORE_SECONDS" -ge 300 ]; then
+            echo "::error::litestream restore took ${RESTORE_SECONDS}s (limit 300s). The replay since the last snapshot has grown too large for a Cloud Run cold start -- check that litestream is snapshotting (litestream.yml snapshot.interval, and that an instance stays up that long)."
+            exit 1
+          fi
+          if [ "$RESTORE_SECONDS" -ge 150 ]; then
+            echo "::warning::litestream restore took ${RESTORE_SECONDS}s (warning at 150s, failure at 300s)."
+          fi

@@ -62,13 +62,14 @@ jobs:
         run: docker build -t amlkit:dry-run .
 
       # Same limits as the Cloud Run service (--memory 1Gi --cpu 1). The
-      # outer timeout is above Cloud Run's 240s startup window so an overrun
-      # shows up as a failure below, not as a silently killed step.
+      # outer timeout is above the service's 600s startup probe (see
+      # source-canary.yml) so an overrun shows up as a failure below, not as
+      # a silently killed step.
       - name: Boot the container
         run: |
           start=$(date +%s)
           rc=0
-          timeout 420 docker run --rm \
+          timeout 720 docker run --rm \
             --memory 1g --cpus 1 \
             -v "${{ steps.auth.outputs.credentials_file_path }}:/tmp/gcp-creds.json:ro" \
             -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json \
@@ -97,8 +98,8 @@ jobs:
             echo "::error::Refused with status '$status', expected one of: $EXPECTED."
             fail=1
           fi
-          if [ "$BOOT_SECONDS" -ge 240 ]; then
-            echo "::error::Took ${BOOT_SECONDS}s -- over Cloud Run's 240s startup window."
+          if [ "$BOOT_SECONDS" -ge 600 ]; then
+            echo "::error::Took ${BOOT_SECONDS}s -- over the service's 600s startup probe."
             fail=1
           fi
           if [ "$fail" = "0" ]; then

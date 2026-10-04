@@ -15,3 +15,17 @@ dbs:
     # runs envsubst to substitute it before litestream sees this file.
     replica:
       url: ${LITESTREAM_REPLICA_URL}
+
+# Full-database snapshot (L9) schedule. A restore downloads the newest
+# snapshot and then replays every LTX file written after it, so the replay --
+# and the cold-start time -- grows with the writes since the last snapshot.
+# Litestream only snapshots after this much *continuous* process uptime (no
+# catch-up at startup), so on a service that could scale to zero the 24h
+# default never fired: nothing had been re-snapshotted since the 2026-09-27
+# reseed, each cold start replayed a week of sanctions refreshes, and on
+# 2026-10-04 that no longer fit the startup window (every request 503/429).
+# 4h is reachable now that the deploy keeps one instance warm; the price is
+# one extra copy of the database in the bucket every 4h, kept for 24h.
+snapshot:
+  interval: 4h
+  retention: 24h
