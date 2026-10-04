@@ -15,6 +15,19 @@ on:
   schedule:
     - cron: "0 5 * * *"      # daily, 05:00 UTC (09:00 Gulf Standard Time)
   workflow_dispatch:
+    inputs:
+      # One-boot replica reseed (entrypoint.sh AMLKIT_SEED_*): only honoured
+      # when LITESTREAM_REPLICA_URL has no replica yet. Leave both empty for
+      # an ordinary manual redeploy. A later deploy (push or dispatch without
+      # them) drops the variables again.
+      seed_from_url:
+        description: "Reseed: source replica URL (gs://...) to restore when LITESTREAM_REPLICA_URL is empty"
+        required: false
+        default: ""
+      seed_txid:
+        description: "Reseed: TXID in the source to restore to (16 hex digits); empty = its head"
+        required: false
+        default: ""
   push:
     branches: [master, main]
   pull_request:
@@ -464,6 +477,9 @@ jobs:
           # default and refuses to start without it, so fail here, before a
           # revision that cannot boot is rolled out.
           LITESTREAM_REPLICA_URL: ${{ vars.LITESTREAM_REPLICA_URL }}
+          # One-boot reseed inputs (workflow_dispatch only; empty on push).
+          AMLKIT_SEED_FROM_URL: ${{ inputs.seed_from_url }}
+          AMLKIT_SEED_TXID: ${{ inputs.seed_txid }}
         run: |
           if [ -z "$LITESTREAM_REPLICA_URL" ]; then
             echo "::error::Repo variable LITESTREAM_REPLICA_URL is not set; the container would refuse to start. Set it to the production replica (litestream-v2/)."
@@ -475,7 +491,7 @@ jobs:
             --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
-            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;GEMINI_API_KEY=${GEMINI_API_KEY};;AMLKIT_REGISTRATION_INVITE_CODE=${AMLKIT_REGISTRATION_INVITE_CODE};;LITESTREAM_REPLICA_URL=${LITESTREAM_REPLICA_URL};;UAEPASS_CLIENT_ID=${UAEPASS_CLIENT_ID};;UAEPASS_CLIENT_SECRET=${UAEPASS_CLIENT_SECRET};;UAEPASS_ENV=${UAEPASS_ENV}" \
+            --set-env-vars "^;;^GCS_BUCKET=${{ vars.GCS_BUCKET }};;GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }};;AMLKIT_BIND_HOST=0.0.0.0;;AMLKIT_PORT=8000;;AMLKIT_BEHIND_PROXY=1;;AMLKIT_APP_BASE_URL=${APP_BASE_URL};;SCHEDULER_SECRET=${SCHEDULER_SECRET};;ADMIN_API_SECRET=${ADMIN_API_SECRET};;AMLKIT_SMTP_HOST=${AMLKIT_SMTP_HOST};;AMLKIT_SMTP_PORT=${AMLKIT_SMTP_PORT};;AMLKIT_SMTP_USER=${AMLKIT_SMTP_USER};;AMLKIT_SMTP_PASSWORD=${AMLKIT_SMTP_PASSWORD};;AMLKIT_SMTP_FROM=${AMLKIT_SMTP_FROM};;AMLKIT_SMTP_USE_TLS=${AMLKIT_SMTP_USE_TLS};;AMLKIT_EU_FSF_TOKEN=${AMLKIT_EU_FSF_TOKEN};;GEMINI_API_KEY=${GEMINI_API_KEY};;AMLKIT_REGISTRATION_INVITE_CODE=${AMLKIT_REGISTRATION_INVITE_CODE};;LITESTREAM_REPLICA_URL=${LITESTREAM_REPLICA_URL};;UAEPASS_CLIENT_ID=${UAEPASS_CLIENT_ID};;UAEPASS_CLIENT_SECRET=${UAEPASS_CLIENT_SECRET};;UAEPASS_ENV=${UAEPASS_ENV};;AMLKIT_SEED_FROM_URL=${AMLKIT_SEED_FROM_URL};;AMLKIT_SEED_TXID=${AMLKIT_SEED_TXID}" \
             --port 8000 \
             --memory 1Gi \
             --cpu 1 \

@@ -186,6 +186,47 @@ if [ ! -f /app/data/amlkit.db ]; then
         attempt=$((attempt + 1))
     done
 
+    # One-boot reseed: when the target replica is empty and a source replica
+    # is named, restore the source (at AMLKIT_SEED_TXID if set, else its
+    # head) and let `litestream replicate` below write it to the target as a
+    # fresh generation. This is how a replica is recovered after its head
+    # stops decoding (2026-10-04: litestream-v2 broke at TXID 0x2bdb, the
+    # last clean point was 0x2bcb) without anyone needing bucket write
+    # access outside the service itself. It is guarded on "target has no
+    # replica": once the target exists the seed variables are ignored, so a
+    # restart cannot roll the new replica back to the seed point, and a later
+    # deploy drops the variables (--set-env-vars replaces the whole list).
+    SEEDED=""
+    if [ ! -f /app/data/amlkit.db ] && [ -n "${AMLKIT_SEED_FROM_URL:-}" ]; then
+        seed_point=""
+        if [ -n "${AMLKIT_SEED_TXID:-}" ]; then
+            seed_point="-txid $AMLKIT_SEED_TXID"
+        fi
+        echo "No replica at ${LITESTREAM_REPLICA_URL}; seeding it from ${AMLKIT_SEED_FROM_URL}${AMLKIT_SEED_TXID:+ at txid $AMLKIT_SEED_TXID}..."
+        attempt=1
+        seed_started=$(date +%s)
+        while :; do
+            rm -f /app/data/amlkit.db /app/data/amlkit.db-wal /app/data/amlkit.db-shm
+            INTEGRITY_CODE=0
+            # shellcheck disable=SC2086 -- seed_point is zero or two words
+            litestream restore $seed_point -parallelism "$RESTORE_PARALLELISM" \
+                -o /app/data/amlkit.db "$AMLKIT_SEED_FROM_URL" || INTEGRITY_CODE=$?
+            if [ "$INTEGRITY_CODE" -eq 0 ] && [ -f /app/data/amlkit.db ]; then
+                echo "seed restore finished in $(( $(date +%s) - seed_started ))s (attempt $attempt)."
+                SEEDED=1
+                break
+            fi
+            if [ "$attempt" -ge "$RESTORE_ATTEMPTS" ]; then
+                INTEGRITY_STATUS=seed_failed
+                INTEGRITY_OUTPUT=""
+                refuse_to_start "seed restore from ${AMLKIT_SEED_FROM_URL}${AMLKIT_SEED_TXID:+ at txid $AMLKIT_SEED_TXID} failed ${attempt} times (exit $INTEGRITY_CODE)"
+            fi
+            echo "seed restore failed (exit $INTEGRITY_CODE, attempt $attempt of $RESTORE_ATTEMPTS); retrying in ${RESTORE_RETRY_DELAY}s..."
+            sleep "$RESTORE_RETRY_DELAY"
+            attempt=$((attempt + 1))
+        done
+    fi
+
     if [ ! -f /app/data/amlkit.db ]; then
         # No replica at that URL. For a brand-new deployment that is expected;
         # anywhere else it means a mistyped URL or an emptied prefix, and
@@ -206,6 +247,11 @@ if [ ! -f /app/data/amlkit.db ]; then
         verify_db /app/data/amlkit.db
         if [ "$INTEGRITY_STATUS" = "ok" ]; then
             echo "Database integrity OK."
+            if [ -n "$SEEDED" ]; then
+                echo "Seeded database verified; litestream replicate will write it to ${LITESTREAM_REPLICA_URL} as a fresh generation. Drop AMLKIT_SEED_FROM_URL / AMLKIT_SEED_TXID from the deploy once that replica exists."
+            fi
+        elif [ -n "$SEEDED" ]; then
+            refuse_to_start "seed database restored from ${AMLKIT_SEED_FROM_URL}${AMLKIT_SEED_TXID:+ at txid $AMLKIT_SEED_TXID} failed verification"
         else
             refuse_to_start "database restored from litestream replica ${LITESTREAM_REPLICA_URL} failed verification"
         fi
