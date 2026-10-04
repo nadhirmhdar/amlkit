@@ -41,8 +41,16 @@ LITESTREAM_STUB = r"""#!/bin/sh
 for last; do :; done
 case "$1" in
   restore)
-    case "$STUB_RESTORE" in
+    echo "$@" >> "$STUB_LITESTREAM_LOG"
+    # `-o PATH URL` form (seeding from another replica): output is after -o.
+    out="$last"; prev=""
+    for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
+    last="$out"
+    mode="$STUB_RESTORE"
+    case "$*" in *"$STUB_SEED_URL"*) mode="$STUB_SEED" ;; esac
+    case "$mode" in
       db) echo restored > "$last" ;;
+      seed) echo seeded > "$last" ;;
       none) ;;
       fail) echo "decode page 7575: EOF" >&2; exit 1 ;;
       flaky)
@@ -110,6 +118,9 @@ def _run(tmp_path: Path, *, restore="db", integrity="ok", quick="ok",
         "STUB_QUICK": quick,
         "STUB_LEGACY": legacy,
         "STUB_GSUTIL_LOG": str(gsutil_log),
+        "STUB_LITESTREAM_LOG": str(tmp_path / "litestream.log"),
+        "STUB_SEED_URL": "__no_seed_url__",
+        "STUB_SEED": "seed",
     }
     if replica_url is not None:
         env["LITESTREAM_REPLICA_URL"] = replica_url
@@ -126,6 +137,8 @@ def _run(tmp_path: Path, *, restore="db", integrity="ok", quick="ok",
         "db_present": (data / "amlkit.db").exists(),
         "quarantined": sorted(p.name for p in data.glob("amlkit.db.unverified-*")),
         "gsutil_calls": gsutil_log.read_text().splitlines() if gsutil_log.exists() else [],
+        "litestream_calls": (tmp_path / "litestream.log").read_text().splitlines()
+        if (tmp_path / "litestream.log").exists() else [],
     }
 
 
@@ -250,6 +263,59 @@ def test_restore_duration_is_logged_and_slow_restores_warn(tmp_path):
     assert r["rc"] == 0
     assert "WARNING: restore took" in r["out"]
     assert "snapshot" in r["out"]
+
+
+SEED = "gs://test-bucket/litestream-v2/amlkit.db"
+SEED_ENV = {"AMLKIT_SEED_FROM_URL": SEED, "AMLKIT_SEED_TXID": "0000000000002bcb", "STUB_SEED_URL": SEED}
+
+
+def test_seed_from_source_replica_when_target_is_empty(tmp_path):
+    """Target replica empty + AMLKIT_SEED_FROM_URL: restore the source at the
+    given TXID, verify it, start (replicate then writes the target)."""
+    r = _run(tmp_path, restore="none", extra_env=SEED_ENV)
+    assert r["rc"] == 0, r["out"]
+    assert (tmp_path / "app" / "data" / "amlkit.db").read_text() == "seeded\n"
+    assert "seeding it from " + SEED + " at txid 0000000000002bcb" in r["out"]
+    assert "Seeded database verified" in r["out"]
+    assert "APP STARTED" in r["out"]
+    seed_calls = [c for c in r["litestream_calls"] if SEED in c]
+    assert len(seed_calls) == 1
+    assert "-txid 0000000000002bcb" in seed_calls[0]
+    assert seed_calls[0].endswith("-o " + str(tmp_path / "app" / "data" / "amlkit.db") + " " + SEED)
+
+
+def test_seed_without_txid_restores_the_source_head(tmp_path):
+    env = dict(SEED_ENV); env.pop("AMLKIT_SEED_TXID")
+    r = _run(tmp_path, restore="none", extra_env=env)
+    assert r["rc"] == 0, r["out"]
+    seed_calls = [c for c in r["litestream_calls"] if SEED in c]
+    assert len(seed_calls) == 1 and "-txid" not in seed_calls[0]
+
+
+def test_seed_is_ignored_when_target_already_has_a_replica(tmp_path):
+    """The guard that makes the seed variables safe to leave set for a while:
+    a restart must restore the target, never roll it back to the seed point."""
+    r = _run(tmp_path, restore="db", extra_env=SEED_ENV)
+    assert r["rc"] == 0
+    assert (tmp_path / "app" / "data" / "amlkit.db").read_text() == "restored\n"
+    assert "seeding it from" not in r["out"]
+    assert not [c for c in r["litestream_calls"] if SEED in c]
+
+
+def test_seed_restore_failure_refuses_to_start(tmp_path):
+    r = _run(tmp_path, restore="none", extra_env={**SEED_ENV, "STUB_SEED": "fail"})
+    assert r["rc"] == 1
+    assert "status: seed_failed" in r["out"]
+    assert "APP STARTED" not in r["out"]
+    assert len([c for c in r["litestream_calls"] if SEED in c]) == 3
+
+
+def test_seed_that_fails_verification_refuses_to_start(tmp_path):
+    r = _run(tmp_path, restore="none", integrity="problems", extra_env=SEED_ENV)
+    assert r["rc"] == 1
+    assert "seed database restored from " + SEED in r["out"]
+    assert "status: corrupt" in r["out"]
+    assert "APP STARTED" not in r["out"]
 
 
 def test_transient_restore_failure_is_retried(tmp_path):

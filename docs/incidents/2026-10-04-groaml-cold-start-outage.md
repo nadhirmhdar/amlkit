@@ -46,25 +46,33 @@ then failed with 503 (after ~260s) or 429 from Cloud Run's front end from roughl
 - `backup-verify`: prints the restore plan, fails at 300 s / warns at 150 s, and takes
   an optional `restore_point` (timestamp or TXID) for `workflow_dispatch`.
 
-## Recovery runbook (owner; needs write access to the data bucket)
+## Recovery runbook (owner)
 
-1. Restore the last clean point and verify it:
-   ```
-   litestream restore -txid 0000000000002bcb -o clean.db gs://gen-lang-client-0153967509-aml-data/litestream-v2/amlkit.db
-   sqlite3 clean.db "PRAGMA integrity_check;"      # expect: ok
-   sqlite3 clean.db "SELECT COUNT(*) FROM organizations;"   # expect: 5
-   ```
-   (`-timestamp 2026-10-03T19:50:00Z` lands on the same point.) What is lost: the
-   20:00 UTC automated sanctions refresh (list reload + rescreen), which the next
-   scheduled refresh recreates. No operator writes happened after 19:45:43.
-2. Upload `clean.db` to a staging path in the bucket and run `recovery-reseed.yml`
-   against a **new** prefix, e.g. `litestream-v3/amlkit.db` (never seed over
-   `litestream-v2/`; keep it as evidence).
-3. Set repo variable `LITESTREAM_REPLICA_URL` to the new prefix, merge #396, and let
-   the deploy run. The first boot restores the fresh snapshot in well under 600 s;
-   the warm instance then snapshots every 4 h.
-4. Optional, only if the 16 refresh transactions matter: bisect `-txid` between
-   0x2bcc and 0x2bdb with backup-verify's `restore_point` input (each run ≈ 13 min).
+The deploy can reseed the replica itself; no bucket write access outside the
+service is needed (the Cloud Run runtime service account already replicates to
+the bucket, while the GitHub Actions service accounts are read-only, which is
+why `recovery-reseed.yml` has never completed).
+
+1. Set repo variable `LITESTREAM_REPLICA_URL` to a **new** prefix, e.g.
+   `gs://gen-lang-client-0153967509-aml-data/litestream-v3/amlkit.db`; keep
+   `litestream-v2/` as evidence.
+2. Run **Source canary** manually (Actions → Source canary → Run workflow, on
+   `master`) with
+   - `seed_from_url` = `gs://gen-lang-client-0153967509-aml-data/litestream-v2/amlkit.db`
+   - `seed_txid` = `0000000000002bcb` (19:45:43 UTC, 3 Oct: the last point that
+     restores cleanly; see the timeline).
+   The container restores the source at that TXID, verifies it, and
+   `litestream replicate` writes it to the new prefix. The deploy log shows
+   `seed restore finished in …s` and `Seeded database verified`.
+3. Confirm: `/health` answers, and a `backup-verify` run restores the new
+   prefix with `integrity_check: ok`.
+4. The next ordinary deploy (any push to master) drops the seed variables. Until
+   then they are harmless: the entrypoint ignores them once the target has a
+   replica.
+
+What is lost: the 20:00 UTC automated sanctions refresh (list reload +
+rescreen), which the next scheduled refresh recreates. No operator writes
+happened after 19:45:43.
 
 ## Open follow-ups
 
