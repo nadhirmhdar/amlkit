@@ -79,6 +79,15 @@
       <div class="op-col-actions">
         {% if op.is_active %}
         <details class="d-inline">
+          <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Rename</summary>
+          <form method="post" action="/admin/operators/{{ op.id }}/rename" class="mt-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="text" name="name" value="{{ op.name }}" aria-label="New name for {{ op.email or op.name }}" maxlength="80" required
+                   class="d-inline-block w-180">
+            <button class="small" type="submit">Save</button>
+          </form>
+        </details>
+        <details class="d-inline">
           <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Reset password</summary>
           <form method="post" action="/admin/operators/{{ op.id }}/reset-password" class="mt-4">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
