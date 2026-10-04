@@ -3,7 +3,7 @@
 {% block title %}Onboard — groAML{% endblock %}
 {% block body %}
 
-<form method="post" action="/customers">
+<form method="post" action="/customers" class="no-loading" data-bg-submit="onboarding">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <div class="panel">
   <div class="step-indicator">1</div>
@@ -160,5 +160,6 @@
 </form>
 
 <script src="/static/js/customer_form.js"></script>
+<script src="/static/js/bg-submit.js"></script>
 
 {% endblock %}
