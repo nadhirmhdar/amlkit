@@ -2865,6 +2865,14 @@ def blog_post_view(request: Request, slug: str, db: DB):
     }, db)
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon_ico():
+    # Browsers and crawlers request /favicon.ico regardless of the <link rel="icon">
+    # in base.html. Redirect to the static copy (16/32/48px, rendered from
+    # favicon.svg) so it gets /static/ caching rather than no-store.
+    return RedirectResponse("/static/img/favicon.ico", status_code=301)
+
+
 @app.get("/robots.txt", response_class=Response)
 def robots_txt():
     body = "User-agent: *\nAllow: /\nSitemap: https://groaml.grovisor.ae/sitemap.xml\n"
