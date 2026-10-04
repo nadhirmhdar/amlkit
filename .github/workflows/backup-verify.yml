@@ -21,6 +21,11 @@ on:
   schedule:
     - cron: "0 7 * * *"      # daily, 07:00 UTC -- after source-canary's 05:00 deploy
   workflow_dispatch:
+    inputs:
+      restore_point:
+        description: "Optional point to restore to instead of the latest: an RFC3339 timestamp (2026-10-03T19:50:00Z) or a TXID. Use it to find the last good point after a decode error at the head of the replica."
+        required: false
+        default: ""
 
 jobs:
   verify-restore:
@@ -74,14 +79,31 @@ jobs:
       - name: Restore replica to a scratch path
         env:
           REPLICA_URL: ${{ vars.LITESTREAM_REPLICA_URL }}
+          RESTORE_POINT: ${{ inputs.restore_point }}
         run: |
           if [ -z "$REPLICA_URL" ]; then
             echo "::error::Repo variable LITESTREAM_REPLICA_URL is not set -- cannot tell which replica production writes."
             exit 1
           fi
           mkdir -p /tmp/restore-verify
+          POINT_ARGS=""
+          if [ -n "$RESTORE_POINT" ]; then
+            case "$RESTORE_POINT" in
+              *T*) POINT_ARGS="-timestamp $RESTORE_POINT" ;;
+              *)   POINT_ARGS="-txid $RESTORE_POINT" ;;
+            esac
+            echo "Restoring to $RESTORE_POINT ($POINT_ARGS), not the latest position."
+          fi
+          # The plan (which snapshot, how many LTX files) is what decides the
+          # restore time, so print it first; it is also what shows where a
+          # decode error sits. `|| true`: the plan is informational.
+          plan=$(litestream restore -dry-run $POINT_ARGS -o /tmp/restore-verify/amlkit.db "$REPLICA_URL" 2>&1) || true
+          echo "Restore plan ($(printf '%s\n' "$plan" | wc -l) lines):"
+          printf '%s\n' "$plan" | head -n 12
+          echo "..."
+          printf '%s\n' "$plan" | tail -n 6
           started=$(date +%s)
-          litestream restore -o /tmp/restore-verify/amlkit.db "$REPLICA_URL"
+          litestream restore $POINT_ARGS -o /tmp/restore-verify/amlkit.db "$REPLICA_URL"
           SECONDS_TAKEN=$(( $(date +%s) - started ))
           echo "litestream restore took ${SECONDS_TAKEN}s"
           echo "RESTORE_SECONDS=$SECONDS_TAKEN" >> "$GITHUB_ENV"
