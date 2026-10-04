@@ -2,6 +2,7 @@
 
 **Date:** 2026-10-04 · **Scope:** `amlkit/db.py`, every module that writes to SQLite (`cases/*`, `auth.py`, `match/engine.py`, `ingest/loader.py`, `screening/kyt.py`, `api/app.py`, `api/mobile.py`), tenant scoping in `queries.py`.
 **Method:** code reading of each write path plus four executable probes run against a database built by `db.connect()` on this commit (`557244b`): a fresh-install schema diff, a simulated pre-tenancy upgrade, an FK-cascade benchmark, and an interleaved two-connection disposition. Probe scripts are reproduced inline below so each claim can be re-run. Read-only: no application code changed.
+**Baseline:** full suite on this commit with the venv Python: `1930 passed, 3 skipped` in 11 min 07 s; `scripts/db_index_audit.py` exit 0.
 
 ## 1. Findings, severity-ranked
 
