@@ -3421,6 +3421,34 @@ def admin_reset_password(
     return back("/admin", msg="Password reset. All of that operator's sessions were signed out.")
 
 
+@app.post("/admin/operators/{operator_id}/rename")
+def admin_rename_operator(
+    request: Request, db: DB, operator_id: int,
+    name: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    from ..cases.operators import rename_operator
+    try:
+        result = rename_operator(
+            db, operator_id, session.org_id, name, actor=session.operator_name,
+        )
+    except ValueError as exc:
+        return back("/admin", err=str(exc))
+    if not result["changed"]:
+        return back("/admin", msg="That is already this operator's name.")
+    return back("/admin", msg=f"Renamed {result['old_name']} to {result['new_name']}.")
+
+
 @app.post("/admin/operators")
 def admin_create_operator(
     request: Request, db: DB,

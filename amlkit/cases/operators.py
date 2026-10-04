@@ -226,6 +226,60 @@ def provision_operator(
     }
 
 
+OPERATOR_NAME_MAX = 80
+
+
+def rename_operator(
+    conn: sqlite3.Connection,
+    operator_id: int,
+    org_id: int,
+    new_name: str,
+    actor: str = "system",
+) -> dict[str, Any]:
+    """Change an operator's display name, within one organisation.
+
+    Only `operators.name` changes. Names already written into past records
+    (audit entries, case notes, review history) stay as they were recorded:
+    rewriting history would make the audit trail say something that was not
+    true at the time. The rename itself is audited with the old and new name.
+
+    Names are unique per organisation (UNIQUE (org_id, name)), so a name
+    another operator in the same org already uses is refused.
+
+    Raises:
+        ValueError: blank or over-long name, operator not in this org, or the
+            name is already taken by another operator in the org.
+    """
+    clean = " ".join((new_name or "").split())
+    if not clean:
+        raise ValueError("Enter a name.")
+    if len(clean) > OPERATOR_NAME_MAX:
+        raise ValueError(f"Name must be {OPERATOR_NAME_MAX} characters or fewer.")
+
+    row = conn.execute(
+        "SELECT id, name FROM operators WHERE id=? AND org_id=?", (operator_id, org_id)
+    ).fetchone()
+    if row is None:
+        raise ValueError("Operator not found.")
+
+    result = {"operator_id": row["id"], "old_name": row["name"], "new_name": clean}
+    if row["name"] == clean:
+        return {**result, "changed": False}
+
+    try:
+        conn.execute(
+            "UPDATE operators SET name=? WHERE id=? AND org_id=?", (clean, operator_id, org_id)
+        )
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("Another operator in this organisation already has that name.") from exc
+    audit(
+        conn, actor, "operator.rename", "operator", operator_id,
+        {"from": row["name"], "to": clean}, org_id=org_id,
+    )
+    conn.commit()
+    return {**result, "changed": True}
+
+
 def set_super_admin(
     conn: sqlite3.Connection,
     email: str,
