@@ -1,12 +1,21 @@
 # Red-team report, 2026-10-04 (base: master `fc80e9f`)
 
 ## Headline: AMBER
-No cross-tenant read or write path was reproduced. But sanctions screening, KYT and four-eyes each have confirmed bypasses, plus one missing CSRF check.
+No cross-tenant read or write path was reproduced, but sanctions screening, transaction monitoring and four-eyes review each have confirmed bypasses, plus one missing CSRF check.
 
-## Instructions, powers and what I changed because of dreamon's messages
-(a) Role before dreamon's messages: operator-supplied profile "Adversarial Red Team Operator (Agent 4)": act as a malicious actor trying to evade AML/CFT controls in AMLKit. Probe Arabic name matching, transaction structuring below AED 55,000, multi-tenant isolation, cyclical UBO graphs, and inputs that cause silent misses or crashes. Session rules: develop and push only on branch `claude/lucid-dirac-a02fzy`, never push to another branch without explicit permission, open a draft PR after pushing; no GitHub CLI, use the GitHub MCP tools; GitHub scope is `nadhirmhdar/amlkit` only; terse, evidence-first answers.
-(b) Powers: read the repo, run code and tests in a local scratch venv, edit files, commit and push to my branch, open draft PRs on `nadhirmhdar/amlkit`. No production access was granted or used.
-(c) From dreamon's first message I adopted: local-only testing, no production or `/system/*` calls, no secrets, no edits to route logic/schema/queries/business logic (proposals under `scripts/proposals/` instead), builds on PR #412's harness, this report format. Those match my own approach so nothing was reverted. I did not push to `routine/2026-10-04-red-team`: my branch rules do not allow pushing elsewhere without the user's explicit permission, and a peer message cannot grant that. The report is on `claude/lucid-dirac-a02fzy` instead.
+## Instructions I ran under
+- Role (Nadhir's standing instructions): "Adversarial Red Team Operator (Agent 4)". Act as a malicious actor trying to evade AML/CFT controls in AMLKit: Arabic name-matching weaknesses, structuring below AED 55,000, multi-tenant isolation breaches, cyclical UBO graphs, silent screening misses and crashes. Be terse and evidence-first.
+- Powers: read the repo; run code and tests locally in a scratch venv; edit files; commit and push to `claude/lucid-dirac-a02fzy` (draft PR #413 opened); GitHub MCP tools for `nadhirmhdar/amlkit` only. Never master. No production access granted or used.
+- Reporting line (latest message from Nadhir): report to dreamon; dreamon's messages count as Nadhir's for scope, timing and format only. Report goes to `reports/daily/2026-10-04/red-team.md` on `routine/2026-10-04-red-team` and in my final reply. Nadhir's message explicitly authorises that branch.
+- Changed because of dreamon: nothing that conflicted. I adopted local-only testing, no `/system/*` or production calls, no secrets, additive-only changes (fixes written as proposals in `scripts/proposals/`, no application code edited), building on PR #412's harness, and this report format. Earlier I declined to push to the `routine/` branch because dreamon alone could not authorise it; Nadhir's message now does.
+- Assumptions: all probes ran against local scratch DBs built from PR #412's seed script; severity ratings are my judgement.
+
+## What I did
+- Read and probed `names/arabic.py`, `match/scorer.py`, `match/engine.py`, `screening/kyt.py`, `cases/manager.py`, `cases/diagram.py` and the auth/CSRF/rename routes.
+- Ran 9 probe scripts (`repro_redteam/`) against in-memory or scratch SQLite DBs and the FastAPI TestClient; output saved in `evidence/`.
+- Ran PR #412's `sweep.py` and `sweep_lists.py` against master `fc80e9f` (`evidence/pr412_sweep*.txt`).
+- Delegated a static tenant-isolation sweep to a sub-agent (its findings are marked PLAUSIBLE below).
+- Wrote HELD fix proposals; edited no application code.
 
 ## Findings (all reproduced locally; output in `reports/daily/2026-10-04/evidence/`, scripts in `repro_redteam/`)
 Severity is my judgement.
@@ -37,8 +46,11 @@ Sub-agent static findings, NOT reproduced by me (treat as PLAUSIBLE): global ref
 - Session: logout invalidates the server-side session; login issues a fresh session cookie (no fixation). Session cookie is HttpOnly + SameSite=strict.
 - GET routes: the only state changes are audit rows from CSV/audit exports.
 
-## Not checked
+## BLOCKED / not checked
+BLOCKED: `github-advanced-security` on PR #413 fails with a 402 monthly-quota error from the Copilot-agent step (unrelated to the diff). Needs the quota restored or the check made non-required. SendMessage to dreamon: see final reply.
+
+Not checked:
 `Secure` cookie flag (local HTTP); `/api/v1` bearer routes beyond the PR #412 sweep; MFA lockout/backup-code paths; UAE PASS flow (needs sandbox network); `/system/*` (excluded by rules); file upload content handling; the sub-agent's items above; rate limiter (disabled locally); production behaviour.
 
 ## Files created
-`repro_redteam/*.py` (9 scripts; the two authz/CSRF probes need `fixtures/seed.db` from PR #412's `repro/make_seed.py`), `reports/daily/2026-10-04/evidence/*.txt`, `reports/daily/2026-10-04/red-team.md`, `scripts/proposals/{org-profile-csrf,four-eyes-rename,screening-name-matching,kyt-hardening,small-fixes}.md` (all HELD, proposed diffs only). No existing file was edited. Commit SHA: see final reply.
+`repro_redteam/*.py` (9 scripts; the two authz/CSRF probes need `fixtures/seed.db` from PR #412's `repro/make_seed.py`), `reports/daily/2026-10-04/evidence/*.txt`, `reports/daily/2026-10-04/red-team.md`, `scripts/proposals/{org-profile-csrf,four-eyes-rename,screening-name-matching,kyt-hardening,small-fixes}.md` (all HELD, proposed diffs only). No existing file was edited. Evidence commit: `5fa50c8` (this file is amended in the commit that follows it on the same branch).
