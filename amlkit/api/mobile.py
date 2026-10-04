@@ -1646,6 +1646,8 @@ def api_report_submit(report_id: int, db: DB, session: Session):
         # A finalised CNMR is what moves its freeze to 'reported'.
         from ..cases.freeze import mark_freeze_reported
         mark_freeze_reported(db, report_id, session.org_id, session.operator_name, now)
+    from ..replication import sync_replica
+    sync_replica(timeout=10, reason="report finalized")
     return {
         "ok": True,
         "finalized": True,

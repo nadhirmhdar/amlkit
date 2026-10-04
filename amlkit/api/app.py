@@ -1518,6 +1518,10 @@ def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, form: An
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
 
+    # A freeze record is evidence of a time-bound legal obligation: get it to
+    # the replica now rather than whenever litestream next gets CPU.
+    from ..replication import sync_replica
+    sync_replica(timeout=10, reason="freeze executed")
     return back(f"/freeze-obligations/{freeze_id}", msg="Freeze executed successfully.")
 
 @app.post("/freeze-obligations/{freeze_id}/file-ffr")
@@ -3861,6 +3865,12 @@ def system_refresh(request: Request):
     finally:
         if conn is not None:
             conn.close()
+        # The refresh rewrites the lists and rescreens every customer: the
+        # largest write of the day, and the one most likely to be followed by
+        # an idle spell in which litestream may get little CPU. Wait
+        # for the replica before answering Cloud Scheduler.
+        from ..replication import sync_replica
+        sync_replica(timeout=30, reason="sanctions refresh")
 
     # 500 on mandatory-source failure so Cloud Scheduler retries (it only
     # retries on non-2xx). 207 for non-mandatory partial failures leaves a
@@ -4120,6 +4130,8 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
         from ..cases.freeze import mark_freeze_reported
         mark_freeze_reported(db, report_id, session.org_id, session.operator_name, now)
 
+    from ..replication import sync_replica
+    sync_replica(timeout=10, reason="report finalized")
     return back(f"/reports/{report_id}",
                msg="Report finalized in groAML. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
 
