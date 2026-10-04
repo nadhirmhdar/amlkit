@@ -228,3 +228,70 @@ def test_mobile_submit_marks_freeze_reported(api):
     assert row["status"] == "reported" and row["reported_at"] is not None
     assert "freeze.reported" in _audit_actions(conn, fid)
     conn.close()
+
+
+# ------------------------------------------------- legacy data fix (pre-#385)
+
+def _legacy_reported_with_draft(conn, org_id: int, ref: str) -> tuple[int, int]:
+    """Recreate the pre-#385 state: freeze 'reported' while its CNMR is a draft."""
+    fid = _executed_freeze(conn, org_id, ref)
+    rid = _draft(conn, org_id, fid)
+    conn.execute(
+        "UPDATE freeze_obligations SET status='reported', reported_at=? WHERE id=?",
+        ("2026-09-30T10:00:00Z", fid),
+    )
+    conn.commit()
+    return fid, rid
+
+
+def test_legacy_drafts_behind_reported_freezes_are_finalised(conn, org_id):
+    from amlkit.db import _finalise_legacy_cnmr_drafts
+
+    fid, rid = _legacy_reported_with_draft(conn, org_id, "C-LEGACY-1")
+    # A freeze drafted under the new rule (still pending) must be left alone.
+    pending_fid = _executed_freeze(conn, org_id, "C-PENDING-1")
+    pending_rid = _draft(conn, org_id, pending_fid)
+
+    done = _finalise_legacy_cnmr_drafts(conn)
+    conn.commit()
+
+    assert done == [{"report_id": rid, "freeze_id": fid, "org_id": org_id}]
+    rep = conn.execute("SELECT status, submitted_at FROM reports WHERE id=?", (rid,)).fetchone()
+    assert rep["status"] == "submitted"
+    assert rep["submitted_at"] == "2026-09-30T10:00:00Z"  # the freeze's reported_at
+    audit_row = conn.execute(
+        "SELECT actor, detail, org_id FROM audit_log WHERE action='report.finalized'"
+        " AND object_type='report' AND object_id=?", (str(rid),)
+    ).fetchone()
+    assert audit_row["actor"] == "system" and audit_row["org_id"] == org_id
+    assert '"via": "data_fix"' in audit_row["detail"]
+
+    assert conn.execute("SELECT status FROM reports WHERE id=?",
+                        (pending_rid,)).fetchone()["status"] == "draft"
+    assert _freeze_row(conn, pending_fid)["status"] == "executed_pending_report"
+
+    # Nothing left to do on a second pass.
+    assert _finalise_legacy_cnmr_drafts(conn) == []
+
+
+def test_legacy_draft_fix_runs_once_per_database(tmp_path):
+    from amlkit.db import _reset_init_cache, connect
+    from conftest import seed_fresh_dataset
+
+    db_file = tmp_path / "legacy.db"
+    c = connect(db_file)
+    seed_fresh_dataset(c)
+    org = c.execute(
+        "INSERT INTO organizations (name, slug, status, created_at, goaml_entity_reference)"
+        " VALUES ('L','l','active',?, 'L-1') RETURNING id", (utcnow(),)
+    ).fetchone()["id"]
+    c.commit()
+    _, rid = _legacy_reported_with_draft(c, org, "C-LEGACY-2")
+    c.execute("DELETE FROM data_migrations WHERE name='finalise_legacy_cnmr_drafts'")
+    c.commit()
+    c.close()
+
+    _reset_init_cache()  # a new process (deploy) runs the one-shot fix
+    c = connect(db_file)
+    assert c.execute("SELECT status FROM reports WHERE id=?", (rid,)).fetchone()["status"] == "submitted"
+    c.close()

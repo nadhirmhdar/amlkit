@@ -1235,6 +1235,62 @@ def _run_retention_extension_once(conn: sqlite3.Connection) -> None:
         _extend_retention_until(conn)
 
 
+def _finalise_legacy_cnmr_drafts(conn: sqlite3.Connection) -> list[dict[str, int]]:
+    """Finalise CNMR drafts whose freeze was already marked reported (#385).
+
+    Before #385, drafting a CNMR (internally report_type 'FFR') immediately set
+    its freeze to 'reported' while the report itself stayed a draft. Since
+    #385 a freeze is only marked reported when its CNMR is finalised, so those
+    older pairs disagree. The owner decided (2026-10-03) to finalise those
+    drafts so the report matches the freeze. Each one gets a
+    `report.finalized` audit row attributed to "system" and marked as a data
+    fix, so it is never mistaken for an MLRO's own finalisation. Org-scoped:
+    the report and its freeze must belong to the same org. Returns
+    [{"report_id", "freeze_id", "org_id"}, ...].
+    """
+    rows = conn.execute(
+        """SELECT r.id AS report_id, r.org_id, r.payload, f.id AS freeze_id,
+                  f.reported_at
+             FROM freeze_obligations f
+             JOIN reports r ON r.id = f.report_id AND r.org_id = f.org_id
+            WHERE f.status = 'reported' AND r.status = 'draft'
+              AND r.report_type = 'FFR'"""
+    ).fetchall()
+    from .cases.manager import REPORT_REQUIRED_FIELDS
+    done: list[dict[str, int]] = []
+    for r in rows:
+        try:
+            payload = json.loads(r["payload"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        missing = [f for f in REPORT_REQUIRED_FIELDS if not payload.get(f)]
+        conn.execute(
+            "UPDATE reports SET status='submitted', submitted_at=? "
+            "WHERE id=? AND org_id=? AND status='draft'",
+            (r["reported_at"] or utcnow(), r["report_id"], r["org_id"]),
+        )
+        audit(conn, "system", "report.finalized", "report", r["report_id"],
+              {"via": "data_fix", "freeze_obligation_id": r["freeze_id"],
+               "reason": "freeze was already marked reported before #385; "
+                         "finalised to match, per owner decision 2026-10-03",
+               "missing_required_fields": missing},
+              org_id=r["org_id"])
+        done.append({"report_id": r["report_id"], "freeze_id": r["freeze_id"],
+                     "org_id": r["org_id"]})
+    return done
+
+
+def _run_finalise_legacy_cnmr_drafts_once(conn: sqlite3.Connection) -> None:
+    name = "finalise_legacy_cnmr_drafts"
+    if conn.execute("SELECT 1 FROM data_migrations WHERE name=?", (name,)).fetchone():
+        return
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO data_migrations (name, applied_at) VALUES (?,?)",
+        (name, utcnow()))
+    if cur.rowcount:
+        _finalise_legacy_cnmr_drafts(conn)
+
+
 def _backfill_email_verified(conn: sqlite3.Connection) -> None:
     """One-time grandfathering, run only in the same connect() call that adds
     the email_verified_at column to an existing (pre-verification) database.
@@ -1584,6 +1640,7 @@ def _initialise(conn: sqlite3.Connection) -> None:
     # After _backfill_exit_date (needs exit_date) and the tenancy migration
     # (needs org_id on every row).
     _run_retention_extension_once(conn)
+    _run_finalise_legacy_cnmr_drafts_once(conn)
     conn.commit()
 
 
