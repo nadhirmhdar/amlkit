@@ -1,0 +1,4 @@
+# HELD: small robustness items
+- `POST /admin/operators/{id}/reset-password` (app.py:3416) lets `PasswordComplexityError` escape -> HTTP 500 for a weak password. Catch it (and `ValueError`) and `back("/admin", err=str(exc))`. Evidence: probe_csrf_session.txt section 4.
+- `generate_ubo_diagram` renders one Graphviz node per `ubo_links` row with no cap: 2,000 rows -> 2.0 s and a 2.7 MB SVG per customer page view (probe_diag.txt). Cap rows rendered (e.g. 50) or cache the SVG.
+- Tenant-isolation items from the sub-agent sweep (static reading, NOT reproduced by me): `/admin/refresh-stream` (app.py:3597) has no CSRF or rate limit and any org's MLRO triggers a global refresh plus `rescreen_all` for every org; `org_id IS NULL` audit rows are returned to every org (`queries.py:918,964`); `/admin/operators` reveals whether an email exists in another org (`operators.email` globally UNIQUE).

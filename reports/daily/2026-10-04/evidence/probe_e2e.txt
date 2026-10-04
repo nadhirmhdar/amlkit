@@ -1,0 +1,22 @@
+('HIT ', 1.0, 1)          0.00s  Latin exact
+('MISS', 0, 1)            0.00s  Latin ZWSP in surname
+('MISS', 0, 1)            0.00s  Latin ZWSP in given
+('MISS', 0, 1)            0.00s  Latin soft-hyphen
+('MISS', 0, 1)            0.00s  Latin ZWJ
+('MISS', 0, 1)            0.00s  Latin WORD JOINER
+('MISS', 0, 1)            0.00s  Latin BOM
+('MISS', 0, 1)            0.00s  Cyrillic consonant (В,А,Л)
+('HIT ', 0.91, 1)         0.00s  Cyrillic с in Salehi
+('MISS', 0, 1)            0.00s  Cyrillic к/т in Mohammad Dawood Muzammil
+('HIT ', 1.0, 1)          0.00s  Arabic exact
+('MISS', 0, 0)            0.00s  Arabic presentation forms
+('MISS', 0, 0)            0.00s  Arabic presentation forms #2 (PDF copy)
+('MISS', 0, 1)            0.00s  Arabic Urdu yeh-barree
+('HIT ', 0.96, 1)         0.00s  Arabic noon-ghunna
+('MISS', 0, 1)            0.00s  Arabic Urdu heh-goal
+('HIT ', 1.0, 1)          0.00s  Arabic ZWNJ
+('HIT ', 1.0, 1)          0.00s  Arabic extra tatweel
+('HIT ', 1.0, 1)          0.00s  Arabic Latin mixed
+('MISS', 0, 0)            0.00s  digits-only
+('MISS', 0, 1)            0.00s  name with FTS quotes
+('MISS', 0, 1)            0.08s  very long

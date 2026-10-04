@@ -1,0 +1,23 @@
+('HIT ', 1.0) pad: BILAL ALI AL-WAFI
+('MISS', 0) pad: BILAL ALI AL-WAFI HASSAN
+('MISS', 0) pad: HASSAN BILAL ALI AL-WAFI
+('MISS', 0) pad: BILAL ALI HASSAN AL-WAFI
+('MISS', 0) pad: BILAL ALI AL-WAFI JR
+('MISS', 0) pad: BILAL ALI AL-WAFI TRADING
+('HIT ', 1.0) pad: MOHAMMAD DAWOOD MUZAMMIL
+('MISS', 0) pad: MOHAMMAD DAWOOD MUZAMMIL KHAN
+('MISS', 0) pad: MOHAMMAD DAWOOD MUZAMMIL KHAN SHAH
+('MISS', 0) pad: بلال علي الوافي الاماراتي
+--- identity-attribute suppression (EXACT name match) ---
+('HIT ', 1.0) {}
+('MISS', 0) {'country': 'ae'}
+('MISS', 0) {'country': 'pk'}
+('MISS', 0) {'gender': 'female'}
+('HIT ', 0.85) {'birth_date': '1980-01-01'}
+('HIT ', 1.0) {'birth_date': '1975-03-12'}
+('MISS', 0) {'birth_date': '1975-03-13'}
+('MISS', 0) {'birth_date': '1975-09-09'}
+('HIT ', 0.85) {'birth_date': '1976-03-12'}
+('MISS', 0) {'country': 'ae', 'gender': 'female'}
+--- organisation ---
+('HIT ', 1.0) ('HIT ', 1.0) ('MISS', 0) ('MISS', 0)
