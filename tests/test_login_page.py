@@ -27,16 +27,17 @@ def test_sign_in_is_the_page_heading_and_the_slogan_is_not(client):
     assert "Compliance," in html and "One decision" not in html
 
 
-def test_decorative_strands_are_hidden_from_assistive_tech_and_sources_are_stated(client):
+def test_decorative_strands_are_hidden_from_assistive_tech(client):
     html = client.get("/login").text
     assert re.search(r'<canvas[^>]*id="si-strands"[^>]*aria-hidden="true"', html)
-    assert "Screens against the UN, OFAC, EU, UK, UAE, FATF, PEP and adverse media" in html
 
 
-def test_strands_name_no_lists_on_screen(client):
-    # The artwork is abstract; list names live only in the visually hidden sentence.
+def test_sign_in_page_names_no_screening_lists(client):
+    # The page makes no claim about which lists are screened, on screen or for screen readers.
+    html = client.get("/login").text
     js = client.get("/static/js/signin-strands.js").text
-    assert "OFAC" not in js and "FATF" not in js
+    for name in ("OFAC", "FATF", "adverse media", "UN, "):
+        assert name not in html and name not in js
 
 
 def test_password_toggle_is_a_labelled_pressed_state_button(client):
