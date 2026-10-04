@@ -183,7 +183,8 @@ class TestSuperAdminBadgeVisibility:
         page = client.get("/admin", follow_redirects=False)
         assert page.status_code == 200
 
-        rows = page.text.split('<div class="list-row">')[1:]
+        rows = page.text.split('<div class="list-row operator-row">')[1:]
+        assert rows, "operator rows not found"
         alice_row = next(row for row in rows if "alice@testfirm.ae" in row)
         bob_row = next(row for row in rows if "bob@testfirm.ae" in row)
         assert "Super admin" in alice_row

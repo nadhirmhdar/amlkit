@@ -11,7 +11,7 @@
 
 {% if eu_warning %}
 <div class="banner warning">
-  <strong>EU Sanctions Configuration:</strong> {{ eu_warning }}
+  <span class="banner__text"><strong>EU Sanctions Configuration:</strong> {{ eu_warning }}</span>
 </div>
 {% endif %}
 
@@ -63,17 +63,20 @@
 
 <div class="mb-6">
   <div class="section-label">Operators</div>
+  {# grid-table: on phones each operator stacks into label/value lines
+     (UX review #10); wider screens keep the single-line row. #}
+  <div class="grid-table operators-table">
   <div class="flat-list">
     {% for op in operators %}
-    <div class="list-row">
+    <div class="list-row operator-row">
       <div class="grow primary">{{ op.name }}</div>
-      <div class="side" style="flex:1;">{{ op.email or '—' }}</div>
-      <span class="tag {{ 'high' if op.role == 'mlro' else 'other' }}" style="width:60px;">{{ op.role }}</span>
+      <div class="side op-col-email" data-label="Email">{{ op.email or '—' }}</div>
+      <div class="op-col-role" data-label="Role"><span class="tag {{ 'high' if op.role == 'mlro' else 'other' }}">{{ op.role }}</span></div>
       {% if op.super_admin %}
-      <span class="tag high" title="Full cross-organization platform access, granted outside this org's admin panel">Super admin</span>
+      <div data-label="Access"><span class="tag high" title="Full cross-organization platform access, granted outside this org's admin panel">Super admin</span></div>
       {% endif %}
-      <span class="tag {{ 'low' if op.is_active else 'other' }}" style="width:90px;">{{ 'active' if op.is_active else 'deactivated' }}</span>
-      <div style="width:200px; text-align:right;">
+      <div class="op-col-status" data-label="Status"><span class="tag {{ 'low' if op.is_active else 'other' }}">{{ 'active' if op.is_active else 'deactivated' }}</span></div>
+      <div class="op-col-actions">
         {% if op.is_active %}
         <details class="d-inline">
           <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Reset password</summary>
@@ -103,6 +106,7 @@
       </div>
     </div>
     {% endfor %}
+  </div>
   </div>
 </div>
 
@@ -189,13 +193,13 @@
   {% if sanctions %}
   <div class="flat-list mb-4">
     {% for s in sanctions %}
-    <div class="list-row">
+    <div class="list-row sanctions-row">
       <div class="grow primary">{{ s.title }}</div>
-      <div class="num" style="width:140px;">{{ s.entities }} entities</div>
-      <div class="side" style="width:90px; text-align:right;">{{ s.hours_since_refresh ~ 'h ago' if s.hours_since_refresh is not none else '—' }}</div>
-      {% if s.breach %}<span class="tag high" style="width:130px;">breach &gt;24h</span>
-      {% elif s.hours_since_refresh is none %}<span class="tag other" style="width:130px;">never loaded</span>
-      {% else %}<span class="tag low" style="width:130px;">OK</span>{% endif %}
+      <div class="num sl-col-entities">{{ s.entities }} entities</div>
+      <div class="side sl-col-age">{{ s.hours_since_refresh ~ 'h ago' if s.hours_since_refresh is not none else '—' }}</div>
+      {% if s.breach %}<span class="tag high sl-col-status">breach &gt;24h</span>
+      {% elif s.hours_since_refresh is none %}<span class="tag other sl-col-status">never loaded</span>
+      {% else %}<span class="tag low sl-col-status">OK</span>{% endif %}
     </div>
     {% endfor %}
   </div>
@@ -203,12 +207,12 @@
   <form method="post" action="/admin/refresh" class="mt-4">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit" id="refresh-btn" data-loading="Refreshing lists…">Refresh sanctions lists now</button>
-    <span class="muted small ml-4">Takes 30–60 seconds</span>
+    <span class="muted small ml-4 action-hint">Takes 30–60 seconds</span>
   </form>
   <form method="post" action="/admin/rescreen" class="mt-3">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit" id="rescreen-btn" class="secondary" data-loading="Re-screening…">Re-screen all active customers</button>
-    <span class="muted small ml-4">Re-screen without refreshing lists</span>
+    <span class="muted small ml-4 action-hint">Re-screen without refreshing lists</span>
   </form>
 </div>
 

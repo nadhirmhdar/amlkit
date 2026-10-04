@@ -1381,3 +1381,64 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
   .screen-layout { grid-template-columns: minmax(0, 640px) 280px; align-items: start; }
   .screen-recent { padding-top: 96px; }
 }
+
+/* ===================================== mobile layout fixes (UX review #9/#10)
+   Kept together in one block. Phone rules are screen-only so the print
+   stylesheet and the WeasyPrint evidence PDF (media=print) are untouched. */
+
+/* /admin operator rows: the column widths that used to be inline styles.
+   Wider screens render exactly as before; phones stack via .grid-table. */
+.operator-row .op-col-email { flex: 1; }
+/* Tag cells are flex so the tag sits exactly where it did as a bare row item. */
+.operator-row > [data-label]:has(> .tag) { display: flex; align-items: center; }
+.operator-row .op-col-role { width: 60px; }
+.operator-row .op-col-status { width: 90px; }
+.operator-row .op-col-actions { width: 200px; text-align: right; }
+/* /admin sanctions-list rows, likewise formerly inline widths. */
+.sanctions-row .sl-col-entities { width: 140px; }
+.sanctions-row .sl-col-age { width: 90px; text-align: right; }
+.sanctions-row .sl-col-status { width: 130px; }
+
+@media screen and (max-width: 680px) {
+  /* Operator rows: drop the fixed widths so each field gets its own line
+     (name first, then Email / Role / Status, then the actions). */
+  .operator-row { align-items: stretch; }
+  .operator-row > * { flex: none; }
+  .operator-row .op-col-role,
+  .operator-row .op-col-status,
+  .operator-row .op-col-actions { width: auto; }
+  .operator-row .op-col-email { overflow-wrap: anywhere; }
+  .operator-row .op-col-actions { justify-content: flex-start; flex-wrap: wrap; align-items: center; }
+
+  /* Sanctions-list rows: list name on its own line, the three short
+     facts (entities, age, status) wrap beneath it at natural width. */
+  .sanctions-row { flex-wrap: wrap; gap: 4px 16px; }
+  .sanctions-row .grow { flex-basis: 100%; }
+  .sanctions-row .sl-col-entities,
+  .sanctions-row .sl-col-age,
+  .sanctions-row .sl-col-status { width: auto; text-align: left; }
+
+  /* "Takes 30-60 seconds" style hints after a button: own line, not a
+     ragged wrap indented under the button. */
+  .action-hint { display: block; margin: 6px 0 0; }
+
+  /* Evidence-pack tables with many columns (screening record, audit trail):
+     each row becomes a label/value card instead of hiding columns behind a
+     sideways scroll. Each <td> carries a data-label matching its header. */
+  table.stack-table, .stack-table tbody, .stack-table tr, .stack-table td { display: block; width: auto; }
+  .stack-table .stack-table__head { display: none; }
+  .stack-table tr { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .stack-table tr:last-child { border-bottom: none; }
+  .stack-table td {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 4px 0; border-bottom: none; text-align: right;
+    white-space: normal; overflow-wrap: anywhere;
+  }
+  .stack-table tr:hover td { background: none; }
+  .stack-table td[data-label]::before {
+    content: attr(data-label); flex-shrink: 0; text-align: left;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+}
+/* =============================================== end mobile layout fixes */

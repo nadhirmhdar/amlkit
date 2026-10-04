@@ -104,18 +104,18 @@
 <div class="panel">
   <h2>Screening record</h2>
   <div class="table-responsive">
-  <table>
+  <table class="stack-table">
     <caption class="sr-only">Historical screening runs showing dates, names screened, triggers, and results</caption>
-    <tr><th>Date &amp; time (UTC)</th><th>Name screened</th><th>Trigger</th>
+    <tr class="stack-table__head"><th>Date &amp; time (UTC)</th><th>Name screened</th><th>Trigger</th>
         <th>Lists</th><th class="right">Candidates</th><th>Result</th></tr>
     {% for s in screenings %}
     <tr>
-      <td class="nowrap">{{ s.run_at[:19].replace('T',' ') }}</td>
-      <td>{{ name(s.query_name) }}</td>
-      <td>{{ s.trigger.replace('_',' ') }}</td>
-      <td class="small">{{ s.datasets_used|join(', ') or 'all loaded' }}</td>
-      <td class="right">{{ s.candidates }}</td>
-      <td>{{ (s.hits ~ ' match(es)') if s.hits else 'Clear' }}</td>
+      <td class="nowrap" data-label="Date &amp; time (UTC)">{{ s.run_at[:19].replace('T',' ') }}</td>
+      <td data-label="Name screened">{{ name(s.query_name) }}</td>
+      <td data-label="Trigger">{{ s.trigger.replace('_',' ') }}</td>
+      <td class="small" data-label="Lists">{{ s.datasets_used|join(', ') or 'all loaded' }}</td>
+      <td class="right" data-label="Candidates">{{ s.candidates }}</td>
+      <td data-label="Result">{{ (s.hits ~ ' match(es)') if s.hits else 'Clear' }}</td>
     </tr>
     {% endfor %}
   </table>
@@ -254,15 +254,15 @@
 <div class="panel">
   <h2>Audit trail</h2>
   <div class="table-responsive">
-  <table>
+  <table class="stack-table">
     <caption class="sr-only">Append-only audit log of all actions taken on this customer record</caption>
-    <tr><th>When (UTC)</th><th>Operator</th><th>Action</th><th>Detail</th></tr>
+    <tr class="stack-table__head"><th>When (UTC)</th><th>Operator</th><th>Action</th><th>Detail</th></tr>
     {% for e in audit %}
     <tr>
-      <td class="nowrap small">{{ e.ts[:19].replace('T',' ') }}</td>
-      <td class="small">{{ e.actor }}</td>
-      <td class="small">{{ e.action }}</td>
-      <td class="small">{{ e.detail }}</td>
+      <td class="nowrap small" data-label="When (UTC)">{{ e.ts[:19].replace('T',' ') }}</td>
+      <td class="small" data-label="Operator">{{ e.actor }}</td>
+      <td class="small" data-label="Action">{{ e.action }}</td>
+      <td class="small" data-label="Detail">{{ e.detail }}</td>
     </tr>
     {% endfor %}
   </table>
