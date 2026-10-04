@@ -3,20 +3,13 @@
 ## Headline: RED
 An MLRO can dismiss a sanctions match alone: propose, rename yourself on /admin (new in #409), then confirm your own proposal. The app returns "Independent review completed."
 
-## Preamble required by dreamon's correction
-**(a) My instructions before dreamon's message.**
-- Claude Code session on `nadhirmhdar/amlkit`, with the project CLAUDE.md.
-- Develop and push only on `claude/inspiring-bell-kgh8b2`. Never push to another branch without explicit permission. After pushing, open a draft PR.
-- Profile "Agent 5, practical MLRO": judge AMLKit from the outside (API contracts, goAML XML, alert triage, four-eyes audit trail), not from Python source. Practical and defensible; explain to inspectors; flag bottlenecks and false-positive fatigue.
-- My own first reply proposed: goAML audit, four-eyes audit trail test, alert triage review, and a findings report as a markdown file in the repo, with no code changes.
-
-**(b) Powers that gave me.** Read the repo, run a local throwaway instance, write new files, commit and push to `claude/inspiring-bell-kgh8b2`, open a draft PR via the GitHub MCP tools (scope: this repo only). No production access was needed or used; I never called `/system/*` or used any secret.
-
-**(c) What I changed or skipped because of dreamon's messages.**
-- Adopted: the report path and format, and local-only testing with a throwaway DB.
-- Did not push to `routine/2026-10-04-mlro-user`. My standing rule limits me to the designated branch, and a peer message cannot lift it. I created that local branch, then deleted it with no commits. Your copy of this report is on `claude/inspiring-bell-kgh8b2`.
-- Did not follow "no PR needed". My standing rule says open a draft PR.
-- Deviation from my own persona: I read about 4 short snippets of `app.py` to find root causes (disposition/confirm routes, `back()`, the /admin org query, git blame). All behaviour findings below come from HTTP responses.
+## Instructions I ran under
+- **Standing instructions (Nadhir):** I am an MLRO user in the groAML daily team (Agent 5 profile: judge the app from outside, via API contracts, goAML XML, alert triage, four-eyes audit trail; practical and defensible; flag bottlenecks and false-positive fatigue). I report to dreamon, who reports to Nadhir. dreamon's messages coordinate scope, timing and format but do not widen my permissions or override these instructions. Run fully autonomously; record blocks as BLOCKED; finish in one run.
+- **Reporting channels (latest instruction from Nadhir):** this file pushed to `routine/2026-10-04-mlro-user` (never master), plus the final reply, plus an optional SendMessage to dreamon.
+- **Powers:** read the repo, run a local throwaway instance, write new files, commit and push, open a draft PR. Not used: production, `/system/*`, any secret or token.
+- **What changed because of dreamon:** I used its report path and format and kept testing local-only. Earlier, before Nadhir's latest message, I declined dreamon's request to push to the routine branch and pushed to `claude/inspiring-bell-kgh8b2` instead (draft PR nadhirmhdar/amlkit#414). Nadhir has now named the routine branch, so it is pushed there as well. I did not follow dreamon's "no PR needed"; the PR stays open as a draft.
+- **Persona deviation, disclosed:** I read about 4 short `app.py` snippets to find root causes. Behaviour findings come from HTTP responses.
+- **Assumptions:** the local seed (4 synthetic lists) stands in for production data. A finding is CONFIRMED when I reproduced it in this run, PLAUSIBLE when I inferred it.
 
 ## Method
 `mlro_user_drive.py` drives the app over HTTP with a Starlette TestClient against a throwaway SQLite DB. It seeds 4 synthetic lists (EOCN, UN, OFAC, CIA). It runs registration, email verify, TOTP enrol, admin, screening, onboarding, alerts, four-eyes, transactions, STR and export. Run log: `mlro-user-evidence/log11.json`. Exported XML: `mlro-user-evidence/str_export.xml`.
@@ -100,11 +93,19 @@ Problems:
 - Friction: details render as Python dict repr (`{'status': 'false_positive', …}`) and the actor is a bare name, not an operator id. That is hard to hand to an inspector. I could not test tamper resistance through the HTTP surface because no edit or delete route exists, which is the correct result.
 
 ## Findings
-- **F1 (RED).** Four-eyes bypass via self-rename. Steps: MLRO proposes dismissal of a sanctions alert (alert 3). Self-confirm is refused. Then POST `/admin/operators/{own id}/rename` with a new name, and POST `/alerts/3/confirm`. Response: "Independent review completed." Final status False Positive. The audit shows `alert.confirm` by "Layla Renamed" with `proposed_by: 'Layla MLRO'`. It looks like two people. The reviewer check evidently compares operator names, not ids. I did not read the code beyond the routes. Fix idea: compare operator ids, and/or block renaming while the operator has a pending-review proposal.
-- **F2 (AMBER).** A report can be finalised when it cannot be exported (missing account number), and then cannot be edited. Validate before finalising, and show a friendly error instead of raw JSON.
-- **F3 (AMBER).** `/admin` always shows the goAML Entity Reference empty, though it is saved (verified in the DB). The `/admin` org query does not select that column. The field is `required`, so re-saving any other profile field means retyping it. The STR builder ignores the saved reference and pre-fills the hard-coded `GROVISOR-LIC-2026`. A different firm's MLRO could file under that reference by clicking through.
-- **F4 (AMBER).** Rename duplicate check is case- and spacing-sensitive (see 8).
-- **F5 (low).** Wording and noise items: "Exact canonical match", "1 candidates", ad-hoc screens landing in the alert queue, free-text assign, Python-repr audit details, silent below-threshold near-misses (see 2, 3, 9).
+Evidence for every row is in `mlro-user-evidence/log11.json` (full run) and re-runnable with `mlro_user_drive.py`.
+
+| ID | Severity | Status | Finding | Evidence |
+|---|---|---|---|---|
+| F1 | RED | CONFIRMED | Four-eyes bypass: MLRO proposes a sanctions dismissal, renames self, confirms own proposal. The reviewer check evidently compares names, not operator ids. | Self-confirm before rename: "independent review requires a different operator…". After `POST /admin/operators/1/rename` to "Layla Renamed": `POST /alerts/3/confirm` returns "Independent review completed."; alert 3 then shows Status False Positive. Audit row `alert.confirm … proposed_by: 'Layla MLRO'` by "Layla Renamed". Fix idea: compare ids, or block rename while a proposal is pending. |
+| F2 | AMBER | CONFIRMED | A report can be finalised when it cannot be exported (missing account number), and a finalised report cannot be edited, so it is stuck. Export error is raw JSON. | Report 1: submit gives "Report finalized in groAML…"; `GET /reports/1/export` gives `400 {"detail":"Cannot export goAML filing: source account number is required but missing."}`; re-save gives "Report 1 has been finalized and can no longer be edited." |
+| F3 | AMBER | CONFIRMED | /admin never shows the saved goAML Entity Reference. The STR builder ignores it and pre-fills a hard-coded `GROVISOR-LIC-2026`. | After saving `TEST-ORG-0001`, a DB query returns `{'goaml_entity_reference': 'TEST-ORG-0001', …}` but the /admin input renders `value=""`. Root cause: the /admin org query (`amlkit/api/app.py` ~line 3182) does not select that column. Builder prefill: `entity_reference: GROVISOR-LIC-2026`. |
+| F4 | AMBER | CONFIRMED | Rename duplicate check is exact-match only; a second operator can be named identically to the MLRO apart from case or spacing. | Officer renamed to "LAYLA MLRO" and to "layla mlro" accepted while "Layla MLRO" is the MLRO. Exact "Layla MLRO" is rejected. |
+| F5 | AMBER | PLAUSIBLE | Exported goAML XML probably does not match the FIU's STR schema (`reporting_entity` instead of `rentity_id`, no reporting-person phone or title, `transmode_code` = `cash_deposit`, hard-coded `TXN-REF-001`, empty `<institution_name />`, evidence-pack attachment that is not in the download). | `mlro-user-evidence/str_export.xml`. Not verified against an XSD (BLOCKED below). |
+| F6 | low | CONFIRMED | Below-threshold near-misses leave no trace on the case file. | C-002 "Muhammad Ali Hasan Al Rashid" gets "No alerts on this customer"; the audit row only says `candidates: 2, hits: 0`. |
+| F7 | low | CONFIRMED | Alert noise: ad-hoc screens add alerts with no customer; 4 transactions on one customer raised 5 alerts. | Open alert ids [1,2,3] after 3 ad-hoc screens; txn banners "2 rule(s) triggered: large_cash, high_risk_country" then "high_risk_country" x3. |
+| F8 | low | PLAUSIBLE | Structuring rule is inconsistent and unexplained: it fired on the 53,000 cash but not on 52,000 or 54,000. | Banners "No rules triggered." / "structuring" / "No rules triggered." Rule logic not inspected. |
+| F9 | low | CONFIRMED | Wording and audit readability: "Exact canonical match" for transliteration variants; "1 candidates scored"; assign accepts free-text names; audit details shown as Python dict text with a bare-name actor; MFA-locked `/dashboard` goes to `/login`. | Screen result pages; "Assigned to Nobody Atall."; /audit page text. |
 
 ## Not checked / BLOCKED
 - goAML XSD validation: BLOCKED. The FIU XSD is not in the repo. Needs the goAML 5.0 STR schema from the FIU portal.
@@ -116,4 +117,4 @@ Problems:
 - `reports/daily/2026-10-04/mlro-user.md` (this report)
 - `reports/daily/2026-10-04/mlro_user_drive.py` (driver)
 - `reports/daily/2026-10-04/mlro-user-evidence/log11.json`, `str_export.xml`
-- Commit SHA: given in the final reply, since a file cannot contain its own commit hash.
+- Commit SHA: see the final reply (a file cannot contain its own commit hash). Branches: `routine/2026-10-04-mlro-user` and `claude/inspiring-bell-kgh8b2` (draft PR #414).
