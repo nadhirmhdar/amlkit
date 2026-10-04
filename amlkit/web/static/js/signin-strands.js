@@ -18,7 +18,7 @@
   var ctx = canvas.getContext('2d');
   var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   var TEAL = [78, 204, 211], CORAL = [255, 122, 105];
-  var COUNT = 30, RISK_EVERY = 6;
+  var COUNT = 30;
   function rgba(c, a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
   function smooth(t) { return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t); }
 
@@ -29,11 +29,14 @@
   var IDLE = { flow: 0.22, pulses: 0.05 }, BUSY = { flow: 0.9, pulses: 0.6 };
   var mix = { flow: IDLE.flow, pulses: IDLE.pulses }, target = IDLE;
 
+  // Five risk strands at irregular heights (no two neighbours), not every sixth.
+  var riskSet = {}, picked = 0;
+  while (picked < 5) { var c = 1 + Math.floor(rnd() * (COUNT - 2)); if (!riskSet[c] && !riskSet[c - 1] && !riskSet[c + 1]) { riskSet[c] = true; picked++; } }
   var strands = [];
   for (var i = 0; i < COUNT; i++) {
     var waves = [];
     for (var w = 0; w < 3; w++) waves.push({ f: 1.5 + rnd() * 7, p: rnd() * 6.3, a: 26 + rnd() * 52, s: 0.6 + rnd() * 1.4 });
-    strands.push({ u: (i + 0.5) / COUNT + (rnd() - 0.5) * 0.6 / COUNT, risk: i % RISK_EVERY === 3,
+    strands.push({ u: (i + 0.5) / COUNT + (rnd() - 0.5) * 1.6 / COUNT, risk: !!riskSet[i],
       waves: waves, phase: rnd() * 6.283, width: 0.7 + rnd() * 0.9, pulses: [], ring: 0,
       stop: 0.42 + rnd() * 0.3,          // where a risk strand is caught: each its own point
       settle: 0.84 + rnd() * 0.12,       // where it joins the line: not all at once
@@ -42,6 +45,11 @@
 
   var W = 0, H = 0, node = { x: 0, y: 0 }, pocket = null, fade = null;
   var t = 0, last = 0, beat = 0, pressT = -1, visible = false;
+
+  // Coral halo for the caught ends, drawn once.
+  var haloImg = document.createElement('canvas'); haloImg.width = haloImg.height = 36;
+  (function () { var h = haloImg.getContext('2d'), g = h.createRadialGradient(18, 18, 0, 18, 18, 18);
+    g.addColorStop(0, rgba(CORAL, 0.6)); g.addColorStop(1, rgba(CORAL, 0)); h.fillStyle = g; h.fillRect(0, 0, 36, 36); })();
 
   // The words of the headline, measured from their text (the rows are block
   // elements, so the element boxes would span the whole column).
@@ -126,15 +134,14 @@
         var x0 = Math.max(0, pl.x - pl.len);
         ctx.beginPath();
         for (var m = 0; m <= 8; m++) { var px = x0 + (pl.x - x0) * m / 8; if (m) ctx.lineTo(px * node.x, yAt(st, px)); else ctx.moveTo(px * node.x, yAt(st, px)); }
-        ctx.globalAlpha = vis; ctx.strokeStyle = st.risk ? rgba(CORAL, 0.95) : 'rgba(214,250,252,.95)';
-        ctx.lineWidth = 2.2; ctx.shadowColor = st.risk ? rgba(CORAL, 0.9) : rgba(TEAL, 0.9); ctx.shadowBlur = 10;
-        ctx.stroke(); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+        // glow = one wide faint stroke under the bright one (shadowBlur is the costliest 2D op)
+        ctx.globalAlpha = vis * 0.22; ctx.strokeStyle = st.risk ? rgba(CORAL, 1) : rgba(TEAL, 1); ctx.lineWidth = 7; ctx.stroke();
+        ctx.globalAlpha = vis; ctx.strokeStyle = st.risk ? rgba(CORAL, 0.95) : 'rgba(214,250,252,.95)'; ctx.lineWidth = 2.2; ctx.stroke();
+        ctx.globalAlpha = 1;
       }
       if (st.risk) {
         var ex = st.stop * node.x, ey = yAt(st, st.stop), breathe = 0.5 + 0.5 * Math.sin(t * 1.3 + st.phase * 3);
-        var halo = ctx.createRadialGradient(ex, ey, 0, ex, ey, 9);
-        halo.addColorStop(0, rgba(CORAL, 0.35 + 0.25 * breathe)); halo.addColorStop(1, rgba(CORAL, 0));
-        ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(ex, ey, 9, 0, 6.283); ctx.fill();
+        ctx.globalAlpha = 0.6 + 0.4 * breathe; ctx.drawImage(haloImg, ex - 9, ey - 9, 18, 18); ctx.globalAlpha = 1;
         ctx.beginPath(); ctx.arc(ex, ey, 2.2 + 0.6 * breathe, 0, 6.283); ctx.fillStyle = rgba(CORAL, 0.95); ctx.fill();
         if (st.ring > 0) { ctx.beginPath(); ctx.arc(ex, ey, 3 + (1 - st.ring) * 16, 0, 6.283); ctx.strokeStyle = rgba(CORAL, st.ring * 0.8); ctx.lineWidth = 1.2; ctx.stroke(); }
       }
@@ -162,16 +169,19 @@
     ctx.fillStyle = '#04141a'; ctx.fill(); ctx.strokeStyle = rgba(TEAL, 1); ctx.lineWidth = 2; ctx.stroke();
   }
 
+  var running = false;
   function frame(now) {
+    if (!visible) { running = false; last = 0; return; }   // below 1000px: no loop at all
     var dt = Math.min(0.05, last ? (now - last) / 1000 : 0); last = now;
-    if (visible) { step(dt); draw(); }
+    step(dt); draw();
     requestAnimationFrame(frame);
   }
+  function start() { if (!reduce && visible && !running) { running = true; requestAnimationFrame(frame); } }
 
   layout();
   if (reduce) { t = 3; if (visible) draw(); }
-  else requestAnimationFrame(frame);
-  window.addEventListener('resize', function () { layout(); if (reduce && visible) draw(); });
+  start();
+  window.addEventListener('resize', function () { layout(); if (reduce && visible) draw(); start(); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { layout(); if (reduce && visible) draw(); });
   // While the server checks the password, the flow quickens.
   var form = btn.form;
