@@ -1,5 +1,68 @@
 # Compliance specialist — daily report 2026-10-04
 
+## Standing instructions and what the lead's messages changed
+
+Stated at the lead session's (dreamon) request, relayed as from Nadhir.
+
+**(a) Role and instructions before the lead's message (verbatim).**
+
+> Profile: Regulatory Compliance Specialist (Agent 2)
+> Role: Regulatory Compliance Specialist for UAE Federal Decree-Law 10/2025,
+> Cabinet Resolution 134/2025, Cabinet Decision 109/2023 (UBO), and Cabinet
+> Resolution 74/2020 (TFS).
+> Cognitive Posture:
+> - Strict statutory interpretation, citation-grounded.
+> - Every single finding you propose MUST cite an exact Article number from
+>   corpus/ and match citation_register.json.
+> - Focus on mandatory rules:
+>   1. Standalone Proliferation Financing (Law 10/2025 Art 21).
+>   2. 24-hour statutory TFS asset freeze deadline (Law 10/2025 Art 17,
+>      Res 74/2020 Art 15, Res 134/2025 Art 32).
+>   3. DNFBP cash reporting threshold of AED 55,000 (Res 134/2025 Art 21).
+>   4. 8-year record retention starting strictly post-relationship or
+>      post-occasional-transaction (Law 10/2025 Art 25, Res 134/2025 Art 24).
+>   5. Cascading UBO hierarchy (25% -> control -> Senior Management Official)
+>      and cycle prevention (Dec 109/2023).
+>   6. Senior management and MLRO personal liability (Law 10/2025 Art 20).
+
+Plus the session harness instructions (summary): develop on branch
+`claude/sweet-ramanujan-qr7u94` only, commit and push there, open a draft PR
+for it, never push to a different branch without explicit permission from
+the user; for questions, research and answer; for implementations, make
+the change, commit and push.
+
+**(b) Powers those gave me.** Read and edit any file in the
+`nadhirmhdar/amlkit` checkout, including code, schema, tests and
+templates; run the test suite locally; commit and push to
+`claude/sweet-ramanujan-qr7u94`; open and drive a draft PR on
+`nadhirmhdar/amlkit` via the GitHub MCP tools; subscribe to PR events.
+Cloud container with outbound HTTPS through a proxy. No production
+credentials, no `SCHEDULER_SECRET`/`ADMIN_API_SECRET`, no gcloud project
+access configured, so no ability to reach groaml.grovisor.ae as an
+operator or call `/system/*` even before the lead's rules said not to.
+No power to push to any other branch.
+
+**(c) What the lead's first message changed or that I skipped.**
+- Nothing was changed in approach: the findings-only, docs-only posture
+  was already the one I had taken for PR #410 before the lead's message,
+  because the original brief asked for findings, not fixes. The lead's
+  "additive-only" and "no production" rules coincided with what I was
+  already doing and with what my environment permits.
+- Skipped: pushing to `routine/2026-10-04-compliance-specialist`. This is
+  a harness rule of this session ("never push to a different branch
+  without explicit permission"), not the lead's rule; a peer-session
+  message relaying Nadhir's request does not count as that permission.
+  The correction message repeats the ask and the answer is the same: the
+  report is on `claude/sweet-ramanujan-qr7u94` (PR #410). If Nadhir wants
+  it on the `routine/` branch, a cherry-pick of the commit named at the
+  end of this file does it, or Nadhir can tell this session directly.
+- Followed from the lead's message: its report format (headline, gaps,
+  could-not-check, files, SHA) and its citation marking (VERIFIED /
+  UNVERIFIED). Both are compatible with the original brief's
+  citation-grounding requirement and were adopted, not imposed.
+
+---
+
 Scope: `nadhirmhdar/amlkit` master head `fc80e9f4`. Code-only review; no
 production system, endpoint or secret was touched (rule 2). Peer-reported
 operational facts (refresh ~100 s, EU 6,241 entities, Interpol 403, FATF
