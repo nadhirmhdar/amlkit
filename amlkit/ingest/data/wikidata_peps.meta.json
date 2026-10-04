@@ -1,0 +1,10 @@
+{
+  "as_of": "2026-10-04",
+  "generated_at": "2026-10-04T15:10:17+00:00",
+  "rows": 53462,
+  "people": 39630,
+  "sha256": "6f9fbe3486c5accf2500027696d80122f9bc9f0b26999e391751113ef4632aa5",
+  "source": "query.wikidata.org SPARQL (ministers, position-holders since 1995)",
+  "licence": "CC0 1.0 (public domain dedication)",
+  "user_agent": "groAML/1.0 (https://groaml.grovisor.ae; info@grovisor.ae) python-httpx"
+}
