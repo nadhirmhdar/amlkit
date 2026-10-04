@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% set nav = 'alerts' %}
+{% block title %}Adverse media — groAML{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div class="eyebrow">Queue</div>
+  <h1>Adverse media</h1>
+  <p class="sub">
+    Negative-news coverage found for your customers, most serious first. This is a
+    screening aid, not a verified record: nobody has confirmed that an article is
+    about the customer, and nothing changes a risk rating until it is marked relevant.
+    Open the customer to decide. Sanctions, PEP and other match alerts are in
+    <a href="/alerts">Alerts</a>.
+  </p>
+</div>
+
+<div class="tab-filter">
+  <div class="tab-filter__tabs">
+  {% for s, label in [('open','Open'), ('relevant','Relevant'), ('not_relevant','Not relevant'), ('all','All')] %}
+    <a class="{{ 'on' if status == s else '' }}" href="/adverse-media?status={{ s }}">{{ label }} <span class="muted">({{ counts[s] }})</span></a>
+  {% endfor %}
+  </div>
+</div>
+
+{% if findings %}
+<div class="flat-list adverse-list">
+  {% for f in findings %}
+  <div class="list-row">
+    <div class="grow">
+      <div class="primary">
+        {% if f.customer_id %}<a href="/customers/{{ f.customer_id }}#adverse-media">{{ f.customer_name or f.reference or 'Customer' }}</a>{% else %}{{ f.customer_name or 'Customer' }}{% endif %}
+        {% if f.reference %}<span class="muted small">&middot; {{ f.reference }}</span>{% endif %}
+      </div>
+      <div class="side">
+        {% if f.url.lower().startswith(('http://', 'https://')) %}<a href="{{ f.url }}" target="_blank" rel="noopener noreferrer" dir="auto">{{ f.title or f.url }}</a>{% else %}<span dir="auto">{{ f.title or 'Untitled article' }}</span>{% endif %}
+        &middot; {{ f.domain or 'unknown source' }}{% if f.published_at %} &middot; {{ f.published_at[:10] }}{% endif %}{% if f.language %} &middot; {{ f.language }}{% endif %}
+      </div>
+      {% if f.name_evidence != 'title' %}
+      <div class="side muted" title="The name was matched in the article body, which we cannot show you. Open the article and confirm it is about this customer.">Name not in the headline: open the article to confirm.</div>
+      {% endif %}
+    </div>
+    <div class="side nowrap">
+      <span class="tag {{ 'high' if f.severity == 'financial_crime_alleged' else ('medium' if f.severity == 'regulatory_action' else 'low') }}">{{ f.severity.replace('_', ' ') }}</span>
+      {% if f.status != 'open' %}<span class="tag {{ 'low' if f.status == 'not_relevant' else 'high' }}">{{ f.status.replace('_', ' ') }}</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% if truncated %}
+<p class="muted small">Showing the first {{ cap }} of {{ counts[status] }}. Work through these and the next ones appear.</p>
+{% endif %}
+{% else %}
+<p class="muted">{% if status == 'open' %}<strong>Nothing to review.</strong> No adverse media finding is waiting for a decision.{% else %}No findings in this view.{% endif %}</p>
+{% endif %}
+
+{% endblock %}
