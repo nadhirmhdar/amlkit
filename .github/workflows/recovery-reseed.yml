@@ -55,7 +55,7 @@ jobs:
       - name: Install litestream
         run: |
           curl -fsSL -o /tmp/litestream.deb \
-            https://github.com/benbjohnson/litestream/releases/download/v0.5.16/litestream-0.5.16-linux-x86_64.deb
+            https://github.com/benbjohnson/litestream/releases/download/v0.5.17/litestream-0.5.17-linux-x86_64.deb
           sudo dpkg -i /tmp/litestream.deb
 
       - name: Download staged clean database

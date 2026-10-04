@@ -46,6 +46,32 @@ then failed with 503 (after ~260s) or 429 from Cloud Run's front end from roughl
 - `backup-verify`: prints the restore plan, fails at 300 s / warns at 150 s, and takes
   an optional `restore_point` (timestamp or TXID) for `workflow_dispatch`.
 
+## Correction (added after PR #396)
+
+The fix above, and the comments it put in `litestream.yml`, `scripts/entrypoint.sh`,
+`source-canary.yml` and `CLAUDE.md`, said litestream only snapshots after
+`snapshot.interval` of *continuous process uptime*, with no catch-up at startup.
+That is wrong for the version in use (v0.5.16, unchanged in v0.5.17).
+`Store.monitorCompactionLevel` in `store.go` starts each level's timer at 1 ns, so
+the first attempt runs as soon as litestream starts, and then reschedules to the
+next multiple of the interval on the UTC clock (`CompactionLevel.NextCompactionAt`
+= `now.Truncate(interval) + interval`). `Store.CompactDB` takes a snapshot whenever
+the newest one was created before the most recent grid boundary and the database
+has moved past it. The timeline above agrees: the daily snapshot landed at
+00:00:01 UTC. A local run of v0.5.17 logs `snapshot complete` about one second
+after startup.
+
+What still holds: at the 24h default a restore could replay up to a day of LTX files,
+and 4h caps that. `--min-instances 1` is still what keeps operators off the restore
+path. The reasoning that "a scaled-to-zero service never snapshots" does not hold,
+and neither does the claim that the deploy needed a warm instance for snapshots to
+fire. The deploy also runs with request-based CPU (no `--no-cpu-throttling`), so
+litestream gets very little CPU between requests. Its 1 s replication loop and its
+timers then run late, and WAL from the last request before an idle spell can sit
+unreplicated. Since then, the app asks litestream to sync (`litestream sync -wait`
+over the control socket, `amlkit/replication.py`, `AMLKIT_SYNC_REPLICA`) after the
+sanctions refresh, report finalisation and freeze execution.
+
 ## Recovery runbook (owner)
 
 The deploy can reseed the replica itself; no bucket write access outside the

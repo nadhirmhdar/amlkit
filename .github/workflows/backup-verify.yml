@@ -64,7 +64,7 @@ jobs:
       - name: Install litestream
         run: |
           curl -fsSL -o /tmp/litestream.deb \
-            https://github.com/benbjohnson/litestream/releases/download/v0.5.16/litestream-0.5.16-linux-x86_64.deb
+            https://github.com/benbjohnson/litestream/releases/download/v0.5.17/litestream-0.5.17-linux-x86_64.deb
           sudo dpkg -i /tmp/litestream.deb
 
       # No -config / litestream.yml needed -- litestream restore accepts a
@@ -141,7 +141,7 @@ jobs:
         run: |
           echo "restore: ${RESTORE_SECONDS}s"
           if [ "$RESTORE_SECONDS" -ge 300 ]; then
-            echo "::error::litestream restore took ${RESTORE_SECONDS}s (limit 300s). The replay since the last snapshot has grown too large for a Cloud Run cold start -- check that litestream is snapshotting (litestream.yml snapshot.interval, and that an instance stays up that long)."
+            echo "::error::litestream restore took ${RESTORE_SECONDS}s (limit 300s). The replay since the last snapshot has grown too large for a Cloud Run cold start -- check that litestream is snapshotting (it logs 'snapshot complete' every litestream.yml snapshot.interval; look for 'compaction failed' level=9 in the service logs)."
             exit 1
           fi
           if [ "$RESTORE_SECONDS" -ge 150 ]; then

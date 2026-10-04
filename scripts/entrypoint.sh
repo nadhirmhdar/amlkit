@@ -37,18 +37,20 @@ envsubst < /app/litestream.yml > "$LITESTREAM_CFG"
 # logs its duration so the trend is visible well before that.
 #
 # The restore is the other, bigger, part of that window. Litestream restores
-# the latest snapshot and then replays every LTX file written since it, and
-# a snapshot is only taken after `snapshot.interval` of *continuous process
-# uptime* (there is no catch-up snapshot at startup). On a service that
-# scales to zero that interval was never reached at the default 24h, so the
-# replay grew by a day's writes every day until a cold start no longer fit
-# Cloud Run's default 240s TCP startup probe: every request after an idle
-# period queued behind a doomed restore and came back 503/429 (2026-10-04).
-# litestream.yml now snapshots every few hours, the deploy keeps one instance
-# warm and extends the startup probe to 600s (see source-canary.yml), and
-# the restore below runs with more parallel downloads and logs how long it
-# took, warning once it passes RESTORE_WARN_SECONDS so the trend is visible
-# in the logs well before it threatens the startup window again.
+# the latest snapshot and then replays every LTX file written since it, so
+# the replay grows with the writes since the last snapshot. Snapshots run on
+# an absolute UTC grid of `snapshot.interval`, plus one attempt right after
+# startup (v0.5.x store.go: monitorCompactionLevel / CompactDB); they do not
+# need that much continuous uptime, as this comment used to claim. At the 24h
+# default the replay could hold a day of writes, and on 2026-10-04 a cold
+# start no longer fit Cloud Run's default 240s TCP startup probe: every
+# request after an idle period queued behind a doomed restore and came back
+# 503/429. litestream.yml now snapshots every 4h, the deploy keeps one
+# instance warm and extends the startup probe to 600s (see
+# source-canary.yml), and the restore below runs with more parallel
+# downloads and logs how long it took, warning once it passes
+# RESTORE_WARN_SECONDS so the trend is visible in the logs well before it
+# threatens the startup window again.
 RESTORE_ATTEMPTS="${AMLKIT_RESTORE_ATTEMPTS:-3}"
 RESTORE_RETRY_DELAY="${AMLKIT_RESTORE_RETRY_DELAY:-5}"
 RESTORE_PARALLELISM="${AMLKIT_RESTORE_PARALLELISM:-16}"
@@ -172,7 +174,7 @@ if [ ! -f /app/data/amlkit.db ]; then
             restore_seconds=$(( $(date +%s) - restore_started ))
             echo "litestream restore finished in ${restore_seconds}s (attempt $attempt, parallelism $RESTORE_PARALLELISM)."
             if [ "$restore_seconds" -ge "$RESTORE_WARN_SECONDS" ]; then
-                echo "WARNING: restore took ${restore_seconds}s (warn at ${RESTORE_WARN_SECONDS}s). The replay since the last litestream snapshot is growing; check that snapshots are being taken (litestream.yml snapshot.interval needs that much continuous uptime) before this outgrows the Cloud Run startup window."
+                echo "WARNING: restore took ${restore_seconds}s (warn at ${RESTORE_WARN_SECONDS}s). The replay since the last litestream snapshot is growing; check that snapshots are being taken (litestream logs 'snapshot complete' every litestream.yml snapshot.interval) before this outgrows the Cloud Run startup window."
             fi
             break
         fi
