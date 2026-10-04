@@ -297,7 +297,7 @@ def dataset_health_banner(conn: sqlite3.Connection) -> dict[str, Any] | None:
     return None
 
 
-def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
+def dashboard(conn: sqlite3.Connection, org_id: int, alerts_sort_by: str | None = "age_asc") -> dict[str, Any]:
     """Everything the 'am I compliant right now' view needs, for one org.
 
     `entities` (the shared sanctions/PEP corpus) is the one count here that is
@@ -308,10 +308,11 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
     staleness = staleness_report(conn)
     breaches = [d for d in staleness if d["breach"]]
 
-    # Oldest first, so when the queue is longer than the cap the alerts we
-    # miss are the newest, not the ones that have waited longest.
-    open_q = alert_queue(conn, org_id, status="open", limit=DASHBOARD_ALERT_CAP, sort_by="age_asc")
-    staged_q = alert_queue(conn, org_id, status="pending_review", limit=DASHBOARD_ALERT_CAP, sort_by="age_asc")
+    # The web dashboard asks for oldest first, so when the queue is longer than
+    # the cap the alerts it misses are the newest, not the ones that have waited
+    # longest. The mobile API passes None to keep its original highest-score order.
+    open_q = alert_queue(conn, org_id, status="open", limit=DASHBOARD_ALERT_CAP, sort_by=alerts_sort_by)
+    staged_q = alert_queue(conn, org_id, status="pending_review", limit=DASHBOARD_ALERT_CAP, sort_by=alerts_sort_by)
     alerts = open_q + staged_q
     alerts_truncated = len(open_q) >= DASHBOARD_ALERT_CAP or len(staged_q) >= DASHBOARD_ALERT_CAP
     # The lists above are capped (they feed the rows and dots). Every NUMBER shown
@@ -362,6 +363,9 @@ def dashboard(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
 
     return {
         "alerts_truncated": alerts_truncated,
+        # open_alerts / pending_review hold at most this many rows each; the
+        # counts below (alert_counts, alert_*_total) are never capped.
+        "alerts_cap": DASHBOARD_ALERT_CAP,
         "alert_counts": queue_counts,
         "alert_open_total": open_total,
         "alert_staged_total": staged_total,
@@ -484,7 +488,7 @@ def dashboard_kpis(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
 def alert_queue(
     conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
     alert_id: int | None = None, customer_id: int | None = None, sort_by: str | None = None,
-    category: str | None = None,
+    category: str | None = None, offset: int = 0,
 ) -> list[dict[str, Any]]:
     """Alerts with the entity and customer context needed to triage them,
     scoped to one organization.
@@ -494,6 +498,9 @@ def alert_queue(
     category: only alerts in this category (see _category). The category is
              derived in Python, so the limit is applied after filtering rather
              than in SQL -- otherwise a filter could miss alerts past the cap.
+    offset: skip this many alerts (in the SQL sort order) before `limit`, for
+             paging through a queue longer than the cap. Ties on the sort key
+             are broken by id so pages never overlap or skip.
     """
     sql = """
         SELECT a.id, a.score, a.score_detail, a.matched_name, a.status,
@@ -526,14 +533,17 @@ def alert_queue(
 
     # Apply sort order
     if sort_by == "age_asc":
-        sql += " ORDER BY a.created_at ASC LIMIT ?"
+        sql += " ORDER BY a.created_at ASC, a.id ASC LIMIT ? OFFSET ?"
     elif sort_by == "age_desc":
-        sql += " ORDER BY a.created_at DESC LIMIT ?"
+        sql += " ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?"
     else:
-        sql += " ORDER BY a.score DESC LIMIT ?"
+        sql += " ORDER BY a.score DESC, a.id ASC LIMIT ? OFFSET ?"
 
+    offset = max(0, int(offset or 0))
     out: list[dict[str, Any]] = []
-    for row in conn.execute(sql, (*params, -1 if category else limit)):
+    # With a category the filter runs in Python, so SQL returns everything and the
+    # offset/limit are applied to the filtered list below.
+    for row in conn.execute(sql, (*params, -1 if category else limit, 0 if category else offset)):
         topics = json.loads(row["topics"] or "[]")
         programs = json.loads(row["programs"] or "[]")
         cat = _category(topics, programs)
@@ -555,7 +565,7 @@ def alert_queue(
             }
         )
     if category:
-        out = [a for a in out if a["category"] == category][:limit]
+        out = [a for a in out if a["category"] == category][offset:offset + limit]
     # When using age-based sorting, preserve SQL sort order; otherwise apply category/score sort
     if sort_by not in ("age_asc", "age_desc"):
         out.sort(key=lambda a: (CATEGORY_RANK.get(a["category"], 9), -a["score"]))

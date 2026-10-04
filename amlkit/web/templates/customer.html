@@ -188,7 +188,8 @@
 {% if ubo_diagram %}
 <div class="mb-6">
   <div class="section-label">UBO ownership &amp; control diagram</div>
-  <div class="panel ubo-diagram-container">
+  {# The SVG is ~550px wide: on a phone it scrolls inside the panel instead of widening the page. #}
+  <div class="panel ubo-diagram-container" role="region" aria-label="UBO ownership and control diagram, scrolls sideways on small screens" tabindex="0">
     {{ ubo_diagram | safe }}
   </div>
 </div>

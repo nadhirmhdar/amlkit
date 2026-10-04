@@ -37,18 +37,20 @@ envsubst < /app/litestream.yml > "$LITESTREAM_CFG"
 # logs its duration so the trend is visible well before that.
 #
 # The restore is the other, bigger, part of that window. Litestream restores
-# the latest snapshot and then replays every LTX file written since it, and
-# a snapshot is only taken after `snapshot.interval` of *continuous process
-# uptime* (there is no catch-up snapshot at startup). On a service that
-# scales to zero that interval was never reached at the default 24h, so the
-# replay grew by a day's writes every day until a cold start no longer fit
-# Cloud Run's default 240s TCP startup probe: every request after an idle
-# period queued behind a doomed restore and came back 503/429 (2026-10-04).
-# litestream.yml now snapshots every few hours, the deploy keeps one instance
-# warm and extends the startup probe to 600s (see source-canary.yml), and
-# the restore below runs with more parallel downloads and logs how long it
-# took, warning once it passes RESTORE_WARN_SECONDS so the trend is visible
-# in the logs well before it threatens the startup window again.
+# the latest snapshot and then replays every LTX file written since it, so
+# the replay grows with the writes since the last snapshot. Snapshots run on
+# an absolute UTC grid of `snapshot.interval`, plus one attempt right after
+# startup (v0.5.x store.go: monitorCompactionLevel / CompactDB); they do not
+# need that much continuous uptime, as this comment used to claim. At the 24h
+# default the replay could hold a day of writes, and on 2026-10-04 a cold
+# start no longer fit Cloud Run's default 240s TCP startup probe: every
+# request after an idle period queued behind a doomed restore and came back
+# 503/429. litestream.yml now snapshots every 4h, the deploy keeps one
+# instance warm and extends the startup probe to 600s (see
+# source-canary.yml), and the restore below runs with more parallel
+# downloads and logs how long it took, warning once it passes
+# RESTORE_WARN_SECONDS so the trend is visible in the logs well before it
+# threatens the startup window again.
 RESTORE_ATTEMPTS="${AMLKIT_RESTORE_ATTEMPTS:-3}"
 RESTORE_RETRY_DELAY="${AMLKIT_RESTORE_RETRY_DELAY:-5}"
 RESTORE_PARALLELISM="${AMLKIT_RESTORE_PARALLELISM:-16}"
@@ -172,7 +174,7 @@ if [ ! -f /app/data/amlkit.db ]; then
             restore_seconds=$(( $(date +%s) - restore_started ))
             echo "litestream restore finished in ${restore_seconds}s (attempt $attempt, parallelism $RESTORE_PARALLELISM)."
             if [ "$restore_seconds" -ge "$RESTORE_WARN_SECONDS" ]; then
-                echo "WARNING: restore took ${restore_seconds}s (warn at ${RESTORE_WARN_SECONDS}s). The replay since the last litestream snapshot is growing; check that snapshots are being taken (litestream.yml snapshot.interval needs that much continuous uptime) before this outgrows the Cloud Run startup window."
+                echo "WARNING: restore took ${restore_seconds}s (warn at ${RESTORE_WARN_SECONDS}s). The replay since the last litestream snapshot is growing; check that snapshots are being taken (litestream logs 'snapshot complete' every litestream.yml snapshot.interval) before this outgrows the Cloud Run startup window."
             fi
             break
         fi
@@ -185,6 +187,47 @@ if [ ! -f /app/data/amlkit.db ]; then
         sleep "$RESTORE_RETRY_DELAY"
         attempt=$((attempt + 1))
     done
+
+    # One-boot reseed: when the target replica is empty and a source replica
+    # is named, restore the source (at AMLKIT_SEED_TXID if set, else its
+    # head) and let `litestream replicate` below write it to the target as a
+    # fresh generation. This is how a replica is recovered after its head
+    # stops decoding (2026-10-04: litestream-v2 broke at TXID 0x2bdb, the
+    # last clean point was 0x2bcb) without anyone needing bucket write
+    # access outside the service itself. It is guarded on "target has no
+    # replica": once the target exists the seed variables are ignored, so a
+    # restart cannot roll the new replica back to the seed point, and a later
+    # deploy drops the variables (--set-env-vars replaces the whole list).
+    SEEDED=""
+    if [ ! -f /app/data/amlkit.db ] && [ -n "${AMLKIT_SEED_FROM_URL:-}" ]; then
+        seed_point=""
+        if [ -n "${AMLKIT_SEED_TXID:-}" ]; then
+            seed_point="-txid $AMLKIT_SEED_TXID"
+        fi
+        echo "No replica at ${LITESTREAM_REPLICA_URL}; seeding it from ${AMLKIT_SEED_FROM_URL}${AMLKIT_SEED_TXID:+ at txid $AMLKIT_SEED_TXID}..."
+        attempt=1
+        seed_started=$(date +%s)
+        while :; do
+            rm -f /app/data/amlkit.db /app/data/amlkit.db-wal /app/data/amlkit.db-shm
+            INTEGRITY_CODE=0
+            # shellcheck disable=SC2086 -- seed_point is zero or two words
+            litestream restore $seed_point -parallelism "$RESTORE_PARALLELISM" \
+                -o /app/data/amlkit.db "$AMLKIT_SEED_FROM_URL" || INTEGRITY_CODE=$?
+            if [ "$INTEGRITY_CODE" -eq 0 ] && [ -f /app/data/amlkit.db ]; then
+                echo "seed restore finished in $(( $(date +%s) - seed_started ))s (attempt $attempt)."
+                SEEDED=1
+                break
+            fi
+            if [ "$attempt" -ge "$RESTORE_ATTEMPTS" ]; then
+                INTEGRITY_STATUS=seed_failed
+                INTEGRITY_OUTPUT=""
+                refuse_to_start "seed restore from ${AMLKIT_SEED_FROM_URL}${AMLKIT_SEED_TXID:+ at txid $AMLKIT_SEED_TXID} failed ${attempt} times (exit $INTEGRITY_CODE)"
+            fi
+            echo "seed restore failed (exit $INTEGRITY_CODE, attempt $attempt of $RESTORE_ATTEMPTS); retrying in ${RESTORE_RETRY_DELAY}s..."
+            sleep "$RESTORE_RETRY_DELAY"
+            attempt=$((attempt + 1))
+        done
+    fi
 
     if [ ! -f /app/data/amlkit.db ]; then
         # No replica at that URL. For a brand-new deployment that is expected;
@@ -206,6 +249,11 @@ if [ ! -f /app/data/amlkit.db ]; then
         verify_db /app/data/amlkit.db
         if [ "$INTEGRITY_STATUS" = "ok" ]; then
             echo "Database integrity OK."
+            if [ -n "$SEEDED" ]; then
+                echo "Seeded database verified; litestream replicate will write it to ${LITESTREAM_REPLICA_URL} as a fresh generation. Drop AMLKIT_SEED_FROM_URL / AMLKIT_SEED_TXID from the deploy once that replica exists."
+            fi
+        elif [ -n "$SEEDED" ]; then
+            refuse_to_start "seed database restored from ${AMLKIT_SEED_FROM_URL}${AMLKIT_SEED_TXID:+ at txid $AMLKIT_SEED_TXID} failed verification"
         else
             refuse_to_start "database restored from litestream replica ${LITESTREAM_REPLICA_URL} failed verification"
         fi

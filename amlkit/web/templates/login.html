@@ -9,7 +9,6 @@
   background: radial-gradient(60% 75% at 20% 60%, rgb(0 81 94 / .6), transparent 72%), #04141a;
   display:grid; grid-template-columns: minmax(0, 1fr) max(32%, 420px); }
 .si-strands { position:absolute; left:0; top:0; z-index:0; pointer-events:none; display:none; }
-.si-strands text { font: 700 11px/1 Manrope, sans-serif; letter-spacing:.14em; fill: rgba(233,241,242,.78); text-transform:uppercase; stroke:#04141a; stroke-width:4px; paint-order:stroke; }
 .si-left, .si-right { position:relative; z-index:1; }
 .si-left { padding:56px 72px; display:flex; flex-direction:column; justify-content:space-between; gap:40px; }
 .si-left .wm { font-size:34px; color:#fff; }
@@ -59,7 +58,7 @@
 </style>
 
 <div class="si" id="si">
-  <svg class="si-strands" id="si-strands" aria-hidden="true" focusable="false"></svg>
+  <canvas class="si-strands" id="si-strands" aria-hidden="true"></canvas>
 
   <div class="si-left">
     <div class="wm" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></div>
@@ -68,7 +67,6 @@
         <div class="si-row"><span class="si-w">Compliance,</span></div>
         <div class="si-row"><span class="si-w si-decide">simplified.</span></div>
       </div>
-      <p class="visually-hidden">Screens against the UN, OFAC, EU, UK, UAE, FATF, PEP and adverse media lists.</p>
     </div>
     <div class="si-foot">
       <img src="/static/img/grovisor-logo.png" alt="">

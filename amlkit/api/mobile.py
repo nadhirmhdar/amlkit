@@ -482,7 +482,12 @@ def api_setup_submit(body: SetupRequest, db: DB):
 # ----------------------------------------------------------------- dashboard
 @router.get("/dashboard")
 def api_dashboard(db: DB, session: Session):
-    return queries.dashboard(db, session.org_id)
+    """Dashboard summary. `open_alerts` and `pending_review` hold at most
+    `alerts_cap` rows each, highest score first; `alerts_truncated` says when
+    that cut something off. The counts (`alert_counts`, `alert_open_total`,
+    `alert_staged_total`, `alert_total`) are exact. To list more than the cap,
+    page through `GET /alerts` with `limit` and `offset`."""
+    return queries.dashboard(db, session.org_id, alerts_sort_by=None)
 
 
 @router.get("/datasets")
@@ -1172,12 +1177,30 @@ def api_customer_add_signature(customer_id: int, body: SignatureRequest, request
 
 
 # --------------------------------------------------------------------- alerts
+ALERTS_PAGE_MAX = 200
+
+
 @router.get("/alerts")
-def api_alerts(db: DB, session: Session, status: str = "open"):
-    queue = queries.alert_queue(db, session.org_id, status=None if status == "all" else status)
+def api_alerts(db: DB, session: Session, status: str = "open", limit: int = ALERTS_PAGE_MAX, offset: int = 0):
+    """The alert queue, highest score first, in pages.
+
+    `limit` (1..200, default 200) and `offset` page through it. `total` is the
+    exact number of alerts matching `status`, so a client knows whether there
+    is more: `truncated` is true when `offset + len(alerts) < total`. Without
+    the parameters this behaves as before (the first 200)."""
+    limit = max(1, min(int(limit), ALERTS_PAGE_MAX))
+    offset = max(0, int(offset))
+    status_filter = None if status == "all" else status
+    queue = queries.alert_queue(db, session.org_id, status=status_filter, limit=limit, offset=offset)
     for a in queue:
         a["reviews"] = review_history(db, a["id"], session.org_id)
-    return {"alerts": queue}
+    sql, params = "SELECT COUNT(*) n FROM alerts WHERE org_id = ?", [session.org_id]
+    if status_filter:
+        sql += " AND status = ?"
+        params.append(status_filter)
+    total = db.execute(sql, params).fetchone()["n"]
+    return {"alerts": queue, "total": total, "limit": limit, "offset": offset,
+            "truncated": offset + len(queue) < total}
 
 
 @router.get("/alerts/summary")
@@ -1646,6 +1669,8 @@ def api_report_submit(report_id: int, db: DB, session: Session):
         # A finalised CNMR is what moves its freeze to 'reported'.
         from ..cases.freeze import mark_freeze_reported
         mark_freeze_reported(db, report_id, session.org_id, session.operator_name, now)
+    from ..replication import sync_replica
+    sync_replica(timeout=10, reason="report finalized")
     return {
         "ok": True,
         "finalized": True,

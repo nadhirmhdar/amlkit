@@ -124,6 +124,13 @@ CREATE TABLE IF NOT EXISTS name_tokens (
     PRIMARY KEY (token, entity_id)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS ix_tokens_token ON name_tokens(token);
+-- The primary key leads with `token`, so nothing can look rows up by
+-- entity_id. ingest/loader.py's per-entity `DELETE FROM name_tokens WHERE
+-- entity_id=?` (every refresh, for every entity already stored) and the
+-- ON DELETE CASCADE from entities both need this, or each delete scans the
+-- whole table. Measured: reloading ~40k existing entities took ~560s
+-- without it.
+CREATE INDEX IF NOT EXISTS ix_tokens_entity ON name_tokens(entity_id);
 
 CREATE TABLE IF NOT EXISTS entity_identifiers (
     entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,

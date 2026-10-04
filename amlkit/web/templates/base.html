@@ -300,9 +300,11 @@
    it also covers first-time visitors on /login and /register-organization. #}
 <div id="cookie-notice" class="cookie-notice no-print" style="display:none;" role="status">
   <p>
-    groAML uses a small number of strictly necessary cookies (sign-in, security,
+    <span class="cookie-full">groAML uses a small number of strictly necessary cookies (sign-in, security,
     and one-time messages). No advertising or tracking cookies, and nothing is
-    shared with third parties.
+    shared with third parties.</span>
+    {# Phones: a short form, so the notice does not cover the page's last control. #}
+    <span class="cookie-short">Strictly necessary cookies only. No advertising or tracking.</span>
     <a href="/privacy">Learn more</a>
   </p>
   <button type="button" data-action="dismiss-cookie-notice">Got it</button>

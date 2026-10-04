@@ -478,12 +478,25 @@ function showCookieNoticeIfNeeded() {
   if (!el) return;
   var dismissed = false;
   try { dismissed = localStorage.getItem(COOKIE_NOTICE_KEY) === '1'; } catch (e) { /* ignore */ }
-  if (!dismissed) el.style.display = 'flex';
+  if (!dismissed) {
+    el.style.display = 'flex';
+    reserveCookieNoticeSpace(el);
+    window.addEventListener('resize', function() { reserveCookieNoticeSpace(el); });
+  }
+}
+
+// Reserve the notice's height at the bottom of the page (see .cookie-open in
+// app.css) so it never traps the last control underneath it.
+function reserveCookieNoticeSpace(el) {
+  if (el.style.display === 'none') return;
+  document.documentElement.style.setProperty('--cookie-notice-h', el.offsetHeight + 'px');
+  document.documentElement.classList.add('cookie-open');
 }
 
 function dismissCookieNotice() {
   var el = document.getElementById('cookie-notice');
   if (el) el.style.display = 'none';
+  document.documentElement.classList.remove('cookie-open');
   try { localStorage.setItem(COOKIE_NOTICE_KEY, '1'); } catch (e) { /* ignore */ }
 }
 

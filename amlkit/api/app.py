@@ -1518,6 +1518,10 @@ def freeze_obligation_execute(request: Request, db: DB, freeze_id: int, form: An
     except ValueError as exc:
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
 
+    # A freeze record is evidence of a time-bound legal obligation: get it to
+    # the replica now rather than whenever litestream next gets CPU.
+    from ..replication import sync_replica
+    sync_replica(timeout=10, reason="freeze executed")
     return back(f"/freeze-obligations/{freeze_id}", msg="Freeze executed successfully.")
 
 @app.post("/freeze-obligations/{freeze_id}/file-ffr")
@@ -3442,6 +3446,34 @@ def admin_reset_password(
     return back("/admin", msg="Password reset. All of that operator's sessions were signed out.")
 
 
+@app.post("/admin/operators/{operator_id}/rename")
+def admin_rename_operator(
+    request: Request, db: DB, operator_id: int,
+    name: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()] = "",
+):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    from ..cases.operators import rename_operator
+    try:
+        result = rename_operator(
+            db, operator_id, session.org_id, name, actor=session.operator_name,
+        )
+    except ValueError as exc:
+        return back("/admin", err=str(exc))
+    if not result["changed"]:
+        return back("/admin", msg="That is already this operator's name.")
+    return back("/admin", msg=f"Renamed {result['old_name']} to {result['new_name']}.")
+
+
 @app.post("/admin/operators")
 def admin_create_operator(
     request: Request, db: DB,
@@ -3886,6 +3918,12 @@ def system_refresh(request: Request):
     finally:
         if conn is not None:
             conn.close()
+        # The refresh rewrites the lists and rescreens every customer: the
+        # largest write of the day, and the one most likely to be followed by
+        # an idle spell in which litestream may get little CPU. Wait
+        # for the replica before answering Cloud Scheduler.
+        from ..replication import sync_replica
+        sync_replica(timeout=30, reason="sanctions refresh")
 
     # 500 on mandatory-source failure so Cloud Scheduler retries (it only
     # retries on non-2xx). 207 for non-mandatory partial failures leaves a
@@ -4145,6 +4183,8 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
         from ..cases.freeze import mark_freeze_reported
         mark_freeze_reported(db, report_id, session.org_id, session.operator_name, now)
 
+    from ..replication import sync_replica
+    sync_replica(timeout=10, reason="report finalized")
     return back(f"/reports/{report_id}",
                msg="Report finalized in groAML. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.")
 

@@ -17,8 +17,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # restored a snapshot once at container startup, so every write made during
 # a container's lifetime was lost the moment Cloud Run recycled the instance.
 # entrypoint.sh now runs the app under `litestream replicate -exec`.
+# v0.5.17 (was v0.5.16): bundles a modernc.org/sqlite without SQLite's
+# WAL-reset corruption bug (#1436), retries restores through provider
+# throttling (#1433), and errors instead of panicking on a truncated LTX page
+# index (#1431). No config/CLI changes affect this repo. Keep the version in
+# step with backup-verify.yml and recovery-reseed.yml.
 RUN curl -fsSL -o /tmp/litestream.deb \
-      https://github.com/benbjohnson/litestream/releases/download/v0.5.16/litestream-0.5.16-linux-x86_64.deb \
+      https://github.com/benbjohnson/litestream/releases/download/v0.5.17/litestream-0.5.17-linux-x86_64.deb \
     && dpkg -i /tmp/litestream.deb \
     && rm /tmp/litestream.deb
 

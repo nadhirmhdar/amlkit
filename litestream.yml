@@ -1,8 +1,9 @@
 dbs:
   - path: /app/data/amlkit.db
     # Singular `replica:` (ReplicaConfig.URL/.Type -- cmd/litestream/main.go
-    # in the v0.5.16 tag), not a `replicas:` list -- that key still exists
-    # (deprecated) but wasn't reliably parsed in testing here.
+    # in the v0.5.16 tag, unchanged in v0.5.17), not a `replicas:` list --
+    # that key still exists (deprecated) but wasn't reliably parsed in
+    # testing here.
     #
     # Scheme is `gs://`, not `gcs://`. litestream's own PROVIDER_COMPATIBILITY.md
     # documents `gcs://`, but the actual v0.5.16 binary's replica-type switch
@@ -19,13 +20,31 @@ dbs:
 # Full-database snapshot (L9) schedule. A restore downloads the newest
 # snapshot and then replays every LTX file written after it, so the replay --
 # and the cold-start time -- grows with the writes since the last snapshot.
-# Litestream only snapshots after this much *continuous* process uptime (no
-# catch-up at startup), so on a service that could scale to zero the 24h
-# default never fired: nothing had been re-snapshotted since the 2026-09-27
-# reseed, each cold start replayed a week of sanctions refreshes, and on
-# 2026-10-04 that no longer fit the startup window (every request 503/429).
-# 4h is reachable now that the deploy keeps one instance warm; the price is
-# one extra copy of the database in the bucket every 4h, kept for 24h.
+# Snapshots run on an absolute UTC grid (every 4h: 00:00, 04:00, ...), and
+# litestream also makes one attempt as soon as it starts: a snapshot is taken
+# whenever the newest one predates the last grid boundary and the database has
+# moved on since (Store.monitorCompactionLevel / CompactDB in v0.5.x store.go).
+# So it does NOT need `interval` of continuous uptime -- an earlier version of
+# this comment said it did; see the Correction in
+# docs/incidents/2026-10-04-groaml-cold-start-outage.md. With the 24h default
+# the replay could still grow to a full day of sanctions refreshes before the
+# next snapshot, and on 2026-10-04 that no longer fit the startup window
+# (every request 503/429). 4h caps it; the price is one extra copy of the
+# database in the bucket every 4h, kept for 24h.
 snapshot:
   interval: 4h
   retention: 24h
+
+# Control socket for `litestream sync` (cmd/litestream/sync.go): the app runs
+# `litestream sync -wait -socket /tmp/litestream.sock <db>` after its most
+# compliance-critical commits (amlkit/replication.py) so they reach GCS before
+# the response returns, rather than whenever litestream's 1s monitor next gets
+# CPU (Cloud Run throttles the CPU between requests). /tmp, not the
+# /var/run/litestream.sock default, so it never depends on the image's user.
+# 0600 (litestream's default, spelled out): the app is litestream's -exec
+# child, so it runs as the same user. A socket that fails to start is only a
+# warning in litestream, never fatal.
+socket:
+  enabled: true
+  path: /tmp/litestream.sock
+  permissions: 0600

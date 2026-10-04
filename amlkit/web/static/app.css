@@ -983,9 +983,18 @@ form.is-submitting button[type="submit"] {
   flex-shrink: 0; background: white; color: var(--ink); border: none;
   border-radius: 999px; padding: 8px 18px; font-size: 13px; font-weight: 700; cursor: pointer;
 }
+.cookie-short { display: none; }
 @media (max-width: 680px) {
-  .cookie-notice { bottom: calc(var(--tabbar-h, 0px) + 20px); }
+  .cookie-notice { bottom: 12px; left: 12px; right: 12px; gap: 8px 12px; padding: 10px 14px; flex-wrap: nowrap; }
+  .cookie-full { display: none; }
+  .cookie-short { display: inline; }
+  /* Signed-in pages have the tab bar: sit above it. */
+  body:has(.mobile-tabbar) .cookie-notice { bottom: calc(var(--tabbar-h, 0px) + 12px); }
+  .cookie-notice p { flex: 1 1 auto; font-size: 12.5px; line-height: 1.45; }
 }
+/* While the notice is up, the page gets that much extra room at the bottom so
+   the last control (e.g. Sign in on a phone) can be scrolled out from under it. */
+html.cookie-open body { padding-bottom: calc(var(--cookie-notice-h, 0px) + 24px); }
 
 /* ------------------------------------------------------------------- feedback */
 /* Same ink-black + teal radial glow as .btn-glow/.hero-stat, so the
@@ -1511,6 +1520,11 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
   }
 }
 /* =============================================== end mobile layout fixes */
+
+/* Ownership diagram: scrolls inside its panel rather than widening the page. */
+.ubo-diagram-container { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+.ubo-diagram-container:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ubo-diagram-container svg { display: block; max-width: none; }
 
 /* Adverse media list on phones: title and detail on top, severity beneath,
    not squeezed into a one-word column beside the tags. */
