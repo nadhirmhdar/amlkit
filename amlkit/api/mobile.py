@@ -535,7 +535,7 @@ def api_screen(body: ScreenRequest, db: DB, session: Session):
         actor=session.operator_name,
     )
     return {
-        "query": result.query, "clear": result.clear, "candidates": result.candidates,
+        "query": result.query, "clear": result.clear, "unscreenable": result.unscreenable, "candidates": result.candidates,
         "threshold": result.threshold, "low_confidence": len(name.split()) < 2,
         "hits": [_hit_json(db, h) for h in result.hits],
     }

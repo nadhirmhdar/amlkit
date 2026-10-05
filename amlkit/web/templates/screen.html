@@ -73,6 +73,12 @@
           </div>
         {% endfor %}
       </div>
+    {% elif result.unscreenable %}
+      <div class="banner warn mt-6">
+        <strong>Not screened.</strong> {{ name(query) }} could not be reduced to
+        any searchable name tokens (unsupported characters?). This is not a clear
+        result — re-enter the name in plain Arabic or Latin letters, or review it manually.
+      </div>
     {% else %}
       <div style="font-size:14.5px; color:var(--ink-2); border-top:1px solid var(--line); padding-top:20px; margin-top:28px; line-height:1.6;">
         <strong style="color:var(--good);">No match.</strong> {{ name(query) }} screened against

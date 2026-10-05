@@ -56,7 +56,33 @@ _ARABIC_LETTER_MAP = {
     "ھ": "ه",  # heh doachashmee -> heh
 }
 
-_ARABIC_RANGE = re.compile(r"[؀-ۿݐ-ݿ]")
+# Arabic script blocks: base (0600-06FF), Supplement (0750-077F), and the two
+# Presentation Forms blocks (FB50-FDFF, FE70-FEFF). Presentation forms are what
+# PDF/Word copy-paste and some legacy systems emit; they are visually identical
+# to the base letters but are different code points, so a base-block-only check
+# classifies them as non-Arabic and the name canonicalises to nothing.
+_ARABIC_RANGE = re.compile("[\\u0600-\\u06ff\\u0750-\\u077f\\ufb50-\\ufdff\\ufe70-\\ufeff]")
+
+
+def clean_name_text(text: str) -> str:
+    """Unicode-normalise a raw name before any matching logic touches it.
+
+    NFKC folds compatibility characters -- notably the Arabic Presentation
+    Forms (U+FB50-FDFF, U+FE70-FEFF) back to their base letters -- and then
+    every format character (Unicode category Cf: ZWSP, ZWJ, ZWNJ, LRM/RLM,
+    bidi embeddings/isolates, word joiner, BOM, soft hyphen) is dropped.
+    Cf characters are invisible, so a name containing them looks identical to
+    the listed one on screen; leaving them in splits tokens and silently turns
+    an exact listed name into a miss.
+
+    This is applied at the start of every canonicalisation entry point
+    (`has_arabic_script`, `normalize_arabic`, `tokenize`), which covers the
+    customer-side and list-side keys alike since they share these functions.
+    """
+    if not text:
+        return ""
+    text = unicodedata.normalize("NFKC", text)
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
 
 # Names that inherently start with "ال" or hamza-bearing variants as part of
 # their root, not as a definite article prefix. Issue #139: these must be
@@ -166,7 +192,7 @@ def transliterate_arabic(token: str) -> str:
 
 def has_arabic_script(text: str) -> bool:
     """True if the string contains any Arabic-script character."""
-    return bool(_ARABIC_RANGE.search(text or ""))
+    return bool(_ARABIC_RANGE.search(clean_name_text(text)))
 
 
 def normalize_arabic(text: str) -> str:
@@ -177,7 +203,7 @@ def normalize_arabic(text: str) -> str:
     """
     if not text:
         return ""
-    text = unicodedata.normalize("NFKC", text)
+    text = clean_name_text(text)
     text = _ARABIC_DIACRITICS.sub("", text)
     text = text.replace(_TATWEEL, "")
     # Definite article stripping BEFORE hamza normalization. The article "ال"
@@ -422,6 +448,7 @@ def tokenize(name: str) -> tuple[list[str], list[str]]:
     """
     if not name:
         return [], []
+    name = clean_name_text(name)
     if has_arabic_script(name):
         # Romanise per token before anything else, so particle detection,
         # theophoric rejoining and the variant table all operate in one script.

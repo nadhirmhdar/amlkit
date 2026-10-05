@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass, field
 from typing import Any
@@ -12,6 +13,8 @@ from ..db import audit, utcnow
 from ..names.arabic import blocking_keys
 from ..screening.pf import classify_programs, obligation_note
 from .scorer import DEFAULT_THRESHOLD, ScoreResult, score_entity
+
+log = logging.getLogger(__name__)
 
 # Valid screening triggers. EOCN requires screening at each of these points,
 # so the trigger is recorded on every run to evidence that the obligation was
@@ -70,12 +73,19 @@ class ScreeningResult:
     # earlier alert for the same entity+customer/UBO is still open produces
     # no new row, so this can be lower than len(hits).
     alerts_created: int = 0
+    # True when the query contains letters but canonicalises to no usable
+    # tokens, so nothing could be searched. This is NOT a clear result: a
+    # name we could not canonicalise must go to manual review, never be
+    # reported as "no match".
+    unscreenable: bool = False
 
     @property
     def clear(self) -> bool:
-        return not self.hits
+        return not self.hits and not self.unscreenable
 
     def summary(self) -> str:
+        if self.unscreenable:
+            return f"UNSCREENABLE  '{self.query}' - no screenable name tokens; manual review required"
         if self.clear:
             return f"CLEAR  '{self.query}' - {self.candidates} candidates, no hits >= {self.threshold}"
         top = max(h.score for h in self.hits)
@@ -275,6 +285,12 @@ def screen(
     out = ScreeningResult(
         query=name, trigger=trigger, threshold=threshold, candidates=len(rows), hits=hits
     )
+    # Letters present but no blocking keys: the name could not be searched at
+    # all (digits/symbols-only queries have no letters and stay as before).
+    # Flag it rather than letting "0 candidates" read as a clean screening.
+    if not blocking_keys(name) and any(ch.isalpha() for ch in name):
+        out.unscreenable = True
+        log.warning("screen(): name has letters but no screenable tokens; flagged unscreenable")
 
     if persist:
         # blocking_keys(name) is also computed inside _candidates() -- cheap
