@@ -758,11 +758,20 @@ def uaepass_operator_callback(request: Request, db: DB, code: str = "", state: s
 
 @app.post("/logout")
 def logout_submit(request: Request, db: DB, csrf_token: Annotated[str, Form()] = ""):
+    session = current_session(request, db)
+    if session is None:
+        # Nothing to protect: no session means a forged logout cannot sign
+        # anyone out, so a stale tab or an expired session just lands on the
+        # sign-in page instead of a bare 403.
+        resp = RedirectResponse("/login", status_code=303)
+        resp.delete_cookie(SESSION_COOKIE)
+        return resp
     try:
         require_csrf(request, csrf_token)
-    except PermissionError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=403)
-    session = current_session(request, db)
+    except PermissionError:
+        # Signed in but the token is stale/missing: keep the session (a
+        # cross-site forced logout stays blocked) and ask the user to retry.
+        return back("/", err="Please try logging out again.")
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         auth.logout(db, token, session, ip=client_ip(request))
@@ -1558,7 +1567,8 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
     except Exception as exc:
         # Catch GoAMLValidationError for missing entity_reference
-        if "goAML entity reference" in str(exc):
+        from ..reporting.goaml import is_entity_reference_error
+        if is_entity_reference_error(exc):
             return back(
                 f"/freeze-obligations/{freeze_id}",
                 err='Set your goAML entity reference under Admin → Organisation profile before filing. '
@@ -3285,7 +3295,9 @@ def admin_save_org_profile(
     try:
         require_csrf(request, csrf_token)
     except PermissionError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=403)
+        # Same convention as every other form route: redirect back with a flash
+        # error. Nothing is written, so the profile is unchanged.
+        return back("/admin", err=str(exc))
     try:
         require_role(session, "mlro")
     except PermissionError as exc:
@@ -4238,7 +4250,9 @@ def report_export_xml(request: Request, db: DB, report_id: int):
         raise HTTPException(status_code=404, detail="Report not found")
 
     import json
-    from ..reporting.goaml import GoAMLValidationError, inject_reporting_entity, serialize_goaml_xml
+    from ..reporting.goaml import (
+        GoAMLValidationError, inject_reporting_entity, is_entity_reference_error,
+        serialize_goaml_xml)
 
     payload = json.loads(rep["payload"] or "{}")
 
@@ -4246,7 +4260,7 @@ def report_export_xml(request: Request, db: DB, report_id: int):
     try:
         inject_reporting_entity(payload, db, session.org_id)
     except GoAMLValidationError as exc:
-        if "goAML entity reference" in str(exc):
+        if is_entity_reference_error(exc):
             from fastapi import HTTPException
             raise HTTPException(
                 status_code=400,

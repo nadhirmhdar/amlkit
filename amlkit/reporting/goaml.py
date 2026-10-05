@@ -45,6 +45,19 @@ def _require(report_data: dict, key: str, label: str) -> str:
     return value
 
 
+# Structured tag for the entity-reference gap, set on the error that
+# inject_reporting_entity raises. Callers detect it with
+# is_entity_reference_error() -- never by matching the message text, which is
+# free to be reworded.
+ENTITY_REFERENCE_KEY = "entity_reference"
+ENTITY_REFERENCE_LABEL = "goAML entity reference (enter it on the report or set it under Admin)"
+
+
+def is_entity_reference_error(exc: BaseException) -> bool:
+    """True when ``exc`` is the "no goAML entity reference anywhere" failure."""
+    return getattr(exc, "key", None) == ENTITY_REFERENCE_KEY
+
+
 # Report types with UI creation routes
 SUPPORTED_REPORT_TYPES = {"STR", "SAR", "FFR"}
 
@@ -100,15 +113,29 @@ def inject_reporting_entity(payload: dict, db, org_id: int) -> None:
     # source provides one -- never silently emit the old "AML-REF" placeholder.
     if not (payload.get("entity_reference") or "").strip():
         if not row["goaml_entity_reference"]:
-            raise GoAMLValidationError(
+            exc = GoAMLValidationError(
                 "goAML entity reference not configured for this organization. "
                 "Set it in the admin organization profile."
             )
+            # Tagged exactly like _require() tags its errors, so callers never
+            # have to match the message text.
+            exc.key = ENTITY_REFERENCE_KEY
+            exc.label = ENTITY_REFERENCE_LABEL
+            raise exc
         payload["entity_reference"] = row["goaml_entity_reference"]
 
 
+# Marks a missing_export_fields() item that is a sentence, not a field label.
+NOT_FIELD_PREFIX = "This report cannot be exported as goAML: "
+
+
 def missing_export_fields(payload: dict, db=None, org_id: int | None = None) -> list[str]:
-    """Return human-readable labels of everything that would block a goAML export.
+    """Return human-readable reasons a goAML export would be refused.
+
+    Each item is either the label of a missing field (a gap the user can fill
+    in) or, for a failure that is not a fillable field (unsupported report
+    type, missing freeze obligation id), a complete sentence starting with
+    ``NOT_FIELD_PREFIX``. Use ``is_field_gap()`` to tell them apart.
 
     Dry-runs the real export path (``inject_reporting_entity`` when ``db`` and
     ``org_id`` are given, then ``serialize_goaml_xml``) so the answer can never
@@ -122,11 +149,11 @@ def missing_export_fields(payload: dict, db=None, org_id: int | None = None) -> 
         try:
             inject_reporting_entity(probe, db, org_id)
         except GoAMLValidationError as exc:
-            if "entity reference" in str(exc):
-                problems.append("goAML entity reference (enter it on the report or set it under Admin)")
-                probe["entity_reference"] = "x"
+            if is_entity_reference_error(exc):
+                problems.append(exc.label)
+                probe[ENTITY_REFERENCE_KEY] = "x"
             else:
-                problems.append(str(exc))
+                problems.append(NOT_FIELD_PREFIX + str(exc))
     seen: set[str] = set()
     for _ in range(25):
         try:
@@ -135,15 +162,21 @@ def missing_export_fields(payload: dict, db=None, org_id: int | None = None) -> 
         except GoAMLValidationError as exc:
             key = getattr(exc, "key", None)
             if key is None or key in seen:
-                problems.append(str(exc))
+                problems.append(NOT_FIELD_PREFIX + str(exc))
                 break
             seen.add(key)
             problems.append(exc.label)
             probe[key] = "x"
         except ValueError as exc:
-            problems.append(str(exc))
+            problems.append(NOT_FIELD_PREFIX + str(exc))
             break
     return problems
+
+
+def is_field_gap(problem: str) -> bool:
+    """True for a missing-field label from missing_export_fields(), False for a
+    non-fillable refusal reason."""
+    return not problem.startswith(NOT_FIELD_PREFIX)
 
 
 def serialize_goaml_xml(report_data: dict) -> str:
