@@ -23,16 +23,16 @@
 ] %}
 {% set glance = [
   "goAML is the UAE FIU's reporting platform. DNFBPs register and file directly on it, not through an intermediary.",
-  "An STR covers a transaction &mdash; completed, attempted or ongoing. An SAR covers suspicious activity or behaviour that isn't tied to one specific transaction.",
+  "An STR covers a transaction — completed, attempted or ongoing. An SAR covers suspicious activity or behaviour that isn't tied to one specific transaction.",
   "“Reasonable grounds to suspect” is the trigger, not proof. Waiting for certainty before filing is itself a compliance failure.",
   "“Without delay” has no fixed day-count in the law. Treat same-day filing as your internal goal, and be ready to explain to your supervisor any gap between forming a suspicion and filing.",
-  "Filing late or not at all is an offence under UAE federal AML law, with criminal and administrative consequences. Confirm the current penalties with your supervisory authority or a UAE-qualified adviser.",
+  "Filing late or not at all can be an offence under UAE federal AML law, with criminal and administrative consequences. Confirm the current penalties with your supervisory authority or a UAE-qualified adviser.",
 ] %}
 {% set faqs = [
   {"q": "Do I need proof before filing an STR?",
    "a": "No. The legal test is reasonable grounds to suspect, not proof. If you have grounds to suspect a transaction involves proceeds of crime, or lacks an apparent lawful or economic purpose, you file — the FIU's job, not yours, is to investigate and establish facts."},
   {"q": "What happens if I tell the customer I filed a report?",
-   "a": "That is tipping off, and it is itself an offence, separate from the reporting failure. You continue to deal with the customer normally (unless a freeze or suspension order from the FIU or EOCN says otherwise) and say nothing about the report."},
+   "a": "That is tipping off, which can itself be an offence, separate from the reporting failure. You continue to deal with the customer normally (unless a freeze or suspension order from the FIU or EOCN says otherwise) and say nothing about the report."},
   {"q": "Is there a fixed number of days to file an STR?",
    "a": "The law's standard is “without delay.” It does not set a fixed day-count the way the 24-hour sanctions freeze does. Treat same-day filing as the goal. As a suggested internal standard (not a legal deadline), treat a gap of more than a day or two after you form the suspicion as something you would have to justify to your supervisory authority."},
   {"q": "What if the suspicious transaction never actually completed?",
@@ -123,15 +123,15 @@
 
 <h2 id="penalties">What a missed filing costs</h2>
 <div class="bl-callout bl-callout--warn">
-  <b class="t">A federal offence, not just a compliance gap</b>
-  <p>Failing to report a suspicious transaction or activity in time can be a criminal offence under UAE federal AML law, on top of whatever administrative action your supervisory authority takes separately. The penalty amounts are set by the law and changed with the 2025 law, so we do not quote a figure here; confirm the current penalties with your supervisory authority or a UAE-qualified adviser.</p>
+  <b class="t">Criminal and administrative exposure</b>
+  <p>Failing to report a suspicious transaction or activity in time can be a criminal offence under UAE federal AML law, on top of whatever administrative action your supervisory authority takes separately. The penalty amounts are set by the law, so we do not quote a figure here; confirm the current penalties with your supervisory authority or a UAE-qualified adviser.</p>
 </div>
 
 <div class="bl-product">
   <div class="ico" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4eccd3" stroke-width="2.2" stroke-linecap="round"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg></div>
   <div>
     <b>How groAML handles this</b>
-    <p>groAML exports goAML 5.0-compliant STR/SAR XML filings pre-filled straight from the customer's existing case file — the identity, ownership and transaction history you've already captured carries through, instead of being re-typed into the goAML form under time pressure.</p>
+    <p>groAML exports goAML 5.x-format STR/SAR XML pre-filled straight from the customer's existing case file, which you should validate before filing. The identity, ownership and transaction history you've already captured carries through, instead of being re-typed into the goAML form under time pressure.</p>
     <a class="bl-btn bl-btn--light" href="/about">See how it works</a>
   </div>
 </div>

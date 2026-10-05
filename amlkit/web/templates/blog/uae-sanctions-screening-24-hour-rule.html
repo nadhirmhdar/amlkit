@@ -1,10 +1,10 @@
 {% extends "blog/_article.html" %}
 {# Every legal statement in this guide traces to the EOCN "Guidance on
    Targeted Financial Sanctions for Financial Institutions, DNFBPs and VASPs"
-   (issued January 2021, last amended July 2025) -- paragraph numbers in the
+   (reported as issued January 2021 and last amended July 2025) -- paragraph numbers in the
    comments below refer to that document. Re-check them against the current
    EOCN guidance before changing `updated` in blog.py. #}
-{% set reviewed_against = "the EOCN Guidance on Targeted Financial Sanctions (last amended July 2025)" %}
+{% set reviewed_against = "the EOCN Guidance on Targeted Financial Sanctions (reported as last amended July 2025)" %}
 {% set toc = [
   ("the-rule", "The rule in one paragraph"),
   ("four-obligations", "The four obligations"),
@@ -26,7 +26,7 @@
   "“Without delay” means immediately, and in any case within 24 hours of a designation.",
   "Freeze first, with no prior notice to the customer. You may tell them only after the freeze is in place.",
   "Report a confirmed match (CNMR, formerly the FFR) or a partial match (PNMR) on goAML within five business days.",
-  "Keep every screening result, including false positives, for at least five years.",
+  "Keep every screening result, including false positives, for the period the law requires (groAML's default retention plan is 10 years; confirm against current law).",
 ] %}
 {% set faqs = [
   {"q": "Is it tipping off if I tell the customer their funds are frozen?",
@@ -43,7 +43,7 @@
    "a": "Reporting entities that are not on goAML email the EOCN at tfs@eocn.gov.ae within five business days of the freezing measure, with the full name of the match, the value of the frozen funds and the supporting documents."},
 ] %}
 {% set sources = [
-  {"title": "Guidance on Targeted Financial Sanctions for Financial Institutions, DNFBPs and VASPs", "publisher": "Executive Office for Control and Non-Proliferation (EOCN)", "url": "https://www.uaeiec.gov.ae/API/Upload/DownloadFile?FileID=72713d98-a612-4b96-bd1a-775076b7667e", "note": "Issued January 2021, last amended July 2025"},
+  {"title": "Guidance on Targeted Financial Sanctions for Financial Institutions, DNFBPs and VASPs", "publisher": "Executive Office for Control and Non-Proliferation (EOCN)", "url": "https://www.uaeiec.gov.ae/API/Upload/DownloadFile?FileID=72713d98-a612-4b96-bd1a-775076b7667e", "note": "Reported as issued January 2021 and last amended July 2025"},
   {"title": "UN Consolidated List and UAE Local Terrorist List", "publisher": "EOCN", "url": "https://www.uaeiec.gov.ae/en-us/un-page"},
   {"title": "Targeted Financial Sanctions", "publisher": "UAE Ministry of Economy and Tourism", "url": "https://www.moet.gov.ae/en/targeted-financial-sanctions"},
   {"title": "United Nations Security Council Consolidated List", "publisher": "United Nations", "url": "https://main.un.org/securitycouncil/en/content/un-sc-consolidated-list"},
@@ -56,7 +56,7 @@
 
 <div class="bl-callout bl-callout--law">
   <b class="t">Where the rule comes from</b>
-  Article 21 of <strong>Cabinet Decision No. 74 of 2020</strong> sets the obligations, and the EOCN's <em>Guidance on Targeted Financial Sanctions</em> (last amended July 2025) explains how to meet them. The EOCN, the UAE's Executive Office for Control and Non-Proliferation, runs the alert system and receives the reports.
+  Article 21 of <strong>Cabinet Decision No. 74 of 2020</strong> sets the obligations, and the EOCN's <em>Guidance on Targeted Financial Sanctions</em> (reported as last amended July 2025) explains how to meet them. The EOCN, the UAE's Executive Office for Control and Non-Proliferation, runs the alert system and receives the reports.
 </div>
 
 <h2 id="four-obligations">The four obligations</h2>
@@ -154,7 +154,7 @@
 
 <h2 id="records">Records you must keep</h2>
 <ul>
-  <li>Every screening result (confirmed matches, partial matches <em>and false positives</em>) for <strong>at least five years</strong>.</li>
+  <li>Every screening result (confirmed matches, partial matches <em>and false positives</em>) for the period the law requires (groAML's default retention plan is 10 years; confirm against current law).</li>
   <li>A CNMR for relationships, transactions and accounts with the designated person in the <strong>five years before the designation</strong>, even if you hold nothing for them today.</li>
   <li>Your reasoning for each false positive. In an inspection, “we checked and it wasn't him” only counts if you can show how you decided.</li>
 </ul>
@@ -162,7 +162,7 @@
 <h2 id="penalties">What getting it wrong costs</h2>
 <div class="bl-callout bl-callout--warn">
   <b class="t">Criminal and regulatory exposure</b>
-  <p>Under the EOCN guidance, failing to comply with Cabinet Decision No. 74 of 2020, or failing to have reasonable procedures to comply, can lead to <strong>imprisonment of one to seven years and/or a fine of AED 50,000 to AED 5,000,000</strong>.</p>
+  <p>Failing to comply with Cabinet Decision No. 74 of 2020, or failing to have reasonable procedures to comply, is reported to carry criminal penalties (imprisonment and/or a fine). We do not quote the amounts here; confirm the current penalties with your supervisory authority or a UAE-qualified adviser.</p>
   <p>On top of that, your supervisory authority can take its own enforcement action.</p>
 </div>
 
@@ -200,7 +200,7 @@
       "Staff know how to freeze within 24 hours and not to warn the customer first.",
       "We know how to suspend, request ID and reject after 10 business days for a partial match.",
       "We can file a CNMR and a PNMR on goAML (or email tfs@eocn.gov.ae) within five business days.",
-      "Every result, including false positives and our reasoning, is kept for at least five years.",
+      "Every result, including false positives and our reasoning, is kept for the period the law requires (groAML's default retention plan is 10 years; confirm against current law).",
       "We know that OFAC, EU and UK matches are not CNMRs, and how we escalate them.",
     ] %}
     <li><label><input type="checkbox"><span>{{ item }}</span></label></li>
