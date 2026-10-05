@@ -221,6 +221,8 @@ def run_freeze_obligation_check(conn: sqlite3.Connection) -> dict:
 
     overdue_total = 0
     newly_notified = 0
+    unsent = 0
+    unmarked = 0
     orgs_with_overdue = 0
     failures: list[str] = []
     for org in orgs:
@@ -228,18 +230,31 @@ def run_freeze_obligation_check(conn: sqlite3.Connection) -> dict:
             overdue = check_unexecuted_freeze_obligations(conn, org["id"])
         except Exception as exc:
             log.exception("freeze obligation check failed for org %s", org["id"])
+            try:
+                conn.rollback()  # never leave org A's txn open for org B
+            except sqlite3.Error:
+                pass
             failures.append(f"{org['name']}: {exc}")
             continue
         if overdue:
             orgs_with_overdue += 1
         overdue_total += len(overdue)
         newly_notified += sum(1 for ob in overdue if ob["newly_notified"])
+        unsent += sum(1 for ob in overdue if ob["unsent"])
+        unmarked += sum(1 for ob in overdue if ob["unmarked"])
 
     return {
         "orgs_checked": len(orgs),
         "orgs_with_overdue": orgs_with_overdue,
         "overdue": overdue_total,
         "newly_notified": newly_notified,
+        # Overdue but not alerted this run (no active MLRO, FAILED /
+        # NOT_CONFIGURED send, database busy, or emailed-but-unmarked):
+        # a non-zero value that persists across hourly runs is a stuck alert.
+        "unsent": unsent,
+        # Subset of `unsent`: emailed but the mark could not be written, so
+        # the next run re-sends.
+        "unmarked": unmarked,
         "failures": failures,
     }
 
