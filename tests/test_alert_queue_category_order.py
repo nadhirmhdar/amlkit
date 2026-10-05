@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -19,10 +20,50 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from conftest import register_org, unlock_mobile_mfa  # noqa: E402
+
 from amlkit import queries  # noqa: E402
 from amlkit.db import upsert_dataset, utcnow  # noqa: E402
-from tests.test_dashboard_alert_lines import _db, mlro  # noqa: E402,F401  (fixture)
-from tests.test_mobile_api import api  # noqa: E402,F401  (fixture)
+
+
+def _db():
+    conn = sqlite3.connect(os.environ["AMLKIT_DB"])
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+@pytest.fixture()
+def mlro(tmp_path, monkeypatch):
+    """Cookie-session client for a freshly registered org's MLRO (web routes)."""
+    monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "t.db"))
+    monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
+    from fastapi.testclient import TestClient
+    from amlkit.api.app import app
+    c = TestClient(app)
+    register_org(c, "Order Firm", "order_mlro", "mlro@order.ae")
+    return c
+
+
+@pytest.fixture()
+def api(tmp_path, monkeypatch):
+    """(client, bearer headers) for a freshly registered, verified org's MLRO
+    over /api/v1 (same flow as test_mobile_api.api, kept local so this file
+    stands alone)."""
+    monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "t.db"))
+    monkeypatch.delenv("AMLKIT_SINGLE_OPERATOR_MODE", raising=False)
+    from fastapi.testclient import TestClient
+    from amlkit.api.app import app
+    c = TestClient(app)
+    r = c.post("/api/v1/auth/register-organization", json={
+        "org_name": "Order Firm", "name": "alice", "email": "alice@order.ae",
+        "password": "a-strong-password-1", "invite_code": "test-invite"})
+    assert r.status_code == 200, r.text
+    r2 = c.post("/api/v1/auth/verify-email", json={"token": r.json()["dev_verification_token"]})
+    assert r2.status_code == 200, r2.text
+    token = r2.json()["token"]
+    unlock_mobile_mfa(c, token)
+    return c, {"Authorization": f"Bearer {token}"}
+
 
 N_SANCTION = 203  # more than one default page (200) of higher-scoring alerts
 
@@ -219,3 +260,202 @@ def test_screening_hit_obligation_is_category_aware():
     sanction = Hit(topics=["sanction"], programs=[], **base)
     assert "freeze" not in pep.obligation.lower()
     assert "Freeze without delay" in sanction.obligation
+
+
+# ------------------------------------------------------------ review follow-ups
+def _small_org():
+    """An empty org with one dataset, for tests that need only a few alerts."""
+    conn = _db()
+    org_id = conn.execute("SELECT id FROM organizations ORDER BY id LIMIT 1").fetchone()["id"]
+    ds = upsert_dataset(conn, "small_list", "Small List", is_mandatory=True)
+    conn.execute("UPDATE datasets SET last_refresh=?, entity_count=? WHERE id=?", (utcnow(), 10, ds))
+    conn.commit()
+    return conn, org_id, ds
+
+
+class _ClosingConn:
+    """Delegates to a real connection but, just before the page-load statement
+    (the `a.id IN (...)` read), runs `before_page_load()` -- i.e. the data
+    changes between the ordering read and the row fetch."""
+
+    def __init__(self, conn, before_page_load):
+        self._conn, self._hook, self._fired = conn, before_page_load, False
+
+    def execute(self, sql, *args, **kw):
+        if not self._fired and "a.id IN (" in sql:
+            self._fired = True
+            self._hook()
+        return self._conn.execute(sql, *args, **kw)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+@pytest.mark.parametrize("sort_by", [None, "age_asc", "age_desc"])
+def test_alert_closed_between_ordering_read_and_page_load_is_skipped(api, sort_by):
+    conn, org_id, ds = _small_org()
+    ids = [
+        _insert_alert(conn, ds, org_id, 1, "A", ["sanction"], [], 0.90, created="2026-01-01T00:00:00+00:00"),
+        _insert_alert(conn, ds, org_id, 2, "B", ["sanction"], [], 0.80, created="2026-01-02T00:00:00+00:00"),
+        _insert_alert(conn, ds, org_id, 3, "C", ["sanction"], [], 0.70, created="2026-01-03T00:00:00+00:00"),
+    ]
+    conn.commit()
+    order = ids[::-1] if sort_by == "age_desc" else ids
+    before = queries.alert_queue(conn, org_id, status="open", limit=10, sort_by=sort_by)
+    assert [a["id"] for a in before] == order
+    victim = ids[1]
+
+    def close_victim():
+        other = _db()
+        other.execute("UPDATE alerts SET status='closed' WHERE id=?", (victim,))
+        other.commit()
+        other.close()
+
+    page = queries.alert_queue(_ClosingConn(conn, close_victim), org_id, status="open",
+                               limit=10, sort_by=sort_by)   # must not raise KeyError
+    assert [a["id"] for a in page] == [i for i in order if i != victim]
+    conn.close()
+
+
+def test_several_alerts_closed_between_reads_keep_the_survivor(api):
+    conn, org_id, ds = _small_org()
+    ids = [_insert_alert(conn, ds, org_id, i, f"P{i}", ["sanction"], [], 0.9 - i * 0.1) for i in range(3)]
+    conn.commit()
+
+    def close_first_two():
+        other = _db()
+        other.execute("UPDATE alerts SET status='closed' WHERE id IN (?,?)", ids[:2])
+        other.commit()
+        other.close()
+
+    page = queries.alert_queue(_ClosingConn(conn, close_first_two), org_id, status="open", limit=10)
+    assert [a["id"] for a in page] == [ids[2]]
+    conn.close()
+
+
+def test_age_order_uses_created_at_within_each_category(api):
+    conn, org_id, ds = _small_org()
+
+    def mk(i, name, topics, progs, day, score=0.9):
+        return _insert_alert(conn, ds, org_id, i, name, topics, progs, score,
+                             created=f"2026-01-{day:02d}T00:00:00+00:00")
+
+    # Ids are NOT in date order, so id order and date order disagree.
+    s_mid = mk(1, "S mid", ["sanction"], [], 10)
+    s_old = mk(2, "S old", ["sanction"], [], 5)
+    s_new = mk(3, "S new", ["sanction"], [], 20)
+    s_tie = mk(4, "S tie", ["sanction"], [], 10)               # same date as s_mid
+    pf_new = mk(5, "PF new", ["sanction"], ["NPWMD"], 28, 0.1)  # newest overall, still first
+    pep_old = mk(6, "PEP old", ["role.pep"], [], 1)             # oldest overall, still last
+    conn.commit()
+    asc = [a["id"] for a in queries.alert_queue(conn, org_id, status="open", limit=50, sort_by="age_asc")]
+    desc = [a["id"] for a in queries.alert_queue(conn, org_id, status="open", limit=50, sort_by="age_desc")]
+    assert asc == [pf_new, s_old, s_mid, s_tie, s_new, pep_old]
+    assert desc == [pf_new, s_new, s_tie, s_mid, s_old, pep_old]   # date ties: id DESC
+    conn.close()
+
+
+def test_offset_beyond_total_and_limit_zero_return_empty(api):
+    conn, org_id, ds = _small_org()
+    for i in range(3):
+        _insert_alert(conn, ds, org_id, i, f"X{i}", ["sanction"], [], 0.9 - i * 0.1)
+    conn.commit()
+    assert len(queries.alert_queue(conn, org_id, status="open", limit=10)) == 3
+    assert queries.alert_queue(conn, org_id, status="open", limit=10, offset=3) == []
+    assert queries.alert_queue(conn, org_id, status="open", limit=10, offset=500) == []
+    assert queries.alert_queue(conn, org_id, status="open", limit=0) == []
+    assert queries.alert_queue(conn, org_id, status="open", limit=2, offset=2)[0]["matched_name"] == "X2"
+    assert queries.alert_queue(conn, org_id, status="open", limit=10, category="pep") == []
+    conn.close()
+
+
+def _hit(topics, programs, entity_id=1):
+    from amlkit.match.engine import Hit
+    return Hit(entity_id=entity_id, dataset="d", caption="c", schema_type="Person",
+               score=0.9, matched_name="n", topics=topics, detail={}, programs=programs)
+
+
+@pytest.mark.parametrize("topics,programs,expected", [
+    (["sanction", "role.pep.national"], [], "sanction"),         # sanction beats PEP
+    (["role.pep"], ["NPWMD"], "proliferation"),                  # PF program beats PEP topic
+    (["role.pep.national"], ["UN-SCISIL"], "terrorism"),
+    (["sanction", "role.pep"], ["NPWMD"], "proliferation"),
+    (["role.pep.national"], [], "pep"),
+    (["role.pep"], [], "pep"),
+    (["crime"], [], "other"),
+    ([], [], "other"),
+    (None, None, "other"),
+    (None, ["NPWMD"], "proliferation"),
+    (["sanction"], None, "sanction"),
+])
+def test_triage_category_precedence_and_none_inputs(topics, programs, expected):
+    from amlkit.screening.pf import triage_category
+    assert triage_category(topics, programs) == expected
+    assert _hit(topics or [], programs or []).obligation  # never raises, never empty
+
+
+@pytest.mark.parametrize("topics,programs", [
+    (["sanction", "role.pep.national"], []),
+    (["role.pep"], ["NPWMD"]),
+    (["role.pep"], ["UN-SCISIL"]),
+])
+def test_pep_combined_with_a_designation_still_gets_the_freeze_text(topics, programs):
+    ob = _hit(topics, programs).obligation
+    assert "Freeze without delay" in ob and "Do not tip off" in ob
+    assert "PEP match" not in ob
+
+
+def test_plain_pep_gets_the_pep_text():
+    from amlkit.screening.pf import PEP_OBLIGATION
+    ob = _hit(["role.pep.national"], []).obligation
+    assert ob == PEP_OBLIGATION and "freeze" not in ob.lower() and "tip off" not in ob.lower()
+
+
+def test_hit_obligation_for_terrorism_and_other():
+    from amlkit.screening.pf import OTHER_OBLIGATION
+    tf = _hit(["sanction"], ["UN-SCISIL"]).obligation
+    assert "TERRORISM FINANCING" in tf and "Freeze without delay" in tf
+    other = _hit(["crime"], []).obligation
+    assert other == OTHER_OBLIGATION
+    assert "freeze" not in other.lower() and "tip off" not in other.lower()
+    assert _hit([], []).obligation == OTHER_OBLIGATION
+
+
+def test_multi_topic_entities_rank_and_word_by_the_stronger_category(api):
+    """sanction+PEP ranks as sanction; PEP + a PF programme ranks as
+    proliferation; both get freeze text. A plain PEP ranks below them."""
+    conn, org_id, ds = _small_org()
+    pep = _insert_alert(conn, ds, org_id, 1, "Plain PEP", ["role.pep.national"], [], 0.99)
+    sanc_pep = _insert_alert(conn, ds, org_id, 2, "Sanction+PEP", ["role.pep", "sanction"], [], 0.50)
+    pf_pep = _insert_alert(conn, ds, org_id, 3, "PF+PEP", ["role.pep"], ["NPWMD"], 0.40)
+    conn.commit()
+    page = queries.alert_queue(conn, org_id, status="open", limit=10)
+    assert [a["id"] for a in page] == [pf_pep, sanc_pep, pep]
+    assert [a["category"] for a in page] == ["proliferation", "sanction", "pep"]
+    assert all("Freeze without delay" in a["obligation"] for a in page[:2])
+    assert "freeze" not in page[2]["obligation"].lower()
+    conn.close()
+
+
+@pytest.mark.parametrize("topics,programs,expected", [
+    (["role.pep.national"], [], "pep"),
+    (["sanction", "role.pep"], [], "sanction"),
+    (["role.pep"], ["NPWMD"], "proliferation"),
+    (["sanction"], ["UN-SCISIL"], "terrorism"),
+    (["crime"], [], "other"),
+])
+def test_screen_hit_json_category_agrees_with_obligation_and_queue(api, topics, programs, expected):
+    """The mobile /screen hit tag comes from the same triage_category as the
+    queue's and as the obligation text, so a PEP is no longer tagged 'other'."""
+    from amlkit.api.mobile import _hit_json
+    from amlkit.screening.pf import PEP_OBLIGATION
+    conn, org_id, ds = _small_org()
+    aid = _insert_alert(conn, ds, org_id, 1, "Q", topics, programs, 0.9)
+    conn.commit()
+    row = queries.alert_queue(conn, org_id, status="open", alert_id=aid)[0]
+    eid = conn.execute("SELECT entity_id FROM alerts WHERE id=?", (aid,)).fetchone()["entity_id"]
+    hj = _hit_json(conn, _hit(topics, programs, entity_id=eid))
+    assert hj["category"] == row["category"] == expected
+    assert hj["obligation"] == row["obligation"]
+    assert (hj["obligation"] == PEP_OBLIGATION) == (expected == "pep")
+    conn.close()

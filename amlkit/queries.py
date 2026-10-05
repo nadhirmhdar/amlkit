@@ -561,7 +561,11 @@ def alert_queue(
         select + sql_from + f" AND a.id IN ({marks})", (*params, *page_ids))}
     out: list[dict[str, Any]] = []
     for aid in page_ids:
-        row = rows[aid]
+        row = rows.get(aid)
+        if row is None:
+            # Dispositioned/closed/purged between the ids read above and this read
+            # (separate autocommit snapshots): it no longer matches, so skip it.
+            continue
         topics = json.loads(row["topics"] or "[]")
         programs = json.loads(row["programs"] or "[]")
         cat = _category(topics, programs)
