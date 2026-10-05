@@ -15,17 +15,20 @@ This policy establishes standards for maintaining clean, efficient, and secure r
 - **Draft/WIP branches**: Delete after 60 days of inactivity
 - **Release branches**: Retain for one minor version cycle, then archive
 
+None of these automatic deletion rules apply to `routine/*` or `claude/*` branches (see 1.2). Those branches carry the daily team reports (`routine/<DATE>-<role>`) and the work behind open pull requests (`claude/*`); they are removed only by a person, case by case, after the report has been read or the PR closed.
+
 ### 1.2 Exceptions
 Branches retained permanently:
 - `main` / `master`
 - `develop` / `staging` (if present)
 - Named protection branches (e.g., `hotfix`, `release/*`)
 - Active feature branches with open PRs
+- `routine/*` (daily team report branches) and `claude/*` (agent work branches, including those behind open PRs): exempt from every automatic deletion rule in 1.1 and from any branch-cleanup automation in 8.2
 
 ### 1.3 Implementation
 ```bash
 # List merged branches (safe to delete)
-git branch -r --merged origin/main
+git branch -r --merged origin/master    # default branch is `master`
 
 # Delete local branch
 git branch -d <branch-name>
@@ -96,7 +99,7 @@ Remove packages with zero imports. Document reasons for unusual/experimental dep
 - **Security patches**: Apply immediately; push independently of feature work
 
 ### 3.3 Policy
-- No `*` or `>=` in version pins; use semantic ranges: `^1.2.0` (npm), `>=1.2,<2` (Python)
+- No `*` and no unbounded `>=` in version pins; use a bounded range: `^1.2.0` (npm), `>=1.2,<2` (Python, the lower bound with an upper cap is allowed). `requirements.txt` on master still uses unbounded `>=` on most lines; moving them to bounded ranges is a follow-up, not a precondition for this policy
 - Review deprecation warnings quarterly
 - Remove pre-release/beta dependencies before release branches
 
@@ -131,15 +134,15 @@ Threshold: Three identical lines = opportunity to simplify. Prefer merging PR th
 ## 5. Database Cleanup (amlkit-specific)
 
 ### 5.1 Audit trail retention
-- **Operational records** (cases, transactions, customers): Permanent
-- **Audit logs**: Retain for 7 years (UAE regulatory requirement)
+- **Operational records** (cases, transactions, customers): Kept for the firm's retention plan of 10 years, counted as in `amlkit/cases/manager.py` (`RETENTION_YEARS`); the statutory minimum is set by law and is not restated here. Deletion happens only through `purge_expired()`, which is disabled unless `AMLKIT_PURGE_ENABLED=1`
+- **Audit logs**: Follow the same 10-year retention plan. The `audit_log` table is append-only (database triggers block UPDATE and DELETE), so no cleanup job may prune it; any change to that needs a separate decision
 - **Session/token logs**: Rotate after 90 days
 - **Temporary test data**: Delete after test suite passes
 
 ### 5.2 Schema migrations
 - Archive `_MIGRATIONS` entries for releases older than 2 major versions
-- Document rollback procedures before archiving
-- Never reuse migration numbers
+- Do not archive, remove or edit existing `_MIGRATIONS` entries. `_MIGRATIONS` is an unnumbered tuple of `ALTER TABLE ... ADD COLUMN` statements, each guarded by a column-presence check. As of master, 46 of its 72 entries add columns that the `SCHEMA` `CREATE TABLE` text does not contain, so removing entries would break the upgrade of any database created before them. Add new entries at the end only.
+- Table rebuilds for constraint changes stay in their dedicated functions in `db.py`; document the rollback procedure in the PR that adds one.
 
 ### 5.3 Database maintenance
 ```bash
@@ -200,7 +203,7 @@ git log <branch> | grep -i "password\|token\|key\|secret"
 
 ### 8.2 Automation
 Enable where possible:
-- GitHub Actions: `desprit/delete-old-branches` or similar
+- GitHub Actions: `desprit/delete-old-branches` or similar, configured to skip `routine/*` and `claude/*` (see 1.2)
 - Dependabot: auto-merge minor/patch updates
 - Pre-commit hooks: secret scanning, unused import detection
 - CI: block merge if tests or linting is skipped
