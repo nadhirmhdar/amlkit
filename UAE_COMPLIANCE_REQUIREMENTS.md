@@ -172,13 +172,13 @@ Required for:
 **Transaction Records:**
 - Maintain records of all transactions (domestic and international)
 - Include sufficient detail to permit reconstruction of transaction
-- Retention: Minimum 5 years from completion of transaction
+- Retention: statutory minimum applies (period not verified here; groAML firm policy is 10 years from completion of transaction)
 
 **CDD Records:**
 - Customer identification documents
 - Business correspondence
 - Results of analysis (including suspicious transaction reports)
-- Retention: Minimum 5 years after termination of relationship
+- Retention: statutory minimum applies (period not verified here; groAML firm policy is 10 years after termination of relationship)
 
 **Availability:**
 - Records must be readily available for inspection by supervisory authorities
@@ -957,7 +957,7 @@ Available on MOE website with video tutorials:
 - [ ] Customer Due Diligence (CDD) procedures implemented
 - [ ] Beneficial ownership identification procedures established
 - [ ] Ongoing monitoring process in place
-- [ ] Record-keeping system (5-year retention minimum)
+- [ ] Record-keeping system (retention at or above the statutory minimum; groAML firm policy is 10 years)
 - [ ] Targeted Financial Sanctions screening at onboarding and transaction time
 - [ ] Sanctions list subscriptions active with automatic updates
 - [ ] Process for immediate asset freezing and reporting (24 hours)
