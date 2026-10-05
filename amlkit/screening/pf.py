@@ -107,3 +107,53 @@ def obligation_note(categories: set[str]) -> str:
         "SANCTIONS match. Freeze without delay and without prior notice; report "
         "to the supervisory authority. Do not tip off."
     )
+
+
+# A PEP hit is a risk-rating event, not a designation, so these notes must
+# never carry the freeze / do-not-tip-off wording.
+# Wording is for the compliance adviser to sign off.
+PEP_OBLIGATION = (
+    "PEP match. This is not a sanctions designation. Apply enhanced due "
+    "diligence, establish source of wealth and funds, and obtain "
+    "senior-management approval before establishing or continuing the "
+    "relationship."
+)
+
+# Anything that is neither a sanctions designation nor a PEP (adverse media,
+# crime/regulatory lists, ...).
+OTHER_OBLIGATION = (
+    "Possible match on a non-sanctions list. Review before acting; no "
+    "sanctions action follows from this list alone."
+)
+
+
+def triage_category(topics: list[str] | None, programs: list[str] | None) -> str:
+    """The triage category of a listed entity, in CATEGORY_RANK order.
+
+    One definition for the alert queue, the screening hit and the obligation
+    note, so they cannot disagree about what kind of match this is.
+    """
+    cats = classify_programs(programs)
+    if "proliferation" in cats:
+        return "proliferation"
+    if "terrorism" in cats:
+        return "terrorism"
+    if "sanction" in (topics or []):
+        return "sanction"
+    if any(t.startswith("role.pep") for t in topics or []):
+        return "pep"
+    return "other"
+
+
+def obligation_for_category(category: str, categories: set[str]) -> str:
+    """obligation_note() for the sanctions categories; non-freeze wording for
+    PEP and for non-sanctions lists, which carry no freeze duty.
+
+    EU/UK-only sanctions hits are still category "sanction" and keep the freeze
+    wording: whether they should is a legal question, deliberately not decided here.
+    """
+    if category == "pep":
+        return PEP_OBLIGATION
+    if category == "other":
+        return OTHER_OBLIGATION
+    return obligation_note(categories)

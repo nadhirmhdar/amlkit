@@ -10,7 +10,7 @@ from typing import Any
 from .. import notifications
 from ..db import audit, utcnow
 from ..names.arabic import blocking_keys
-from ..screening.pf import classify_programs, obligation_note
+from ..screening.pf import classify_programs, obligation_for_category, triage_category
 from .scorer import DEFAULT_THRESHOLD, ScoreResult, score_entity
 
 # Valid screening triggers. EOCN requires screening at each of these points,
@@ -54,7 +54,7 @@ class Hit:
 
     @property
     def obligation(self) -> str:
-        return obligation_note(self.categories)
+        return obligation_for_category(triage_category(self.topics, self.programs), self.categories)
 
 
 @dataclass(slots=True)

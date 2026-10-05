@@ -1182,7 +1182,8 @@ ALERTS_PAGE_MAX = 200
 
 @router.get("/alerts")
 def api_alerts(db: DB, session: Session, status: str = "open", limit: int = ALERTS_PAGE_MAX, offset: int = 0):
-    """The alert queue, highest score first, in pages.
+    """The alert queue, in pages: category priority first (proliferation, terrorism,
+    sanction, PEP, other), then highest score, then id.
 
     `limit` (1..200, default 200) and `offset` page through it. `total` is the
     exact number of alerts matching `status`, so a client knows whether there
