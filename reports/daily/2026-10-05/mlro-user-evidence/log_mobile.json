@@ -1,0 +1,92 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "web /alerts first categories",
+  "status": "info",
+  "detail": "[]"
+ },
+ {
+  "step": "mobile login",
+  "status": "info",
+  "detail": "200 mfa_required=True"
+ },
+ {
+  "step": "alerts while MFA-locked",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "mobile mfa verify",
+  "status": "info",
+  "detail": "200"
+ },
+ {
+  "step": "mobile page offset=0",
+  "status": "info",
+  "detail": "total=60 truncated=True cats=['pep', 'pep', 'pep']..['pep', 'pep', 'pep'] scores=[1.0, 1.0]..[1.0, 1.0]"
+ },
+ {
+  "step": "mobile page offset=20",
+  "status": "info",
+  "detail": "total=60 truncated=True cats=['sanction', 'sanction', 'sanction']..['pep', 'pep', 'pep'] scores=[0.85, 0.85]..[1.0, 1.0]"
+ },
+ {
+  "step": "mobile page offset=40",
+  "status": "info",
+  "detail": "total=60 truncated=False cats=['sanction', 'sanction', 'sanction']..['sanction', 'sanction', 'sanction'] scores=[0.85, 0.85]..[0.85, 0.85]"
+ },
+ {
+  "step": "paging overlap/skip",
+  "status": "info",
+  "detail": "unique=60 of 60"
+ },
+ {
+  "step": "mobile alerts?limit=0",
+  "status": "info",
+  "detail": "200 {\"alerts\":[{\"id\":31,\"score\":1.0,\"score_detail\":\"{\\\"score\\\": 1.0, \\\"name_score\\\": 1.0, \\\"ma"
+ },
+ {
+  "step": "mobile alerts?limit=-5",
+  "status": "info",
+  "detail": "200 {\"alerts\":[{\"id\":31,\"score\":1.0,\"score_detail\":\"{\\\"score\\\": 1.0, \\\"name_score\\\": 1.0, \\\"ma"
+ },
+ {
+  "step": "mobile alerts?limit=abc",
+  "status": "info",
+  "detail": "422 {\"detail\":[{\"type\":\"int_parsing\",\"loc\":[\"query\",\"limit\"],\"msg\":\"Input should be a valid in"
+ },
+ {
+  "step": "mobile alerts?offset=-1",
+  "status": "info",
+  "detail": "200 {\"alerts\":[{\"id\":1,\"score\":0.85,\"score_detail\":\"{\\\"score\\\": 0.85, \\\"name_score\\\": 1.0, \\\"m"
+ },
+ {
+  "step": "mobile alerts?limit=9999",
+  "status": "info",
+  "detail": "200 {\"alerts\":[{\"id\":1,\"score\":0.85,\"score_detail\":\"{\\\"score\\\": 0.85, \\\"name_score\\\": 1.0, \\\"m"
+ },
+ {
+  "step": "mobile dashboard",
+  "status": "info",
+  "detail": "cap=200 truncated=False open_total=60 open_rows=60"
+ }
+]

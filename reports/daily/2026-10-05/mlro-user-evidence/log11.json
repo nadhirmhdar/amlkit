@@ -1,0 +1,442 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "screen 'Ahmed Abd Al-Jaleel Al-Hasnawi'",
+  "status": "info",
+  "detail": "status=200 scores=['1.000'] excerpt="
+ },
+ {
+  "step": "screen 'Ahmad Abdul Jalil Hasnawi'",
+  "status": "info",
+  "detail": "status=200 scores=['1.000'] excerpt="
+ },
+ {
+  "step": "screen '\u0627\u062d\u0645\u062f \u0639\u0628\u062f \u0627\u0644\u062c\u0644\u064a\u0644 \u0627\u0644\u062d\u0633\u0646\u0627\u0648\u064a'",
+  "status": "info",
+  "detail": "status=200 scores=['1.000'] excerpt="
+ },
+ {
+  "step": "screen 'Muhammad Ali Hasan Rashid'",
+  "status": "info",
+  "detail": "status=200 scores=['1.000'] excerpt="
+ },
+ {
+  "step": "screen 'John Smith'",
+  "status": "info",
+  "detail": "status=200 scores=['0.85'] excerpt="
+ },
+ {
+  "step": "screen 'Mohammed Ali'",
+  "status": "info",
+  "detail": "status=200 scores=['0.85'] excerpt="
+ },
+ {
+  "step": "onboard Ahmed Abd Al-Jaleel Al-Hasnawi",
+  "status": "info",
+  "detail": "status=303 loc=/customers/1 banners=['Onboarded. MATCH FOUND - see alerts, freeze without delay and do not tip off.']"
+ },
+ {
+  "step": "onboard Muhammad Ali Hasan Al Rashid",
+  "status": "info",
+  "detail": "status=303 loc=/customers/2 banners=['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "onboard Fatima Khan",
+  "status": "info",
+  "detail": "status=303 loc=/customers/3 banners=['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "onboard Viktor Sokolov",
+  "status": "info",
+  "detail": "status=303 loc=/customers/4 banners=['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "alerts page",
+  "status": "info",
+  "detail": "Alerts \u2014 groAML Skip to content \u2630 gr AML Grovisor Test DNFBP Home Dashboard Screen a name Customers Reports groAML 0 L Layla MLRO mlro Grovisor Test DNFBP Reports Audit trail Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP Audit Trails Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Queue Alerts Ordered by category then score. Proliferation surfaces first \u2014 the least familiar category, so it is never buried under ordinary sanctions hits. Open Awaiting review Dismissed Confirmed Escalated All Group by customer Export CSV AHMED ABD AL-JALEEL AL-HASNAWI sanction 1.000 Pe"
+ },
+ {
+  "step": "open alert ids",
+  "status": "info",
+  "detail": "[1, 2, 3]"
+ },
+ {
+  "step": "audit page excerpt",
+  "status": "info",
+  "detail": "Audit \u2014 groAML Skip to content \u2630 gr AML Grovisor Test DNFBP Home Dashboard Screen a name Customers Reports groAML 0 L Layla MLRO mlro Grovisor Test DNFBP Reports Audit trail Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP Audit Trails Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Trail Audit Append-only, enforced by database trigger rather than by convention: any UPDATE or DELETE against this table aborts. Senior-management liability under Law 10/2025 makes \"we agreed not to edit it\" an inadequate control. When Operator Detail 2026-10-05 01:37:53 Layla MLRO risk.assess \u00b7 customer #4 {'rating': 'low', 'score': 5.0, 'ruleset': '2025.12.2', 'edd': False} 2026-10-05 01:37:53 Layla MLRO screening.run \u00b7 screening #10 {'query': 'Viktor Sokolov', 'trigger': 'onboarding'"
+ },
+ {
+  "step": "C-001 alert id",
+  "status": "info",
+  "detail": "3"
+ },
+ {
+  "step": "propose dismissal (sanction) as MLRO #1",
+  "status": "info",
+  "detail": "303 ['Staged for independent review - a second operator must confirm.']"
+ },
+ {
+  "step": "pending_review ids",
+  "status": "info",
+  "detail": "[3]"
+ },
+ {
+  "step": "self-confirm own dismissal",
+  "status": "info",
+  "detail": "303 ['independent review requires a different operator than the one who proposed the disposition. Ask your MLRO to add a second compliance officer.']"
+ },
+ {
+  "step": "MLRO renames self mid-review",
+  "status": "info",
+  "detail": "['Renamed Layla MLRO to Layla Renamed.']"
+ },
+ {
+  "step": "self-confirm AFTER self-rename",
+  "status": "info",
+  "detail": "303 ['Independent review completed.']"
+ },
+ {
+  "step": "panel after",
+  "status": "info",
+  "detail": " AHMED ABD AL-JALEEL AL-HASNAWI Ahmed Abd Al-Jaleel Al-Hasnawi \u00b7 C-001 \u00d7 Dataset UAE Local Terrorist List Matched name AHMED ABD AL-JALEEL AL-HASNAWI Score 0.850 Category sanction Status False Positive Disposition Date of birth does not match Created 2026-10-05 01:37:52 "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:53 Layla Renamed alert.confirm \u00b7 alert #3 {'status': 'false_positive', 'reason_code': 'different_dob', 'proposed_by': 'Layla MLRO'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:53 Layla MLRO operator.rename \u00b7 operator #1 {'from': 'Layla MLRO', 'to': 'Layla Renamed'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:53 Layla MLRO alert.propose \u00b7 alert #3 {'status': 'false_positive', 'reason_code': 'different_dob', 'awaiting_second_review': True, 'independent_review': 'pending'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:53 Layla MLRO screening.run \u00b7 screening #10 {'query': 'Viktor Sokolov', 'trigger': 'onboarding', 'candidates': 1, 'hits': 0, 'alerts_created': 0, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO screening.run \u00b7 screening #9 {'query': 'Fatima Khan', 'trigger': 'onboarding', 'candidates': 0, 'hits': 0, 'alerts_created': 0, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO screening.run \u00b7 screening #8 {'query': 'Muhammad Ali Hasan Al Rashid', 'trigger': 'onboarding', 'candidates': 2, 'hits': 0, 'alerts_created': 0, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO screening.run \u00b7 screening #7 {'query': 'Ahmed Abd Al-Jaleel Al-Hasnawi', 'trigger': 'onboarding', 'candidates': 1, 'hits': 1, 'alerts_created': 1, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO screening.run \u00b7 screening #6 {'query': 'Mohammed Ali', 'trigger': 'adhoc', 'candidates': 1, 'hits': 0, 'alerts_created': 0, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO screening.run \u00b7 screening #5 {'query': 'John Smith', 'trigger': 'adhoc', 'candidates': 0, 'hits': 0, 'alerts_created': 0, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO screening.run \u00b7 screening #4 {'query': 'Muhammad Ali Hasan Rashid', 'trigger': 'adhoc', 'candidates': 2, 'hits': 1, 'alerts_created': 1, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO screening.run \u00b7 screening #3 {'query': '\u0627\u062d\u0645\u062f \u0639\u0628\u062f \u0627\u0644\u062c\u0644\u064a\u0644 \u0627\u0644\u062d\u0633\u0646\u0627\u0648\u064a', 'trigger': 'adhoc', 'candidates': 1, 'hits': 1, 'alerts_created': 0, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO screening.run \u00b7 screening #2 {'query': 'Ahmad Abdul Jalil Hasnawi', 'trigger': 'adhoc', 'candidates': 1, 'hits': 1, 'alerts_created': 0, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO screening.run \u00b7 screening #1 {'query': 'Ahmed Abd Al-Jaleel Al-Hasnawi', 'trigger': 'adhoc', 'candidates': 1, 'hits': 1, 'alerts_created': 1, 'datasets_used': ['cia', 'eocn', 'ofac', 'un']} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO operator.create \u00b7 operator #3 {'email': 'mlro2@mlro-test.local', 'role': 'mlro'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO operator.create \u00b7 operator #2 {'email': 'omar@mlro-test.local', 'role': 'officer'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:52 Layla MLRO mfa.enrolled \u00b7 operator #1 "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:51 Layla MLRO operator.login \u00b7 operator #1 "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:51 Layla MLRO operator.email_verified \u00b7 operator #1 {'email': 'layla@mlro-test.local'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:51 Layla MLRO operator.verification_sent \u00b7 operator #1 {'email': 'layla@mlro-test.local', 'delivery': 'not_configured'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-05 01:37:51 Layla MLRO organization.register \u00b7 organization #1 {'org_name': 'Grovisor Test DNFBP'} Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Screening results are decision s"
+ },
+ {
+  "step": "onboard C-005 (DOB/nat mismatch)",
+  "status": "info",
+  "detail": "303 ['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "C-005 alerts",
+  "status": "info",
+  "detail": "[1, 2]"
+ },
+ {
+  "step": "bulk-dismiss sanctions alerts for C-005 (no narrative)",
+  "status": "info",
+  "detail": "303 ['Dismissed 0 alert(s).']"
+ },
+ {
+  "step": "pending/dismissed after bulk",
+  "status": "info",
+  "detail": "pending=[] open=[1, 2] dismissed=[3]"
+ },
+ {
+  "step": "officer login",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "2nd MLRO login (before MFA)",
+  "status": "info",
+  "detail": "303 /mfa/setup"
+ },
+ {
+  "step": "officer GET /admin",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "officer GET /admin/compliance",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "officer POST rename MLRO",
+  "status": "info",
+  "detail": "403 None {\"error\":\"This action requires the mlro role; your account is officer.\"}"
+ },
+ {
+  "step": "onboard C-006 (exact DOB)",
+  "status": "info",
+  "detail": "['Onboarded. MATCH FOUND - see alerts, freeze without delay and do not tip off.']"
+ },
+ {
+  "step": "C-006 alert ids",
+  "status": "info",
+  "detail": "[4]"
+ },
+ {
+  "step": "bulk-dismiss sanctions alert (C-006), MLRO alone, no narrative",
+  "status": "info",
+  "detail": "303 ['Dismissed 0 alert(s). 1 sanctions/PF match(es) staged for independent review - a second operator must confirm.'] pending=[4] dismissed=[3]"
+ },
+ {
+  "step": "assign alert to a non-existent operator name",
+  "status": "info",
+  "detail": "['Assigned to Nobody Atall.']"
+ },
+ {
+  "step": "remaining open",
+  "status": "info",
+  "detail": "[1, 2]"
+ },
+ {
+  "step": "officer confirms MLRO's dismissal (alert 4)",
+  "status": "info",
+  "detail": "303 ['Independent review completed.']"
+ },
+ {
+  "step": "alert 4 panel",
+  "status": "info",
+  "detail": " AHMED ABD AL-JALEEL AL-HASNAWI Ahmed Abd Al-Jaleel Al-Hasnawi \u00b7 C-006 \u00d7 Dataset UAE Local Terrorist List Matched name AHMED ABD AL-JALEEL AL-HASNAWI Score 1.000 Category sanction Status False Positive Disposition Name coincidence - different person Created 2026-10-05 01:37:53 "
+ },
+ {
+  "step": "confirm match w/o narrative",
+  "status": "info",
+  "detail": "['A written narrative is required for a true positive. This is the record a supervisor reconstructs the decision from.']"
+ },
+ {
+  "step": "escalate with narrative",
+  "status": "info",
+  "detail": "['Disposition recorded.']"
+ },
+ {
+  "step": "txn 60000 cash",
+  "status": "info",
+  "detail": "303 ['Transaction recorded. 2 rule(s) triggered: large_cash, high_risk_country']"
+ },
+ {
+  "step": "txn 9000 cash",
+  "status": "info",
+  "detail": "303 ['Transaction recorded. 1 rule(s) triggered: high_risk_country']"
+ },
+ {
+  "step": "txn 9500 cash",
+  "status": "info",
+  "detail": "303 ['Transaction recorded. 1 rule(s) triggered: high_risk_country']"
+ },
+ {
+  "step": "txn 9800 cash",
+  "status": "info",
+  "detail": "303 ['Transaction recorded. 1 rule(s) triggered: high_risk_country']"
+ },
+ {
+  "step": "customer 1 txn section",
+  "status": "info",
+  "detail": "Transaction monitoring Transactions at or above AED 55,000 are flagged automatically (cash as large cash, other methods as large value), along with structuring, high-risk-country counterparties, and unusual velocity. high risk country cash \u00b7 AED 9,500.00 \u00b7 2026-10-05 01:37 open country: IR Note Mark false positive Mark true positive high risk country cash \u00b7 AED 9,800.00 \u00b7 2026-10-05 01:37 open country: IR Note Mark false positive Mark true positive large cash cash \u00b7 AED 60,000.00 \u00b7 2026-10-05 01:37 open amount aed: 60000.0 \u00b7 threshold aed: 55000.0 Note Mark false positive Mark true positive high risk country cash \u00b7 AED 60,000.00 \u00b7 2026-10-05 01:37 open country: IR Note Mark false positive Mark true positive high risk country cash \u00b7 AED 9,000.00 \u00b7 2026-10-05 01:37 open country: IR Note Mark false positive Mark true positive Occurred Direction Method Amount (AED) Counterparty 2026-10-05 01:37 inbound cash 9,500.00 \u2014 (IR) 2026-10-05 01:37 inbound cash 9,800.00 \u2014 (IR) 2026-10-05 01:37 inbound cash 60,000.00 \u2014 (IR) 2026-10-05 01:37 inbound cash 9,000.00 \u2014 (IR) Direction Inbound Outbound Method Cash Wire Cheque Card Crypto Other Amount (AED) Counterparty Counterparty country Date Record "
+ },
+ {
+  "step": "structuring txn 52000",
+  "status": "info",
+  "detail": "['Transaction recorded. No rules triggered.']"
+ },
+ {
+  "step": "structuring txn 53000",
+  "status": "info",
+  "detail": "['Transaction recorded. 1 rule(s) triggered: structuring']"
+ },
+ {
+  "step": "structuring txn 54000",
+  "status": "info",
+  "detail": "['Transaction recorded. No rules triggered.']"
+ },
+ {
+  "step": "reports/new",
+  "status": "info",
+  "detail": "New report draft Select the subject customer and the type of report you wish to compile. Subject customer \u2014 Select customer \u2014 C-004 \u2014 Viktor Sokolov (active) C-005 \u2014 Ahmad Abdul Jalil Hasnawi (active) C-006 \u2014 Ahmed Abd Al-Jaleel Al-Hasnawi (active) C-001 \u2014 Ahmed Abd Al-Jaleel Al-Hasnawi (active) C-002 \u2014 Muhammad Ali Hasan Al Rashid (active) C-003 \u2014 Fatima Khan (active) goAML report type STR \u2014 Suspicious Transaction Report SAR \u2014 Suspicious Activity Report Begin draft builder Cancel Independent re"
+ },
+ {
+  "step": "report types/customers options",
+  "status": "info",
+  "detail": "['4', '5', '6', '1', '2', '3', 'STR', 'SAR']"
+ },
+ {
+  "step": "builder status",
+  "status": "info",
+  "detail": "200"
+ },
+ {
+  "step": "STR builder prefill",
+  "status": "info",
+  "detail": "{\"reporting_entity_name\": \"Grovisor Test DNFBP\", \"entity_reference\": \"GROVISOR-LIC-2026\", \"reporter_name\": \"Layla Renamed\", \"reporter_email\": \"layla@mlro-test.local\", \"first_name\": \"Ahmed\", \"last_name\": \"Abd Al-Jaleel Al-Hasnawi\", \"nationality\": \"AE\", \"id_type\": \"Passport\", \"id_number\": \"\"}"
+ },
+ {
+  "step": "create STR draft",
+  "status": "info",
+  "detail": "303 /reports/1 ['Draft report saved.']"
+ },
+ {
+  "step": "report detail",
+  "status": "info",
+  "detail": "Report Detail \u2014 groAML Skip to content \u2630 gr AML Grovisor Test DNFBP Home Dashboard Screen a name Customers Reports groAML 0 L Layla Renamed mlro Grovisor Test DNFBP Reports Audit trail Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Home Dashboard Screen Customers 0 L Layla Renamed mlro Grovisor Test DNFBP Audit Trails Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Draft report saved. Compliance STR report Filing ID 1 \u00b7 draft Edit draft Download goAML XML Subject details Subject name Ahmed Abd Al-Jaleel Al-Hasnawi Nationality AE Date of birth 1980-01-01 Gender male ID type / number Passport / P1234567 Reporting entity & officer Entity na"
+ },
+ {
+  "step": "export before submit",
+  "status": "info",
+  "detail": "400 application/json '{\"detail\":\"Cannot export goAML filing: source account number is required but missing.\"}'"
+ },
+ {
+  "step": "submit/finalise",
+  "status": "info",
+  "detail": "303 /reports/1 ['Report finalized in groAML. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.']"
+ },
+ {
+  "step": "export after submit",
+  "status": "info",
+  "detail": "400 application/json None"
+ },
+ {
+  "step": "edit finalised report (builder)",
+  "status": "info",
+  "detail": "200  Layla Renamed mlro Grovisor Test DNFBP Audit Trails Policies Admin Feedback Freeze Obligations About Privacy & Cookies "
+ },
+ {
+  "step": "re-save finalised report",
+  "status": "info",
+  "detail": "303 /reports ['Report 1 has been finalized and can no longer be edited.']"
+ },
+ {
+  "step": "export after repair attempt",
+  "status": "info",
+  "detail": "400 '{\"detail\":\"Cannot export goAML filing: source account number is required but missing.\"}'"
+ },
+ {
+  "step": "submit report 2",
+  "status": "info",
+  "detail": "['Report finalized in groAML. It has not been sent to the UAE FIU; download the goAML XML and file it manually via the goAML portal.']"
+ },
+ {
+  "step": "export report 2",
+  "status": "info",
+  "detail": "200 application/xml attachment; filename=goAML_STR_2.xml len=2076"
+ }
+]
