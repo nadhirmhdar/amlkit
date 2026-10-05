@@ -1961,7 +1961,15 @@ def check_unexecuted_freeze_obligations(
             },
         ]
 
-    Sends MLRO email alert if any obligations are overdue.
+    Sends an MLRO email alert for each overdue obligation, ONCE per obligation:
+    the check is invoked hourly by Cloud Scheduler
+    (POST /system/check-freeze-obligations), so the send is recorded in
+    ``freeze_obligations.overdue_notified_at`` and later calls skip it (same
+    once-per-breach idea as ``datasets.staleness_notified_at``). A failed
+    send, or an org with no active MLRO, leaves the column NULL so the next
+    run retries. Each returned dict carries ``newly_notified`` (True when this
+    call sent the alert). The list itself always contains every overdue
+    obligation so callers can still report totals.
 
     Cabinet Resolution 134/2025 requires immediate freeze execution. This check
     identifies freeze obligations that have been pending for over 24 hours,
@@ -1977,6 +1985,7 @@ def check_unexecuted_freeze_obligations(
                f.risk_category,
                f.identified_at,
                f.identified_by,
+               f.overdue_notified_at,
                CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_pending
            FROM freeze_obligations f
            JOIN customers c ON c.id = f.customer_id
@@ -1988,38 +1997,61 @@ def check_unexecuted_freeze_obligations(
     )
 
     overdue = [dict(row) for row in cursor.fetchall()]
+    for ob in overdue:
+        ob["newly_notified"] = False
 
-    # Send email alert if any overdue obligations found
-    if overdue:
+    to_notify = [ob for ob in overdue if ob["overdue_notified_at"] is None]
+    if to_notify:
         # Get MLRO email for this org
         mlro_row = conn.execute(
-            "SELECT email FROM operators WHERE org_id = ? AND role = 'mlro' LIMIT 1",
+            "SELECT email FROM operators WHERE org_id = ? AND role = 'mlro' "
+            "AND is_active = 1 ORDER BY id LIMIT 1",
             (org_id,)
         ).fetchone()
         mlro_email = mlro_row["email"] if mlro_row else None
 
-        # Send alert for each overdue obligation
-        from .. import mail
-        for ob in overdue:
-            if mlro_email:
-                mail.send_freeze_obligation_alert(
+        if mlro_email:
+            from .. import mail
+            for ob in to_notify:
+                outcome = mail.send_freeze_obligation_alert(
                     to_email=mlro_email,
                     freeze_obligation_id=ob["id"],
                     customer_reference=ob["customer_reference"],
                     obligation_type=ob["obligation_type"],
                     risk_category=ob["risk_category"]
                 )
+                if outcome == mail.FAILED:
+                    continue  # leave NULL: retry on the next run
+                conn.execute(
+                    "UPDATE freeze_obligations SET overdue_notified_at = ? WHERE id = ?",
+                    (utcnow(), ob["id"]),
+                )
+                ob["newly_notified"] = True
+        else:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Overdue freeze obligation(s) in org %s but no active MLRO to notify",
+                org_id,
+            )
 
-        # Log to audit that overdue obligations were detected
-        audit(
-            conn,
-            "system",
-            "freeze.overdue_check",
-            "freeze_obligation",
-            None,
-            {"overdue_count": len(overdue), "org_id": org_id},
-            org_id=org_id
-        )
+        notified = [ob for ob in to_notify if ob["newly_notified"]]
+        if notified:
+            # Log to audit only when an alert actually went out, so the hourly
+            # run does not append an audit row per call.
+            audit(
+                conn,
+                "system",
+                "freeze.overdue_check",
+                "freeze_obligation",
+                None,
+                {
+                    "overdue_count": len(overdue),
+                    "notified_ids": [ob["id"] for ob in notified],
+                    "org_id": org_id,
+                },
+                org_id=org_id
+            )
+        conn.commit()
 
     return overdue
 

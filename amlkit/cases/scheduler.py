@@ -2,6 +2,7 @@
 
 Extracted from api/app.py to keep routes thin. These functions are called by:
 - POST /system/refresh (Cloud Scheduler HTTP endpoint)
+- POST /system/check-freeze-obligations (Cloud Scheduler, hourly)
 - POST /admin/refresh (manual MLRO trigger)
 - In-process APScheduler background task (_run_scheduled_refresh)
 """
@@ -199,6 +200,47 @@ def refresh_with_progress(conn, actor, adapters=None):
         "loaded": loaded,
         "failures": failures,
         "new_alerts": total_alerts,
+    }
+
+
+def run_freeze_obligation_check(conn: sqlite3.Connection) -> dict:
+    """Check every active org for TFS freeze obligations overdue (> 24 h
+    pending execution) and email the org's MLRO about each one once.
+
+    Called hourly by Cloud Scheduler via POST /system/check-freeze-obligations.
+    Idempotent: ``check_unexecuted_freeze_obligations`` records
+    ``overdue_notified_at`` per obligation, so repeat calls report the same
+    overdue obligations but do not re-send the alert. A failure in one org is
+    logged and counted without stopping the others.
+    """
+    from .manager import check_unexecuted_freeze_obligations
+
+    orgs = conn.execute(
+        "SELECT id, name FROM organizations WHERE status='active'"
+    ).fetchall()
+
+    overdue_total = 0
+    newly_notified = 0
+    orgs_with_overdue = 0
+    failures: list[str] = []
+    for org in orgs:
+        try:
+            overdue = check_unexecuted_freeze_obligations(conn, org["id"])
+        except Exception as exc:
+            log.exception("freeze obligation check failed for org %s", org["id"])
+            failures.append(f"{org['name']}: {exc}")
+            continue
+        if overdue:
+            orgs_with_overdue += 1
+        overdue_total += len(overdue)
+        newly_notified += sum(1 for ob in overdue if ob["newly_notified"])
+
+    return {
+        "orgs_checked": len(orgs),
+        "orgs_with_overdue": orgs_with_overdue,
+        "overdue": overdue_total,
+        "newly_notified": newly_notified,
+        "failures": failures,
     }
 
 
