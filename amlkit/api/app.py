@@ -2445,6 +2445,31 @@ def customer_run_adverse_media(
                               f"{new_findings} new to review.")
 
 
+ADVERSE_LIST_CAP = 200
+
+
+@app.get("/adverse-media", response_class=HTMLResponse)
+def adverse_media_list(request: Request, db: DB, status: str = "open"):
+    """Every adverse-media finding across the firm's customers, for triage.
+
+    Read-only: a finding is marked relevant or not relevant on its customer's
+    page, where the rest of the file is. This is the list that tells you which
+    customers to open."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    status = status if status in (*queries.ADVERSE_STATUSES, "all") else "open"
+    findings = queries.adverse_media_queue(
+        db, session.org_id, status=None if status == "all" else status,
+        limit=ADVERSE_LIST_CAP, oldest_first=True)
+    counts = queries.adverse_media_counts(db, session.org_id)
+    return render(request, "adverse_media.html", {
+        "session": session, "findings": findings, "status": status, "counts": counts,
+        "truncated": counts[status] > len(findings), "cap": ADVERSE_LIST_CAP,
+    }, db)
+
+
 @app.post("/adverse-media/run-due")
 def adverse_media_run_due(
     request: Request, db: DB,

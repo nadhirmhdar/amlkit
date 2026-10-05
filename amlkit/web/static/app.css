@@ -1594,3 +1594,11 @@ html.bgl-open { overflow: hidden; }   /* the root, so the page cannot scroll und
 }
 /* Reduced motion: one still frame, nothing slides or fades. */
 .bgl.bgl-still *, .bgl.bgl-still *::after { transition: none !important; animation: none !important; }
+
+/* Adverse media list on phones: title and detail on top, severity beneath,
+   not squeezed into a one-word column beside the tags. */
+@media (max-width: 680px) {
+  .adverse-list .list-row { flex-wrap: wrap; gap: 6px 12px; }
+  .adverse-list .list-row .grow { flex-basis: 100%; }
+  .adverse-list .list-row .side.nowrap { white-space: normal; }
+}

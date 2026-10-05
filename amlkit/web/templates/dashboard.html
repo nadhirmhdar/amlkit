@@ -118,7 +118,7 @@
       {% if a.href %}</a>{% else %}</div>{% endif %}
       {% endfor %}
       {# No web queue page for these (the mobile API has one): on the web each is marked relevant or not on its customer's page. #}
-      <p class="cat-line__more muted" style="margin:0;font-weight:400;">{% if line.rest %}{{ line.rest }} more &middot; {% endif %}Most serious first. Each finding is reviewed on its customer&rsquo;s page.</p>
+      <p class="cat-line__more" style="margin:0;">{% if line.rest %}{{ line.rest }} more &middot; {% endif %}Most serious first. <a href="/adverse-media">Open all adverse media findings &rarr;</a></p>
       {% else %}
       {% for a in line.alerts %}
       <a href="/alerts" data-alert-id="{{ a.id }}" class="list-row" aria-expanded="false" aria-label="Open alert details: {{ a.subject }}, {{ a.dataset_title }}, {{ 'awaiting second review' if a.status == 'pending_review' else (a.assigned_to or 'unassigned') }}" style="text-decoration:none; color:inherit;">
