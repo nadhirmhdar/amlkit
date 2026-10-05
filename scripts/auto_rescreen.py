@@ -115,6 +115,14 @@ def _refresh(conn) -> list[str]:
 
 def main() -> int:
     conn = connect()
+    try:
+        return _run(conn)
+    finally:
+        # Closed explicitly: an open handle keeps the SQLite file locked on Windows.
+        conn.close()
+
+
+def _run(conn) -> int:
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     print("=" * 68)
