@@ -2023,8 +2023,9 @@ def check_unexecuted_freeze_obligations(
                 if outcome == mail.FAILED:
                     continue  # leave NULL: retry on the next run
                 conn.execute(
-                    "UPDATE freeze_obligations SET overdue_notified_at = ? WHERE id = ?",
-                    (utcnow(), ob["id"]),
+                    "UPDATE freeze_obligations SET overdue_notified_at = ? "
+                    "WHERE id = ? AND org_id = ?",
+                    (utcnow(), ob["id"], org_id),
                 )
                 ob["newly_notified"] = True
         else:
