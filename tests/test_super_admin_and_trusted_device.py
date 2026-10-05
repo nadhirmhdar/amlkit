@@ -212,7 +212,7 @@ class TestTrustedDevice:
         # _register_and_login's settle_mfa already enrolled+unlocked this
         # session via a fresh TOTP; log out and log back in to get a freshly
         # LOCKED session so /mfa/verify + remember_device can be exercised.
-        client.post("/logout", follow_redirects=False)
+        client.post("/logout", data={"csrf_token": client.cookies.get("amlkit_csrf")}, follow_redirects=False)
         r = _login(client, "alice@testfirm.ae")
         assert r.status_code == 303 and r.headers["location"] == "/mfa/verify"
 
@@ -242,7 +242,7 @@ class TestTrustedDevice:
 
     def test_trusted_device_of_one_operator_does_not_bypass_another(self, client) -> None:
         _register_and_login(client, "Test Firm", "alice", "alice@testfirm.ae")
-        client.post("/logout", follow_redirects=False)
+        client.post("/logout", data={"csrf_token": client.cookies.get("amlkit_csrf")}, follow_redirects=False)
         _login(client, "alice@testfirm.ae")
         secret = client._amlkit_mfa_secrets[0]
         verify = client.post("/mfa/verify", data={
@@ -258,7 +258,7 @@ class TestTrustedDevice:
         from amlkit.api.app import app
         carol_client = TestClient(app)
         _register_and_login(carol_client, "Other Firm", "carol", "carol@otherfirm.ae")
-        carol_client.post("/logout", follow_redirects=False)
+        carol_client.post("/logout", data={"csrf_token": carol_client.cookies.get("amlkit_csrf")}, follow_redirects=False)
 
         # Fresh session for carol, but presenting alice's device cookie.
         intruder = TestClient(app)
@@ -273,7 +273,7 @@ class TestTrustedDevice:
 
     def test_expired_or_garbage_cookie_falls_through_to_challenge(self, client) -> None:
         _register_and_login(client, "Test Firm", "alice", "alice@testfirm.ae")
-        client.post("/logout", follow_redirects=False)
+        client.post("/logout", data={"csrf_token": client.cookies.get("amlkit_csrf")}, follow_redirects=False)
 
         from fastapi.testclient import TestClient
         from amlkit.api.app import app
@@ -288,7 +288,7 @@ class TestTrustedDevice:
 
     def test_password_change_revokes_trusted_devices(self, client) -> None:
         _register_and_login(client, "Test Firm", "alice", "alice@testfirm.ae")
-        client.post("/logout", follow_redirects=False)
+        client.post("/logout", data={"csrf_token": client.cookies.get("amlkit_csrf")}, follow_redirects=False)
         _login(client, "alice@testfirm.ae")
         secret = client._amlkit_mfa_secrets[0]
         client.post("/mfa/verify", data={
@@ -322,7 +322,7 @@ class TestTrustedDevice:
 
     def test_forget_devices_revokes_trusted_devices(self, client) -> None:
         _register_and_login(client, "Test Firm", "alice", "alice@testfirm.ae")
-        client.post("/logout", follow_redirects=False)
+        client.post("/logout", data={"csrf_token": client.cookies.get("amlkit_csrf")}, follow_redirects=False)
         _login(client, "alice@testfirm.ae")
         secret = client._amlkit_mfa_secrets[0]
         client.post("/mfa/verify", data={

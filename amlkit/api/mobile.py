@@ -1652,7 +1652,7 @@ def api_report_submit(report_id: int, db: DB, session: Session):
     if not rep:
         raise HTTPException(status_code=404, detail="Report not found.")
     from ..cases.manager import report_finalize_error
-    problem = report_finalize_error(rep)
+    problem = report_finalize_error(rep, db, session.org_id)
     if problem:
         code = 409 if rep["status"] == "submitted" else 422
         raise HTTPException(status_code=code, detail=problem)

@@ -34,6 +34,11 @@ def test_report_submit_happy_path_mlro_submits_str(tmp_path, monkeypatch):
     # Create draft report with complete payload
     payload = {
         "reporting_entity_name": "Test Entity",
+        # Finalising now also requires everything the goAML export needs.
+        "entity_reference": "TEST-REF-1",
+        "reporter_name": "Maya MLRO",
+        "reporter_email": "mlro@test.ae",
+        "first_name": "John",
         "report_code": "STR",
         "submission_code": "SUBMIT-001",
         "reason": "Suspicious transaction pattern",
@@ -98,6 +103,11 @@ def test_report_submit_already_submitted_returns_400(tmp_path, monkeypatch):
     # Create ALREADY submitted report
     payload = {
         "reporting_entity_name": "Test Entity",
+        # Finalising now also requires everything the goAML export needs.
+        "entity_reference": "TEST-REF-1",
+        "reporter_name": "Maya MLRO",
+        "reporter_email": "mlro@test.ae",
+        "first_name": "John",
         "report_code": "STR",
         "submission_code": "SUBMIT-001",
         "reason": "Suspicious transaction pattern",
@@ -161,6 +171,11 @@ def test_report_submit_wrong_org_returns_403(tmp_path, monkeypatch):
     # Report belongs to org 2
     payload = {
         "reporting_entity_name": "Test Entity",
+        # Finalising now also requires everything the goAML export needs.
+        "entity_reference": "TEST-REF-1",
+        "reporter_name": "Maya MLRO",
+        "reporter_email": "mlro@test.ae",
+        "first_name": "John",
         "report_code": "STR",
         "submission_code": "SUBMIT-001",
         "reason": "Suspicious transaction pattern",

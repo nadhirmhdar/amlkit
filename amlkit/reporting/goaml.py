@@ -34,9 +34,14 @@ class GoAMLValidationError(ValueError):
 def _require(report_data: dict, key: str, label: str) -> str:
     value = (report_data.get(key) or "").strip()
     if not value:
-        raise GoAMLValidationError(
+        exc = GoAMLValidationError(
             f"Cannot export goAML filing: {label} is required but missing."
         )
+        # Structured copy of the failure so missing_export_fields() can name
+        # every gap using these same checks instead of re-implementing them.
+        exc.key = key
+        exc.label = label
+        raise exc
     return value
 
 
@@ -100,6 +105,45 @@ def inject_reporting_entity(payload: dict, db, org_id: int) -> None:
                 "Set it in the admin organization profile."
             )
         payload["entity_reference"] = row["goaml_entity_reference"]
+
+
+def missing_export_fields(payload: dict, db=None, org_id: int | None = None) -> list[str]:
+    """Return human-readable labels of everything that would block a goAML export.
+
+    Dry-runs the real export path (``inject_reporting_entity`` when ``db`` and
+    ``org_id`` are given, then ``serialize_goaml_xml``) so the answer can never
+    drift from what ``GET /reports/<id>/export`` enforces. Unlike the exporter,
+    which stops at the first gap, this collects all of them. The payload passed
+    in is not modified. An empty list means the report is exportable.
+    """
+    probe = dict(payload)
+    problems: list[str] = []
+    if db is not None and org_id is not None:
+        try:
+            inject_reporting_entity(probe, db, org_id)
+        except GoAMLValidationError as exc:
+            if "entity reference" in str(exc):
+                problems.append("goAML entity reference (enter it on the report or set it under Admin)")
+                probe["entity_reference"] = "x"
+            else:
+                problems.append(str(exc))
+    seen: set[str] = set()
+    for _ in range(25):
+        try:
+            serialize_goaml_xml(probe)
+            break
+        except GoAMLValidationError as exc:
+            key = getattr(exc, "key", None)
+            if key is None or key in seen:
+                problems.append(str(exc))
+                break
+            seen.add(key)
+            problems.append(exc.label)
+            probe[key] = "x"
+        except ValueError as exc:
+            problems.append(str(exc))
+            break
+    return problems
 
 
 def serialize_goaml_xml(report_data: dict) -> str:

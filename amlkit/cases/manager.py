@@ -2474,12 +2474,17 @@ def mark_dashboard_reviewed(conn: sqlite3.Connection, org_id: int) -> None:
 REPORT_REQUIRED_FIELDS = ("reporting_entity_name",)
 
 
-def report_finalize_error(rep) -> str | None:
+def report_finalize_error(rep, db=None, org_id: int | None = None) -> str | None:
     """Return a user-facing reason a report cannot be finalized, else None.
 
     Shared by the web route and the mobile API so both apply identical rules.
     Finalizing only marks the report locked in amlkit; it is NOT transmitted
     to the UAE FIU (the goAML XML must be uploaded manually).
+
+    When ``db``/``org_id`` are given, the report must also be exportable as
+    goAML XML: finalising locks the draft, so a report that can never be
+    exported would be stuck for good. The check dry-runs the exporter's own
+    required-field rules (reporting.goaml.missing_export_fields).
     """
     if rep["status"] == "submitted":
         return "Report has already been finalized."
@@ -2490,4 +2495,13 @@ def report_finalize_error(rep) -> str | None:
     missing = [f for f in REPORT_REQUIRED_FIELDS if not payload.get(f)]
     if missing:
         return f"Cannot finalize report. Missing required fields: {', '.join(missing)}"
+    if db is not None and org_id is not None:
+        from ..reporting.goaml import missing_export_fields
+        gaps = missing_export_fields(payload, db, org_id)
+        if gaps:
+            return (
+                "Cannot finalize report: the goAML export requires "
+                + "; ".join(gaps)
+                + ". The report is still a draft - edit it, fill these in and finalize again."
+            )
     return None

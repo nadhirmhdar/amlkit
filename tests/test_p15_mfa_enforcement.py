@@ -46,7 +46,7 @@ def _register(client, name: str, email: str, password: str = PASSWORD, org: str 
 
 
 def _logout(client) -> None:
-    client.post("/logout", follow_redirects=False)
+    client.post("/logout", data={"csrf_token": client.cookies.get("amlkit_csrf")}, follow_redirects=False)
 
 
 def _login(client, email: str = EMAIL, password: str = PASSWORD):

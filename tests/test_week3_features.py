@@ -83,7 +83,7 @@ def test_feedback_submission(client):
 def test_feedback_requires_auth(client):
     """Unauthenticated users cannot submit feedback."""
     # Logout first
-    client.post("/logout")
+    client.post("/logout", data={"csrf_token": client.cookies.get("amlkit_csrf")})
 
     r = client.post("/feedback", data={
         "page": "/screen",
@@ -98,7 +98,7 @@ def test_feedback_requires_auth(client):
 def test_feedback_button_hidden_on_unauthenticated_pages(client):
     """Feedback button should not appear on login/register pages."""
     # Logout to ensure no session
-    client.post("/logout")
+    client.post("/logout", data={"csrf_token": client.cookies.get("amlkit_csrf")})
 
     # Check login page
     r = client.get("/login")
