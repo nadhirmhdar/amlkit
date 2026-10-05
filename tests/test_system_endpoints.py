@@ -576,6 +576,9 @@ class TestDeliverySemantics:
             assert body["unmarked"] == 1 and body["unsent"] == 1 and body["newly_notified"] == 0
             assert body["failures"] == []
             assert any(str(ob_id) in rec.getMessage() for rec in caplog.records)
+            # Next run while the lock is STILL held: the probe defers, no email.
+            still = client.post(self.URL, data="", headers=self.HEADERS).json()
+            assert still["newly_notified"] == 0 and still["unsent"] == 1 and len(sent) == 1
         finally:
             holder.execute("ROLLBACK")
             holder.close()

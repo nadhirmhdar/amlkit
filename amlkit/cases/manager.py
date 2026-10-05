@@ -2044,7 +2044,10 @@ def check_unexecuted_freeze_obligations(
                         "Freeze obligation %s (org %s): database busy, alert "
                         "deferred to the next run: %s", ob["id"], org_id, exc,
                     )
-                    continue
+                    # The lock is held by someone else (and each probe waits
+                    # out busy_timeout, 30s): stop here instead of waiting
+                    # again for every remaining obligation. They stay unsent.
+                    break
 
                 outcome = mail.send_freeze_obligation_alert(
                     to_email=mlro_email,
