@@ -104,6 +104,16 @@ EXIT_REASONS: dict[str, str] = {
 }
 
 
+def utc_today() -> date:
+    """Today's date in UTC, the clock every stored timestamp uses (db.utcnow).
+
+    Retention dates are compared with audit timestamps, so they must come from
+    the same clock: date.today() is the server's local date, which in the UAE
+    runs a day ahead of UTC between midnight and 04:00.
+    """
+    return datetime.now(timezone.utc).date()
+
+
 def retention_from(start: date) -> str:
     try:
         return start.replace(year=start.year + RETENTION_YEARS).isoformat()
@@ -270,7 +280,7 @@ def onboard(
     now = utcnow()
     ck = canonical_key(full_name)
 
-    retention = retention_from(date.today())
+    retention = retention_from(utc_today())
 
     with conn:
         cur = conn.execute(
@@ -520,7 +530,7 @@ def close_relationship(
         raise ValueError("Customer not found")
     if row["status"] == "closed":
         raise ValueError("Relationship is already closed")
-    exit_date = date.today()
+    exit_date = utc_today()
     until = retention_from(exit_date)
     note = note.strip()
     with conn:
@@ -551,7 +561,7 @@ def reactivate_customer(
         raise ValueError("Customer not found")
     if row["status"] != "closed":
         raise ValueError("Only closed customers can be reactivated")
-    new_retention = retention_from(date.today())
+    new_retention = retention_from(utc_today())
     with conn:
         conn.execute(
             "UPDATE customers SET status='active', exit_date=NULL, exit_reason=NULL,"
@@ -584,7 +594,7 @@ def purge_expired(
     import logging
     from pathlib import Path
 
-    now = date.today().isoformat()
+    now = utc_today().isoformat()
     rows = conn.execute(
         "SELECT id, reference FROM customers"
         " WHERE org_id=? AND status='closed'"

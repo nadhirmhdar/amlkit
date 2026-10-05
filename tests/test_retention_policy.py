@@ -12,7 +12,7 @@ import json
 import re
 import sqlite3
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -28,6 +28,7 @@ from amlkit.cases.manager import (  # noqa: E402
     onboard,
     reactivate_customer,
     retention_from,
+    utc_today,
 )
 from amlkit.db import _reset_init_cache, connect, utcnow  # noqa: E402
 from conftest import register_org, seed_fresh_dataset  # noqa: E402
@@ -194,7 +195,7 @@ def test_reactivation_date_is_the_base_for_active_rows(conn) -> None:
     cid = _closed(conn, org, "R", "2021-08-11", "2026-08-11")
     reactivate_customer(conn, cid, org_id=org, reason="back", actor="t")
     # Simulate the old rule: reactivation stored today + 5 years.
-    today = date.today()
+    today = utc_today()
     short = retention_from(today).replace(str(today.year + RETENTION_YEARS),
                                           str(today.year + 5), 1)
     conn.execute("UPDATE customers SET retention_until=? WHERE id=?", (short, cid))
@@ -252,4 +253,21 @@ def test_connect_runs_the_fix_once(tmp_path) -> None:
 def test_close_relationship_uses_policy(conn) -> None:
     org = _org(conn, "a")
     cid = onboard(conn, org_id=org, reference="C", full_name="Close Me", actor="t").customer_id
-    assert close_relationship(conn, cid, org_id=org, reason="other") == retention_from(date.today())
+    assert close_relationship(conn, cid, org_id=org, reason="other") == retention_from(utc_today())
+
+
+def test_reactivation_uses_the_utc_date_not_the_server_local_date(conn, monkeypatch) -> None:
+    # Between 00:00 and 04:00 in the UAE the local date is a day ahead of UTC. Retention
+    # restarts from the UTC date, the same clock as the audit timestamps it is checked against.
+    import amlkit.cases.manager as manager
+
+    class LocalAhead(date):
+        @classmethod
+        def today(cls):
+            return utc_today() + timedelta(days=1)
+
+    monkeypatch.setattr(manager, "date", LocalAhead)
+    org = _org(conn, "a")
+    cid = _closed(conn, org, "U", "2021-08-11", "2026-08-11")
+    reactivate_customer(conn, cid, org_id=org, reason="back", actor="t")
+    assert _until(conn, cid) == retention_from(utc_today())

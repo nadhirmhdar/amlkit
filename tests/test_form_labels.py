@@ -47,7 +47,7 @@ def test_customers_search_is_labelled(client) -> None:
 
 
 def test_disposition_form_macro_labels_every_control() -> None:
-    src = (TEMPLATES / "_macros.html").read_text()
+    src = (TEMPLATES / "_macros.html").read_text(encoding="utf-8")
     form = src[src.index("macro disposition_form") :]
     form = form[: form.index("endmacro")]
     # Macro ids use Jinja expressions; treat them as plain strings here.
@@ -60,7 +60,7 @@ def test_freeze_obligations_title_carries_product_name(client) -> None:
 
 
 def test_alerts_tabs_and_actions_are_separate_rows() -> None:
-    src = (TEMPLATES / "alerts.html").read_text()
+    src = (TEMPLATES / "alerts.html").read_text(encoding="utf-8")
     assert "tab-filter__tabs" in src and "tab-filter__actions" in src
 
 
@@ -78,7 +78,7 @@ def test_labelled_templates_have_no_unassociated_sibling_labels() -> None:
     """customer/admin/dashboard/freeze templates: every <label> next to a control
     must carry `for` (a bare <label> beside an input labels nothing)."""
     for name in ("customer.html", "admin.html", "dashboard.html", "freeze_obligations.html"):
-        src = (TEMPLATES / name).read_text()
+        src = (TEMPLATES / name).read_text(encoding="utf-8")
         assert not _BARE_SIBLING.search(src), f"{name}: bare <label> beside a control"
 
 
