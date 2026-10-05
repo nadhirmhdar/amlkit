@@ -485,3 +485,49 @@ def pep_onboard():
 if __name__ == "__main__" and os.environ.get("ONLY") == "pep":
     pep_onboard()
     json.dump(LOG, open(OUT / "log_pep.json", "w"), indent=1)
+
+def run2():
+    """Second 2026-10-05 run: single-operator mode, review-trail wording, org-profile save, rescreen vs pending_review."""
+    LOG.clear()
+    from amlkit.db import connect
+    cl = stage1(); ids = stage2(cl)
+    dbp = os.environ["AMLKIT_DB"]
+    ref = lambda: dict(connect(dbp).execute("select goaml_entity_reference ref, org_address addr from organizations").fetchone())
+    note("goAML profile after stage2", "info", str(ref()))
+    # (a) browser-style re-save: the form renders the reference blank, so a browser posts it blank
+    st, loc, b, pg = act(cl, "/admin/org-profile", follow="/admin", org_address="New address, Dubai", reporting_person_name="Layla MLRO",
+                         reporting_person_title="MLRO", reporting_person_phone="+971501234567", goaml_entity_reference="")
+    note("re-save profile with the (blank) form value", "info", f"{b} -> db {ref()}")
+    # (b) four-eyes via rename: trail wording
+    st, loc, b, pg = onboard(cl, "R-001", "Ahmed Abd Al-Jaleel Al-Hasnawi", birth_date="1975-03-12")
+    cid = int(loc.rsplit("/", 1)[1]); aid = alert_ids(cl)[-1]
+    def trail(c):
+        t = text(cl.get(f"/customers/{c}")); i = t.find("propose"); return re.sub(r"\s+", " ", t[max(0, i-60):i+420]) if i >= 0 else t[:0]
+    act(cl, f"/alerts/{aid}/disposition", follow="/alerts", status="false_positive", reason_code="different_dob", narrative="")
+    act(cl, f"/admin/operators/{ids[0]}/rename", follow="/admin", name="Someone Else")
+    st, loc, b, pg = act(cl, f"/alerts/{aid}/confirm", follow="/alerts", agree="yes", narrative="")
+    note("rename-bypass confirm", "info", str(b))
+    note("review trail shown to an inspector (rename bypass)", "info", trail(cid))
+    # (c) honest single-operator mode on a fresh alert
+    st, loc, b, pg = act(cl, "/admin/single-operator", follow="/admin", mode="on")
+    note("turn single-operator mode on", "info", str(b))
+    st, loc, b, pg = onboard(cl, "R-002", "Ahmed Abd Al-Jaleel Al-Hasnawi", birth_date="1975-03-12")
+    cid2 = int(loc.rsplit("/", 1)[1]); aid2 = alert_ids(cl)[-1]
+    st, loc, b, pg = act(cl, f"/alerts/{aid2}/disposition", follow="/alerts", status="false_positive", reason_code="different_dob", narrative="")
+    note("single-operator dismissal banner", "info", str(b))
+    note("review trail (single-operator mode)", "info", trail(cid2) or text(cl.get(f"/customers/{cid2}"))[:0])
+    au = [r for r in audit_rows(cl, r"alert\.(propose|confirm|dismiss|disposition)") ][:3]
+    for r in au: note("audit row", "info", r[:300])
+    act(cl, "/admin/single-operator", follow="/admin", mode="off")
+    # (d) rescreen while a dismissal awaits review
+    st, loc, b, pg = onboard(cl, "R-003", "Ahmed Abd Al-Jaleel Al-Hasnawi", birth_date="1975-03-12")
+    aid3 = alert_ids(cl)[-1]
+    act(cl, f"/alerts/{aid3}/disposition", follow="/alerts", status="false_positive", reason_code="different_dob", narrative="")
+    before = (alert_ids(cl), alert_ids(cl, "pending_review"))
+    st, loc, b, pg = act(cl, "/admin/rescreen", follow="/admin")
+    after = (alert_ids(cl), alert_ids(cl, "pending_review"))
+    note("rescreen with a pending_review dismissal", "info", f"{b} open/pending before={before} after={after}")
+    json.dump(LOG, open(OUT / "log_run2.json", "w"), indent=1)
+
+if __name__ == "__main__" and os.environ.get("ONLY") == "run2":
+    run2()
