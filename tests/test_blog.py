@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import html
+import json
+import re
 import sys
 from pathlib import Path
 
@@ -44,10 +47,22 @@ def test_blog_topic_filter(client) -> None:
     assert r.status_code == 200
     assert "/blog/uae-sanctions-screening-24-hour-rule" in r.text
     assert client.get("/blog?topic=no-such-topic").status_code == 404
-    # A real topic with no posts yet renders an empty state, not an error.
-    empty = client.get("/blog?topic=risk")
-    assert empty.status_code == 200
-    assert "No guides in this topic yet" in empty.text
+    # "risk" used to have no posts; it now has the risk-assessment guide.
+    risk = client.get("/blog?topic=risk")
+    assert risk.status_code == 200
+    assert "/blog/uae-dnfbp-aml-risk-assessment-risk-scoring" in risk.text
+    assert "No guides in this topic yet" not in risk.text
+
+
+def test_every_topic_now_has_at_least_one_post(client) -> None:
+    # Every Topic in blog.TOPICS should resolve to a non-empty /blog?topic=
+    # page -- the four non-sanctions topics started with zero posts (#376)
+    # and should no longer show the "no guides yet" empty state.
+    for topic, count in blog.topic_counts():
+        assert count >= 1, f"topic {topic.slug!r} still has no posts"
+        r = client.get(f"/blog?topic={topic.slug}")
+        assert r.status_code == 200
+        assert "No guides in this topic yet" not in r.text
 
 
 def test_blog_search_is_server_side_without_js(client) -> None:
@@ -77,6 +92,78 @@ def test_blog_date_format() -> None:
 def test_blog_unknown_slug_is_404(client) -> None:
     r = client.get("/blog/does-not-exist")
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------- new posts
+# CDD/KYC, goAML reporting, risk assessment and regulatory-updates guides
+# added alongside the sanctions-screening guide. Each gets the same basic
+# coverage: 200, listed on /blog, no inline <script> (belt-and-suspenders
+# with test_csp_no_inline_scripts.py, which scans every template), and its
+# JSON-LD parses with the expected @types.
+
+NEW_POST_SLUGS = [
+    "uae-dnfbp-cdd-kyc-beneficial-ownership",
+    "uae-goaml-str-sar-filing-guide",
+    "uae-dnfbp-aml-risk-assessment-risk-scoring",
+    "uae-aml-cft-regulatory-updates",
+]
+
+
+@pytest.mark.parametrize("slug", NEW_POST_SLUGS)
+def test_new_post_renders_200(client, slug) -> None:
+    r = client.get(f"/blog/{slug}")
+    assert r.status_code == 200
+    assert "BlogPosting" in r.text
+    assert "FAQPage" in r.text
+    assert 'id="sources"' in r.text
+    assert "Checked against" in r.text
+
+
+@pytest.mark.parametrize("slug", NEW_POST_SLUGS)
+def test_new_post_listed_on_blog_index(client, slug) -> None:
+    r = client.get("/blog")
+    assert r.status_code == 200
+    assert f"/blog/{slug}" in r.text
+    post = blog.get_post(slug)
+    assert post is not None
+    assert post.title.replace("&", "&amp;") in r.text
+
+
+@pytest.mark.parametrize("slug", NEW_POST_SLUGS)
+def test_new_post_has_no_inline_script(client, slug) -> None:
+    r = client.get(f"/blog/{slug}")
+    assert r.status_code == 200
+    inline_scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>", r.text)
+    assert inline_scripts == []
+
+
+@pytest.mark.parametrize("slug", NEW_POST_SLUGS)
+def test_new_post_jsonld_parses_with_expected_types(client, slug) -> None:
+    r = client.get(f"/blog/{slug}")
+    assert r.status_code == 200
+    blocks = re.findall(r"data-jsonld='([^']*)'", r.text)
+    assert blocks, f"no data-jsonld block found for {slug}"
+    ld = json.loads(html.unescape(blocks[0]))
+    types = {node["@type"] for node in ld["@graph"]}
+    assert {"BreadcrumbList", "BlogPosting", "FAQPage"} <= types
+    faq_node = next(n for n in ld["@graph"] if n["@type"] == "FAQPage")
+    assert faq_node["mainEntity"], f"{slug} has no FAQ entities in its JSON-LD"
+    for q in faq_node["mainEntity"]:
+        assert q["@type"] == "Question"
+        assert q["acceptedAnswer"]["@type"] == "Answer"
+
+
+def test_new_posts_cross_reference_each_other_and_the_sanctions_guide() -> None:
+    # Each new post should be reachable from at least one other post's
+    # `related` field (bidirectional discovery), and should link back to
+    # the existing sanctions guide rather than repeating its content.
+    sanctions = blog.get_post("uae-sanctions-screening-24-hour-rule")
+    assert sanctions is not None
+    for slug in NEW_POST_SLUGS:
+        post = blog.get_post(slug)
+        assert post is not None
+        related_slugs = {p.slug for p in blog.related_posts(post, limit=10)}
+        assert related_slugs, f"{slug} has no related posts"
 
 
 def test_robots_txt_points_at_sitemap(client) -> None:
