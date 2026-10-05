@@ -1525,3 +1525,11 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 .ubo-diagram-container { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
 .ubo-diagram-container:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ubo-diagram-container svg { display: block; max-width: none; }
+
+/* Adverse media list on phones: title and detail on top, severity beneath,
+   not squeezed into a one-word column beside the tags. */
+@media (max-width: 680px) {
+  .adverse-list .list-row { flex-wrap: wrap; gap: 6px 12px; }
+  .adverse-list .list-row .grow { flex-basis: 100%; }
+  .adverse-list .list-row .side.nowrap { white-space: normal; }
+}

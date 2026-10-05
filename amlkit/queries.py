@@ -1086,7 +1086,8 @@ def adverse_media_runs(
 
 
 def adverse_media_queue(
-    conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200
+    conn: sqlite3.Connection, org_id: int, status: str | None = "open", limit: int = 200,
+    oldest_first: bool = False,
 ) -> list[dict[str, Any]]:
     """Org-wide adverse-media findings with customer context, for triage.
 
@@ -1103,14 +1104,32 @@ def adverse_media_queue(
     if status:
         sql += " AND f.status = ?"
         params.append(status)
+    # Most serious first. Within a severity: newest first (the mobile API's
+    # long-standing order) or, for the dashboard line and the web list, oldest
+    # first so the first rows are the ones that have waited longest.
     sql += (" ORDER BY CASE f.severity"
             "   WHEN 'financial_crime_alleged' THEN 0"
             "   WHEN 'regulatory_action' THEN 1"
             "   WHEN 'reputational_only' THEN 2 ELSE 3 END,"
-            " f.created_at DESC LIMIT ?")
+            + (" f.created_at ASC, f.id ASC" if oldest_first else " f.created_at DESC")
+            + " LIMIT ?")
     return [dict(r) | {"matched_terms": json.loads(r["matched_terms"] or "[]")}
             for r in conn.execute(sql, (*params, limit))]
 
+
+
+ADVERSE_STATUSES = ("open", "relevant", "not_relevant")
+
+
+def adverse_media_counts(conn: sqlite3.Connection, org_id: int) -> dict[str, int]:
+    """Findings per status for one org, plus "all". Exact, never capped."""
+    counts = {st: 0 for st in ADVERSE_STATUSES}
+    for r in conn.execute(
+        "SELECT status, COUNT(*) n FROM adverse_media_findings WHERE org_id = ? GROUP BY status", (org_id,)
+    ):
+        counts[r["status"]] = r["n"]
+    counts["all"] = sum(counts.values())
+    return counts
 
 
 # ---------------------------------------------------------------------- super-admin queries
