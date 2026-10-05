@@ -82,6 +82,133 @@ POSTS: list[BlogPost] = [
             "Lawyers and notaries",
         ),
         featured=True,
+        related=(
+            "uae-dnfbp-cdd-kyc-beneficial-ownership",
+            "uae-goaml-str-sar-filing-guide",
+        ),
+    ),
+    BlogPost(
+        slug="uae-dnfbp-cdd-kyc-beneficial-ownership",
+        title="Customer due diligence for UAE DNFBPs: identity, beneficial ownership and the risk-based approach",
+        description=(
+            "What CDD and KYC actually require in practice: verifying identity, "
+            "tracing beneficial ownership to a natural person, when a customer "
+            "needs simplified, standard or enhanced due diligence, and the "
+            "ongoing monitoring that doesn't stop once onboarding is done."
+        ),
+        dek=(
+            "Sanctions screening tells you who you must refuse outright. CDD is "
+            "how you decide everyone else: who they really are, who actually "
+            "owns them, and how closely you need to keep watching."
+        ),
+        published="2026-10-04",
+        updated="2026-10-04",
+        topic="cdd",
+        reading_minutes=11,
+        audience=(
+            "Real estate brokers and agents",
+            "Dealers in precious metals and stones",
+            "Corporate service providers",
+            "Auditors and accountants",
+            "Lawyers and notaries",
+        ),
+        related=(
+            "uae-sanctions-screening-24-hour-rule",
+            "uae-goaml-str-sar-filing-guide",
+            "uae-dnfbp-aml-risk-assessment-risk-scoring",
+        ),
+    ),
+    BlogPost(
+        slug="uae-goaml-str-sar-filing-guide",
+        title="STR and SAR filing on goAML: a practical guide for UAE DNFBPs",
+        description=(
+            "What goAML actually is, the real difference between an STR and an "
+            "SAR, what triggers a filing obligation, realistic timelines, and "
+            "the record-keeping duty that goes with every report you file."
+        ),
+        dek=(
+            "“Without delay” is the whole rule. Here is what that means in "
+            "practice, which report you file for which situation, and what "
+            "a filing has to hold up to look like afterwards."
+        ),
+        published="2026-10-04",
+        updated="2026-10-04",
+        topic="reporting",
+        reading_minutes=10,
+        audience=(
+            "Real estate brokers and agents",
+            "Dealers in precious metals and stones",
+            "Corporate service providers",
+            "Auditors and accountants",
+            "Lawyers and notaries",
+        ),
+        related=(
+            "uae-sanctions-screening-24-hour-rule",
+            "uae-dnfbp-cdd-kyc-beneficial-ownership",
+            "uae-dnfbp-aml-risk-assessment-risk-scoring",
+        ),
+    ),
+    BlogPost(
+        slug="uae-dnfbp-aml-risk-assessment-risk-scoring",
+        title="AML/CFT risk assessment for UAE DNFBPs: what it must cover, and why it is never finished",
+        description=(
+            "What a business-wide and customer risk assessment actually has to "
+            "cover under Cabinet Resolution No. 134 of 2025, how risk scoring "
+            "feeds the CDD tier, and why risk-scoring methodology is changing "
+            "industry-wide."
+        ),
+        dek=(
+            "A risk assessment that sits in a drawer is not a risk assessment. "
+            "Here is what UAE DNFBPs have to assess, how the score becomes a "
+            "due-diligence tier, and where the industry is heading next."
+        ),
+        published="2026-10-04",
+        updated="2026-10-04",
+        topic="risk",
+        reading_minutes=11,
+        audience=(
+            "Real estate brokers and agents",
+            "Dealers in precious metals and stones",
+            "Corporate service providers",
+            "Auditors and accountants",
+            "Lawyers and notaries",
+        ),
+        related=(
+            "uae-dnfbp-cdd-kyc-beneficial-ownership",
+            "uae-sanctions-screening-24-hour-rule",
+            "uae-goaml-str-sar-filing-guide",
+        ),
+    ),
+    BlogPost(
+        slug="uae-aml-cft-regulatory-updates",
+        title="UAE AML/CFT regulatory updates: what changed, and what DNFBPs need to do",
+        description=(
+            "A running guide to the current UAE AML/CFT legal framework: "
+            "Federal Decree-Law No. 10 of 2025, its Executive Regulations, and "
+            "what's followed since, kept current rather than written once."
+        ),
+        dek=(
+            "The law changed in October 2025 and the rulebook that implements "
+            "it changed again in December. Here is what actually moved, what "
+            "is still settling, and what to check before you rely on any of it."
+        ),
+        published="2026-10-04",
+        updated="2026-10-04",
+        topic="regulation",
+        reading_minutes=9,
+        audience=(
+            "Real estate brokers and agents",
+            "Dealers in precious metals and stones",
+            "Corporate service providers",
+            "Auditors and accountants",
+            "Lawyers and notaries",
+        ),
+        related=(
+            "uae-sanctions-screening-24-hour-rule",
+            "uae-dnfbp-cdd-kyc-beneficial-ownership",
+            "uae-goaml-str-sar-filing-guide",
+            "uae-dnfbp-aml-risk-assessment-risk-scoring",
+        ),
     ),
 ]
 _BY_SLUG = {p.slug: p for p in POSTS}

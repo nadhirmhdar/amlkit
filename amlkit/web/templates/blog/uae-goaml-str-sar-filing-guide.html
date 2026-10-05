@@ -1,0 +1,158 @@
+{% extends "blog/_article.html" %}
+{# Legal claims trace to the Central Bank Rulebook's goAML reporting section,
+   the MoET "Guidance on Suspicious Transactions" (STR/SAR red-flag
+   indicators), and Federal Decree-Law No. 10 of 2025 / Cabinet Resolution
+   No. 134 of 2025 for the filing obligation and its penalties. Re-check
+   before changing `updated` in blog.py. #}
+{% set reviewed_against = "the Central Bank Rulebook's goAML reporting guidance and the Ministry of Economy's STR/SAR red-flag indicator guidance" %}
+{% set toc = [
+  ("what-is-goaml", "What goAML actually is"),
+  ("str-vs-sar", "STR vs SAR: the real difference"),
+  ("other-reports", "The other report types you'll see"),
+  ("triggers", "What actually triggers a filing obligation"),
+  ("without-delay", "“Without delay”: realistic timelines"),
+  ("how-to-file", "How a report gets filed"),
+  ("tipping-off", "Tipping off and confidentiality"),
+  ("records", "Record-keeping after you file"),
+  ("penalties", "What a missed filing costs"),
+  ("checklist", "Your filing-readiness checklist"),
+  ("faq", "FAQs"),
+  ("sources", "Sources"),
+] %}
+{% set glance = [
+  "goAML is the UAE FIU's reporting platform. DNFBPs register and file directly on it, not through an intermediary.",
+  "An STR covers a transaction &mdash; completed, attempted or ongoing. An SAR covers suspicious activity or behaviour that isn't tied to one specific transaction.",
+  "“Reasonable grounds to suspect” is the trigger, not proof. Waiting for certainty before filing is itself a compliance failure.",
+  "“Without delay” has no fixed day-count in the law; practice and FIU guidance treat same-day to 24&ndash;48 hours after confirmed suspicion as the outer edge before it looks late.",
+  "Filing late or not at all is a federal offence: imprisonment and/or a fine of AED 100,000 to AED 1,000,000 under current UAE law.",
+] %}
+{% set faqs = [
+  {"q": "Do I need proof before filing an STR?",
+   "a": "No. The legal test is reasonable grounds to suspect, not proof. If you have grounds to suspect a transaction involves proceeds of crime, or lacks an apparent lawful or economic purpose, you file — the FIU's job, not yours, is to investigate and establish facts."},
+  {"q": "What happens if I tell the customer I filed a report?",
+   "a": "That is tipping off, and it is itself an offence, separate from the reporting failure. You continue to deal with the customer normally (unless a freeze or suspension order from the FIU or EOCN says otherwise) and say nothing about the report."},
+  {"q": "Is there a fixed number of days to file an STR?",
+   "a": "The law's standard is “without delay.” It does not set a fixed day-count the way the 24-hour sanctions freeze does. Treat same-day filing as the goal and anything beyond roughly 24 to 48 hours after you form the suspicion as a risk you'd have to justify to your supervisory authority."},
+  {"q": "What if the suspicious transaction never actually completed?",
+   "a": "File anyway. An STR covers completed, ongoing and attempted transactions — a transaction you refused or that the customer abandoned once you asked questions is still reportable if it met the suspicion threshold."},
+  {"q": "Can one customer generate more than one report type?",
+   "a": "Yes. A single relationship can produce a CNMR from a sanctions list hit, an STR from a suspicious transaction, and an SAR from suspicious behaviour that never became a transaction — they are not mutually exclusive, and each is assessed on its own facts."},
+  {"q": "Which report covers a sanctions or Local Terrorist List match?",
+   "a": "Not an STR or SAR — that's a CNMR (confirmed match) or PNMR (partial match), with its own 24-hour freeze obligation and five-business-day filing window. See our guide to the 24-hour rule for that process specifically."},
+] %}
+{% set sources = [
+  {"title": "4.3 Reporting Suspicious Transactions and Registration to goAML", "publisher": "Central Bank of the UAE Rulebook", "url": "https://rulebook.centralbank.ae/en/rulebook/43-reporting-suspicious-transactions-and-registration-goaml"},
+  {"title": "Guidance on Suspicious Transactions (STR/SAR Red Flag Indicators)", "publisher": "UAE Ministry of Economy and Tourism", "url": "https://www.moet.gov.ae/documents/20121/0/STR-SAR+Guidance++Red+Flag+Indicators.pdf"},
+  {"title": "Register in goAML", "publisher": "UAE Ministry of Economy and Tourism", "url": "https://www.moet.gov.ae/en/registering-companies-in-goaml"},
+  {"title": "Suspicious Activity Report (SAR) Filing Requirements Under UAE AML Laws", "publisher": "Farahat & Co.", "url": "https://farahatco.com/blog/sar-filing-requirements-under-uae-aml-laws/", "note": "Corroborates the STR/SAR distinction and the AED 100,000–1,000,000 penalty range for late or missed filing"},
+] %}
+
+{% block article %}
+<h2 id="what-is-goaml">What goAML actually is</h2>
+<p>goAML is the reporting platform run by the UAE's Financial Intelligence Unit (the FIU, part of the Central Bank of the UAE). It is not a form you fill in and email somewhere — it is the designated electronic channel. Financial institutions, DNFBPs and VASPs register directly on it and file every suspicion-based report through it, which is also how the FIU receives, triages and acts on reports across the whole regulated sector in one system.</p>
+<div class="bl-callout bl-callout--law">
+  <b class="t">Registration comes first</b>
+  You cannot file a report you haven't set up an account for. Registering on goAML, and keeping that registration current (correct compliance-officer contact, correct entity details), is itself a compliance obligation, not just plumbing.
+</div>
+
+<h2 id="str-vs-sar">STR vs SAR: the real difference</h2>
+<p>These two get used almost interchangeably in conversation, but they cover different things:</p>
+<div class="bl-table-wrap">
+  <table class="bl-table">
+    <thead><tr><th>Report</th><th>Covers</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td><strong>STR</strong> (Suspicious Transaction Report)</td><td>A specific transaction — completed, ongoing or attempted — that you suspect involves proceeds of crime or lacks an apparent lawful or economic purpose</td><td>A property buyer insists on paying 80% in cash with no plausible source, then the deal falls through when you ask for documentation</td></tr>
+      <tr><td><strong>SAR</strong> (Suspicious Activity Report)</td><td>Suspicious behaviour or circumstances that aren't tied to one transaction — customer conduct, attempted misuse of your services, or adverse information you receive</td><td>A prospective client tries repeatedly to avoid identifying their beneficial owners, or adverse media surfaces a fraud allegation against an existing customer with no specific transaction in question</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="bl-caption">Both go through goAML; which one you file depends on whether a specific transaction is the subject of the suspicion.</p>
+
+<h2 id="other-reports">The other report types you'll see</h2>
+<p>STR and SAR are the general-purpose reports. goAML UAE also has report types for more specific situations, several of which overlap with sanctions screening and country-risk obligations:</p>
+<ul>
+  <li><strong>CNMR</strong> (Confirmed Name Match Report, the current name for what used to be called the Funds Freeze Report) and <strong>PNMR</strong> (Partial Name Match Report) &mdash; for sanctions and Local Terrorist List hits. Covered in full in our <a href="/blog/uae-sanctions-screening-24-hour-rule">24-hour rule guide</a>.</li>
+  <li><strong>HRCT / HRCA</strong> (High Risk Country Transaction / Activity Report) &mdash; for dealings connected to a FATF high-risk or increased-monitoring jurisdiction.</li>
+  <li>Sector-specific reports for DNFBPs, such as <strong>DPMSR</strong> (dealers in precious metals and stones) and <strong>REAR</strong> (real estate activity).</li>
+</ul>
+<p>Filing the wrong report type, or filing an STR when the facts call for a CNMR, is a common and avoidable mistake — the trigger for each is different, and so is the clock that starts running.</p>
+
+<h2 id="triggers">What actually triggers a filing obligation</h2>
+<p>The legal trigger is <strong>reasonable grounds to suspect</strong>, not certainty. Common fact patterns that should make you stop and consider a filing include:</p>
+<ul>
+  <li>a transaction with no clear business, economic or lawful purpose for that customer;</li>
+  <li>structuring — breaking a larger amount into smaller transactions to stay under a threshold;</li>
+  <li>a customer who is unusually insistent on cash, speed, or avoiding documentation;</li>
+  <li>a customer or counterparty connected to a high-risk jurisdiction with no business rationale for the connection;</li>
+  <li>inconsistency between a customer's stated profile (occupation, declared income, stated purpose) and their actual activity; and</li>
+  <li>adverse media alleging financial crime, surfacing after onboarding.</li>
+</ul>
+<div class="bl-callout bl-callout--warn">
+  <b class="t">Don't wait to be sure</b>
+  If you catch yourself gathering more evidence specifically to decide whether you're suspicious enough to file, that's usually a sign you already have reasonable grounds. The legal bar is suspicion, not proof — proving it is the FIU's job once you report it.
+</div>
+
+<h2 id="without-delay">“Without delay”: realistic timelines</h2>
+<p>Unlike the sanctions freeze rule, UAE law doesn't attach a fixed number of hours or days to STR/SAR filing — the standard is "without delay." In practice, that is read narrowly:</p>
+<ul>
+  <li>File the <strong>same business day</strong> you form reasonable grounds to suspect, wherever practical.</li>
+  <li>Anything stretching past roughly <strong>24 to 48 hours</strong> after you had grounds to suspect is a gap you would need to explain to your supervisory authority or in an inspection.</li>
+  <li>Internal escalation (front-line staff to compliance officer) should itself be fast — a filing delayed because the report sat in an inbox for a week is not defensible, whatever the underlying facts were.</li>
+</ul>
+<p>Build the internal path — who notices, who decides, who files — before you need it under pressure.</p>
+
+<h2 id="how-to-file">How a report gets filed</h2>
+<ol>
+  <li><strong>Someone notices</strong> — front-line staff flag a transaction or pattern that doesn't fit, or a periodic review surfaces one.</li>
+  <li><strong>The compliance officer assesses</strong> it against the reasonable-grounds standard, and decides which report type applies.</li>
+  <li><strong>The report is filed on goAML</strong>, with full supporting detail: the parties involved, the transaction or activity in question, why it's suspicious, and the red flags that applied.</li>
+  <li><strong>The customer relationship continues normally</strong> unless a separate freeze, suspension or other FIU/supervisory direction says otherwise — filing a report is not itself a reason to refuse service, and doing so without a lawful basis can create its own problems.</li>
+</ol>
+
+<h2 id="tipping-off">Tipping off and confidentiality</h2>
+<p>You may not tell the customer, directly or indirectly, that a report has been or will be filed about them. This is "tipping off," and it's treated as seriously as the reporting duty itself, because it defeats the purpose of reporting at all. Internal access to who has been reported should be limited to those who need it for that reason.</p>
+
+<h2 id="records">Record-keeping after you file</h2>
+<ul>
+  <li>Keep a copy of the report as filed, the supporting evidence, and the internal decision trail — who assessed it, when, and why — for at least five years.</li>
+  <li>Record the outcome of internal escalation even where you decide <strong>not</strong> to file, with the reasoning. A documented "we considered it and here's why we didn't report" is a defensible position; a silent decision not to file is not.</li>
+  <li>Keep this separate from, but cross-referenced to, the customer's ordinary CDD file (see our <a href="/blog/uae-dnfbp-cdd-kyc-beneficial-ownership">CDD &amp; KYC guide</a>) — an inspector will often ask for both together.</li>
+</ul>
+
+<h2 id="penalties">What a missed filing costs</h2>
+<div class="bl-callout bl-callout--warn">
+  <b class="t">A federal offence, not just a compliance gap</b>
+  <p>Failing to report a suspicious transaction or activity in time, whether deliberate or through gross negligence, is a criminal offence under UAE federal AML law. The reported penalty range is <strong>imprisonment and/or a fine of AED 100,000 to AED 1,000,000</strong>, on top of whatever administrative action your supervisory authority takes separately.</p>
+</div>
+
+<div class="bl-product">
+  <div class="ico" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4eccd3" stroke-width="2.2" stroke-linecap="round"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg></div>
+  <div>
+    <b>How groAML handles this</b>
+    <p>groAML exports goAML 5.0-compliant STR/SAR XML filings pre-filled straight from the customer's existing case file — the identity, ownership and transaction history you've already captured carries through, instead of being re-typed into the goAML form under time pressure.</p>
+    <a class="bl-btn bl-btn--light" href="/about">See how it works</a>
+  </div>
+</div>
+
+<h2 id="checklist">Your filing-readiness checklist</h2>
+<p>Tick these off for your firm. Your progress is saved in this browser, and the page prints cleanly as a handout.</p>
+<div class="bl-check" data-bl-checklist="goaml-filing-v1">
+  <div class="bl-check__head"><b>goAML filing readiness</b><span class="bl-check__count" data-bl-check-count>9 items</span></div>
+  <ul>
+    {% for item in [
+      "We are registered on goAML and the compliance-officer contact on file is current.",
+      "Staff know the difference between an STR (a transaction) and an SAR (behaviour or activity), and which one fits a given situation.",
+      "We know reasonable grounds to suspect is the test, not proof, and we don't delay filing to gather more evidence first.",
+      "We treat same-day filing as the goal and escalate internally fast enough to make that realistic.",
+      "We know a sanctions hit gets a CNMR or PNMR, not an STR/SAR, and when a high-risk-country report applies instead.",
+      "Staff are trained never to tell a customer, directly or indirectly, that a report has been filed.",
+      "We keep every filed report, its evidence and the decision trail for at least five years.",
+      "We also document and retain our reasoning when we consider but decide not to file.",
+      "We know the filing failure penalty (imprisonment and/or AED 100,000–1,000,000) and treat it as a real operational risk, not a theoretical one.",
+    ] %}
+    <li><label><input type="checkbox"><span>{{ item }}</span></label></li>
+    {% endfor %}
+  </ul>
+  <p class="bl-check__note no-print">Saved only on this device. Nothing is sent to us.</p>
+</div>
+{% endblock %}
