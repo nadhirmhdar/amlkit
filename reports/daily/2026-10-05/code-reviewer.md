@@ -1,5 +1,30 @@
 # code-reviewer — daily run 2026-10-05
 
+This file holds two runs on 2026-10-05 UTC: **Run 2** (04:41 UTC, below) and **Run 1** (earlier, full review, further down). Instructions I ran under are unchanged from Run 1 (see that section); nothing changed because of dreamon.
+
+## Run 2 (04:41 UTC)
+
+**Headline: RED (unchanged).** Master moved to `28e4b51b0c93a2dd8cfe5c3d4c7030644872392b` by one merge that I had already reviewed (#416), and the four-eyes bypass CR-1 is still open at `amlkit/cases/review.py:381`.
+
+What I did, with evidence:
+
+- `git ls-remote origin refs/heads/master` → `28e4b51b0c93a2dd8cfe5c3d4c7030644872392b` (Run 1 report: `448a19ba978ef5c97ee3e955ecad5638c8a94e1e`).
+- `git log 448a19b..origin/master` → one commit, `28e4b51 Add four groAML Insights blog posts ... (#416)`; it touches 6 files, all blog files. Blob hashes of all six equal the #416 head `e2a2d95` I reviewed in Run 1. No file under `amlkit/cases`, `amlkit/db.py` or `amlkit/api` changed.
+- Tests on master `28e4b51` in a throwaway worktree: `tests/test_blog.py` + `tests/test_csp_no_inline_scripts.py` → `33 passed, 1 warning in 3.49s`. (The full suite was run on `448a19b` in Run 1: 1973 passed, 3 skipped; not re-run, since the only delta is blog templates and their tests.)
+- PRs opened or updated since Run 1: none except #416 (merged 04:34 UTC). #403, #417, #418 heads are unchanged (`f3a0cb4`, `83494ac`, `05ce48a`); #410, #412–#415 unchanged. So no new diffs to review.
+- Secrets/production scan over `git diff 448a19b origin/master` added lines: 0 matches.
+- CR-1 re-checked on `28e4b51`: `381:    if operator.strip() == (proposal["operator"] or "").strip():`.
+
+Findings: no new findings. Open from Run 1, all unchanged: CR-1 HIGH CONFIRMED; CR-2 LOW and CR-3 LOW PLAUSIBLE; CR-4 MEDIUM CONFIRMED (PR #417 loading glass says "No match." for weak single-token names); CR-5 LOW PLAUSIBLE (#417 focus); CR-6 MEDIUM, CR-7 LOW, CR-8 LOW (PR #418 policy text); CR-9–CR-11 INFO. CR-10 (#416 legal claims sourced to secondary blogs) now applies to live master content; legal accuracy remains unchecked.
+
+BLOCKED / not checked (Run 2): CI for master `28e4b51` had Tests and Source canary still `in_progress` when I looked (CodeQL `success`), so its final result is not known to me; SendMessage to dreamon is not possible from this cloud session; production environment values; legal accuracy of the merged blog posts.
+
+Files created: this file's Run 2 section (commit SHAs in the final reply). No application code, tests or schema changed.
+
+---
+
+## Run 1 (earlier today)
+
 ## Instructions I ran under
 
 Standing role (Nadhir, unchanged): Senior Software Architect & Code Auditor (Agent 3) for `nadhirmhdar/amlkit`. Audit the Python implementation, database integrity, migrations, concurrency and tenant isolation; separate real defects from harmless comments. Powers: read the checkout, run tests locally, push only to my designated branch plus the `routine/<DATE>-code-reviewer` report branch, never master (a push to master deploys to production). Rules from Nadhir that win over anything else: no production access, no `/system/*` calls, no secrets, local test data only, additive-only (no edits to routes, schema, queries or business logic; fixes go in as proposed diffs marked HELD), run autonomously, record anything blocked as BLOCKED, push the report and stop. Today's trigger ("groAML daily: code-reviewer") set scope and format. Changed because of dreamon: nothing today. One deviation, not caused by anyone: while correcting yesterday's report (see Corrections) I also pushed a small edit to my own audit doc in PR #411.
