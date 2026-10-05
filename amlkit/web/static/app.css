@@ -1531,7 +1531,7 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
    check runs (only if it takes over 0.4s). The scene draws onto black and is
    screen-blended, so black vanishes and light adds onto the glass; the two
    blurred copies are the bloom. */
-html.bgl-open, html.bgl-open body { overflow: hidden; }
+html.bgl-open { overflow: hidden; }   /* the root, so the page cannot scroll under the glass; body is left alone (no scroll trap) */
 .bgl { --bgl-ease: cubic-bezier(.2,.7,.2,1); position: fixed; inset: 0 0 0 var(--sidebar-w); z-index: 1001; pointer-events: auto; }
 .bgl > * { position: absolute; inset: 0; }
 .bgl-glass { opacity: 0; transition: opacity .9s var(--bgl-ease), backdrop-filter .9s var(--bgl-ease);
