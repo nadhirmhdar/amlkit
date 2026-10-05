@@ -285,3 +285,9 @@ yesterday addresses them.
 
 Scratch material (virtualenv, `paging_check.py`, the FATF block pages) lives in
 the session scratchpad and is not committed.
+
+---
+
+## Addendum, 2026-10-05 04:41 UTC (unscheduled re-run; no change in findings)
+
+This re-run was fired by mistake and was stopped on the lead's instruction, so nothing above was re-checked. Since the report above (master `448a19b`), master moved only to `28e4b51` (PR #416, the four blog posts). The merged blog files are identical to the PR head `e2a2d95` that CS-9 to CS-11 reviewed, so those three findings now describe published copy on the public `/blog` routes (`amlkit/api/app.py:2844`, `:2861`), still PLAUSIBLE; nothing else changed in the files behind CS-1 to CS-8. Two facts from the part of the run completed before the stop: the Interpol Red Notices endpoint answers this session's egress with an Akamai edge denial (`HTTP/2 403`, "Access Denied", `server: AkamaiGHost`), which matches the CS-4 reading that it is an edge block and not an application error (production's response body remains UNVERIFIED); and both primary legal sources refused this egress with `HTTP/2 403` (the Central Bank Rulebook page for Cabinet Resolution 134/2025 and `uaelegislation.gov.ae`), so the retention question behind CS-9 (the PR and a web-search summary say "at least five years", the brief's register says 8 years under Law 10/2025 Art 25 and Res 134/2025 Art 24) is still unresolved and BLOCKED on primary text. Lead for the next run: a search result named `https://uaelegislation.gov.ae/en/legislations/3857/download` as the Cabinet Resolution 134/2025 download; I did not fetch it.
