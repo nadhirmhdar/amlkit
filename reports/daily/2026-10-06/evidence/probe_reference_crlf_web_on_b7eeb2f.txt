@@ -1,0 +1,2 @@
+ POST /customers with CRLF in reference -> 303 /customers/7
+ stored: [(7, 'WEB-REF\r\nBcc: x@example.com')]
