@@ -11,7 +11,7 @@
     <h1>Screen a name</h1>
   </div>
 
-  <form method="post" action="/screen">
+  <form method="post" action="/screen" class="no-loading" data-bg-submit="screening">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
       <label for="screen-name">Name — Arabic or Latin script</label>
@@ -37,6 +37,7 @@
   </form>
 
   {% if result %}
+  <div class="screen-result" data-verdict="{{ 'match' if result.hits else 'clear' }}" data-hits="{{ result.hits|length }}">
     {% if low_confidence %}
       <div class="banner warn mt-6">
         Single name token — this is weak evidence whatever it scores. Roughly every
@@ -88,6 +89,7 @@
         came back clear is exactly what an examiner asks for.
       </div>
     {% endif %}
+  </div>
   {% endif %}
 </div>
 
@@ -107,4 +109,5 @@
 {% endif %}
 </div>
 
+<script src="/static/js/bg-submit.js"></script>
 {% endblock %}

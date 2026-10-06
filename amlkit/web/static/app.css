@@ -1533,6 +1533,75 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 .ubo-diagram-container:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ubo-diagram-container svg { display: block; max-width: none; }
 
+/* -------------------------------------------------------------- loading glass
+   bg-submit.js raises this over the main pane while a screening or onboarding
+   check runs (only if it takes over 0.4s). The scene draws onto black and is
+   screen-blended, so black vanishes and light adds onto the glass; the two
+   blurred copies are the bloom. */
+html.bgl-open { overflow: hidden; }   /* the root, so the page cannot scroll under the glass; body is left alone (no scroll trap) */
+.bgl { --bgl-ease: cubic-bezier(.2,.7,.2,1); position: fixed; inset: 0 0 0 var(--sidebar-w); z-index: 1001; pointer-events: auto; }
+.bgl > * { position: absolute; inset: 0; }
+.bgl-glass { opacity: 0; transition: opacity .9s var(--bgl-ease), backdrop-filter .9s var(--bgl-ease);
+  background: radial-gradient(60% 70% at 62% 50%, rgb(0 46 56 / .55), transparent 70%),
+              linear-gradient(90deg, rgb(3 14 18 / .82), rgb(2 10 13 / .93) 45%, rgb(2 9 12 / .95));
+  backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0); }
+.bgl.live .bgl-glass { opacity: 1; backdrop-filter: blur(18px) saturate(120%); -webkit-backdrop-filter: blur(18px) saturate(120%); }
+.bgl-scene { pointer-events: none; opacity: 0; transition: opacity .9s var(--bgl-ease); }
+.bgl.live .bgl-scene { opacity: 1; }
+.bgl-layer { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: screen; transition: opacity .9s var(--bgl-ease); }
+/* The 2D fallback draws on a transparent canvas, so it needs no blend; a screen-blended
+   2D canvas also stops the glass's backdrop blur rendering in Chrome. */
+.bgl-flat { mix-blend-mode: normal; }
+.bgl-glow { filter: blur(14px) brightness(1.5) saturate(1.2); opacity: .85; }
+.bgl-glow2 { filter: blur(42px) brightness(1.8); opacity: .55; }
+.bgl.resolved .bgl-layer { opacity: .45; }
+.bgl.resolved .bgl-glow { opacity: .35; } .bgl.resolved .bgl-glow2 { opacity: .25; }
+.bgl-grain { pointer-events: none; opacity: 0; mix-blend-mode: overlay; transition: opacity .9s var(--bgl-ease);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+.bgl.live .bgl-grain { opacity: .06; }
+.bgl.out .bgl-glass, .bgl.out .bgl-scene, .bgl.out .bgl-grain, .bgl.out .bgl-hud { opacity: 0 !important; transition: opacity .6s var(--bgl-ease), backdrop-filter .6s var(--bgl-ease); }
+.bgl.out .bgl-glass { backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0); }
+
+.bgl-hud { pointer-events: none; color: #e4f7f8; }
+.bgl-status { position: absolute; left: 56px; top: 46px; font: 500 11px var(--mono); letter-spacing: .28em; color: rgb(228 247 248 / .6);
+  display: flex; align-items: center; gap: 12px; opacity: 0; transform: translateY(10px); transition: opacity .9s var(--bgl-ease) .25s, transform .9s var(--bgl-ease) .25s; }
+.bgl-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--teal-on-dark); box-shadow: 0 0 12px var(--teal-on-dark); animation: bglBreathe 1.6s ease-in-out infinite; }
+.bgl.match .bgl-status i { background: #ff7a69; box-shadow: 0 0 12px #ff7a69; }
+@keyframes bglBreathe { 50% { opacity: .35; } }
+.bgl-subject { position: absolute; left: 56px; right: 56px; bottom: 64px; opacity: 0; transform: translateY(10px); transition: opacity .9s var(--bgl-ease) .9s, transform .9s var(--bgl-ease) .9s; }
+.bgl.live .bgl-status, .bgl.live .bgl-subject { opacity: 1; transform: none; }
+.bgl.live.resolved .bgl-subject { opacity: 0; transform: translateY(-8px); transition-duration: .45s; transition-delay: 0s; }
+.bgl-k { font: 500 11px var(--mono); letter-spacing: .28em; color: rgb(78 204 211 / .8); }
+.bgl-who { margin-top: 10px; font-size: clamp(30px, 3.4vw, 44px); font-weight: 300; letter-spacing: -.03em; line-height: 1.05; color: #fff; overflow-wrap: anywhere; }
+.bgl-cap { margin-top: 18px; font-size: 14px; color: rgb(228 247 248 / .7); min-height: 20px; transition: opacity .4s var(--bgl-ease); }
+.bgl-steps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.bgl-steps span { font: 500 10.5px var(--mono); letter-spacing: .16em; padding: 7px 11px; border-radius: 999px; border: 1px solid rgb(78 204 211 / .2); color: rgb(228 247 248 / .45); transition: all .5s var(--bgl-ease); }
+.bgl-steps span.done { color: rgb(228 247 248 / .85); border-color: rgb(78 204 211 / .5); }
+.bgl-steps span.now { color: #04141a; background: var(--teal-on-dark); border-color: var(--teal-on-dark); box-shadow: 0 0 22px rgb(78 204 211 / .55); }
+
+/* The verdict: a line of light draws across, and the words surface along it. */
+.bgl-hero { position: absolute; left: 56px; right: 56px; bottom: 64px; }
+.bgl-hero .bgl-k { opacity: 0; transition: opacity .5s var(--bgl-ease) .5s; }
+.bgl-hero h2 { position: relative; display: inline-block; margin: 10px 0 0; font-size: clamp(44px, 6.4vw, 92px); line-height: 1; letter-spacing: -.04em; font-weight: 800; color: var(--teal-on-dark);
+  clip-path: inset(-10% 100% -10% 0); transition: clip-path .8s var(--bgl-ease) .15s; }
+.bgl-hero h2::after { content: ""; position: absolute; left: 0; right: 0; bottom: -10px; height: 2px; border-radius: 2px; background: currentColor;
+  box-shadow: 0 0 18px currentColor, 0 0 4px #fff; transform: scaleX(0); transform-origin: 0 50%; transition: transform .6s var(--bgl-ease), opacity .5s var(--bgl-ease) .9s; }
+.bgl-hero p { margin: 22px 0 0; font-size: 17px; color: rgb(228 247 248 / .82); opacity: 0; transition: opacity .5s var(--bgl-ease) .6s; overflow-wrap: anywhere; }
+.bgl-hero.on .bgl-k, .bgl-hero.on p { opacity: 1; }
+.bgl-hero.on h2 { clip-path: inset(-10% -2% -10% 0); }
+.bgl-hero.on h2::after { transform: scaleX(1); opacity: 0; }
+.bgl.match .bgl-hero h2, .bgl.match .bgl-hero .bgl-k { color: #ff7a69; }
+
+@media (max-width: 960px) {
+  .bgl { inset: 0; }
+  /* The overlay-blended grain stops the backdrop blur rendering at this width in Chrome. */
+  .bgl-grain { display: none; }
+  .bgl-status { left: 20px; top: 76px; }
+  .bgl-subject, .bgl-hero { left: 20px; right: 20px; bottom: 96px; }
+}
+/* Reduced motion: one still frame, nothing slides or fades. */
+.bgl.bgl-still *, .bgl.bgl-still *::after { transition: none !important; animation: none !important; }
+
 /* Adverse media list on phones: title and detail on top, severity beneath,
    not squeezed into a one-word column beside the tags. */
 @media (max-width: 680px) {

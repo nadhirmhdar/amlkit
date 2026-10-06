@@ -533,6 +533,30 @@ async def extract_login_email(request: Request, call_next):
 
 
 @app.middleware("http")
+async def background_submit(request: Request, call_next):
+    """Hand a redirect back as JSON when a form was posted in the background.
+
+    bg-submit.js posts the screening and onboarding forms with fetch so the
+    loading glass can play instead of a page reload. fetch follows a 303 on
+    its own, which would consume the flash cookie (and could quietly fetch
+    /login when a session has expired). With X-Background-Submit the redirect
+    target comes back as {"location": ...} instead, its Set-Cookie headers
+    kept, and the browser navigates there itself. Declared before
+    security_headers so that one wraps it and the JSON still gets CSP and
+    no-store.
+    """
+    response = await call_next(request)
+    if (request.method == "POST"
+            and request.headers.get("x-background-submit") == "1"
+            and response.status_code in (302, 303)):
+        out = JSONResponse({"location": response.headers.get("location", "/")})
+        for cookie in response.headers.getlist("set-cookie"):
+            out.headers.append("set-cookie", cookie)
+        return out
+    return response
+
+
+@app.middleware("http")
 async def security_headers(request: Request, call_next):
     """Add security headers to all responses.
 
