@@ -997,7 +997,7 @@ form.is-submitting button[type="submit"] {
   .cookie-short { display: inline; }
   /* Signed-in pages have the tab bar: sit above it. */
   body:has(.mobile-tabbar) .cookie-notice { bottom: calc(var(--tabbar-h, 0px) + 12px); }
-  .cookie-notice p { flex: 1 1 auto; font-size: 12.5px; line-height: 1.45; }
+  .cookie-notice p { flex: 1 1 auto; font-size: 13px; line-height: 1.45; }
 }
 /* While the notice is up, the page gets that much extra room at the bottom so
    the last control (e.g. Sign in on a phone) can be scrolled out from under it. */
