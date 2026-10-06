@@ -2,7 +2,9 @@
 
 Scope: `nadhirmhdar/amlkit` `origin/master` = `b7eeb2f` (full SHA from
 `git ls-remote origin refs/heads/master` at 01:17 UTC:
-`b7eeb2f32c6f3eae4f29420477189aaf11ea1d02`). Previous report: 2026-10-05,
+`b7eeb2f32c6f3eae4f29420477189aaf11ea1d02`). Master advanced to `8750f74`
+(`8750f74de55ff72f3446ede36591858286b5773c`) at about 01:32 UTC while I worked;
+see "Late update" below. Previous report: 2026-10-05,
 last named master `28e4b51`.
 
 ## Instructions I ran under
@@ -83,16 +85,48 @@ unchanged.
 
 ---
 
+## Late update: master advanced to `8750f74` during the run
+
+Two PRs I had reviewed while still open merged at about 01:32 UTC:
+`c7d0f42` #422 (10-year firm retention plan) and `8750f74` #421 (category-first
+alert queue, non-freeze PEP wording). I re-checked on `8750f74`:
+
+```
+paging reproduction on master 8750f74:
+page 1: 200 alerts {'proliferation': 1, 'pep': 199} | first row category: proliferation
+page 2: 5 alerts   {'proliferation': 0, 'pep': 5}   | row categories: ['pep', 'pep', 'pep', 'pep', 'pep']
+
+grep STATUTORY_MIN_RETENTION_YEARS / "requires at least" / "Art. 25(2)" in
+manager.py, customer.html, privacy.html: no statutory figure or article in code or UI copy
+
+pytest tests/test_alert_queue_category_order.py tests/test_retention_policy.py \
+       tests/test_mobile_alert_paging.py tests/test_issue_165_retention_copy.py \
+       tests/test_pf.py tests/test_cases.py   ->   145 passed
+```
+
+- **CS-8 is fixed on master**, CONFIRMED by the reproduction above.
+- **The PEP and "other" freeze-wording part of CS-2 is fixed.** EU/UK-only
+  sanctions hits keep the freeze wording by design, so the legal question in CS-2
+  stays open.
+- **The statutory-retention statement (finding 4.1) is gone from code and UI
+  copy.** Which statutory period applies (5 or 8 years) is still unverified and
+  BLOCKED on primary text. Ad-hoc screenings now carry a retention date; other
+  occasional transactions still have no anchor.
+- The full-suite run (2,115 passed) was on `b7eeb2f`. The two later merges are
+  covered by the 145 related tests above, not by a second full run.
+
+---
+
 ## Status of earlier findings
 
 | Id | Earlier finding | Now | Evidence |
 |---|---|---|---|
 | 2.2 | Overdue-freeze MLRO email not run on Cloud Run | **Fixed on master** by #419, CONFIRMED. Caveat: the Cloud Scheduler wiring step is `continue-on-error: true`, so the job's existence is UNVERIFIED (no production access). | `amlkit/api/app.py` `system_check_freeze_obligations`; `amlkit/cases/scheduler.py` `run_freeze_obligation_check`; `.github/workflows/source-canary.yml` new step; 82 freeze and endpoint tests pass |
 | 2.1 | 24-hour clock starts at disposition, not designation | **Unchanged**, now supported by official guidance (CS-13) | `amlkit/cases/manager.py:2005`, `:2010` still key off `identified_at`; `amlkit/cases/review.py` untouched |
-| CS-8 | Mobile alert paging loses category priority across pages | **Unchanged on master, still reproduces.** #421 (open) fixes it, reproduced below. | see CS-8 |
-| CS-2 | Freeze wording on non-freeze hits | **Partly addressed by #421 (open):** PEP and "other" hits get non-freeze wording. EU/UK-only sanctions hits keep it; #421's own comment calls that "a legal question, deliberately not decided here". | `amlkit/screening/pf.py` in #421 |
+| CS-8 | Mobile alert paging loses category priority across pages | **Fixed on master at `8750f74`** by #421, CONFIRMED (reproduced on both). | see CS-8 and Late update |
+| CS-2 | Freeze wording on non-freeze hits | **Partly fixed on master at `8750f74` by #421:** PEP and "other" hits get non-freeze wording. EU/UK-only sanctions hits keep it; #421's own comment calls that "a legal question, deliberately not decided here". | `amlkit/screening/pf.py` in #421 |
 | CS-9, CS-10, CS-11 (#416 wording) | Blog stated 5-year retention, AED 55,000 as CDD only, unsourced 24–48h and penalties | **Addressed on master by #420**, CONFIRMED by reading the merged files | see CS-9, CS-10, CS-11 below |
-| 4.1 | Code and UI state a 5-year statutory minimum citing Res 134/2025 Art 25(2) | **Still live on master**; #422 (open) removes it. | `amlkit/cases/manager.py:89`, `:94`; `amlkit/web/templates/customer.html:55` |
+| 4.1 | Code and UI state a 5-year statutory minimum citing Res 134/2025 Art 25(2) | **Removed on master at `c7d0f42`** by #422, CONFIRMED by grep. The correct statutory period is still unverified. | was `amlkit/cases/manager.py:89`, `:94`; `customer.html:55` |
 | CS-1, CS-6, CS-7 | FATF fallback shown as fresh; five current grey-list names unparseable; list drift | **Unchanged.** None of `fatf.py`, `loader.py`, `heartbeat.py` changed. | `git diff 28e4b51 origin/master` |
 | CS-3 | Dismissed false positives re-alert each refresh | **Unchanged.** | `amlkit/match/engine.py:362` still keys on `status = 'open'` |
 | CS-4, CS-5 | Interpol edge block; daily refresh cadence | **Unchanged.** | no file change |
@@ -220,10 +254,11 @@ before matching. Residual: list-side name tokens are rebuilt on every refresh
 a listed name containing such characters is keyed under the old logic until the
 next refresh after deploy. Window: one refresh cycle.
 
-### CS-8 — Alert paging still loses category priority across pages on master (M, CONFIRMED mechanism; impact PLAUSIBLE)
+### CS-8 — Alert paging lost category priority across pages (M, CONFIRMED; FIXED on master at `8750f74`)
 
-Unchanged from the last report, now re-run on both branches with the same
-204-PEP-plus-one-proliferation seed:
+Open on `b7eeb2f`, fixed by #421 when it merged. Re-run on `b7eeb2f` and on the
+#421 branch with the same 204-PEP-plus-one-proliferation seed (the result on
+`8750f74` is in the Late update):
 
 ```
 master b7eeb2f:
@@ -235,8 +270,7 @@ page 1: 200 alerts {'proliferation': 1, 'pep': 199} | first row category: prolif
 page 2: 5 alerts   {'proliferation': 0, 'pep': 5}   | row categories: ['pep', 'pep', 'pep', 'pep', 'pep']
 ```
 
-#421 (open, not merged) orders by category before `LIMIT`/`OFFSET`. Merging it
-closes CS-8.
+#421 orders by category before `LIMIT`/`OFFSET`, which closes CS-8.
 
 ### Reviewed with no compliance gap (REFUTED)
 
@@ -280,4 +314,4 @@ closes CS-8.
 
 | File | Branch | Commit |
 |---|---|---|
-| `reports/daily/2026-10-06/compliance-specialist.md` (this file) | `routine/2026-10-06-compliance-specialist` | see the final reply (a commit cannot name its own SHA) |
+| `reports/daily/2026-10-06/compliance-specialist.md` (this file) | `routine/2026-10-06-compliance-specialist` | see the final reply (a commit cannot name its own SHA); first pushed as `6c11eda0f92b4eca00c74258483eb7f6896c1f50`, updated by the commit after it |
