@@ -570,3 +570,49 @@ jobs:
               --min-backoff 60s \
               --max-backoff 300s
           fi
+
+      # UAE TFS requires a freeze within 24 hours. POST /system/check-freeze-
+      # obligations emails each org's MLRO about every freeze obligation still
+      # pending execution after 24h (once per obligation -- see
+      # freeze_obligations.overdue_notified_at). Its only previous caller was
+      # a Windows Task Scheduler script, so nothing ran it on Cloud Run.
+      # Hourly, at :15 so it does not coincide with the 00:00/20:00 sanctions
+      # refresh (single instance, single SQLite writer). Short call: 120s
+      # attempt deadline, 3 retries 30-120s apart (Cloud Scheduler retries
+      # only on non-2xx; the endpoint returns 500 on failure and is
+      # idempotent, so a retry never duplicates an alert). Same bearer
+      # SCHEDULER_SECRET and same continue-on-error / IAM caveats as the
+      # sanctions refresh step above. A separate step so a failure of one job
+      # wiring never skips the other.
+      - name: Wire up Cloud Scheduler freeze obligation check
+        continue-on-error: true
+        run: |
+          JOB_NAME="amlkit-freeze-obligations-check"
+          CHECK_BASE="${APP_BASE_URL:-$URL}"
+          if gcloud scheduler jobs describe "$JOB_NAME" --location "${{ vars.GCP_REGION }}" \
+              --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
+            # 'update http' takes --update-headers, not create's --headers.
+            gcloud scheduler jobs update http "$JOB_NAME" \
+              --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
+              --schedule "15 * * * *" \
+              --uri "${CHECK_BASE}/system/check-freeze-obligations" \
+              --http-method POST \
+              --message-body "{}" \
+              --update-headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
+              --attempt-deadline 120s \
+              --max-retry-attempts 3 \
+              --min-backoff 30s \
+              --max-backoff 120s
+          else
+            gcloud scheduler jobs create http "$JOB_NAME" \
+              --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
+              --schedule "15 * * * *" \
+              --uri "${CHECK_BASE}/system/check-freeze-obligations" \
+              --http-method POST \
+              --message-body "{}" \
+              --headers "Authorization=Bearer ${SCHEDULER_SECRET}" \
+              --attempt-deadline 120s \
+              --max-retry-attempts 3 \
+              --min-backoff 30s \
+              --max-backoff 120s
+          fi

@@ -1971,7 +1971,21 @@ def check_unexecuted_freeze_obligations(
             },
         ]
 
-    Sends MLRO email alert if any obligations are overdue.
+    Sends an MLRO email alert for each overdue obligation, ONCE per obligation:
+    the check is invoked hourly by Cloud Scheduler
+    (POST /system/check-freeze-obligations), so the send is recorded in
+    ``freeze_obligations.overdue_notified_at`` and later calls skip it (same
+    once-per-breach idea as ``datasets.staleness_notified_at``). A failed
+    send, a NOT_CONFIGURED send (SMTP unset: console only), or an org with no
+    active MLRO leaves the column NULL so the next run retries; only
+    ``mail.SENT`` marks it. The mark is committed per obligation, straight
+    after its send (never holding the write lock across SMTP); a locked
+    database defers the send, or if it strikes after the send is counted as
+    ``unmarked`` rather than raised. Each returned dict carries
+    ``newly_notified`` (this call sent and recorded the alert), ``unsent``
+    (overdue, not yet alerted) and ``unmarked`` (emailed but mark failed).
+    The list itself always contains every overdue obligation so callers can
+    still report totals.
 
     Cabinet Resolution 134/2025 requires immediate freeze execution. This check
     identifies freeze obligations that have been pending for over 24 hours,
@@ -1987,6 +2001,7 @@ def check_unexecuted_freeze_obligations(
                f.risk_category,
                f.identified_at,
                f.identified_by,
+               f.overdue_notified_at,
                CAST((julianday('now') - julianday(f.identified_at)) * 24 AS INTEGER) AS hours_pending
            FROM freeze_obligations f
            JOIN customers c ON c.id = f.customer_id
@@ -1998,38 +2013,115 @@ def check_unexecuted_freeze_obligations(
     )
 
     overdue = [dict(row) for row in cursor.fetchall()]
+    for ob in overdue:
+        ob["newly_notified"] = False
+        # unsent: overdue and not yet alerted, and this call could not alert
+        # (no MLRO, FAILED / NOT_CONFIGURED send, lock). Already-alerted
+        # obligations (overdue_notified_at set) are not "unsent".
+        ob["unsent"] = ob["overdue_notified_at"] is None
+        # unmarked: the email WAS sent but the overdue_notified_at mark could
+        # not be written (database locked), so the next run will re-send.
+        ob["unmarked"] = False
 
-    # Send email alert if any overdue obligations found
-    if overdue:
+    to_notify = [ob for ob in overdue if ob["overdue_notified_at"] is None]
+    if to_notify:
+        import logging
+        _log = logging.getLogger(__name__)
+
         # Get MLRO email for this org
         mlro_row = conn.execute(
-            "SELECT email FROM operators WHERE org_id = ? AND role = 'mlro' LIMIT 1",
+            "SELECT email FROM operators WHERE org_id = ? AND role = 'mlro' "
+            "AND is_active = 1 ORDER BY id LIMIT 1",
             (org_id,)
         ).fetchone()
         mlro_email = mlro_row["email"] if mlro_row else None
 
-        # Send alert for each overdue obligation
-        from .. import mail
-        for ob in overdue:
-            if mlro_email:
-                mail.send_freeze_obligation_alert(
+        if mlro_email:
+            from .. import mail
+            for ob in to_notify:
+                # Probe the write lock BEFORE sending. If the database is
+                # locked we skip the send entirely (retried next run) rather
+                # than email an alert whose mark we then cannot record, which
+                # would re-send on every retry. The probe holds no lock past
+                # this statement, so no write transaction is open across the
+                # (slow) SMTP call below.
+                try:
+                    if not conn.in_transaction:
+                        conn.execute("BEGIN IMMEDIATE")
+                        conn.rollback()
+                except sqlite3.OperationalError as exc:
+                    _log.warning(
+                        "Freeze obligation %s (org %s): database busy, alert "
+                        "deferred to the next run: %s", ob["id"], org_id, exc,
+                    )
+                    # The lock is held by someone else (and each probe waits
+                    # out busy_timeout, 30s): stop here instead of waiting
+                    # again for every remaining obligation. They stay unsent.
+                    break
+
+                outcome = mail.send_freeze_obligation_alert(
                     to_email=mlro_email,
                     freeze_obligation_id=ob["id"],
                     customer_reference=ob["customer_reference"],
                     obligation_type=ob["obligation_type"],
                     risk_category=ob["risk_category"]
                 )
+                if outcome != mail.SENT:
+                    # FAILED, or NOT_CONFIGURED (SMTP unset: the alert was only
+                    # printed to the console, nobody was told). Leave NULL so
+                    # the next hourly run retries.
+                    _log.warning(
+                        "Freeze obligation %s (org %s): MLRO alert not "
+                        "delivered (outcome=%s); will retry next run",
+                        ob["id"], org_id, outcome,
+                    )
+                    continue
 
-        # Log to audit that overdue obligations were detected
-        audit(
-            conn,
-            "system",
-            "freeze.overdue_check",
-            "freeze_obligation",
-            None,
-            {"overdue_count": len(overdue), "org_id": org_id},
-            org_id=org_id
-        )
+                # Mark + audit in ONE short transaction, committed right away
+                # so the write lock is held only for these statements.
+                try:
+                    conn.execute(
+                        "UPDATE freeze_obligations SET overdue_notified_at = ? "
+                        "WHERE id = ? AND org_id = ?",
+                        (utcnow(), ob["id"], org_id),
+                    )
+                    # Audit that the overdue obligation was alerted (one row
+                    # per alert, so the hourly run appends nothing when there
+                    # is nothing new).
+                    audit(
+                        conn,
+                        "system",
+                        "freeze.overdue_check",
+                        "freeze_obligation",
+                        None,
+                        {
+                            "overdue_count": len(overdue),
+                            "notified_ids": [ob["id"]],
+                            "org_id": org_id,
+                        },
+                        org_id=org_id
+                    )
+                    conn.commit()
+                except sqlite3.OperationalError as exc:
+                    try:
+                        conn.rollback()
+                    except sqlite3.Error:
+                        pass
+                    ob["unmarked"] = True
+                    _log.error(
+                        "Freeze obligation %s (org %s): alert emailed but the "
+                        "overdue_notified_at mark could not be written (%s); "
+                        "it will be re-sent on the next run",
+                        ob["id"], org_id, exc,
+                    )
+                    continue
+                ob["newly_notified"] = True
+                ob["unsent"] = False
+        else:
+            _log.warning(
+                "Overdue freeze obligation(s) in org %s but no active MLRO to notify",
+                org_id,
+            )
 
     return overdue
 

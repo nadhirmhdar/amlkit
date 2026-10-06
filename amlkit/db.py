@@ -1038,6 +1038,12 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("datasets",  "max_age_hours",  "ALTER TABLE datasets ADD COLUMN max_age_hours INTEGER NOT NULL DEFAULT 24"),
     ("operators", "super_admin",    "ALTER TABLE operators ADD COLUMN super_admin INTEGER NOT NULL DEFAULT 0"),
     ("datasets",  "staleness_notified_at", "ALTER TABLE datasets ADD COLUMN staleness_notified_at TEXT"),
+    # Once-per-breach guard for the overdue-freeze MLRO email: the check now
+    # runs hourly from Cloud Scheduler (POST /system/check-freeze-obligations),
+    # so without this every call would re-send the same alert. Mirrors
+    # datasets.staleness_notified_at. NULL = overdue alert not yet sent.
+    ("freeze_obligations", "overdue_notified_at",
+     "ALTER TABLE freeze_obligations ADD COLUMN overdue_notified_at TEXT"),
     ("ubo_links", "is_nominee",    "ALTER TABLE ubo_links ADD COLUMN is_nominee INTEGER NOT NULL DEFAULT 0"),
     ("ubo_links", "parent_ubo_id", "ALTER TABLE ubo_links ADD COLUMN parent_ubo_id INTEGER REFERENCES ubo_links(id) ON DELETE SET NULL"),
     ("operators", "disclaimer_acknowledged_at", "ALTER TABLE operators ADD COLUMN disclaimer_acknowledged_at TEXT"),

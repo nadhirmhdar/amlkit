@@ -3937,6 +3937,58 @@ def system_refresh(request: Request):
     return JSONResponse({"status": "complete", **result}, status_code=status_code)
 
 
+@app.post("/system/check-freeze-obligations")
+def system_check_freeze_obligations(request: Request):
+    """HTTP endpoint for Cloud Scheduler (hourly) to flag TFS freeze
+    obligations still pending execution after 24 hours.
+
+    UAE TFS requires the freeze to be executed within 24 hours. The check
+    (cases.manager.check_unexecuted_freeze_obligations) emails each org's
+    MLRO, but before this endpoint its only caller was a Windows Task
+    Scheduler script, so on Cloud Run nobody was ever alerted. See
+    .github/workflows/source-canary.yml's "Wire up Cloud Scheduler freeze
+    obligation check" step.
+
+    Same auth model as /system/refresh: bearer token in SCHEDULER_SECRET
+    (ADMIN_API_SECRET does not unlock it); disabled (403) when unset.
+    Each overdue obligation is emailed once (overdue_notified_at), so hourly
+    calls do not repeat the alert.
+    """
+    secret = os.environ.get("SCHEDULER_SECRET", "").strip()
+    if not secret:
+        return JSONResponse({"error": "endpoint disabled — set SCHEDULER_SECRET"}, status_code=403)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    from ..db import connect
+    from ..cases.scheduler import run_freeze_obligation_check
+
+    conn = None
+    try:
+        conn = connect(db_path())
+        result = run_freeze_obligation_check(conn)
+    except Exception as exc:
+        log.exception("freeze obligation check failed")
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)
+    finally:
+        if conn is not None:
+            conn.close()
+
+    if result["newly_notified"]:
+        # The overdue_notified_at marks are the only record that an alert
+        # went out; get them to the replica before answering.
+        from ..replication import sync_replica
+        sync_replica(timeout=30, reason="freeze obligation check")
+
+    # 500 when any org's check failed so Cloud Scheduler retries (it only
+    # retries on non-2xx); orgs already alerted are no-ops on the retry
+    # thanks to overdue_notified_at.
+    status_code = 500 if result["failures"] else 200
+    return JSONResponse({"status": "complete", **result}, status_code=status_code)
+
+
 @app.post("/system/create-operator")
 async def system_create_operator(request: Request):
     """Provision an operator without a browser session."""

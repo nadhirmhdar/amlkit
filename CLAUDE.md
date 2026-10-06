@@ -131,7 +131,7 @@ Merged in #361. **Switched on in production against the UAE PASS staging sandbox
 - `AMLKIT_BIND_HOST` / `AMLKIT_PORT` — server bind address
 - `AMLKIT_SSL_KEYFILE` / `AMLKIT_SSL_CERTFILE` — TLS config
 - `AMLKIT_BEHIND_PROXY` — set to `1` when behind a reverse proxy
-- `SCHEDULER_SECRET` — bearer token for `/system/refresh`
+- `SCHEDULER_SECRET` — bearer token for `/system/refresh` and `/system/check-freeze-obligations` (hourly Cloud Scheduler job `amlkit-freeze-obligations-check`; emails MLROs once per freeze obligation pending > 24h)
 - `ADMIN_API_SECRET` — bearer token for `/system/create-operator`
 - `AMLKIT_SINGLE_OPERATOR_MODE` — skip four-eyes review requirement
 - `AMLKIT_QUOTE_TO` — where `/apply` quotation requests are emailed (comma separated; default `info@grovisor.ae`). Needs `AMLKIT_SMTP_HOST` (and friends, see `mail.py`) or requests are only saved and printed to the log
