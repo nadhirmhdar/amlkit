@@ -1302,7 +1302,7 @@ def api_alert_disposition(alert_id: int, body: AlertDispositionRequest, db: DB, 
         outcome = propose_disposition(
             db, alert_id, org_id=session.org_id, status=body.status,
             reason_code=body.reason_code, operator=session.operator_name,
-            narrative=body.narrative,
+            operator_id=session.operator_id, narrative=body.narrative,
         )
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1326,7 +1326,7 @@ def api_alert_confirm(alert_id: int, body: AlertConfirmRequest, db: DB, session:
     try:
         outcome = confirm_disposition(
             db, alert_id, org_id=session.org_id, operator=session.operator_name,
-            agree=body.agree, narrative=body.narrative,
+            operator_id=session.operator_id, agree=body.agree, narrative=body.narrative,
         )
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
