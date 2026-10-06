@@ -1,0 +1,57 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "screen: plain Arabic alias",
+  "status": "info",
+  "detail": "matches=1 repr=\\u0623\\u062d\\u0645\\u062f \\u0639\\u0628\\u062f \\u0627\\u0644\\u06"
+ },
+ {
+  "step": "screen: Arabic presentation forms (copy-paste from PDF)",
+  "status": "info",
+  "detail": "matches=1 repr=\\ufe83\\ufea1\\ufee1\\ufea9 \\ufec9\\ufe8f\\ufea9 \\ufe8d\\ufedd\\ufe"
+ },
+ {
+  "step": "screen: Latin + zero-width space",
+  "status": "info",
+  "detail": "matches=1 repr=Ahmed\\u200b Abd Al-Jaleel Al-Hasnawi"
+ },
+ {
+  "step": "screen: Latin + zero-width joiner inside a token",
+  "status": "info",
+  "detail": "matches=1 repr=Ahmed Abd Al\\u200dJaleel Al-Hasnawi"
+ },
+ {
+  "step": "screen: Latin + BOM",
+  "status": "info",
+  "detail": "matches=1 repr=\\ufeffAhmed Abd Al-Jaleel Al-Hasnawi"
+ },
+ {
+  "step": "screen: fullwidth Latin",
+  "status": "info",
+  "detail": "matches=1 repr=\\uff21\\uff48\\uff4d\\uff45\\uff44 \\uff21\\uff42\\uff44 \\uff21\\uff"
+ },
+ {
+  "step": "screen: extra middle token",
+  "status": "info",
+  "detail": "matches=none repr=Ahmed Mohammed Abd Al-Jaleel Al-Hasnawi"
+ }
+]

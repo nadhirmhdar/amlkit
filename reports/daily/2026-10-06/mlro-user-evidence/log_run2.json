@@ -1,0 +1,97 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "goAML profile after stage2",
+  "status": "info",
+  "detail": "{'ref': 'TEST-ORG-0001', 'addr': 'Office 12, Business Bay, Dubai'}"
+ },
+ {
+  "step": "re-save profile with the (blank) form value",
+  "status": "info",
+  "detail": "['Reporting entity profile updated.'] -> db {'ref': 'TEST-ORG-0001', 'addr': 'New address, Dubai'}"
+ },
+ {
+  "step": "rename-bypass confirm",
+  "status": "info",
+  "detail": "['Independent review completed.']"
+ },
+ {
+  "step": "review trail shown to an inspector (rename bypass)",
+  "status": "info",
+  "detail": "ery matched a token of the listed name after normalisation. propose \u2014 false positive \u00b7 Date of birth does not match \u00b7 Layla MLRO \u00b7 2026-10-06T01:45:02+00:00 confirm \u2014 false positive \u00b7 Date of birth does not match \u00b7 Someone Else \u00b7 2026-10-06T01:45:02+00:00 False Positive \u00b7 different dob \u00b7 by Someone Else \u00b7 2026-10-06T01:45:02+00:00 Independent review completed. Transaction monitoring Transactions at or above AED 55,000 are flagged automatically (cash as large cash, other metho"
+ },
+ {
+  "step": "turn single-operator mode on",
+  "status": "info",
+  "detail": "['Single-operator mode is now on.']"
+ },
+ {
+  "step": "single-operator dismissal banner",
+  "status": "info",
+  "detail": "['Recorded. NOTE: no independent review - firm is in single-operator mode.']"
+ },
+ {
+  "step": "review trail (single-operator mode)",
+  "status": "info",
+  "detail": "ery matched a token of the listed name after normalisation. propose \u2014 false positive \u00b7 Date of birth does not match \u00b7 Someone Else \u00b7 2026-10-06T01:45:02+00:00 False Positive \u00b7 different dob \u00b7 by Someone Else \u00b7 2026-10-06T01:45:02+00:00 No independent review \u2014 firm operating in single-operator mode. This gap is recorded deliberately so it is visible at inspection. Transaction monitoring Transactions at or above AED 55,000 are flagged automatically (cash as large cash, other me"
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-06 01:45:02 Someone Else alert.propose \u00b7 alert #2 {'status': 'false_positive', 'reason_code': 'different_dob', 'awaiting_second_review': False, 'independent_review': 'single_operator'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-06 01:45:02 Someone Else alert.confirm \u00b7 alert #1 {'status': 'false_positive', 'reason_code': 'different_dob', 'proposed_by': 'Layla MLRO'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-06 01:45:02 Layla MLRO alert.propose \u00b7 alert #1 {'status': 'false_positive', 'reason_code': 'different_dob', 'awaiting_second_review': True, 'independent_review': 'pending'} "
+ },
+ {
+  "step": "rescreen with a pending_review dismissal",
+  "status": "info",
+  "detail": "['Re-screening failed: &#39;customers&#39;'] open/pending before=([], [3]) after=([4, 5, 6], [3])"
+ }
+]

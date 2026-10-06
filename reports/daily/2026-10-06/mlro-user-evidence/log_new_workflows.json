@@ -1,0 +1,117 @@
+[
+ {
+  "step": "sign-in page (anonymous)",
+  "status": "info",
+  "detail": "200 list names present=[] text= Sign in \u2014 groAML by Grovisor Skip to content gr AML Compliance, simplified. A product by Grovisor Business Consultants LLC Sign in to your workspace Email Password Sign in Forgot your password? Contact your MLRO to reset it. New organization? Request a quotation . groAML uses a small number of strictly necessary cookies (sign-in, security, and one-time messages). No advertising or tracking cookies, and nothing is shared with third parties. Strictly necessary cookies only. No advertising or tracking. Learn more Got"
+ },
+ {
+  "step": "signin-strands.js served",
+  "status": "info",
+  "detail": "200"
+ },
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "onboard PEP-name + IR + high-risk inputs",
+  "status": "info",
+  "detail": "['Invalid jurisdiction_tier: &#39;high&#39;. Must be one of: fatf_blacklist, fatf_greylist, high_risk_other, standard']"
+ },
+ {
+  "step": "risk assessment panel",
+  "status": "info",
+  "detail": ""
+ },
+ {
+  "step": "onboard legal entity",
+  "status": "info",
+  "detail": "303 ['Onboarded. Risk rating: high.']"
+ },
+ {
+  "step": "add UBO matching OFAC entry",
+  "status": "info",
+  "detail": "303 ['Beneficial owner added. MATCH FOUND - review alerts.']"
+ },
+ {
+  "step": "add UBO to push total over 100%",
+  "status": "info",
+  "detail": "['Total UBO ownership would be 105.0% (cannot exceed 100%)']"
+ },
+ {
+  "step": "UBO section",
+  "status": "info",
+  "detail": "Beneficial owners Viktor Petrovich Sokolov 60.0% ownership UBO Add owner Ownership % Control Ownership Senior managing official Nominee Add & screen Risk assessment high score 50 EDD required sector other +5 ownership opacity ubo_undisclosed +45 Ruleset 2025.12.2 \u00b7 assessed 2026-10-06 \u00b7 next review 2027-10-01 Enhanced Due Diligence Source of Wealth Salary Source of Funds Emirates NBD account UBO ownership & control diagram %3 cust_1 Gulf Holdings LLC LEGAL ENTITY ubo_0 Viktor Petrovich Sokolov U"
+ },
+ {
+  "step": "alerts after UBO",
+  "status": "info",
+  "detail": "[1]"
+ },
+ {
+  "step": "close relationship (STR filed)",
+  "status": "info",
+  "detail": "303 ['Relationship closed. Records retained until 2036-10-06.']"
+ },
+ {
+  "step": "closed page marker",
+  "status": "info",
+  "detail": "True Reactivate Relationship closed on 2026-10-06 \u00b7 Reason: STR/SAR filed Records retained until 2036-10-06 . Retained for 10 years (firm policy, which exceeds the s"
+ },
+ {
+  "step": "reactivate",
+  "status": "info",
+  "detail": "303 ['Customer reactivated.']"
+ },
+ {
+  "step": "close with invalid reason",
+  "status": "info",
+  "detail": "303 ['A valid exit reason is required']"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "F4 rename officer to 'LAYLA MLRO'",
+  "status": "info",
+  "detail": "['Renamed Omar Officer to LAYLA MLRO.']"
+ },
+ {
+  "step": "F4 rename officer to 'layla mlro'",
+  "status": "info",
+  "detail": "['Renamed LAYLA MLRO to layla mlro.']"
+ }
+]

@@ -1,0 +1,47 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "onboard PEP-list name, grey-list country, cash-heavy",
+  "status": "info",
+  "detail": "303 ['Onboarded. Risk rating: high.']"
+ },
+ {
+  "step": "risk panel",
+  "status": "info",
+  "detail": "Risk assessment high score 120 EDD required pep domestic_pep +30 jurisdiction fatf_blacklist +60 sector other +5 cash intensity predominantly_cash +25 Ruleset 2025.12.2 \u00b7 assessed 2026-10-06 \u00b7 next review 2027-10-01 Enhanced Due Diligence Source of Wealth Salary Source of Funds Emirates NBD account UBO ownership & control diagram %3 cust_1 Hassan Rouhani Test NATURAL ENTITY no_"
+ },
+ {
+  "step": "alerts queue",
+  "status": "info",
+  "detail": "[1]"
+ },
+ {
+  "step": "PEP alert panel",
+  "status": "info",
+  "detail": " Hassan Rouhani Test Hassan Rouhani Test \u00b7 E-001 \u00d7 Dataset CIA World Leaders Matched name Hassan Rouhani Test Score 1.000 Category pep Status Open Created 2026-10-06 01:44:59 Assign to me View customer "
+ },
+ {
+  "step": "PEP alert row (wording)",
+  "status": "info",
+  "detail": "missed Confirmed Escalated All Group by customer Export CSV Hassan Rouhani Test pep 1.000 Person \u00b7 CIA World Leaders \u00b7 IR Unassigned Assign to me Matched against Hassan Rouhani Test \u00b7 E-001 Also listed as: PEP match. This is not a sanctions designation. Apply enhanced due diligence, establish source of wealth and funds, and obtain senior-management approval before establishing or continuing the relationship. Exact canonical match on 3 name token(s) \u2014 every token of the query matched a token of the listed name after normalisation. Decision Not a match \u2014 dismiss Confirmed mat"
+ }
+]
