@@ -262,6 +262,7 @@ def propose_disposition(
     status: str,
     reason_code: str,
     operator: str,
+    operator_id: int | None = None,
     narrative: str = "",
 ) -> ReviewOutcome:
     """Record a disposition, or stage it for independent review.
@@ -269,6 +270,10 @@ def propose_disposition(
     Applies immediately unless the decision is dismissing a sanctions/PF match
     and the firm is not in single-operator mode, in which case the alert moves
     to `pending_review` and awaits a different operator.
+
+    `operator_id`, when given, is the authoritative identity confirm_disposition()
+    checks against -- a display name can change between propose and confirm
+    (an MLRO renaming themselves on /admin), an operator id cannot.
     """
     if not (operator or "").strip():
         raise ReviewError("an operator identity is required to disposition an alert")
@@ -317,10 +322,10 @@ def propose_disposition(
     with conn:
         conn.execute(
             """INSERT INTO alert_reviews
-               (org_id, alert_id, action, status, reason_code, narrative, operator, created_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               (org_id, alert_id, action, status, reason_code, narrative, operator, operator_id, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
             (org_id, alert_id, "propose", status, reason_code,
-             narrative.strip() or None, operator, now),
+             narrative.strip() or None, operator, operator_id, now),
         )
         cur = conn.execute(
             """UPDATE alerts SET status=?, disposition=?, reason_code=?,
@@ -350,6 +355,7 @@ def confirm_disposition(
     *,
     org_id: int,
     operator: str,
+    operator_id: int | None = None,
     agree: bool = True,
     reason_code: str | None = None,
     narrative: str = "",
@@ -358,12 +364,19 @@ def confirm_disposition(
 
     The confirming operator must differ from the proposing one -- that
     separation is the entire control, so it is enforced rather than advised.
+
+    When both the proposal and this call carry an `operator_id`, that id (not
+    the display name) decides "different operator": a name can change
+    between propose and confirm (an MLRO renaming themselves on /admin, #409)
+    without the underlying operator row changing, which used to defeat this
+    check (finding F1, 2026-10-04 mlro-user/red-team reports). Falls back to
+    the name comparison when either side predates the operator_id column.
     """
     if not (operator or "").strip():
         raise ReviewError("an operator identity is required to confirm a disposition")
 
     proposal = conn.execute(
-        """SELECT status, reason_code, narrative, operator FROM alert_reviews
+        """SELECT status, reason_code, narrative, operator, operator_id FROM alert_reviews
            WHERE alert_id=? AND org_id=? AND action='propose' ORDER BY id DESC LIMIT 1""",
         (alert_id, org_id),
     ).fetchone()
@@ -378,7 +391,11 @@ def confirm_disposition(
     if current["status"] != PENDING:
         raise ReviewError(f"alert {alert_id} is not awaiting review (status={current['status']})")
 
-    if operator.strip() == (proposal["operator"] or "").strip():
+    if operator_id is not None and proposal["operator_id"] is not None:
+        same_operator = operator_id == proposal["operator_id"]
+    else:
+        same_operator = operator.strip() == (proposal["operator"] or "").strip()
+    if same_operator:
         logger.warning(f"Same operator ({operator}) attempted to confirm own disposition; "
                       "ask your MLRO to add an independent operator or enable single-operator mode")
         raise ReviewError(
@@ -476,6 +493,7 @@ def bulk_dismiss_alerts(
     customer_id: int,
     reason_code: str,
     operator: str,
+    operator_id: int | None = None,
     narrative: str = "",
 ) -> BulkDismissOutcome:
     """Dismiss all open alerts for a given customer in one operation.
@@ -498,7 +516,8 @@ def bulk_dismiss_alerts(
     for row in rows:
         outcome = propose_disposition(
             conn, row["id"], org_id=org_id, status="false_positive",
-            reason_code=reason_code, operator=operator, narrative=narrative,
+            reason_code=reason_code, operator=operator, operator_id=operator_id,
+            narrative=narrative,
         )
         if outcome.awaiting_second_review:
             pending += 1

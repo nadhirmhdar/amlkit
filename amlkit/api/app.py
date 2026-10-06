@@ -2606,6 +2606,7 @@ def alerts_bulk_dismiss(
         outcome = bulk_dismiss_alerts(
             db, session.org_id, customer_id=customer_id,
             reason_code=reason_code, operator=session.operator_name,
+            operator_id=session.operator_id,
         )
     except (PermissionError, ReviewError) as exc:
         return back(back_to, err=str(exc))
@@ -2658,7 +2659,7 @@ def alert_disposition(
         require_csrf(request, csrf_token)
         outcome = propose_disposition(
             db, alert_id, org_id=session.org_id, status=status, reason_code=reason_code,
-            operator=session.operator_name, narrative=narrative,
+            operator=session.operator_name, operator_id=session.operator_id, narrative=narrative,
         )
     except (PermissionError, ReviewError) as exc:
         return back(back_to, err=str(exc))
@@ -2681,7 +2682,7 @@ def alert_confirm(
         require_csrf(request, csrf_token)
         outcome = confirm_disposition(
             db, alert_id, org_id=session.org_id, operator=session.operator_name,
-            agree=(agree == "yes"), narrative=narrative,
+            operator_id=session.operator_id, agree=(agree == "yes"), narrative=narrative,
         )
     except (PermissionError, ReviewError) as exc:
         return back(back_to, err=str(exc))

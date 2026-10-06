@@ -1119,6 +1119,14 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # consistent with how org_id-scoped uniqueness is already handled
     # elsewhere in this module (e.g. customers.reference).
     ("operators", "uaepass_uuid", "ALTER TABLE operators ADD COLUMN uaepass_uuid TEXT"),
+    # Four-eyes identity anchor (finding F1, 2026-10-04 mlro-user/red-team
+    # reports): confirm_disposition() used to compare the proposer's and
+    # confirmer's *name* strings, so a renamed-then-confirmed-by-self
+    # operator defeated the control. NULL on every pre-migration row and on
+    # any row inserted by an older code path; cases/review.py falls back to
+    # the name comparison when either side lacks an operator_id so existing
+    # pending reviews are not silently reopened or blocked by this migration.
+    ("alert_reviews", "operator_id", "ALTER TABLE alert_reviews ADD COLUMN operator_id INTEGER"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)
