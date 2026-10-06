@@ -327,7 +327,7 @@ class TestRetention:
         assert row["retention_until"] == until
         from datetime import date
         today = date.today()
-        # 10-year firm retention policy (statutory minimum is 5 years).
+        # 10-year firm retention policy.
         # Allow ±1 day tolerance for leap-year edge cases.
         expected = today.replace(year=today.year + 10)
         delta = abs((date.fromisoformat(until) - expected).days)

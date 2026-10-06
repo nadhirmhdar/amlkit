@@ -6,6 +6,7 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 from .. import notifications
@@ -325,12 +326,19 @@ def _persist(
     datasets: list[str],
 ) -> tuple[int, int]:
     now = utcnow()
+    # Ad-hoc screenings have no customer row to carry a retention date, so
+    # record one on the screening itself (10-year firm policy from the run
+    # date). Customer-linked screenings follow the customer's retention_until.
+    retention_until = None
+    if customer_id is None:
+        from ..cases.manager import retention_from
+        retention_until = retention_from(date.fromisoformat(now[:10]))
     with conn:
         cur = conn.execute(
             """INSERT INTO screenings
                (org_id, customer_id, ubo_id, query_name, trigger, algorithm, threshold,
-                candidates, hits, datasets_used, run_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                candidates, hits, datasets_used, run_at, retention_until)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id,
                 customer_id,
@@ -343,6 +351,7 @@ def _persist(
                 len(res.hits),
                 json.dumps(datasets),
                 now,
+                retention_until,
             ),
         )
         sid = cur.lastrowid

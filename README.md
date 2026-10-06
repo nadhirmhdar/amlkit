@@ -76,7 +76,7 @@ self-match, **0 false positives** across the benign-name suite.
 
 - **CDD case management** — onboarding that screens the whole ownership graph,
   UBO capture at the 25% threshold with senior-official fallback, versioned risk
-  model, ten-year record retention (firm policy, above the five-year
+  model, ten-year record retention (firm policy, which exceeds the
   statutory minimum)
 - **Proliferation-financing classification** — PF is a standalone offence under
   Law 10/2025; designations are classified by sanctions programme

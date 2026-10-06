@@ -1,9 +1,11 @@
-"""Record retention: firm policy vs statutory minimum (#313), and extending
-retention_until dates stored under the older, shorter rule (#79).
+"""Record retention: the 10-year firm plan, extending retention_until dates
+stored under the older, shorter rules (#79), the ad-hoc screening anchor, and
+the purge safety net.
 
-Cabinet Resolution 134/2025 Art. 25(2) sets a five-year minimum; groAML's ten
-years is internal policy above that floor, so neither code nor UI may present
-ten years as a requirement of the Resolution.
+Ten years is the firm's retention plan (owner decision). The statutory period
+and its article are not verified in this repo, so neither code nor UI may
+state a specific statutory figure or article, nor present ten years as a
+requirement of Cabinet Resolution 134/2025.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ sys.path.insert(0, str(ROOT))
 from amlkit import db as dbmod  # noqa: E402
 from amlkit.cases.manager import (  # noqa: E402
     RETENTION_YEARS,
-    STATUTORY_MIN_RETENTION_YEARS,
     close_relationship,
     onboard,
     reactivate_customer,
@@ -44,10 +45,36 @@ _FALSE_CLAIM = re.compile(
 
 # ------------------------------------------------------------------ constants
 
-def test_policy_is_above_statutory_minimum() -> None:
-    assert STATUTORY_MIN_RETENTION_YEARS == 5
+def test_policy_is_ten_years() -> None:
     assert RETENTION_YEARS == 10
-    assert RETENTION_YEARS >= STATUTORY_MIN_RETENTION_YEARS
+    import amlkit.cases.manager as mgr
+    # No unverified statutory figure is encoded as a constant.
+    assert not hasattr(mgr, "STATUTORY_MIN_RETENTION_YEARS")
+
+
+def test_retention_from_adds_ten_years() -> None:
+    assert retention_from(date(2026, 10, 5)) == "2036-10-05"
+    assert retention_from(date(2020, 1, 1)) == "2030-01-01"
+    # Feb 29 start, non-leap target year -> Feb 28, never a crash.
+    assert retention_from(date(2024, 2, 29)) == "2034-02-28"
+
+
+_STATUTORY_FIGURE = re.compile(
+    r"(statutory|law|resolution|required|requires|minimum)[^.<]{0,80}"
+    r"(\b5\b|five|\b8\b|eight)[ -]year"
+    r"|(\b5\b|five|\b8\b|eight)[ -]years?[^.<]{0,60}(statutory|minimum)"
+    r"|Art\.? ?2[45]",
+    re.IGNORECASE,
+)
+
+
+def test_no_user_facing_copy_states_a_statutory_figure_or_article() -> None:
+    files = [ROOT / "README.md", ROOT / "amlkit" / "cases" / "manager.py",
+             *(ROOT / "amlkit" / "web" / "templates").rglob("*.html")]
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        m = _STATUTORY_FIGURE.search(text)
+        assert m is None, f"{f.relative_to(ROOT)}: {m.group(0)!r}"
 
 
 def test_no_source_claims_cr_134_requires_ten_years() -> None:
@@ -87,18 +114,20 @@ def test_customer_page_states_policy_not_legal_requirement(web) -> None:
     html = client.get(f"/customers/{res.customer_id}").text
     assert "Records retained until" in html
     flat = " ".join(html.split())
-    assert f"Retained for {RETENTION_YEARS} years (firm policy; UAE AML/CFT law " \
-           f"requires at least {STATUTORY_MIN_RETENTION_YEARS} years)" in flat
-    # The owner chose general wording over citing a specific article.
-    assert "Art. 25" not in flat
+    assert f"Retained for {RETENTION_YEARS} years (firm policy, which exceeds " \
+           f"the statutory minimum)" in flat
+    # General wording only: no statutory figure or article is quoted.
+    assert "Art. 2" not in flat
     assert not _FALSE_CLAIM.search(flat)
+    assert not _STATUTORY_FIGURE.search(flat)
 
 
 def test_privacy_page_states_policy_and_statutory_minimum(web) -> None:
     client, _ = web
     flat = " ".join(client.get("/privacy").text.split())
     assert f"{RETENTION_YEARS} years under groAML's retention policy" in flat
-    assert "requires at least five years" in flat
+    assert "(which exceeds the statutory minimum)" in flat
+    assert "five years" not in flat
     assert "the period required by UAE AML law" not in flat
 
 
@@ -271,3 +300,96 @@ def test_reactivation_uses_the_utc_date_not_the_server_local_date(conn, monkeypa
     cid = _closed(conn, org, "U", "2021-08-11", "2026-08-11")
     reactivate_customer(conn, cid, org_id=org, reason="back", actor="t")
     assert _until(conn, cid) == retention_from(utc_today())
+
+
+# ------------------------------------------- purge never deletes inside 10 years
+
+def _exists(conn, cid: int) -> bool:
+    return conn.execute("SELECT 1 FROM customers WHERE id=?", (cid,)).fetchone() is not None
+
+
+def test_purge_never_deletes_inside_ten_years(conn, monkeypatch) -> None:
+    from datetime import timedelta
+    from amlkit.cases.manager import purge_expired
+    monkeypatch.setenv("AMLKIT_PURGE_ENABLED", "true")
+    org = _org(conn, "p")
+    today = date.today()
+    # Closed 3 years ago, but carrying a stale (old-rule) date in the past.
+    stale = _closed(conn, org, "STALE", (today - timedelta(days=3 * 365)).isoformat(),
+                    "2000-01-01")
+    # Closed 9 years 11 months ago: still inside the 10-year plan.
+    inside = _closed(conn, org, "INSIDE", (today - timedelta(days=3620)).isoformat(),
+                     "2000-01-01")
+    # Closed 11 years ago with a correct, expired date: the only purgeable row.
+    old_exit = today - timedelta(days=11 * 366)
+    old = _closed(conn, org, "OLD", old_exit.isoformat(), retention_from(old_exit))
+
+    preview = purge_expired(conn, org_id=org, dry_run=True)
+    assert [d["customer_id"] for d in preview["details"]] == [old]
+
+    result = purge_expired(conn, org_id=org, actor="t")
+    assert result["purged"] == 1
+    assert _exists(conn, stale) and _exists(conn, inside)
+    assert not _exists(conn, old)
+
+
+def test_purge_disabled_by_default_even_when_expired(conn, monkeypatch) -> None:
+    from amlkit.cases.manager import purge_expired
+    monkeypatch.delenv("AMLKIT_PURGE_ENABLED", raising=False)
+    org = _org(conn, "d")
+    cid = _closed(conn, org, "OLD", "2000-01-01", "2010-01-01")
+    result = purge_expired(conn, org_id=org, actor="t")
+    assert result.get("disabled") is True and result["purged"] == 0
+    assert _exists(conn, cid)
+
+
+def test_extension_never_shortens(conn) -> None:
+    org = _org(conn, "e")
+    # A date already beyond the 10-year plan must be left exactly as is.
+    cid = _closed(conn, org, "LONG", "2021-08-11", "2045-01-01")
+    assert dbmod._extend_retention_until(conn) == {}
+    assert _until(conn, cid) == "2045-01-01"
+
+
+# ------------------------------------------------ ad-hoc screening anchor (4.2)
+
+def test_adhoc_screening_gets_ten_year_anchor(conn) -> None:
+    from amlkit.match.engine import screen
+    org = _org(conn, "s")
+    out = screen(conn, "Nobody Special", org_id=org, trigger="adhoc")
+    row = conn.execute("SELECT customer_id, run_at, retention_until FROM screenings"
+                       " WHERE id=?", (out.screening_id,)).fetchone()
+    assert row["customer_id"] is None
+    assert row["retention_until"] == retention_from(date.fromisoformat(row["run_at"][:10]))
+
+
+def test_customer_screening_has_no_own_anchor(conn) -> None:
+    org = _org(conn, "c")
+    cid = onboard(conn, org_id=org, reference="C", full_name="Linked One",
+                  actor="t").customer_id
+    rows = conn.execute("SELECT retention_until FROM screenings WHERE customer_id=?",
+                        (cid,)).fetchall()
+    assert rows and all(r["retention_until"] is None for r in rows)
+
+
+def test_backfill_anchors_old_adhoc_screenings_without_shortening(conn) -> None:
+    org = _org(conn, "b")
+
+    def mk(run_at, ru):
+        return conn.execute(
+            "INSERT INTO screenings (org_id, customer_id, query_name, trigger, algorithm,"
+            " threshold, run_at, retention_until) VALUES (?,NULL,'x','adhoc','a',0.8,?,?)"
+            " RETURNING id", (org, run_at, ru)).fetchone()["id"]
+
+    unanchored = mk("2021-03-04T10:00:00+00:00", None)
+    longer = mk("2021-03-04T10:00:00+00:00", "2045-01-01")
+    conn.commit()
+    dbmod._backfill_retention_until(conn)
+    dbmod._backfill_retention_until(conn)  # idempotent
+
+    def get(i):
+        return conn.execute("SELECT retention_until FROM screenings WHERE id=?",
+                            (i,)).fetchone()["retention_until"]
+
+    assert get(unanchored) == "2031-03-04"
+    assert get(longer) == "2045-01-01"

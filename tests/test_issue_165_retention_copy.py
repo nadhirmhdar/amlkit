@@ -1,7 +1,7 @@
 """Issue #165 (as corrected by #313): customer page states the 10-year period.
 
-Ten years is the firm's retention policy; Cabinet Resolution 134/2025
-Art. 25(2) sets a five-year statutory minimum. See test_retention_policy.py.
+Ten years is the firm's retention policy (owner decision); the page does not
+quote a statutory figure or article. See test_retention_policy.py.
 """
 
 from __future__ import annotations

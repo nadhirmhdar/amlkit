@@ -11,9 +11,9 @@ an inspection. Three obligations drive the design:
   threshold and requires falling back to the senior managing official where no
   one meets it. Inability to identify a UBO is scored as opacity, not ignored.
 * **Retain for ten years after the relationship ends.** The retention date is
-  computed and stored rather than left to policy. Ten years is groAML's
-  internal retention policy, above the statutory minimum of five years under
-  Cabinet Resolution No. 134 of 2025 Art. 25(2) -- see RETENTION_YEARS.
+  computed and stored rather than left to policy. Ten years is the firm's
+  retention policy and exceeds the statutory minimum; no statutory period or
+  article is asserted in code or copy -- see RETENTION_YEARS.
 """
 
 from __future__ import annotations
@@ -86,12 +86,12 @@ def jurisdiction_tier_for_nationalities(
 UBO_THRESHOLD_PCT = 25.0
 
 # Customer record retention (CDD file, screenings, transactions, STRs).
-# Statutory minimum: five years under Cabinet Resolution 134/2025 Art. 25(2),
-# counted from the end of the business relationship (or the other trigger
-# events listed there). groAML applies a ten-year INTERNAL POLICY above that
-# floor; ten years is not a legal requirement. Every stored retention_until
-# is computed from RETENTION_YEARS via retention_from().
-STATUTORY_MIN_RETENTION_YEARS = 5
+# Firm policy (decided by the owner): ten years, counted from the end of the
+# business relationship, or from the screening/transaction date for ad-hoc
+# records with no relationship. The plan exceeds the statutory minimum; the
+# statutory period and its article are deliberately NOT encoded or quoted here
+# because they are not verified in this repo. Every stored retention_until is
+# computed from RETENTION_YEARS via retention_from().
 RETENTION_YEARS = 10
 
 EXIT_REASONS: dict[str, str] = {
@@ -112,6 +112,17 @@ def utc_today() -> date:
     runs a day ahead of UTC between midnight and 04:00.
     """
     return datetime.now(timezone.utc).date()
+
+
+def _inside_policy_window(exit_date: str | None, today_iso: str) -> bool:
+    """True when exit_date + RETENTION_YEARS has not yet passed."""
+    if not exit_date:
+        return False  # no anchor to recompute from; retention_until decides
+    try:
+        floor = retention_from(date.fromisoformat(exit_date[:10]))
+    except ValueError:
+        return False
+    return floor >= today_iso
 
 
 def retention_from(start: date) -> str:
@@ -596,11 +607,15 @@ def purge_expired(
 
     now = utc_today().isoformat()
     rows = conn.execute(
-        "SELECT id, reference FROM customers"
+        "SELECT id, reference, exit_date FROM customers"
         " WHERE org_id=? AND status='closed'"
         " AND retention_until IS NOT NULL AND retention_until < ?",
         (org_id, now),
     ).fetchall()
+    # Belt and braces: a stored date can be stale (written under an older,
+    # shorter rule). Never purge a customer whose exit date is still inside the
+    # RETENTION_YEARS policy window, whatever retention_until says.
+    rows = [r for r in rows if not _inside_policy_window(r["exit_date"], now)]
 
     details = [{"customer_id": r["id"], "reference": r["reference"]} for r in rows]
     if dry_run:

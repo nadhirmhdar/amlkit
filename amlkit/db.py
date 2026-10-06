@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS customers (
     status         TEXT NOT NULL DEFAULT 'active',
     onboarded_at   TEXT NOT NULL,
     -- Kept RETENTION_YEARS (cases/manager.py: 10-year firm policy, above the
-    -- 5-year statutory minimum) after the relationship ends; this column is
+    -- statutory minimum) after the relationship ends; this column is
     -- what the retention job reads.
     retention_until TEXT,
     created_at     TEXT NOT NULL,
@@ -996,6 +996,11 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("mfa_secrets", "locked_until", "ALTER TABLE mfa_secrets ADD COLUMN locked_until TEXT"),
     ("entities", "programs", "ALTER TABLE entities ADD COLUMN programs TEXT"),
     ("alerts", "reason_code", "ALTER TABLE alerts ADD COLUMN reason_code TEXT"),
+    # Retention anchor for ad-hoc screenings (customer_id NULL): there is no
+    # customer row to carry a retention date. Set at insert (run date + 10y);
+    # nothing in the purge path deletes on it. Customer-linked screenings stay
+    # NULL and follow the customer's retention_until.
+    ("screenings", "retention_until", "ALTER TABLE screenings ADD COLUMN retention_until TEXT"),
     # How the four-eyes requirement was satisfied, or why it was not:
     #   completed          - a second operator confirmed the dismissal
     #   not_required       - risk category did not call for independent review
@@ -1150,6 +1155,14 @@ def _backfill_retention_until(conn: sqlite3.Connection) -> None:
         "UPDATE customers SET retention_until ="
         " date(substr(onboarded_at, 1, 10), '+' || ? || ' years')"
         " WHERE status != 'closed' AND retention_until IS NULL AND onboarded_at IS NOT NULL",
+        (RETENTION_YEARS,),
+    )
+    # Ad-hoc screenings (no customer row): RETENTION_YEARS from the run date.
+    # Only fills NULLs, so it never shortens or rewrites an existing date.
+    conn.execute(
+        "UPDATE screenings SET retention_until ="
+        " date(substr(run_at, 1, 10), '+' || ? || ' years')"
+        " WHERE customer_id IS NULL AND retention_until IS NULL AND run_at IS NOT NULL",
         (RETENTION_YEARS,),
     )
 

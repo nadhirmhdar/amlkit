@@ -120,7 +120,7 @@ relatives and close associates.
 
 | Obligation | Status | Implementation | Test |
 |---|---|---|---|
-| Retain records **5 years** after relationship ends | ✅ | `close_relationship` computes and stores the date | `test_five_year_retention_recorded` |
+| Retain records for the firm-policy period (**10 years**, exceeding the statutory minimum) after relationship ends | ✅ | `close_relationship` computes and stores the date via `retention_from()` | `test_close_relationship_sets_ten_year_retention` |
 | Auditable records of decisions | ✅ | Append-only `audit_log`, enforced by DB trigger | `TestAuditImmutability` |
 | Evidence that screening occurred, including clear results | ✅ | Every run persisted regardless of outcome | `test_clear_screening_still_recorded` |
 | Explainable alert decisions | ✅ | Full per-feature score breakdown stored per alert | `test_alert_stores_score_breakdown` |
