@@ -2,17 +2,19 @@
 {# Legal claims here trace to Cabinet Resolution No. 134 of 2025 (the Executive
    Regulations to Federal Decree-Law No. 10 of 2025, in force 14 December
    2025) and the Ministry of Economy's "Implementation Guide on CDD". The
-   AED thresholds and the 25% beneficial-ownership figure are corroborated
-   across multiple independent compliance publishers as well as that MoET
-   guide; re-check both before changing `updated` in blog.py. #}
-{% set reviewed_against = "Cabinet Resolution No. 134 of 2025 (Executive Regulations, in force 14 December 2025) and the Ministry of Economy's Implementation Guide on CDD" %}
+   AED thresholds and the 25% beneficial-ownership figure were corroborated
+   only by secondary compliance publishers and that MoET guide, not checked
+   against the Resolution's primary text, so they are stated as "reported"
+   figures to confirm. Retention is deliberately not stated as a statutory
+   number. Re-check before changing `updated` in blog.py. #}
+{% set reviewed_against = "the Ministry of Economy's Implementation Guide on CDD and secondary compliance sources; the text of Cabinet Resolution No. 134 of 2025 (Executive Regulations, in force 14 December 2025) has not been re-verified" %}
 {% set toc = [
   ("what-cdd-is", "What CDD actually requires"),
   ("identity", "Verifying identity, including who's behind it"),
   ("beneficial-ownership", "Beneficial ownership: down to the natural person"),
   ("thresholds", "When CDD is triggered, and the AED thresholds"),
   ("tiers", "Simplified, standard or enhanced: the three tiers"),
-  ("edd-triggers", "What forces enhanced due diligence"),
+  ("edd-triggers", "What triggers enhanced due diligence in our approach"),
   ("source-of-funds", "Source of funds and source of wealth"),
   ("ongoing-monitoring", "Ongoing monitoring: CDD doesn't end at onboarding"),
   ("records", "Records to keep"),
@@ -21,19 +23,19 @@
   ("sources", "Sources"),
 ] %}
 {% set glance = [
-  "CDD applies at onboarding and is re-triggered by Cabinet Resolution 134/2025's AED 55,000 occasional-transaction and AED 3,500 wire-transfer thresholds.",
-  "Beneficial ownership must be traced to the natural person(s) who ultimately own or control 25% or more, falling back to the senior managing official when no one meets that threshold.",
-  "The risk-based approach has three tiers &mdash; simplified, standard and enhanced due diligence &mdash; and the tier follows the customer's risk score, not a fixed rule per customer type.",
-  "A sanctions hit, PEP status, a high-risk jurisdiction or opaque ownership all force enhanced due diligence regardless of the computed score.",
+  "CDD applies at onboarding and is also triggered by occasional transactions and wire transfers above monetary thresholds (reported as AED 55,000 and AED 3,500 under Cabinet Resolution 134/2025; confirm against the Resolution). For some DNFBP sectors, such as dealers in precious metals and stones and real estate, AED 55,000 is also tied to cash-transaction reporting, a separate duty from CDD. Confirm which applies to you.",
+  "Beneficial ownership is traced to the natural person(s) who ultimately own or control the reported threshold of 25% or more (confirm against the Resolution), falling back to the senior managing official when no one meets it.",
+  "The risk-based approach has three tiers — simplified, standard and enhanced due diligence — and the tier follows the customer's risk score, not a fixed rule per customer type.",
+  "Our approach is to treat a sanctions hit, PEP status, a high-risk jurisdiction or opaque ownership as triggers for enhanced due diligence regardless of the computed score.",
   "CDD is not a file you close at onboarding: ongoing monitoring and periodic review are a separate, continuing obligation.",
 ] %}
 {% set faqs = [
   {"q": "Is CDD the same thing as KYC?",
    "a": "In practice, UAE guidance uses them together. “KYC” usually refers narrowly to identifying and verifying the customer; “CDD” is the broader obligation that also covers beneficial ownership, the purpose and nature of the relationship, source of funds where relevant, and ongoing monitoring. Every KYC check is part of CDD, but CDD doesn't stop once KYC is done."},
   {"q": "What exactly is the beneficial ownership threshold?",
-   "a": "25% or more of the shares or voting rights, or control by other means. If no natural person meets that threshold, you identify the senior managing official instead and record that you could not identify a beneficial owner above 25% — that is itself a fact to record, not a reason to leave the field blank."},
+   "a": "The Executive Regulations are reported to set it at 25% or more of the shares or voting rights, or control by other means (confirm against the Resolution text). If no natural person meets that threshold, you identify the senior managing official instead and record that you could not identify a beneficial owner above 25% — that is itself a fact to record, not a reason to leave the field blank."},
   {"q": "When can we apply simplified due diligence?",
-   "a": "Only where your own documented risk assessment supports a lower risk for that customer type, and never where a sanctions hit, PEP status or a high-risk jurisdiction is present — those force at least standard due diligence, usually enhanced. Simplified due diligence reduces the intensity of ongoing checks; it never removes the duty to identify the customer and its beneficial owners at all."},
+   "a": "Only where your own documented risk assessment supports a lower risk for that customer type, and our approach is never to apply it where a sanctions hit, PEP status or a high-risk jurisdiction is present — we treat those as requiring at least standard due diligence, usually enhanced. Simplified due diligence reduces the intensity of ongoing checks; it never removes the duty to identify the customer and its beneficial owners at all."},
   {"q": "What's the difference between source of funds and source of wealth?",
    "a": "Source of funds is where the money in this specific transaction came from (a salary, a sale proceeds, a loan). Source of wealth is the broader picture of how the customer accumulated their overall net worth. Higher-risk customers, and PEPs specifically, need both established and documented, not just the narrower source of funds."},
   {"q": "How often must we refresh CDD on an existing customer?",
@@ -42,10 +44,10 @@
    "a": "A confirmed sanctions or Local Terrorist List match isn't a CDD risk factor to weigh — it's a freeze-and-report obligation that sits outside the scoring model entirely. See our guide to the 24-hour rule for what happens next; CDD and risk scoring apply to everyone the sanctions check clears."},
 ] %}
 {% set sources = [
-  {"title": "Cabinet Resolution No. 134 of 2025 on the Executive Regulations of Federal Decree-Law No. 10 of 2025", "publisher": "UAE Cabinet / Central Bank of the UAE Rulebook", "url": "https://rulebook.centralbank.ae/en/rulebook/cabinet-resolution-no-134-2025-regarding-executive-regulations-federal-decree-law-no-10", "note": "In force 14 December 2025; sets the beneficial-ownership and CDD-trigger thresholds"},
+  {"title": "Cabinet Resolution No. 134 of 2025 on the Executive Regulations of Federal Decree-Law No. 10 of 2025", "publisher": "UAE Cabinet / Central Bank of the UAE Rulebook", "url": "https://rulebook.centralbank.ae/en/rulebook/cabinet-resolution-no-134-2025-regarding-executive-regulations-federal-decree-law-no-10", "note": "In force 14 December 2025; reported to set the beneficial-ownership and CDD-trigger thresholds (figures not re-verified against this text)"},
   {"title": "Implementation Guide on CDD", "publisher": "UAE Ministry of Economy and Tourism", "url": "https://www.moet.gov.ae/documents/20121/0/Implementation+Guide+on+CDD.pdf/39e7e435-5206-10b2-4b13-9a2221c447bd"},
   {"title": "The Complete Guide to the Ultimate Beneficial Owner Verification", "publisher": "AML UAE (amluae.com)", "url": "https://amluae.com/the-complete-guide-to-the-ultimate-beneficial-owner-verification/"},
-  {"title": "UAE AML Law 2025: Complete Guide to UAE AML Compliance", "publisher": "Zigram", "url": "https://www.zigram.tech/article/uae-aml-law-2025-federal-decree-law-no-10/", "note": "Corroborates the AED 55,000 / AED 3,500 CDD thresholds and the 25% beneficial-ownership figure"},
+  {"title": "UAE AML Law 2025: Complete Guide to UAE AML Compliance", "publisher": "Zigram", "url": "https://www.zigram.tech/article/uae-aml-law-2025-federal-decree-law-no-10/", "note": "Secondary commentary (vendor blog) that repeats the AED 55,000 / AED 3,500 and 25% figures; not a primary source, so confirm against the Resolution text"},
 ] %}
 
 {% block article %}
@@ -67,7 +69,7 @@
 <p>Verification means checking that documentation against an independent, reliable source — not simply accepting what the customer hands you.</p>
 
 <h2 id="beneficial-ownership">Beneficial ownership: down to the natural person</h2>
-<p>This is where most CDD files fall short in practice. A company's shareholder register tells you who owns shares; it doesn't tell you who ultimately benefits or controls, especially once holding companies, trusts or nominee arrangements are involved. Under Cabinet Resolution No. 134 of 2025, a beneficial owner is a natural person who ultimately owns or controls <strong>25% or more</strong> of the shares or voting rights, directly or indirectly, or who exercises control by other means.</p>
+<p>This is where most CDD files fall short in practice. A company's shareholder register tells you who owns shares; it doesn't tell you who ultimately benefits or controls, especially once holding companies, trusts or nominee arrangements are involved. Cabinet Resolution No. 134 of 2025 is reported to define a beneficial owner as a natural person who ultimately owns or controls <strong>25% or more</strong> of the shares or voting rights, directly or indirectly, or who exercises control by other means. Confirm the threshold against the Resolution text.</p>
 <div class="bl-callout bl-callout--tip">
   <b class="t">No one meets the threshold? Say so.</b>
   If ownership is diffuse enough that no natural person crosses 25%, you fall back to identifying the <strong>senior managing official</strong> — and you record, explicitly, that no beneficial owner above the threshold could be identified. That statement, dated and reasoned, is the correct outcome in some structures. A blank beneficial-ownership field is not.
@@ -75,17 +77,18 @@
 <p>Multi-layer and offshore structures need the chain traced all the way through, not just to the first holding company. A customer who can't or won't produce an ownership chain is itself a risk signal, and one that typically pushes the relationship toward enhanced due diligence rather than a shrug.</p>
 
 <h2 id="thresholds">When CDD is triggered, and the AED thresholds</h2>
-<p>CDD is always required when you establish a business relationship. Beyond that, Cabinet Resolution No. 134 of 2025 sets specific monetary triggers for occasional (non-relationship) transactions:</p>
+<p>CDD is always required when you establish a business relationship. Beyond that, Cabinet Resolution No. 134 of 2025 is reported to set specific monetary triggers for occasional (non-relationship) transactions:</p>
 <div class="bl-table-wrap">
   <table class="bl-table">
     <thead><tr><th>Trigger</th><th>Threshold</th></tr></thead>
     <tbody>
-      <tr><td>Occasional transaction (no ongoing relationship)</td><td><strong>AED 55,000</strong> or more, single or linked transactions</td></tr>
-      <tr><td>Wire transfer</td><td><strong>AED 3,500</strong> or more</td></tr>
+      <tr><td>Occasional transaction (no ongoing relationship)</td><td><strong>AED 55,000</strong> or more, single or linked transactions (as reported; confirm against the Resolution)</td></tr>
+      <tr><td>Wire transfer</td><td><strong>AED 3,500</strong> or more (as reported; confirm against the Resolution)</td></tr>
     </tbody>
   </table>
 </div>
 <p class="bl-caption">CDD is also required whenever money laundering or terrorist financing is suspected, or when you doubt the accuracy of identification data already on file — both apply regardless of transaction size.</p>
+<p class="bl-caption">AED 55,000 is not only a CDD trigger. For some DNFBP sectors, such as dealers in precious metals and stones and real estate, AED 55,000 is also tied to cash-transaction reporting to the FIU through goAML, which is a separate duty from CDD. Confirm which applies to you. Which dealings and report types apply to your sector, and the exact threshold, are for you to confirm with your supervisory authority or a UAE-qualified adviser.</p>
 
 <h2 id="tiers">Simplified, standard or enhanced: the three tiers</h2>
 <p>CDD is not one fixed procedure. The risk-based approach gives you three tiers, and the tier follows the customer's assessed risk, not just their category:</p>
@@ -101,8 +104,8 @@
 </div>
 <p>How a specific customer lands in one tier rather than another is the output of a risk assessment, not a judgement call made on the spot — see our guide to <a href="/blog/uae-dnfbp-aml-risk-assessment-risk-scoring">risk assessment and risk scoring</a> for how that works.</p>
 
-<h2 id="edd-triggers">What forces enhanced due diligence</h2>
-<p>Some conditions move a customer to enhanced due diligence regardless of what the rest of the score says:</p>
+<h2 id="edd-triggers">What triggers enhanced due diligence in our approach</h2>
+<p>In our approach, some conditions move a customer to enhanced due diligence regardless of what the rest of the score says:</p>
 <ul>
   <li>a <strong>politically exposed person (PEP)</strong>, their family member or close associate;</li>
   <li>a customer or transaction connected to a <strong>FATF high-risk or increased-monitoring jurisdiction</strong>;</li>
@@ -118,7 +121,7 @@
   <div class="ico" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4eccd3" stroke-width="2.2" stroke-linecap="round"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg></div>
   <div>
     <b>How groAML handles this</b>
-    <p>groAML's customer case file carries beneficial ownership (with an ownership diagram), risk scoring, transaction monitoring, adverse media checks and an evidence pack in one place, with every decision kept in an append-only audit trail — so a CDD file is examiner-ready the day an inspector asks for it, not reconstructed from scratch.</p>
+    <p>groAML's customer case file carries beneficial ownership (with an ownership diagram), risk scoring, transaction monitoring, adverse media checks and an evidence pack in one place, with every decision kept in an append-only audit trail — so a CDD file is already organised and quick to produce when an inspector asks for it, not reconstructed from scratch.</p>
     <a class="bl-btn bl-btn--light" href="/about">See how it works</a>
   </div>
 </div>
@@ -139,7 +142,7 @@
   <li>Source-of-funds/wealth evidence for every higher-risk relationship.</li>
   <li>Every periodic review and event-driven re-check, with its outcome.</li>
 </ul>
-<p>Keep all of it for at least five years after the relationship ends, consistent with the retention duty that runs through UAE AML/CFT law generally.</p>
+<p>Keep all of it for the period the law requires, counted from the end of the relationship or the other events the law specifies. groAML's default retention plan is 10 years. We do not quote a statutory minimum here: confirm it against the current law or with a UAE-qualified adviser.</p>
 
 <h2 id="checklist">Your CDD readiness checklist</h2>
 <p>Tick these off for your firm. Your progress is saved in this browser, and the page prints cleanly as a handout.</p>
@@ -148,15 +151,15 @@
   <ul>
     {% for item in [
       "We verify identity against an independent source, not just the document the customer hands us.",
-      "Beneficial ownership is traced to natural persons at the 25% threshold, with the chain documented for multi-layer structures.",
-      "When no one meets 25%, we identify the senior managing official and record that explicitly.",
-      "We apply CDD at onboarding and at the AED 55,000 / AED 3,500 occasional-transaction and wire-transfer thresholds.",
+      "Beneficial ownership is traced to natural persons at the reported 25% threshold, with the chain documented for multi-layer structures.",
+      "When no one meets the 25% threshold, we identify the senior managing official and record that explicitly.",
+      "We apply CDD at onboarding and at the occasional-transaction and wire-transfer thresholds (reported as AED 55,000 / AED 3,500; confirm against the current Resolution), and we know whether a separate cash-transaction report applies to us.",
       "Our risk assessment, not staff judgement alone, decides whether a customer gets simplified, standard or enhanced due diligence.",
-      "PEP status, a high-risk jurisdiction, a sanctions hit or opaque ownership always triggers enhanced due diligence.",
+      "Under our approach, PEP status, a high-risk jurisdiction, a sanctions hit or opaque ownership always triggers enhanced due diligence.",
       "Source of funds is documented for the transaction; source of wealth is documented for PEPs and other higher-risk relationships.",
       "Periodic reviews run on a schedule tied to risk rating, not a single fixed interval for everyone.",
       "Material changes (ownership, activity, jurisdiction, adverse media) trigger an immediate re-check, not just the next scheduled review.",
-      "CDD records, including the dated history of risk ratings, are kept for at least five years.",
+      "CDD records, including the dated history of risk ratings, are kept for the period the law requires (groAML's default retention plan is 10 years).",
     ] %}
     <li><label><input type="checkbox"><span>{{ item }}</span></label></li>
     {% endfor %}
