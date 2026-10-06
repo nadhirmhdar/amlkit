@@ -134,7 +134,7 @@ def test_phone_text_sizes() -> None:
     assert re.search(r'select, textarea\s*\{\s*font-size:\s*16px', phone)
     assert re.search(r"\.mobile-tab__label\s*\{\s*font-size:\s*12px", phone)
     assert re.search(r"\.tag\s*\{\s*font-size:\s*12px", phone)
-    assert re.search(r"\blabel\s*\{\s*font-size:\s*12\.5px", phone)
+    assert re.search(r"\blabel\s*\{\s*font-size:\s*13px", phone)
 
 
 # ------------------------------------------------------------------- #3
@@ -163,3 +163,21 @@ def test_country_fields_have_bound_labels(client) -> None:
         html = client.get(path).text
         assert f'<label for="{ident}"' in html, path
         assert re.search(rf'<input[^>]*id="{ident}"[^>]*data-country-dropdown', html), path
+
+
+def test_type_scale_is_five_steps_and_buttons_have_three_sizes():
+    """Body-size text uses 11/12/13/14/16px only (the old half-pixel steps are
+    gone), and standard buttons are 32 (small) / 40 (default) / 48 (large)."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "amlkit" / "web"
+    css = (root / "static" / "app.css").read_text()
+    templates = "".join(p.read_text() for p in (root / "templates").rglob("*.html"))
+    for text in (css, templates):
+        sizes = {float(m) for m in re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", text)}
+        small_range = {z for z in sizes if 11 <= z <= 16}
+        assert small_range <= {11, 12, 13, 14, 16}, sorted(small_range)
+    assert "button:not([class]), button.ghost, button.secondary, button.danger, .btn { min-height: 40px; }" in css
+    assert "button.small, .btn.small, .btn.btn-sm { min-height: 32px; }" in css
+    assert re.search(r"\.btn-glow \{[^}]*min-height: 48px", css)

@@ -45,7 +45,7 @@
     {% endif %}
 
     {% if result.hits %}
-      <div style="font-size:14.5px; color:var(--ink-2); border-top:1px solid var(--line); padding-top:20px; margin-top:28px;">
+      <div style="font-size:14px; color:var(--ink-2); border-top:1px solid var(--line); padding-top:20px; margin-top:28px;">
         <strong style="color:var(--danger); font-size:18px;">{{ result.hits|length }}</strong> match(es) for
         {{ name(query) }} — {{ result.candidates }} candidates scored.
       </div>
@@ -80,7 +80,7 @@
         result — re-enter the name in plain Arabic or Latin letters, or review it manually.
       </div>
     {% else %}
-      <div style="font-size:14.5px; color:var(--ink-2); border-top:1px solid var(--line); padding-top:20px; margin-top:28px; line-height:1.6;">
+      <div style="font-size:14px; color:var(--ink-2); border-top:1px solid var(--line); padding-top:20px; margin-top:28px; line-height:1.6;">
         <strong style="color:var(--good);">No match.</strong> {{ name(query) }} screened against
         {{ result.candidates }} candidate record(s); nothing scored at or above
         {{ result.threshold }}.
