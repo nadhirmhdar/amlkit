@@ -61,7 +61,7 @@ Verdict key: **CONFIRMED** means I re-ran a repro or read the cited lines on `01
 - Code-reviewer's RED headline rested on CR-1, which #426 has since fixed.
 
 ## 4. Combined assessment
-1. The fix rate has caught up: L-1, L-2, L-4, L-7, L-8, L-18 and L-19 all closed in one day, each with tests. The full suite on `0129848` is in §5.
+1. The fix rate has caught up: L-1, L-2, L-4, L-7, L-8, L-18 and L-19 all closed in one day, each with tests. The suite passes on `0129848` (2092 passed, OCR excluded; §5 C-6).
 2. #425 added an `unscreenable` signal but wired it to the ad-hoc page only. The case-file path still records a silent clear (L-28), and the cleaner strips too little (L-29).
 3. The rescreen control has two defects: a false failure banner (L-30) and duplicate alerts on decided matches (L-9). It runs after every list refresh, so both recur daily.
 4. The TFS timing gaps (L-31, L-32) are design gaps that need legal confirmation, not bugs.
@@ -73,7 +73,7 @@ Verdict key: **CONFIRMED** means I re-ran a repro or read the cited lines on `01
 - C-3 The owed L-7 repro and proposal are no longer needed: PR #424 fixed L-7 (mlro `log11.json`: "Cannot finalize report: the goAML export requires source account number ...", then draft edit and export 200).
 - C-4 Re-ran on a `0129848` checkout in a scratch venv (requirements without passporteye/pdfminer; OCR not exercised): red-team `probe_unicode_bypass.py`, skeptic `offset_overflow.py`, `four_eyes_rename.py` and `stdlib_behaviour.py`, and `tests/test_foureyes_rename_bypass.py` (4 passed). The skeptic's `four_eyes_rename.py` still exits 0 because it passes no `operator_id`, which takes the legacy name path. It no longer models the routes.
 - C-5 Verified the owed L-17. CR-2 is REFUTED (deliberate, commented at `app.py:3956-3962`). CR-3 is on PR #412, which is unchanged, so it is carried. L-26 is unchanged (`ruleset.yaml:76 domestic_pep: 30`; whether nationality drives it is not re-run).
-- C-6 Full suite on `0129848` (OCR tests excluded, `-x`): running when this commit was pushed; the result is added in a follow-up commit on this branch.
+- C-6 Full suite on `0129848` in a scratch venv without passporteye: `pytest tests/ --ignore=tests/test_ocr.py -k "not scan and not ocr and not mrz"` gives `2092 passed, 1 skipped, 32 deselected in 662.42s`, `pytest_exit=0`. A first `-x` run stopped at `test_mobile_api.py::TestDocumentScan::test_scan_passport_merges_image_quality_into_response` with `ModuleNotFoundError: No module named 'passporteye'`. That is an environment gap, not a defect. The 32 OCR/scan tests were not exercised. This is the first full run on current master by any role.
 - No test added for the open defects, because each would fail on master (rule 5). No existing file edited. The commit SHA is in the final reply.
 
 ## 6. Decisions needed from Nadhir
