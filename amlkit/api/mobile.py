@@ -71,6 +71,7 @@ from ..db import set_org_alert_threshold, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..risk.model import validate_risk_inputs
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
+from ..screening.pf import triage_category
 from .csv_utils import _escape_csv_formula
 from .deps import client_ip, get_db, require_role
 
@@ -512,9 +513,7 @@ def _hit_json(db: sqlite3.Connection, h) -> dict[str, Any]:
     return {
         "score": h.score, "caption": h.caption, "dataset": h.dataset,
         "schema_type": h.schema_type, "matched_name": h.matched_name,
-        "category": ("proliferation" if h.is_proliferation
-                     else "terrorism" if h.is_terrorism
-                     else "sanction" if h.is_sanction else "other"),
+        "category": triage_category(h.topics, h.programs),
         "obligation": h.obligation, "programs": h.programs,
         "detail": h.detail, "entity_id": h.entity_id,
         "aliases": queries.entity_names(db, h.entity_id),
@@ -1182,7 +1181,8 @@ ALERTS_PAGE_MAX = 200
 
 @router.get("/alerts")
 def api_alerts(db: DB, session: Session, status: str = "open", limit: int = ALERTS_PAGE_MAX, offset: int = 0):
-    """The alert queue, highest score first, in pages.
+    """The alert queue, in pages: category priority first (proliferation, terrorism,
+    sanction, PEP, other), then highest score, then id.
 
     `limit` (1..200, default 200) and `offset` page through it. `total` is the
     exact number of alerts matching `status`, so a client knows whether there

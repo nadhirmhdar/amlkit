@@ -65,6 +65,7 @@ from ..match.engine import DEFAULT_THRESHOLD, screen
 from ..names.arabic import has_arabic_script
 from ..risk.model import ruleset
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
+from ..screening.pf import triage_category
 from .csv_utils import _escape_csv_formula
 from .deps import (
     AUDIT_VIEW_ROLES,
@@ -1712,9 +1713,7 @@ def screen_run(
         hits.append({
             "score": h.score, "caption": h.caption, "dataset": h.dataset,
             "schema_type": h.schema_type, "matched_name": h.matched_name,
-            "category": ("proliferation" if h.is_proliferation
-                         else "terrorism" if h.is_terrorism
-                         else "sanction" if h.is_sanction else "other"),
+            "category": triage_category(h.topics, h.programs),
             "obligation": h.obligation, "programs": h.programs,
             "detail": h.detail, "entity_id": h.entity_id,
             "aliases": queries.entity_names(db, h.entity_id),

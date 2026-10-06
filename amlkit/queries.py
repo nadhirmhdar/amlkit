@@ -24,7 +24,7 @@ from typing import Any
 
 from .cases.manager import adverse_media_due, due_for_review
 from .ingest.loader import staleness_report
-from .screening.pf import classify_programs, obligation_note
+from .screening.pf import classify_programs, obligation_for_category, triage_category
 
 # Triage order. Proliferation first: it is a standalone offence under Law
 # 10/2025 and the least familiar to an operator, so it should never be buried
@@ -183,16 +183,7 @@ def organization_name(conn: sqlite3.Connection, org_id: int) -> str | None:
 
 
 def _category(topics: list[str], programs: list[str]) -> str:
-    cats = classify_programs(programs)
-    if "proliferation" in cats:
-        return "proliferation"
-    if "terrorism" in cats:
-        return "terrorism"
-    if "sanction" in topics:
-        return "sanction"
-    if any(t.startswith("role.pep") for t in topics):
-        return "pep"
-    return "other"
+    return triage_category(topics, programs)
 
 
 def mfa_lockout_banner(conn: sqlite3.Connection, org_id: int) -> dict[str, Any] | None:
@@ -308,9 +299,10 @@ def dashboard(conn: sqlite3.Connection, org_id: int, alerts_sort_by: str | None 
     staleness = staleness_report(conn)
     breaches = [d for d in staleness if d["breach"]]
 
-    # The web dashboard asks for oldest first, so when the queue is longer than
-    # the cap the alerts it misses are the newest, not the ones that have waited
-    # longest. The mobile API passes None to keep its original highest-score order.
+    # The web dashboard asks for oldest first within a category, so when the queue
+    # is longer than the cap the alerts it misses are the newest of the lowest
+    # category, never a proliferation or terrorism alert (see alert_queue). The
+    # mobile API passes None: category, then highest score.
     open_q = alert_queue(conn, org_id, status="open", limit=DASHBOARD_ALERT_CAP, sort_by=alerts_sort_by)
     staged_q = alert_queue(conn, org_id, status="pending_review", limit=DASHBOARD_ALERT_CAP, sort_by=alerts_sort_by)
     alerts = open_q + staged_q
@@ -493,16 +485,18 @@ def alert_queue(
     """Alerts with the entity and customer context needed to triage them,
     scoped to one organization.
 
+    Ordering is always category priority first (CATEGORY_RANK: proliferation,
+    terrorism, sanction, PEP, other), then the sort key, then id, decided before
+    `limit`/`offset` so no page can bury a higher-priority alert.
+
     sort_by: "age_asc" for oldest-first, "age_desc" for newest-first,
-             None for default (score-based) sorting.
-    category: only alerts in this category (see _category). The category is
-             derived in Python, so the limit is applied after filtering rather
-             than in SQL -- otherwise a filter could miss alerts past the cap.
-    offset: skip this many alerts (in the SQL sort order) before `limit`, for
-             paging through a queue longer than the cap. Ties on the sort key
-             are broken by id so pages never overlap or skip.
+             None for default (highest score first) -- each within a category.
+    category: only alerts in this category (see _category).
+    offset: skip this many alerts (in the order above) before `limit`, for
+             paging through a queue longer than the cap. Ties are broken by id
+             so pages never overlap or skip.
     """
-    sql = """
+    select = """
         SELECT a.id, a.score, a.score_detail, a.matched_name, a.status,
                a.disposition, a.reason_code, a.independent_review, a.assigned_to,
                a.dispositioned_by, a.dispositioned_at, a.created_at,
@@ -512,6 +506,8 @@ def alert_queue(
                s.id AS screening_id, s.query_name, s.trigger,
                c.id AS customer_id, c.reference, c.full_name AS customer_name,
                u.person_name AS ubo_name
+    """
+    sql_from = """
         FROM alerts a
         JOIN entities e   ON e.id = a.entity_id
         JOIN datasets d   ON d.id = e.dataset_id
@@ -522,28 +518,54 @@ def alert_queue(
     """
     params: list[Any] = [org_id]
     if status:
-        sql += " AND a.status = ?"
+        sql_from += " AND a.status = ?"
         params.append(status)
     if alert_id is not None:
-        sql += " AND a.id = ?"
+        sql_from += " AND a.id = ?"
         params.append(alert_id)
     if customer_id is not None:
-        sql += " AND s.customer_id = ?"
+        sql_from += " AND s.customer_id = ?"
         params.append(customer_id)
 
-    # Apply sort order
-    if sort_by == "age_asc":
-        sql += " ORDER BY a.created_at ASC, a.id ASC LIMIT ? OFFSET ?"
-    elif sort_by == "age_desc":
-        sql += " ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?"
-    else:
-        sql += " ORDER BY a.score DESC, a.id ASC LIMIT ? OFFSET ?"
-
+    # Order: category priority first (CATEGORY_RANK), then the requested key, then
+    # id as the tie-breaker. The category comes from JSON topics/programs via
+    # classify_programs (prefix matching), which SQL cannot reproduce faithfully,
+    # so the order is decided over a light (id, sort keys, topics, programs) read
+    # of the whole filtered set, and LIMIT/OFFSET are applied to the ordered ids.
+    # A score- or age-ordered SQL page would bury a low-scoring PF alert.
     offset = max(0, int(offset or 0))
+    light = conn.execute(
+        "SELECT a.id, a.score, a.created_at, e.topics, e.programs" + sql_from, params,
+    ).fetchall()
+    ranked = []
+    for r in light:
+        cat = _category(json.loads(r["topics"] or "[]"), json.loads(r["programs"] or "[]"))
+        if category and cat != category:
+            continue
+        ranked.append((r["id"], r["score"], r["created_at"] or "", CATEGORY_RANK.get(cat, 9)))
+    if sort_by == "age_asc":
+        ranked.sort(key=lambda t: (t[3], t[2], t[0]))
+    elif sort_by == "age_desc":
+        ranked.sort(key=lambda t: t[0], reverse=True)    # id DESC
+        ranked.sort(key=lambda t: t[2], reverse=True)    # created_at DESC
+        ranked.sort(key=lambda t: t[3])                  # stable: category first
+    else:
+        ranked.sort(key=lambda t: (t[3], -t[1], t[0]))
+    page_ids = [t[0] for t in ranked[offset:offset + max(0, int(limit))]]
+    if not page_ids:
+        return []
+
+    # Full rows for just this page, restored to the order decided above.
+    marks = ",".join("?" * len(page_ids))
+    rows = {row["id"]: row for row in conn.execute(
+        select + sql_from + f" AND a.id IN ({marks})", (*params, *page_ids))}
     out: list[dict[str, Any]] = []
-    # With a category the filter runs in Python, so SQL returns everything and the
-    # offset/limit are applied to the filtered list below.
-    for row in conn.execute(sql, (*params, -1 if category else limit, 0 if category else offset)):
+    for aid in page_ids:
+        row = rows.get(aid)
+        if row is None:
+            # Dispositioned/closed/purged between the ids read above and this read
+            # (separate autocommit snapshots): it no longer matches, so skip it.
+            continue
         topics = json.loads(row["topics"] or "[]")
         programs = json.loads(row["programs"] or "[]")
         cat = _category(topics, programs)
@@ -554,7 +576,7 @@ def alert_queue(
                 "programs": programs,
                 "countries": json.loads(row["countries"] or "[]"),
                 "category": cat,
-                "obligation": obligation_note(classify_programs(programs)),
+                "obligation": obligation_for_category(cat, classify_programs(programs)),
                 "detail": json.loads(row["score_detail"] or "{}"),
                 "aliases": entity_names(conn, row["entity_id"]),
                 # Whose name actually matched -- the customer, or one of their
@@ -564,11 +586,6 @@ def alert_queue(
                 "via_ubo": bool(row["ubo_name"]),
             }
         )
-    if category:
-        out = [a for a in out if a["category"] == category][offset:offset + limit]
-    # When using age-based sorting, preserve SQL sort order; otherwise apply category/score sort
-    if sort_by not in ("age_asc", "age_desc"):
-        out.sort(key=lambda a: (CATEGORY_RANK.get(a["category"], 9), -a["score"]))
     return out
 
 
