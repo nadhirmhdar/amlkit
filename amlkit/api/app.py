@@ -757,8 +757,21 @@ def uaepass_operator_callback(request: Request, db: DB, code: str = "", state: s
 
 
 @app.post("/logout")
-def logout_submit(request: Request, db: DB):
+def logout_submit(request: Request, db: DB, csrf_token: Annotated[str, Form()] = ""):
     session = current_session(request, db)
+    if session is None:
+        # Nothing to protect: no session means a forged logout cannot sign
+        # anyone out, so a stale tab or an expired session just lands on the
+        # sign-in page instead of a bare 403.
+        resp = RedirectResponse("/login", status_code=303)
+        resp.delete_cookie(SESSION_COOKIE)
+        return resp
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        # Signed in but the token is stale/missing: keep the session (a
+        # cross-site forced logout stays blocked) and ask the user to retry.
+        return back("/", err="Please try logging out again.")
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         auth.logout(db, token, session, ip=client_ip(request))
@@ -1554,7 +1567,8 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         return back(f"/freeze-obligations/{freeze_id}", err=str(exc))
     except Exception as exc:
         # Catch GoAMLValidationError for missing entity_reference
-        if "goAML entity reference" in str(exc):
+        from ..reporting.goaml import is_entity_reference_error
+        if is_entity_reference_error(exc):
             return back(
                 f"/freeze-obligations/{freeze_id}",
                 err='Set your goAML entity reference under Admin → Organisation profile before filing. '
@@ -3206,7 +3220,8 @@ def admin_view(request: Request, db: DB):
         return back("/", err=str(exc))
     org = db.execute("""
         SELECT name, slug, org_address, reporting_person_name,
-               reporting_person_title, reporting_person_phone
+               reporting_person_title, reporting_person_phone,
+               goaml_entity_reference
         FROM organizations WHERE id=?
     """, (session.org_id,)).fetchone()
     if org is None:
@@ -3264,16 +3279,38 @@ def admin_save_org_profile(
     reporting_person_title: Annotated[str, Form()] = "",
     reporting_person_phone: Annotated[str, Form()] = "",
     goaml_entity_reference: Annotated[str, Form()] = "",
+    clear_goaml_entity_reference: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = ""
 ):
-    """Save organization reporting entity profile for goAML exports (p46)."""
+    """Save organization reporting entity profile for goAML exports (p46).
+
+    The goAML entity reference is only erased when the operator explicitly
+    ticks "clear"; a blank submit keeps the saved value (a stale or partial
+    form must not silently blank the reference every STR is filed under).
+    """
     try:
         session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        # Same convention as every other form route: redirect back with a flash
+        # error. Nothing is written, so the profile is unchanged.
+        return back("/admin", err=str(exc))
+    try:
         require_role(session, "mlro")
     except PermissionError as exc:
-        if current_session(request, db) is None:
-            return RedirectResponse("/login", status_code=303)
         return back("/admin", err=str(exc))
+
+    if clear_goaml_entity_reference:
+        goaml_entity_reference = ""
+    elif not goaml_entity_reference.strip():
+        saved = db.execute(
+            "SELECT goaml_entity_reference FROM organizations WHERE id = ?",
+            (session.org_id,),
+        ).fetchone()
+        goaml_entity_reference = (saved["goaml_entity_reference"] or "") if saved else ""
 
     # Update org profile
     db.execute("""
@@ -4125,7 +4162,17 @@ def report_build_view(
             import json
             payload = json.loads(existing["payload"] or "{}")
 
+    # Prefill the entity reference from the org's saved goAML reference; a
+    # reference already stored on the draft wins. Empty (never a hard-coded
+    # literal) when the org has not configured one.
+    org_ref_row = db.execute(
+        "SELECT goaml_entity_reference FROM organizations WHERE id = ?",
+        (session.org_id,),
+    ).fetchone()
+    org_entity_reference = (org_ref_row["goaml_entity_reference"] or "") if org_ref_row else ""
+
     return render(request, "str_builder.html", {
+        "org_entity_reference": org_entity_reference,
         "session": session,
         "customer": cust_data["customer"],
         "type": report_type,
@@ -4218,7 +4265,7 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
 
     # Already-finalized / invalid payload / missing required fields (t2, p17)
     from ..cases.manager import report_finalize_error
-    problem = report_finalize_error(rep)
+    problem = report_finalize_error(rep, db, session.org_id)
     if problem:
         return back(f"/reports/{report_id}", err=problem)
 
@@ -4255,7 +4302,9 @@ def report_export_xml(request: Request, db: DB, report_id: int):
         raise HTTPException(status_code=404, detail="Report not found")
 
     import json
-    from ..reporting.goaml import GoAMLValidationError, inject_reporting_entity, serialize_goaml_xml
+    from ..reporting.goaml import (
+        GoAMLValidationError, inject_reporting_entity, is_entity_reference_error,
+        serialize_goaml_xml)
 
     payload = json.loads(rep["payload"] or "{}")
 
@@ -4263,7 +4312,7 @@ def report_export_xml(request: Request, db: DB, report_id: int):
     try:
         inject_reporting_entity(payload, db, session.org_id)
     except GoAMLValidationError as exc:
-        if "goAML entity reference" in str(exc):
+        if is_entity_reference_error(exc):
             from fastapi import HTTPException
             raise HTTPException(
                 status_code=400,

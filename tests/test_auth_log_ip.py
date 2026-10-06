@@ -135,8 +135,7 @@ def test_login_failure_unknown_email_records_ip(client):
 
 def test_logout_records_ip(client):
     """Logout should record client IP in auth_log."""
-    r = client.post("/logout")
-    # Logout doesn't require CSRF in current implementation, just redirects
+    r = client.post("/logout", data={"csrf_token": _csrf(client)})
     assert r.status_code in (200, 303)  # May be 200 if no session or 303 redirect
 
     conn = _db()

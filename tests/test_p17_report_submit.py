@@ -67,6 +67,10 @@ def test_report_submit_succeeds_with_complete_data(tmp_path, monkeypatch):
         "first_name": "John",
         "reason_description": "Suspicious transaction",
         "transactions": [{"amount": 1000}],
+        # Finalising now also requires everything the goAML export needs.
+        "entity_reference": "TEST-REF-1",
+        "reporter_name": "Maya MLRO",
+        "reporter_email": "mlro@test.ae",
     })
     conn.execute(
         "INSERT INTO reports (org_id, report_type, reference, status, payload, created_at) VALUES (?,?,?,?,?,?)",

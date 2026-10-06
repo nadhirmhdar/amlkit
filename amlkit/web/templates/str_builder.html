@@ -30,7 +30,7 @@
       </div>
       <div>
         <label>Entity Reference / Licence #</label>
-        <input type="text" name="entity_reference" value="{{ payload.entity_reference or 'GROVISOR-LIC-2026' }}" required>
+        <input type="text" name="entity_reference" value="{{ payload.entity_reference or org_entity_reference or '' }}" required>
       </div>
     </div>
     <div class="row">

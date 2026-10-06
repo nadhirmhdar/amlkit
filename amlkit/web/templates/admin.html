@@ -51,9 +51,14 @@
       <label for="admin-goaml-entity-reference">goAML Entity Reference *</label>
       <input type="text" id="admin-goaml-entity-reference" name="goaml_entity_reference"
              value="{{ org.goaml_entity_reference or '' }}"
-             placeholder="e.g. AML-ORG-12345"
-             required>
-      <span class="muted small">Your organization's unique reference code for goAML submissions. Required for XML export.</span>
+             placeholder="e.g. AML-ORG-12345">
+      <span class="muted small">Your organization's unique reference code for goAML submissions. Required for XML export. Saving with this box empty keeps the existing reference.</span>
+      {% if org.goaml_entity_reference %}
+      <label class="muted small" for="admin-clear-goaml-entity-reference">
+        <input type="checkbox" id="admin-clear-goaml-entity-reference" name="clear_goaml_entity_reference" value="1">
+        Remove the saved reference
+      </label>
+      {% endif %}
     </div>
     <div class="profile-grid__actions">
       <button type="submit">Save Profile</button>
