@@ -1,0 +1,122 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "rescreen, org with zero customers",
+  "status": "info",
+  "detail": "['Re-screening failed: &#39;customers&#39;']"
+ },
+ {
+  "step": "rescreen, 1 customer",
+  "status": "info",
+  "detail": "['Re-screening failed: &#39;customers&#39;']"
+ },
+ {
+  "step": "confirm match (true positive) with narrative",
+  "status": "info",
+  "detail": "['Disposition recorded.']"
+ },
+ {
+  "step": "freeze obligations list",
+  "status": "info",
+  "detail": "Obligations About Privacy & Cookies Log out Targeted financial sanctions TFS Freeze Obligations Cabinet Resolution 134/2025: Freeze obligations must be executed immediately. Personal liability applies to senior management for TFS compliance failures. Pending: 1 Executed: 0 Reported: 0 Resolved: 0 Status: All Pending Execution Executed (Pending Report) Reported Resolved Targeted financial sanctions freeze obligations listing by customer and status Customer Type Risk Status Identified Executed Reported Actions F-001 sanctions \ud83d\udd34 CRITICAL Pending Execution 2026-10-07 \u2014 \u2014 View Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. "
+ },
+ {
+  "step": "freeze ids",
+  "status": "info",
+  "detail": "[1]"
+ },
+ {
+  "step": "freeze detail",
+  "status": "info",
+  "detail": "Log out Freeze Obligation #1 Customer: F-001 - Ahmed Abd Al-Jaleel Al-Hasnawi Type: Sanctions Risk: \ud83d\udd34 CRITICAL Status: Pending Execution \u2713 Identified 2026-10-07T01:45:42+00:00 by Layla MLRO \u23f3 Pending Execution Not yet executed \u23f3 Pending Report CNMR not yet filed \u23f3 Pending Resolution Notes Auto-created from confirmed alert #1 Execute Asset Freeze Assets to Freeze: Bank Account Investment Account Real Estate Cryptocurrency Other + Add Asset Execution Notes: Execute Freeze Back to List Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and reporting workflow before use on real client files. Feedback Send Feedback Report bugs, suggest features, or share your experience. Your message Send Cancel Important Notice Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and reporting workflow before use on real client files. I Understand groAML uses a smal"
+ },
+ {
+  "step": "detail option values",
+  "status": "info",
+  "detail": "['bank_account', 'investment_account', 'real_estate', 'cryptocurrency', 'other']"
+ },
+ {
+  "step": "GET execute form",
+  "status": "info",
+  "detail": "405"
+ },
+ {
+  "step": "execute freeze with no asset identifier",
+  "status": "info",
+  "detail": "303 ['Freeze executed successfully.']"
+ },
+ {
+  "step": "execute freeze with an account",
+  "status": "info",
+  "detail": "303 ['Freeze obligation 1 already executed at 2026-10-07T01:45:42+00:00']"
+ },
+ {
+  "step": "freeze detail after execute",
+  "status": "info",
+  "detail": "Log out Freeze Obligation #1 Customer: F-001 - Ahmed Abd Al-Jaleel Al-Hasnawi Type: Sanctions Risk: \ud83d\udd34 CRITICAL Status: Executed Pending Report \u2713 Identified 2026-10-07T01:45:42+00:00 by Layla MLRO \u2713 Executed 2026-10-07T01:45:42+00:00 by Layla MLRO \u23f3 Pending Report CNMR not yet filed \u23f3 Pending Resolution File Confirmed Name Match Report (CNMR) Formerly the Funds Freeze Report (FFR). File it on goAML within five business days of the freeze. Reporter email (optional) File CNMR Resolve Obligation Reason Select a reason Delisted by the listing authority Cleared by the competent authority False positive Authority reference Notes Resolve Obligation Back to List Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and "
+ },
+ {
+  "step": "file FFR/CNMR report",
+  "status": "info",
+  "detail": "303 /reports/1 []"
+ },
+ {
+  "step": "freeze detail after report",
+  "status": "info",
+  "detail": "Log out Freeze Obligation #1 Customer: F-001 - Ahmed Abd Al-Jaleel Al-Hasnawi Type: Sanctions Risk: \ud83d\udd34 CRITICAL Status: Executed Pending Report \u2713 Identified 2026-10-07T01:45:42+00:00 by Layla MLRO \u2713 Executed 2026-10-07T01:45:42+00:00 by Layla MLRO \u23f3 Pending Report CNMR draft created, not yet filed CNMR draft #1 : finalise it and file it on goAML within five business days of the freeze. \u23f3 Pending Resolution Resolve Obligation Reason Select a reason Delisted by the listing authority Cleared by the competent authority False positive Authority reference Notes Resolve Obligation Back to List Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator "
+ },
+ {
+  "step": "resolve with invalid reason",
+  "status": "info",
+  "detail": "303 ['Invalid resolution_reason: &#39;bogus&#39;. Must be one of: authority_clearance, delisted, false_positive']"
+ },
+ {
+  "step": "/adverse-media (empty state)",
+  "status": "info",
+  "detail": "200 Log out Queue Adverse media Negative-news coverage found for your customers, most serious first. This is a screening aid, not a verified record: nobody has confirmed that an article is about the customer, and nothing changes a risk rating until it is marked relevant. Open the customer to decide. Sanctions, PEP and other match alerts are in Alerts . Open (0) Relevant (0) Not relevant (0) All (0) Nothing to review. No adverse media finding is waiting for a decision. Independent review is required before dismissing a "
+ },
+ {
+  "step": "/adverse-media anonymous",
+  "status": "info",
+  "detail": "303 /login"
+ }
+]

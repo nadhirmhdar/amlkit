@@ -1,0 +1,132 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "rule-config page",
+  "status": "info",
+  "detail": "200 Transaction Monitoring Rules Large Cash Threshold (AED) Threshold for single large-cash transaction alerts (1\u20131,000,000 AED) Structuring Window (days) Rolling window for detecting structured transactions (1\u201390 days) Velocity Window (hours) Rolling window for high-transaction-count alerts (1\u2013168 hours) Velocity Max Count Maximum transaction count per velocity window (1\u20131000) High-Risk Countries (ISO-3166 alpha-2) AO, BG, CD, CI, CM, DZ, HR, IR, KE, KP, LB, MC, ML, MM, MZ, NA, NG, PH, SN, SS, SY, TZ, VE, VN, YE, ZA Comma-separated country codes (e.g., KP, IR, MM, SY, AF, YE, SS, SD) Update Configuration Cancel Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and reporting workflow before use on real client f"
+ },
+ {
+  "step": "linked from /admin?",
+  "status": "info",
+  "detail": "False"
+ },
+ {
+  "step": "officer GET rule-config",
+  "status": "info",
+  "detail": "303 /admin"
+ },
+ {
+  "step": "baseline: 60,000 cash (default threshold 55,000)",
+  "status": "info",
+  "detail": "['Transaction recorded. 1 rule(s) triggered: large_cash']"
+ },
+ {
+  "step": "raise threshold to 1,000,000",
+  "status": "info",
+  "detail": "(303, ['Rule configuration updated successfully'])"
+ },
+ {
+  "step": "same 60,000 cash after raising to 1,000,000",
+  "status": "info",
+  "detail": "['Transaction recorded. No rules triggered.']"
+ },
+ {
+  "step": "page warns when threshold > AED 55,000?",
+  "status": "info",
+  "detail": "False | Large Cash Threshold (AED) Threshold for single large-cash transaction alerts (1\u20131,000,000 AED) Structuring Window (days) Rolling window for detecting structured transactions (1\u201390 days) Velocity Window (hours) Rolling window for high-transaction-count alerts "
+ },
+ {
+  "step": "threshold 0",
+  "status": "info",
+  "detail": "(303, ['large_cash_threshold must be positive'])"
+ },
+ {
+  "step": "threshold 1,000,001",
+  "status": "info",
+  "detail": "(303, ['large_cash_threshold cannot exceed 1,000,000 AED (would disable detection)'])"
+ },
+ {
+  "step": "threshold 'abc'",
+  "status": "info",
+  "detail": "(303, ['could not convert string to float: &#39;abc&#39;'])"
+ },
+ {
+  "step": "lower threshold to 10,000",
+  "status": "info",
+  "detail": "(303, ['Rule configuration updated successfully'])"
+ },
+ {
+  "step": "12,000 cash after lowering to 10,000",
+  "status": "info",
+  "detail": "['Transaction recorded. 1 rule(s) triggered: large_cash']"
+ },
+ {
+  "step": "high-risk countries 'ZZ, not a country'",
+  "status": "info",
+  "detail": "(303, ['Rule configuration updated successfully'])"
+ },
+ {
+  "step": "high-risk countries blank (disable list)",
+  "status": "info",
+  "detail": "(303, ['Rule configuration updated successfully'])"
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-07 01:46:10 Layla MLRO settings.kyt_rules_update {'large_cash_threshold_aed': 55000.0, 'structuring_window_days': 7, 'velocity_window_hours': 24, 'velocity_max_count': 10} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-07 01:46:10 Layla MLRO settings.kyt_rules_update {'large_cash_threshold_aed': 55000.0, 'structuring_window_days': 7, 'velocity_window_hours': 24, 'velocity_max_count': 10, 'high_risk_countries': ['ZZ', 'NOT A COUNTRY']} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-07 01:46:10 Layla MLRO risk.assess \u00b7 customer #1 {'rating': 'low', 'score': 15.0, 'ruleset': '2025.12.2', 'edd': False} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-07 01:46:10 Layla MLRO transaction_alert.raise \u00b7 customer #1 {'transaction_id': 3, 'alert_id': 2, 'rule': 'large_cash', 'severity': 'high'} "
+ }
+]

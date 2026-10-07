@@ -1,0 +1,60 @@
+<report>
+  <report_code>STR</report_code>
+  <entity_reference>TEST-ORG-0001</entity_reference>
+  <submission_code>NEW</submission_code>
+  <submission_date>2026-10-07T01:45:50Z</submission_date>
+  <currency_code_local>AED</currency_code_local>
+  <reporting_entity>
+    <reporting_entity_name>Grovisor Test DNFBP</reporting_entity_name>
+    <reporting_entity_branch>Office 12, Business Bay, Dubai</reporting_entity_branch>
+  </reporting_entity>
+  <reporting_person>
+    <first_name>Layla</first_name>
+    <last_name>MLRO</last_name>
+    <email>layla@mlro-test.local</email>
+  </reporting_person>
+  <reason>
+    <reason_description>Customer name matches UAE Local Terrorist List entry; large cash deposit.</reason_description>
+    <action_taken>x</action_taken>
+  </reason>
+  <subject>
+    <person>
+      <first_name>Ahmed</first_name>
+      <last_name>Abd Al-Jaleel Al-Hasnawi</last_name>
+      <gender>M</gender>
+      <birth_date>1980-01-01</birth_date>
+      <nationality1>AE</nationality1>
+      <identification>
+        <type>Passport</type>
+        <number>P1234567</number>
+        <issue_country>AE</issue_country>
+      </identification>
+    </person>
+  </subject>
+  <transaction>
+    <transactionnumber>TXN-1791337550-caf91d0a</transactionnumber>
+    <internal_ref_number>TXN-REF-001</internal_ref_number>
+    <date_transaction>2026-10-01</date_transaction>
+    <transmode_code>cash_deposit</transmode_code>
+    <amount_local>60000.0</amount_local>
+    <t_from>
+      <account>
+        <institution_name />
+        <account_number>AE070331234567890123456</account_number>
+      </account>
+    </t_from>
+    <t_to>
+      <account>
+        <institution_name />
+        <account_number>AE460090000000123456789</account_number>
+      </account>
+    </t_to>
+  </transaction>
+  <attachments>
+    <document>
+      <document_name>evidence_pack_1.pdf</document_name>
+      <document_type>Investigation evidence pack</document_type>
+      <remarks>Comprehensive compliance evidence pack showing screening matches and reviews.</remarks>
+    </document>
+  </attachments>
+</report>
