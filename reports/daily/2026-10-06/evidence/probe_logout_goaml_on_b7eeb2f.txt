@@ -1,0 +1,10 @@
+== 1. logout CSRF ==
+ no token      -> 303 / | session still valid: True
+ bad token     -> 303 / | session still valid: True
+ valid token   -> 303 /login | session still valid: False
+== 2. goAML export with hostile payload values ==
+ payload keys: ['action_taken', 'amount', 'birth_date', 'customer_id', 'customer_type', 'destination_account', 'entity_reference', 'evidence_pack_attached', 'first_name', 'gender', 'id_number', 'id_type', 'last_name', 'nationality']
+ markup + entities            -> 200 'well-formed' len=1869 etc/passwd leaked: False
+ XML-illegal control chars    -> 200 'NOT well-formed (not well-formed (invalid token): line 3, column 21)' len=1155 etc/passwd leaked: False
+ RLO + zero-width             -> 200 'well-formed' len=1137 etc/passwd leaked: False
+ very long (1 MB)             -> 200 'well-formed' len=6001077 etc/passwd leaked: False
