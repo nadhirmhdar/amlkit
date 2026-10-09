@@ -430,6 +430,20 @@ jobs:
       # --startup-probe: 600s (the Cloud Run maximum) instead of the 240s
       # default, so a deploy's own cold start survives a replay that has
       # grown between snapshots; --cpu-boost speeds up that replay.
+      # --no-cpu-throttling (instance-based billing): with the default
+      # request-based billing Cloud Run only allocates CPU while a request is
+      # being processed, even on the --min-instances instance, so
+      # `litestream replicate` -- a background process -- makes little or no
+      # progress between requests. WAL written by the last request before a
+      # quiet spell can sit un-uploaded until the next request arrives, and
+      # is lost if Cloud Run recycles the instance first (min instances can
+      # be restarted at any time). Keeping the CPU allocated closes that gap
+      # for every write, not just the ones the app syncs explicitly.
+      # (Not the cause of the 2026-10-04 replay growth: litestream was
+      # writing L0 files all day on 3 Oct; see the incident note.)
+      # Cost, me-central1 (Cloud Run Tier 2), 1 vCPU / 1 GiB around the
+      # clock: roughly USD 58-63/month, against ~USD 19-21 for the same warm
+      # instance billed idle under request-based billing.
       # AMLKIT_SMTP_* configure real verification-email delivery via
       # SendGrid's SMTP relay. Host/port/user are SendGrid's fixed relay
       # convention (smtp.sendgrid.net:587, username literally "apikey"), and
@@ -503,6 +517,7 @@ jobs:
             --min-instances 1 \
             --max-instances 1 \
             --cpu-boost \
+            --no-cpu-throttling \
             --startup-probe tcpSocket.port=8000,initialDelaySeconds=0,periodSeconds=60,failureThreshold=10,timeoutSeconds=60 \
             --timeout 900
 
