@@ -1,0 +1,172 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "onboard X-001 'Ahmed Abd Al-Jaleel Al-H'",
+  "status": "info",
+  "detail": "303 ['Onboarded. MATCH FOUND - see alerts, freeze without delay and do not tip off.']"
+ },
+ {
+  "step": "onboard X-002 '=HYPERLINK(\"http://evil.'",
+  "status": "info",
+  "detail": "303 ['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "onboard X-003 \"+cmd|' /C calc'!A0\"",
+  "status": "info",
+  "detail": "303 ['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "onboard X-004 '@SUM(1+1)'",
+  "status": "info",
+  "detail": "303 ['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "onboard X-005 'Fatima \"Fay\", Al Khan\\nSe'",
+  "status": "info",
+  "detail": "303 ['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "onboard X-006 '\u0639\u0645\u0631 \u0627\u0644\u0636\u0627\u0628\u0637'",
+  "status": "info",
+  "detail": "303 ['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "customers.csv",
+  "status": "info",
+  "detail": "200 text/csv; charset=utf-8 attachment; filename=\"customers.csv\" bom=False bytes=700"
+ },
+ {
+  "step": "customers.csv dangerous-looking cells",
+  "status": "info",
+  "detail": "[[\"'=HYPERLINK(\\\"http://evil.example\\\",\\\"click\\\")\"], [\"'+cmd|' /C calc'!A0\"], [\"'@SUM(1+1)\"]]"
+ },
+ {
+  "step": "customers.csv header",
+  "status": "info",
+  "detail": "['reference', 'full_name', 'customer_type', 'sector', 'status', 'rating', 'risk_score', 'open_alerts', 'last_screened', 'review_overdue']"
+ },
+ {
+  "step": "customers.csv arabic + multiline preserved",
+  "status": "info",
+  "detail": "True True"
+ },
+ {
+  "step": "alerts.csv",
+  "status": "info",
+  "detail": "200 text/csv; charset=utf-8 head='id,category,score,caption,matched_party,status,reason_code,assigned_to,customer_reference,created_at\\r\\n1,sanction,1.000,AHMED ABD AL-JALEEL AL-HASNAWI,Ahmed Abd Al-Jaleel Al-Hasnawi,open,,,X-001,2026-10-10T01:45:37+00:00\\r\\n'"
+ },
+ {
+  "step": "audit/export (MLRO)",
+  "status": "info",
+  "detail": "200 text/csv; charset=utf-8 head='timestamp,action,user,object_type,object_id,detail\\r\\n2026-10-10T01:45:37+00:00,export.alerts_csv,Layla MLRO,,,\"{\"\"status\"\": \"\"all\"\", \"\"category\"\": null, \"\"rows\"\": 1}\"\\r\\n2026-10-10T01:45:37+00:00,export.'"
+ },
+ {
+  "step": "officer GET /audit/export",
+  "status": "info",
+  "detail": "403 None"
+ },
+ {
+  "step": "officer GET /customers.csv",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "officer GET /alerts.csv",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "evidence page",
+  "status": "info",
+  "detail": "200 Evidence pack \u2014 Ahmed Abd Al-Jaleel Al-Hasnawi Skip to content \u2630 gr AML Grovisor Test DNFBP Home Dashboard Screen a name Customers Reports groAML 0 L Layla MLRO mlro Grovisor Test DNFBP Reports Audit trail Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP Audit Trails Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Generated 2026-10-10 01:45:37 UTC Print / save as PDF Download PDF Back to case file Everything below prints, including the reasoning behind each alert decision. Thin disposition records are what generate inspection findings even when the decisions themselves were correct. Customer due diligence record Customer details including reference, name, type, sector, and status Reference X-001 Name Ahmed Abd Al-Jaleel Al-Hasnawi Type natural Sector other National"
+ },
+ {
+  "step": "evidence.pdf",
+  "status": "info",
+  "detail": "200 application/pdf attachment; filename=\"evidence-1-Ahmed_Abd_Al-Jaleel_Al-Hasnawi.pdf\"; filename*=UTF-8''evidence-1-Ahmed%20Abd%20Al-Jaleel%20Al-Hasnawi.pdf bytes=39257 magic=b'%PDF-' body=''"
+ },
+ {
+  "step": "other org GET /customers/1",
+  "status": "info",
+  "detail": "303 /login sees_name=False"
+ },
+ {
+  "step": "other org GET /customers/1/evidence",
+  "status": "info",
+  "detail": "303 /login sees_name=False"
+ },
+ {
+  "step": "other org GET /customers/1/evidence.pdf",
+  "status": "info",
+  "detail": "303 /login sees_name=False"
+ },
+ {
+  "step": "compliance calendar",
+  "status": "info",
+  "detail": "200 Compliance Calendar \u2014 groAML Skip to content \u2630 gr AML Grovisor Test DNFBP Home Dashboard Screen a name Customers Reports groAML 0 L Layla MLRO mlro Grovisor Test DNFBP Reports Audit trail Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP Audit Trails Policies Admin Feedback Freeze Obligations About Privacy & Cookies Log out Compliance Compliance Calendar \ud83d\udcc5 No deadlines scheduled Compliance deadlines will appear here once created. Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Screening results are decision support, not lega"
+ },
+ {
+  "step": "deadline 'Annual goAML re-regi' due=2026-12-31 rec=annual",
+  "status": "info",
+  "detail": "200 {\"id\":1,\"title\":\"Annual goAML re-registration check\",\"description\":\"\",\"due_date\":\"2026-12-31\",\"recurrence\":\"annual\",\"rem"
+ },
+ {
+  "step": "deadline 'bad date' due=31/12/2026 rec=annual",
+  "status": "info",
+  "detail": "200 {\"id\":2,\"title\":\"bad date\",\"description\":\"\",\"due_date\":\"31/12/2026\",\"recurrence\":\"annual\",\"reminder_days_before\":7,\"comp"
+ },
+ {
+  "step": "deadline 'bad recurrence' due=2026-12-31 rec=hourly",
+  "status": "info",
+  "detail": "200 {\"id\":3,\"title\":\"bad recurrence\",\"description\":\"\",\"due_date\":\"2026-12-31\",\"recurrence\":\"hourly\",\"reminder_days_before\":7"
+ },
+ {
+  "step": "deadline 'xxxxxxxxxxxxxxxxxxxx' due=2026-12-31 rec=annual",
+  "status": "info",
+  "detail": "200 {\"id\":4,\"title\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ },
+ {
+  "step": "deadline list",
+  "status": "info",
+  "detail": "200 [{\"id\":1,\"title\":\"Annual goAML re-registration check\",\"description\":\"\",\"due_date\":\"2026-12-31\",\"recurrence\":\"annual\",\"reminder_days_before\":7,\"completed_at\":null,\"created_at\":\"2026-10-10T01:45:43+00:0"
+ }
+]

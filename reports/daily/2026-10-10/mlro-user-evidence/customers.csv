@@ -1,0 +1,8 @@
+reference,full_name,customer_type,sector,status,rating,risk_score,open_alerts,last_screened,review_overdue
+X-001,Ahmed Abd Al-Jaleel Al-Hasnawi,natural,other,active,high,105.0,1,2026-10-10T01:45:37+00:00,False
+X-002,"'=HYPERLINK(""http://evil.example"",""click"")",natural,other,active,low,5.0,0,2026-10-10T01:45:37+00:00,False
+X-003,'+cmd|' /C calc'!A0,natural,other,active,low,5.0,0,2026-10-10T01:45:37+00:00,False
+X-004,'@SUM(1+1),natural,other,active,low,5.0,0,2026-10-10T01:45:37+00:00,False
+X-005,"Fatima ""Fay"", Al Khan
+Second Line",natural,other,active,low,5.0,0,2026-10-10T01:45:37+00:00,False
+X-006,عمر الضابط,natural,other,active,low,5.0,0,2026-10-10T01:45:37+00:00,False

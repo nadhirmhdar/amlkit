@@ -1,0 +1,97 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "second org signed in",
+  "status": "info",
+  "detail": "200"
+ },
+ {
+  "step": "other org GET /customers/1",
+  "status": "info",
+  "detail": "303 /customers leaks_name=False"
+ },
+ {
+  "step": "other org GET /customers/1/evidence",
+  "status": "info",
+  "detail": "303 /customers leaks_name=False"
+ },
+ {
+  "step": "other org GET /customers/1/evidence.pdf",
+  "status": "info",
+  "detail": "404 None leaks_name=False"
+ },
+ {
+  "step": "other org GET /alerts/1/panel",
+  "status": "info",
+  "detail": "404 None leaks_name=False"
+ },
+ {
+  "step": "other org GET /reports/1",
+  "status": "info",
+  "detail": "303 /reports leaks_name=False"
+ },
+ {
+  "step": "other org customers.csv leaks?",
+  "status": "info",
+  "detail": "False"
+ },
+ {
+  "step": "other org alerts.csv leaks?",
+  "status": "info",
+  "detail": "False"
+ },
+ {
+  "step": "customer page, name quote+newline",
+  "status": "info",
+  "detail": "status=200 raw_onerror_tag=False diagram_fallback=False svg_present=False"
+ },
+ {
+  "step": "customer page, name html in name",
+  "status": "info",
+  "detail": "status=200 raw_onerror_tag=False diagram_fallback=False svg_present=True"
+ },
+ {
+  "step": "customer page, name svg/dot injection",
+  "status": "info",
+  "detail": "status=200 raw_onerror_tag=False diagram_fallback=False svg_present=True"
+ }
+]
