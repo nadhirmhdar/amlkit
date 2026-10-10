@@ -1,0 +1,28 @@
+== 1. filename / content handling ==
+ valid png                  -> (200, '{"document_id":3,"filename":"ok.png","sha256":"629f4275ec772')
+ PDF magic + .html name     -> (200, '{"document_id":4,"filename":"evil.html","sha256":"cb105beb53')
+ PNG magic + .svg name      -> (200, '{"document_id":5,"filename":"x.svg","sha256":"c412ab95de51a9')
+ PNG magic + .php name      -> (200, '{"document_id":6,"filename":"x.php","sha256":"bd247daf564998')
+ traversal ../../x.png      -> (200, '{"document_id":7,"filename":"x.png","sha256":"629f4275ec7728')
+ backslash traversal        -> (200, '{"document_id":8,"filename":"..\\\\..\\\\x.png","sha256":"629f42')
+ filename ..                -> (500, 'Internal Server Error')
+ filename .                 -> (500, 'Internal Server Error')
+ trailing slash a/          -> (200, '{"document_id":9,"filename":"a","sha256":"629f4275ec77283735')
+ NUL in name                -> (200, '{"document_id":10,"filename":"a%00.png","sha256":"629f4275ec')
+ 300-char name              -> (500, 'Internal Server Error')
+ unicode RLO name           -> (200, '{"document_id":11,"filename":"x\u202egnp.exe","sha256":"629f4275e')
+ not an image               -> (400, 'File type not allowed or unrecognized. Allowed types: PDF, PNG, JPEG. Upload failed for: x.png')
+ empty file                 -> (400, 'File type not allowed or unrecognized. Allowed types: PDF, PNG, JPEG. Upload failed for: e.png')
+== 2. same filename overwrites the earlier blob (integrity) ==
+ doc 12 recorded sha256 2f618e3d83b2...; download of doc 12 now returns sha256 56725b400814... content=b'SECOND REPLACEMENT'; matches recorded: False
+ download headers: {'content-disposition': "attachment; filename*=UTF-8''same.pdf", 'content-type': 'application/octet-stream', 'x-content-type-options': 'nosniff'}
+== 3. metadata fields ==
+ 4 KB doc_type -> (200, '{"document_id":14,"filename":"m.png","sha256":"629f4275ec772')
+ html doc_type -> (200, '{"document_id":15,"filename":"m2.png","sha256":"629f4275ec77')
+== 4. tenant ==
+ org B uploads to org A customer -> (404, 'Customer not found.')
+== 5. size ==
+ 10 MB -> (200, '{"document_id":16,"filename":"big10.png","sha256":"e1579f529') in 0.2s
+ 40 MB -> (200, '{"document_id":17,"filename":"big40.png","sha256":"f72aee90e') in 1.0s
+== 6. stored markup in filename / doc_type: raw reflection on the web customer page? ==
+ page status ok: True; filename shown: False; raw <img onerror: False; raw <script>alert(2): False

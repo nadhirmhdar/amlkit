@@ -1,0 +1,20 @@
+officer (non-MLRO) renames self                                -> 403 '{"error":"This action requires the mlro role; your account is officer.' [('BRAVO-officer',)]
+MLRO, no CSRF token                                            -> 403 '{"error":"Session expired or the form was submitted from a stale page.' [('BRAVO-officer',)]
+MLRO, wrong CSRF token                                         -> 403 '{"error":"Session expired or the form was submitted from a stale page.' [('BRAVO-officer',)]
+MLRO(B) renames org A officer                                  -> 303 '/admin' [('ALPHA-officer',)]
+MLRO(B) renames org A MLRO                                     -> 303 '/admin' [('ALPHA-mlro',)]
+unauthenticated                                                -> 303 '/login' 
+--- input handling (as MLRO B, target B officer) ---
+zero-width space appended to existing name                     -> 303 '/admin' stored='BRAVO-mlro\u200b'
+Cyrillic homoglyph copy of MLRO name                           -> 303 '/admin' stored='BRАVO-mlrо'
+case variant of MLRO name                                      -> 303 '/admin' stored='bravo-mlro'
+reserved actor 'system'                                        -> 303 '/admin' stored='system'
+html/script                                                    -> 303 '/admin' stored='<script>alert(1)</script>'
+newline/control chars                                          -> 303 '/admin' stored='a b\x00c'
+RLO bidi override                                              -> 303 '/admin' stored='x\u202etxt.exe'
+65536 chars                                                    -> 303 '/admin' stored='BRAVO-officer'
+raw '<script>alert(1)' in /admin HTML: False
+--- four-eyes self-rename bypass ---
+Same operator (BRAVO-officer) attempted to confirm own disposition; ask your MLRO to add an independent operator or enable single-operator mode
+officer confirms own proposal, before rename: 303 /alerts [('pending_review',)]
+same officer confirms after being renamed: 303 /alerts [('false_positive',)]
