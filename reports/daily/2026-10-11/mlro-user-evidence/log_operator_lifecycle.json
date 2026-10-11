@@ -1,0 +1,202 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "officer signed in",
+  "status": "info",
+  "detail": "303 / dashboard=200"
+ },
+ {
+  "step": "MLRO deactivates officer",
+  "status": "info",
+  "detail": "['Operator deactivated and signed out of every session.']"
+ },
+ {
+  "step": "officer's open session after deactivation",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "deactivated officer logs in again",
+  "status": "info",
+  "detail": "(200, None, 'Sign in to your workspace Incorrect email or password. Email Password Sign in Forgot your password? Contact your MLRO to reset it. New organization? R')"
+ },
+ {
+  "step": "wrong password, active account",
+  "status": "info",
+  "detail": "(200, None, 'Sign in to your workspace Incorrect email or password. Email Password Sign in Forgot your password? Contact your MLRO to reset it. New organization? R')"
+ },
+ {
+  "step": "unknown email",
+  "status": "info",
+  "detail": "(200, None, 'Sign in to your workspace Incorrect email or password. Email Password Sign in Forgot your password? Contact your MLRO to reset it. New organization? R')"
+ },
+ {
+  "step": "MLRO reactivates officer",
+  "status": "info",
+  "detail": "['Operator reactivated.']"
+ },
+ {
+  "step": "officer logs in after reactivation",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "reset password: too short",
+  "status": "info",
+  "detail": "303 ['Password must be at least 10 characters.']"
+ },
+ {
+  "step": "reset password: 10 chars, no complexity",
+  "status": "info",
+  "detail": "UNHANDLED PasswordComplexityError: Password must contain at least one uppercase letter (a live server returns HTTP 500)"
+ },
+ {
+  "step": "reset password: numeric only",
+  "status": "info",
+  "detail": "UNHANDLED PasswordComplexityError: Password must contain at least one uppercase letter (a live server returns HTTP 500)"
+ },
+ {
+  "step": "reset password: good",
+  "status": "info",
+  "detail": "303 ['Password reset. All of that operator&#39;s sessions were signed out.']"
+ },
+ {
+  "step": "officer's older session after reset",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "old password after reset",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "new password after reset",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "change own password: wrong current",
+  "status": "info",
+  "detail": "303 ['Current password is incorrect.']"
+ },
+ {
+  "step": "change own password: weak new",
+  "status": "info",
+  "detail": "303 ['Password must contain at least one uppercase letter']"
+ },
+ {
+  "step": "change own password: same as current",
+  "status": "info",
+  "detail": "303 []"
+ },
+ {
+  "step": "change own password: good",
+  "status": "info",
+  "detail": "303 []"
+ },
+ {
+  "step": "deactivate 2nd MLRO (1 other active)",
+  "status": "info",
+  "detail": "['Operator deactivated and signed out of every session.']"
+ },
+ {
+  "step": "deactivate the LAST active MLRO (self)",
+  "status": "info",
+  "detail": "['Cannot deactivate the last active MLRO. Promote another operator to MLRO first.']"
+ },
+ {
+  "step": "add operator with an existing email",
+  "status": "info",
+  "detail": "['An operator with that name or email already exists.']"
+ },
+ {
+  "step": "add operator with a weak password",
+  "status": "info",
+  "detail": "['Operator Weak Pw created.']"
+ },
+ {
+  "step": "add operator with an invalid role",
+  "status": "info",
+  "detail": "['Role must be Officer or MLRO.']"
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-11 01:45:21 Layla MLRO operator.create \u00b7 operator #4 {'email': 'weak@mlro-test.local', 'role': 'officer'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-11 01:45:21 Layla MLRO operator.deactivate \u00b7 operator #3 "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-11 01:45:21 Omar Officer operator.password_changed \u00b7 operator #2 "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-11 01:45:20 Omar Officer operator.login \u00b7 operator #2 "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-11 01:45:20 Layla MLRO operator.password_reset \u00b7 operator #2 "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-11 01:45:20 Omar Officer operator.login \u00b7 operator #2 "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-11 01:45:20 Omar Officer operator.login \u00b7 operator #2 "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-11 01:45:20 Layla MLRO operator.reactivate \u00b7 operator #2 "
+ }
+]
