@@ -1,0 +1,182 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "upload passport.pdf (44 B, passport)",
+  "status": "info",
+  "detail": "200 {\"document_id\":1,\"filename\":\"passport.pdf\",\"sha256\":\"5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc\",\"uploaded_at\":\"2026-10-12T01:45:07+00:00\"}"
+ },
+ {
+  "step": "upload page.html (25 B, passport)",
+  "status": "info",
+  "detail": "400 {\"detail\":\"File type not allowed or unrecognized. Allowed types: PDF, PNG, JPEG. Upload failed for: page.html\"}"
+ },
+ {
+  "step": "upload pic.svg (71 B, passport)",
+  "status": "info",
+  "detail": "400 {\"detail\":\"File type not allowed or unrecognized. Allowed types: PDF, PNG, JPEG. Upload failed for: pic.svg\"}"
+ },
+ {
+  "step": "upload run.exe (4 B, passport)",
+  "status": "info",
+  "detail": "400 {\"detail\":\"File type not allowed or unrecognized. Allowed types: PDF, PNG, JPEG. Upload failed for: run.exe\"}"
+ },
+ {
+  "step": "upload ../../etc/evil.pdf (44 B, passport)",
+  "status": "info",
+  "detail": "200 {\"document_id\":2,\"filename\":\"evil.pdf\",\"sha256\":\"5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc\",\"uploaded_at\":\"2026-10-12T01:45:07+00:00\"}"
+ },
+ {
+  "step": "upload fake.pdf (17 B, passport)",
+  "status": "info",
+  "detail": "400 {\"detail\":\"File type not allowed or unrecognized. Allowed types: PDF, PNG, JPEG. Upload failed for: fake.pdf\"}"
+ },
+ {
+  "step": "upload empty.pdf (0 B, passport)",
+  "status": "info",
+  "detail": "400 {\"detail\":\"File type not allowed or unrecognized. Allowed types: PDF, PNG, JPEG. Upload failed for: empty.pdf\"}"
+ },
+ {
+  "step": "upload big.pdf (27263020 B, passport)",
+  "status": "info",
+  "detail": "200 {\"document_id\":3,\"filename\":\"big.pdf\",\"sha256\":\"ef03907a3dec220b786755b00fb7db4eef95b703d3efe14c363cefbbae2a996c\",\"uploaded_at\":\"2026-10-12T01:45:08+00:00\"}"
+ },
+ {
+  "step": "upload ok.pdf (44 B, not_a_doc_type)",
+  "status": "info",
+  "detail": "200 {\"document_id\":4,\"filename\":\"ok.pdf\",\"sha256\":\"5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc\",\"uploaded_at\":\"2026-10-12T01:45:08+00:00\"}"
+ },
+ {
+  "step": "list documents",
+  "status": "info",
+  "detail": "200 {\"documents\":[{\"id\":3,\"doc_type\":\"passport\",\"filename\":\"big.pdf\",\"sha256\":\"ef03907a3dec220b786755b00fb7db4eef95b703d3efe14c363cefbbae2a996c\",\"uploaded_at\":\"2026-10-12T01:45:08+00:00\"},{\"id\":4,\"doc_type\":\"not_a_doc_type\",\"filename\":\"ok.pdf\",\"sha256\":\"5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc\",\"uploaded_at\":\"2026-10-12T01:45:08+00:00\"},{\"id\":1,\"doc_type\":\"passport\",\"filename\":"
+ },
+ {
+  "step": "download passport.pdf",
+  "status": "info",
+  "detail": "200 ct=application/octet-stream cd=attachment; filename*=UTF-8''passport.pdf nosniff=nosniff"
+ },
+ {
+  "step": "download ../../etc/evil.pdf",
+  "status": "info",
+  "detail": "200 ct=application/octet-stream cd=attachment; filename*=UTF-8''evil.pdf nosniff=nosniff"
+ },
+ {
+  "step": "download big.pdf",
+  "status": "info",
+  "detail": "200 ct=application/octet-stream cd=attachment; filename*=UTF-8''big.pdf nosniff=nosniff"
+ },
+ {
+  "step": "download ok.pdf",
+  "status": "info",
+  "detail": "200 ct=application/octet-stream cd=attachment; filename*=UTF-8''ok.pdf nosniff=nosniff"
+ },
+ {
+  "step": "other org list documents",
+  "status": "info",
+  "detail": "404 {\"detail\":\"Customer not found.\"}"
+ },
+ {
+  "step": "other org download document",
+  "status": "info",
+  "detail": "404 len=32 '{\"detail\":\"Document not found.\"}'"
+ },
+ {
+  "step": "other org upload to this customer",
+  "status": "info",
+  "detail": "404 {\"detail\":\"Customer not found.\"}"
+ },
+ {
+  "step": "note ('Reviewed source ', 49 chars)",
+  "status": "info",
+  "detail": "303 ['Note added.'] raw_tag_in_page=False"
+ },
+ {
+  "step": "note ('<img src=x onerr', 28 chars)",
+  "status": "info",
+  "detail": "303 ['Note added.'] raw_tag_in_page=False"
+ },
+ {
+  "step": "note ('xxxxxxxxxxxxxxxx', 20000 chars)",
+  "status": "info",
+  "detail": "303 ['Note added.'] raw_tag_in_page=False"
+ },
+ {
+  "step": "transaction alert ids",
+  "status": "info",
+  "detail": "[1, 2, 3, 4, 5, 6]"
+ },
+ {
+  "step": "transaction alert 1 -> false_positive note=''",
+  "status": "info",
+  "detail": "303 ['Transaction alert dispositioned.']"
+ },
+ {
+  "step": "transaction alert 2 -> true_positive note='Cash from sanctioned'",
+  "status": "info",
+  "detail": "303 ['Transaction alert dispositioned.']"
+ },
+ {
+  "step": "transaction alert -> invalid status",
+  "status": "info",
+  "detail": "['invalid disposition status: &#39;bogus&#39;']"
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-12 01:45:10 Layla MLRO transaction_alert.disposition \u00b7 transaction_alert #2 {'status': 'true_positive', 'note': 'Cash from sanctioned-country counterparty; escalating to STR.'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-12 01:45:10 Layla MLRO transaction_alert.disposition \u00b7 transaction_alert #1 {'status': 'false_positive', 'note': ''} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-12 01:45:10 Layla MLRO transaction_alert.raise \u00b7 customer #1 {'transaction_id': 3, 'alert_id': 6, 'rule': 'high_risk_country', 'severity': 'medium'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-12 01:45:10 Layla MLRO transaction_alert.raise \u00b7 customer #1 {'transaction_id': 3, 'alert_id': 5, 'rule': 'large_cash', 'severity': 'high'} "
+ }
+]
