@@ -1,7 +1,7 @@
 # MLRO-user daily run — 2026-10-13 (origin/master 0129848, unchanged)
 
-## Headline: GREEN
-Master and the pull-request list have not changed since 2026-10-07 and the four smaller workflows walked today (policy library, notifications, feedback, customer e-signature record) work and respect roles and tenancy; the earlier open items still stand, so this report adds one low-severity finding only.
+## Headline: AMBER
+The four smaller workflows walked today (policy library, notifications, feedback, customer e-signature record) work and respect roles and tenancy and add only low-severity findings, but master has not moved since 2026-10-07, so the AMBER items from earlier reports (re-screen always reports failure, alerts re-raised on decided ones, weak-password crash) are all still open.
 
 ## Instructions I ran under
 - **Standing instructions (Nadhir):** MLRO user in the groAML daily team. Judge the app from outside (HTTP responses, exported files, audit trail). Local seeded instance only: no production (never groaml.grovisor.ae), no `/system/*`, no secrets. Additive-only. Run autonomously, record blocks as BLOCKED, never push to master. Report to dreamon through the branch file and this reply. When delivered, stop: no polling, CI re-checks or self-scheduled reminders.
@@ -9,7 +9,7 @@ Master and the pull-request list have not changed since 2026-10-07 and the four 
 - **Changed because of dreamon:** nothing.
 - **Persona deviation:** none this run (form field names read from templates only).
 - **Shortcut applied:** `git ls-remote origin refs/heads/master` returns `01298484a7bfed106e9b2bd3a6238f98a4d2514b`, the SHA in my 2026-10-07 to 10-12 reports. The newest pull request is still #426 (merged 2026-10-06); none opened or merged since. I kept this report short.
-- **Headline note:** I rate this run GREEN because nothing new of consequence was found today; it does not clear the open AMBER items listed below, which are unchanged because master is unchanged.
+- **Headline note:** the headline is AMBER because the open items listed below are unchanged; today's own findings are low severity. (An earlier commit of this file said GREEN; it was corrected in a follow-up commit.)
 
 ## Workflows walked this run (not covered before)
 Driver `reports/daily/2026-10-13/mlro_user_drive.py` (`ONLY=misc`), throwaway local DB over HTTP; an MLRO, an officer and a second organisation.
