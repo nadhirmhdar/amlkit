@@ -1,0 +1,197 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "customer search: Latin partial 'jaleel'",
+  "status": "info",
+  "detail": "(200, ['Q-001'])"
+ },
+ {
+  "step": "customer search: Arabic surname",
+  "status": "info",
+  "detail": "(200, ['Q-001'])"
+ },
+ {
+  "step": "customer search: Arabic without hamza/tashkeel",
+  "status": "info",
+  "detail": "(200, ['Q-001'])"
+ },
+ {
+  "step": "customer search: transliteration 'Ahmad Jalil'",
+  "status": "info",
+  "detail": "(200, ['Q-001'])"
+ },
+ {
+  "step": "customer search: reference 'Q-002'",
+  "status": "info",
+  "detail": "(200, ['Q-002'])"
+ },
+ {
+  "step": "customer search: wildcard '%'",
+  "status": "info",
+  "detail": "(200, ['Q-003'])"
+ },
+ {
+  "step": "customer search: underscore '_'",
+  "status": "info",
+  "detail": "(200, ['Q-003'])"
+ },
+ {
+  "step": "customer search: literal '100%'",
+  "status": "info",
+  "detail": "(200, ['Q-003'])"
+ },
+ {
+  "step": "customer search: quote O'Brien",
+  "status": "info",
+  "detail": "(200, ['Q-004'])"
+ },
+ {
+  "step": "customer search: injection",
+  "status": "info",
+  "detail": "(200, [])"
+ },
+ {
+  "step": "customer search: other org's name",
+  "status": "info",
+  "detail": "(200, [])"
+ },
+ {
+  "step": "customer search: 2000 chars",
+  "status": "info",
+  "detail": "(200, ['Q-001', 'Q-002'])"
+ },
+ {
+  "step": "mobile create: valid",
+  "status": "info",
+  "detail": "(200, '{\"customer_id\":6,\"reference\":\"M-001\",\"blocked\":false,\"risk_rating\":\"low\",\"risk_score\":5.0,\"requires_edd\":false}')"
+ },
+ {
+  "step": "mobile create: duplicate reference",
+  "status": "info",
+  "detail": "(400, '{\"detail\":\"Reference \\'M-001\\' already exists.\"}')"
+ },
+ {
+  "step": "mobile create: birth_date '31/12/1985'",
+  "status": "info",
+  "detail": "(422, '{\"detail\":\"Invalid birth_date \\'31/12/1985\\'; expected a date as YYYY-MM-DD\"}')"
+ },
+ {
+  "step": "mobile create: future birth_date",
+  "status": "info",
+  "detail": "(422, '{\"detail\":\"birth_date cannot be in the future\"}')"
+ },
+ {
+  "step": "mobile create: nationality 'UAE' (3 letters)",
+  "status": "info",
+  "detail": "(422, '{\"detail\":\"Invalid country code \\'UAE\\'; expected a two-letter CLDR/ISO 3166-1 code\"}')"
+ },
+ {
+  "step": "mobile create: nationality 'ZZ'",
+  "status": "info",
+  "detail": "(422, '{\"detail\":\"Invalid country code \\'ZZ\\'; expected a two-letter CLDR/ISO 3166-1 code\"}')"
+ },
+ {
+  "step": "mobile create: customer_type 'alien'",
+  "status": "info",
+  "detail": "(422, '{\"detail\":\"Unknown customer_type \\'alien\\'; expected \\'natural\\' or \\'legal\\'\"}')"
+ },
+ {
+  "step": "mobile create: empty full_name",
+  "status": "info",
+  "detail": "(200, '{\"customer_id\":7,\"reference\":\"M-007\",\"blocked\":false,\"risk_rating\":\"low\",\"risk_score\":5.0,\"requires_edd\":false}')"
+ },
+ {
+  "step": "mobile create: 5000-char name",
+  "status": "info",
+  "detail": "(422, '{\"detail\":\"full_name exceeds 200 characters\"}')"
+ },
+ {
+  "step": "mobile create: sector 'weapons'",
+  "status": "info",
+  "detail": "(200, '{\"customer_id\":8,\"reference\":\"M-009\",\"blocked\":false,\"risk_rating\":\"low\",\"risk_score\":5.0,\"requires_edd\":false}')"
+ },
+ {
+  "step": "mobile create: UBOs sum to 180%",
+  "status": "info",
+  "detail": "(422, '{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"ubos\",0,\"person_name\"],\"msg\":\"Field required\",\"input\":{\"name\":\"A One\",\"ownership_pct\":90,\"control_type\":\"ownership\"}},{\"type\":')"
+ },
+ {
+  "step": "risk-factors up",
+  "status": "info",
+  "detail": "200 {\"rating\":\"high\",\"score\":90.0,\"requires_edd\":true,\"next_review\":\"2027-10-09\",\"ruleset_version\":\"2025.12.2\",\"factors\":{\"jurisdiction\":{\"value\":\"fatf_blacklist\",\""
+ },
+ {
+  "step": "risk-factors back down (no reason given)",
+  "status": "info",
+  "detail": "200 {\"rating\":\"low\",\"score\":5.0,\"requires_edd\":false,\"next_review\":\"2029-09-28\",\"ruleset_version\":\"2025.12.2\",\"factors\":{\"jurisdiction\":{\"value\":\"standard\",\"points\""
+ },
+ {
+  "step": "risk-factors invalid sector",
+  "status": "info",
+  "detail": "200 {\"rating\":\"low\",\"score\":5.0,\"requires_edd\":false,\"next_review\":\"2029-09-28\",\"ruleset_version\":\"2025.12.2\",\"factors\":{\"jurisdiction\":{\"value\":\"standard\",\"points\""
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-14 01:45:42 Layla MLRO risk.assess \u00b7 customer #6 {'rating': 'low', 'score': 5.0, 'ruleset': '2025.12.2', 'edd': False} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-14 01:45:42 Layla MLRO customer.risk_factors_updated \u00b7 customer #6 {'sector': 'weapons'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-14 01:45:42 Layla MLRO risk.assess \u00b7 customer #6 {'rating': 'low', 'score': 5.0, 'ruleset': '2025.12.2', 'edd': False} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-14 01:45:42 Layla MLRO customer.risk_factors_updated \u00b7 customer #6 {'jurisdiction_tier': 'standard', 'cash_level': 'non_cash'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-10-14 01:45:42 Layla MLRO risk.assess \u00b7 customer #6 {'rating': 'high', 'score': 90.0, 'ruleset': '2025.12.2', 'edd': True} "
+ }
+]
