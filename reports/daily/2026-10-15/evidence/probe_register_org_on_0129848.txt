@@ -1,0 +1,42 @@
+== 1. invite gating ==
+ web wrong      -> 200 created=False
+ api wrong      -> 403 created=False
+ web empty      -> 200 created=False
+ api empty      -> 403 created=False
+ web non-ASCII  -> 200 created=False
+ api non-ASCII  -> 403 created=False
+ web prefix     -> 200 created=False
+ api prefix     -> 403 created=False
+ web padded     -> 200 created=True
+ api padded     -> 200 created=True
+== 2. password policy parity (web/api) ==
+ 'alllowercase12'     web=200 api=200
+ 'Short1!'            web=200 api=400
+ 'NOUPPERCASE'        web=200 api=200
+ '10charsnodigit!A'   web=200 api=200
+ 'xxxxxxxxxx'         web=200 api=200
+ 'Str0ng!Passw0rd'    web=200 api=200
+ operators with weak passwords registered (rows): (12, 12)
+== 3. duplicate email / org name, orphan rows ==
+ dup email web -> 200 | orgs/operators delta: (0, 0) | text: True
+ dup email api (case) -> 400 An account with that email already exists. Try signing in instead.
+ slug collision 'DUP-org!' -> 200 | text: True
+ empty-slug orgs '!!!' then '???' -> 200 200 | text2 collision: True
+ Arabic org names (slug 'org' for both?) -> 200 200 | second collides: True
+ orphans (orgs without operator): 0
+== 4. input bounds / CRLF / markup ==
+ web CRLF in name    -> 200 created=(1, 1)
+ web CRLF in org     -> 200 created=(1, 1)
+ web CRLF in email   -> 200 created=(0, 0)
+ web markup org      -> 200 created=(1, 1)
+ web 5000-char org   -> 200 created=(1, 1)
+ web NUL in org      -> 200 created=(1, 1)
+ web blank name      -> 200 created=(1, 1)
+ web blank org       -> 200 created=(0, 0)
+ web 1MB password    -> 400 created=(0, 0)
+== 5. rate limit (5/min per IP) ==
+ 7 wrong-invite web posts: [200, 200, 200, 200, 200, 429, 429]
+ 7 wrong-invite api posts: [403, 403, 403, 403, 403, 429, 429]
+ auth_events register_denied rows: n/a
+== 6. invite unset => closed? ==
+ web 200 api 403 created: False
