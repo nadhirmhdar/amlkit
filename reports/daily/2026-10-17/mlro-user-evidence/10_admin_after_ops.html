@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Admin — groAML</title>
+<meta name="description" content="groAML by Grovisor: sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs under Federal Decree-Law No. 10 of 2025.">
+
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="groAML by Grovisor">
+<meta property="og:title" content="groAML by Grovisor">
+<meta property="og:description" content="Sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs.">
+<meta name="twitter:card" content="summary">
+
+<link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="/static/img/favicon.ico" sizes="48x48">
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css?v=1792201510">
+
+</head>
+<body>
+
+<a href="#main-content" class="skip-to-content">Skip to content</a>
+
+
+<div class="shell">
+  
+  <button type="button" class="nav-hamburger no-print" data-action="toggle-nav" aria-label="Navigation menu" aria-expanded="false" aria-controls="sidebar"><span aria-hidden="true">☰</span></button>
+  <div class="nav-scrim no-print" data-action="close-nav" aria-hidden="true"></div>
+  <aside class="sidebar no-print" id="sidebar">
+    <div class="brand-block">
+      <img src="/static/img/grovisor-logo.png" alt="Grovisor">
+      <div class="product wm wm--accent" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></div>
+      
+        <div class="muted small" style="margin-top:4px;">Grovisor Test DNFBP</div>
+      
+    </div>
+    <nav aria-label="Main navigation">
+      <a href="/"          class="">Home</a>
+      <a href="/dashboard" class="">Dashboard</a>
+      <a href="/screen"    class="">Screen a name</a>
+      <a href="/customers" class="">Customers</a>
+      <a href="/reports"   class="">Reports</a>
+      
+    </nav>
+  </aside>
+
+  
+  <div class="content-col">
+
+  
+  <header class="mobile-header no-print">
+    <a href="/" class="mobile-header__logo">
+      <img src="/static/img/grovisor-logo.png" alt="" class="mobile-header__logo-img">
+      groAML
+    </a>
+    <a class="notif-bell" href="/notifications" aria-label="Notifications">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>
+      <span class="notif-badge" data-notif-badge hidden>0</span>
+    </a>
+    <div class="user-menu-wrap" id="user-menu-wrap">
+      <button class="user-menu-btn" data-action="toggle-user-menu" aria-label="User menu" aria-expanded="false">
+        <span class="avatar--sm">L</span>
+      </button>
+      <div class="user-dropdown" role="menu">
+        <div class="user-dropdown__header">
+          <strong>Layla MLRO</strong>
+          <span class="user-dropdown__role">mlro</span>
+          
+            <span class="user-dropdown__role muted">Grovisor Test DNFBP</span>
+          
+        </div>
+        <a href="/reports" class="user-dropdown__item" role="menuitem">Reports</a>
+        <a href="/audit"   class="user-dropdown__item" role="menuitem">Audit trail</a>
+        <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
+        
+          <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
+          <a href="/admin/feedback" class="user-dropdown__item" role="menuitem">Feedback</a>
+          <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
+        
+        <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
+        <a href="/privacy" class="user-dropdown__item" role="menuitem">Privacy &amp; Cookies</a>
+        <div class="user-dropdown__divider"></div>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+          <button type="submit" class="user-dropdown__item user-dropdown__logout">Log out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  
+  <nav class="mobile-tabbar" aria-label="Mobile navigation">
+    <a href="/" class="mobile-tab ">
+      <span class="mobile-tab__icon mobile-tab__icon--home"></span>
+      <span class="mobile-tab__label">Home</span>
+    </a>
+    <a href="/dashboard" class="mobile-tab ">
+      <span class="mobile-tab__icon mobile-tab__icon--dash"></span>
+      <span class="mobile-tab__label">Dashboard</span>
+    </a>
+    <a href="/screen" class="mobile-tab ">
+      <span class="mobile-tab__icon mobile-tab__icon--screen"></span>
+      <span class="mobile-tab__label">Screen</span>
+    </a>
+    <a href="/customers" class="mobile-tab ">
+      <span class="mobile-tab__icon mobile-tab__icon--customers"></span>
+      <span class="mobile-tab__label">Customers</span>
+    </a>
+  </nav>
+
+  <main id="main-content" tabindex="-1">
+    
+    <div class="canvas-corner no-print">
+    
+    <a class="notif-bell" href="/notifications" aria-label="Notifications">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>
+      <span class="notif-badge" data-notif-badge hidden>0</span>
+    </a>
+    <div class="user-menu-wrap" id="desktop-user-menu-wrap">
+      <button class="user-menu-btn" data-action="toggle-desktop-user-menu" aria-label="User menu" aria-expanded="false">
+        <span class="avatar--sm">L</span>
+      </button>
+      <div class="user-dropdown" role="menu">
+        <div class="user-dropdown__header">
+          <strong>Layla MLRO</strong>
+          <span class="user-dropdown__role">mlro</span>
+          
+            <span class="user-dropdown__role muted">Grovisor Test DNFBP</span>
+          
+        </div>
+        <a href="/audit" class="user-dropdown__item" role="menuitem">Audit Trails</a>
+        <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
+        
+          <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
+          <a href="/admin/feedback" class="user-dropdown__item" role="menuitem">Feedback</a>
+          <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
+        
+        <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
+        <a href="/privacy" class="user-dropdown__item" role="menuitem">Privacy &amp; Cookies</a>
+        <div class="user-dropdown__divider"></div>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+          <button type="submit" class="user-dropdown__item user-dropdown__logout">Log out</button>
+        </form>
+      </div>
+    </div>
+    </div>
+    
+    <div class="banner ok">Operator Second MLRO created.</div>
+    
+    
+    
+
+
+
+
+<div class="page-head">
+  <div class="eyebrow">Workspace</div>
+  <h1>Admin</h1>
+  <p class="sub">Workspace slug: <span class="mono">grovisor-test-dnfbp</span></p>
+</div>
+
+
+<div class="banner warning">
+  <span class="banner__text"><strong>EU Sanctions Configuration:</strong> EU Consolidated Sanctions List is using the demo token. Register at https://webgate.ec.europa.eu/fsd/fsf and set AMLKIT_EU_FSF_TOKEN before production use — the demo token may be rate-limited or rotated without notice.</span>
+</div>
+
+
+<div class="panel mb-6">
+  <h2>goAML Reporting Entity Profile</h2>
+  <p class="muted small mt-0">
+    Organization details used when generating goAML XML reports (STR, SAR, etc.).
+    These fields populate the reporting entity section of the XML submission.
+  </p>
+  <form method="post" action="/admin/org-profile" class="row profile-grid">
+    <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+    <div>
+      <label for="admin-org-address">Organization Address</label>
+      <input type="text" id="admin-org-address" name="org_address"
+             value="Office 12, Business Bay, Dubai"
+             placeholder="Street, building, city">
+    </div>
+    <div>
+      <label for="admin-reporting-person-name">Reporting Person Name</label>
+      <input type="text" id="admin-reporting-person-name" name="reporting_person_name"
+             value="Layla MLRO"
+             placeholder="Full name of MLRO or compliance officer">
+    </div>
+    <div>
+      <label for="admin-reporting-person-title">Reporting Person Title</label>
+      <input type="text" id="admin-reporting-person-title" name="reporting_person_title"
+             value="MLRO"
+             placeholder="e.g. MLRO, Chief Compliance Officer">
+    </div>
+    <div>
+      <label for="admin-reporting-person-phone">Reporting Person Phone</label>
+      <input type="text" inputmode="tel" autocomplete="tel" id="admin-reporting-person-phone" name="reporting_person_phone"
+             value="+971501234567"
+             placeholder="+971501234567">
+    </div>
+    <div>
+      <label for="admin-goaml-entity-reference">goAML Entity Reference *</label>
+      <input type="text" id="admin-goaml-entity-reference" name="goaml_entity_reference"
+             value="TEST-ORG-0001"
+             placeholder="e.g. AML-ORG-12345">
+      <span class="muted small">Your organization's unique reference code for goAML submissions. Required for XML export. Saving with this box empty keeps the existing reference.</span>
+      
+      <label class="muted small" for="admin-clear-goaml-entity-reference">
+        <input type="checkbox" id="admin-clear-goaml-entity-reference" name="clear_goaml_entity_reference" value="1">
+        Remove the saved reference
+      </label>
+      
+    </div>
+    <div class="profile-grid__actions">
+      <button type="submit">Save Profile</button>
+    </div>
+  </form>
+</div>
+
+<div class="mb-6">
+  <div class="section-label">Operators</div>
+  
+  <div class="grid-table operators-table">
+  <div class="flat-list">
+    
+    <div class="list-row operator-row">
+      <div class="grow primary">Layla MLRO</div>
+      <div class="side op-col-email" data-label="Email">layla@mlro-test.local</div>
+      <div class="op-col-role" data-label="Role"><span class="tag high">mlro</span></div>
+      
+      <div class="op-col-status" data-label="Status"><span class="tag low">active</span></div>
+      <div class="op-col-actions">
+        
+        <details class="d-inline">
+          <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Rename</summary>
+          <form method="post" action="/admin/operators/1/rename" class="mt-4">
+            <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+            <input type="text" name="name" value="Layla MLRO" aria-label="New name for layla@mlro-test.local" maxlength="80" required
+                   class="d-inline-block w-180">
+            <button class="small" type="submit">Save</button>
+          </form>
+        </details>
+        <details class="d-inline">
+          <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Reset password</summary>
+          <form method="post" action="/admin/operators/1/reset-password" class="mt-4">
+            <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+            <input type="password" name="new_password" aria-label="New password for layla@mlro-test.local" placeholder="New password" minlength="10" required
+                   class="d-inline-block w-180">
+            <button class="small" type="submit">Set</button>
+          </form>
+        </details>
+        <form method="post" action="/admin/operators/1/deactivate" class="d-inline">
+          <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+          <button class="small ghost" type="submit"
+                  data-confirm="Deactivate Layla MLRO? They will be signed out of every session immediately.">
+            Deactivate
+          </button>
+        </form>
+        
+      </div>
+    </div>
+    
+    <div class="list-row operator-row">
+      <div class="grow primary">Omar Officer</div>
+      <div class="side op-col-email" data-label="Email">omar@mlro-test.local</div>
+      <div class="op-col-role" data-label="Role"><span class="tag other">officer</span></div>
+      
+      <div class="op-col-status" data-label="Status"><span class="tag low">active</span></div>
+      <div class="op-col-actions">
+        
+        <details class="d-inline">
+          <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Rename</summary>
+          <form method="post" action="/admin/operators/2/rename" class="mt-4">
+            <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+            <input type="text" name="name" value="Omar Officer" aria-label="New name for omar@mlro-test.local" maxlength="80" required
+                   class="d-inline-block w-180">
+            <button class="small" type="submit">Save</button>
+          </form>
+        </details>
+        <details class="d-inline">
+          <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Reset password</summary>
+          <form method="post" action="/admin/operators/2/reset-password" class="mt-4">
+            <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+            <input type="password" name="new_password" aria-label="New password for omar@mlro-test.local" placeholder="New password" minlength="10" required
+                   class="d-inline-block w-180">
+            <button class="small" type="submit">Set</button>
+          </form>
+        </details>
+        <form method="post" action="/admin/operators/2/deactivate" class="d-inline">
+          <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+          <button class="small ghost" type="submit"
+                  data-confirm="Deactivate Omar Officer? They will be signed out of every session immediately.">
+            Deactivate
+          </button>
+        </form>
+        
+      </div>
+    </div>
+    
+    <div class="list-row operator-row">
+      <div class="grow primary">Second MLRO</div>
+      <div class="side op-col-email" data-label="Email">mlro2@mlro-test.local</div>
+      <div class="op-col-role" data-label="Role"><span class="tag high">mlro</span></div>
+      
+      <div class="op-col-status" data-label="Status"><span class="tag low">active</span></div>
+      <div class="op-col-actions">
+        
+        <details class="d-inline">
+          <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Rename</summary>
+          <form method="post" action="/admin/operators/3/rename" class="mt-4">
+            <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+            <input type="text" name="name" value="Second MLRO" aria-label="New name for mlro2@mlro-test.local" maxlength="80" required
+                   class="d-inline-block w-180">
+            <button class="small" type="submit">Save</button>
+          </form>
+        </details>
+        <details class="d-inline">
+          <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Reset password</summary>
+          <form method="post" action="/admin/operators/3/reset-password" class="mt-4">
+            <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+            <input type="password" name="new_password" aria-label="New password for mlro2@mlro-test.local" placeholder="New password" minlength="10" required
+                   class="d-inline-block w-180">
+            <button class="small" type="submit">Set</button>
+          </form>
+        </details>
+        <form method="post" action="/admin/operators/3/deactivate" class="d-inline">
+          <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+          <button class="small ghost" type="submit"
+                  data-confirm="Deactivate Second MLRO? They will be signed out of every session immediately.">
+            Deactivate
+          </button>
+        </form>
+        
+      </div>
+    </div>
+    
+  </div>
+  </div>
+</div>
+
+<div class="panel mb-6">
+  <h2>Screening threshold</h2>
+  <p class="muted small mt-0">
+    Score at or above this clears the alert bar. Default is
+    <strong class="mono" style="color:var(--ink);">0.85</strong>, tuned against a golden set and
+    a false-positive suite — changing it here is a real decision, not a
+    dial to turn casually. One global value, not per-list-type profiles.
+  </p>
+  <form method="post" action="/admin/threshold" class="row">
+    <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+    <div>
+      <label for="admin-threshold">Threshold (0.0–1.0)</label>
+      <input type="number" id="admin-threshold" name="threshold" step="0.001" min="0" max="1"
+             value=""
+             placeholder="0.85 (engine default)">
+    </div>
+    <div>
+      <button type="submit">Save</button>
+      <span class="muted small ml-4">
+        Currently using the engine default.
+      </span>
+    </div>
+  </form>
+</div>
+
+<div class="panel mb-6">
+  <h2>Independent review</h2>
+  <p class="muted small mt-0">
+    Dismissing a sanctions or proliferation match normally needs a second
+    operator to confirm. Firms with genuinely one compliance officer can turn on
+    single-operator mode: dismissals then apply immediately and are recorded as
+    having had <strong>no independent review</strong>. This setting applies to
+    this organization only.
+  </p>
+  <form method="post" action="/admin/single-operator" class="row">
+    <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+    <div>
+      <label for="admin-mode">Single-operator mode</label>
+      <select id="admin-mode" name="mode">
+        <option value="off" >Off — require a second operator</option>
+        <option value="on" >On — record the review gap</option>
+        <option value="default" selected>Instance default</option>
+      </select>
+    </div>
+    <div>
+      <button type="submit">Save</button>
+      <span class="muted small ml-4">
+        Currently <strong>off</strong>
+        (instance default).
+      </span>
+    </div>
+  </form>
+</div>
+
+<div class="panel mb-6">
+  <h2>Add operator</h2>
+  <form method="post" action="/admin/operators" class="row">
+    <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+    <div><label for="admin-name">Name</label><input type="text" id="admin-name" name="name" required></div>
+    <div><label for="admin-email">Email</label><input type="email" id="admin-email" name="email" required></div>
+    <div><label for="admin-password">Password</label><input type="password" id="admin-password" name="password" minlength="10" required></div>
+    <div><label for="admin-role">Role</label>
+      <select id="admin-role" name="role">
+        <option value="officer">Officer</option>
+        <option value="mlro">MLRO</option>
+      </select></div>
+    <div><button type="submit">Create</button></div>
+  </form>
+</div>
+
+<div class="mb-6">
+  <div class="section-label">Sanctions lists
+    <a href="/admin/compliance" style="font-size:13px; font-weight:600; margin-left:12px;">View Compliance Health Dashboard →</a>
+  </div>
+  <p class="muted small" style="margin-top:-6px">
+    UAE law requires lists to be refreshed within 24 hours of a new designation.
+    Refreshing downloads the latest UAE Local Terrorist List and UN SC Consolidated
+    List, then re-screens your entire customer book automatically.
+  </p>
+  
+  <div class="flat-list mb-4">
+    
+    <div class="list-row sanctions-row">
+      <div class="grow primary">CIA World Leaders</div>
+      <div class="num sl-col-entities">1 entities</div>
+      <div class="side sl-col-age">0.0h ago</div>
+      <span class="tag low sl-col-status">OK</span>
+    </div>
+    
+    <div class="list-row sanctions-row">
+      <div class="grow primary">UAE Local Terrorist List</div>
+      <div class="num sl-col-entities">1 entities</div>
+      <div class="side sl-col-age">0.0h ago</div>
+      <span class="tag low sl-col-status">OK</span>
+    </div>
+    
+    <div class="list-row sanctions-row">
+      <div class="grow primary">OFAC SDN</div>
+      <div class="num sl-col-entities">1 entities</div>
+      <div class="side sl-col-age">0.0h ago</div>
+      <span class="tag low sl-col-status">OK</span>
+    </div>
+    
+    <div class="list-row sanctions-row">
+      <div class="grow primary">UN Consolidated</div>
+      <div class="num sl-col-entities">1 entities</div>
+      <div class="side sl-col-age">0.0h ago</div>
+      <span class="tag low sl-col-status">OK</span>
+    </div>
+    
+  </div>
+  
+  <form method="post" action="/admin/refresh" class="mt-4">
+    <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+    <button type="submit" id="refresh-btn" data-loading="Refreshing lists…">Refresh sanctions lists now</button>
+    <span class="muted small ml-4 action-hint">Takes 30–60 seconds</span>
+  </form>
+  <form method="post" action="/admin/rescreen" class="mt-3">
+    <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+    <button type="submit" id="rescreen-btn" class="secondary" data-loading="Re-screening…">Re-screen all active customers</button>
+    <span class="muted small ml-4 action-hint">Re-screen without refreshing lists</span>
+  </form>
+</div>
+
+<div>
+  <div class="section-label">Data sources</div>
+  <div class="grid-table">
+  <div class="list-head" style="grid-template-columns:1fr 1fr 1fr 100px;">
+    <div>Key</div><div>Publisher</div><div>Licence</div><div class="right">Entities</div>
+  </div>
+  <div class="flat-list">
+    
+  </div>
+  </div>
+</div>
+
+
+
+
+    <footer class="no-print mt-6">
+      <p class="muted small">
+        
+          Independent review is required before dismissing a sanctions or
+          proliferation match — a different operator must confirm.
+        
+      </p>
+      
+      <p class="muted small">
+        Screening results are decision support, not legal advice. A UAE-qualified
+        adviser should sign off the risk model and reporting workflow before use on
+        real client files.
+      </p>
+      
+    </footer>
+
+    
+    <button class="feedback-btn no-print" data-action="open-feedback" aria-label="Send feedback" aria-haspopup="dialog" title="Send feedback">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+    </button>
+
+    
+    
+    <dialog id="feedback-modal" class="feedback-modal" aria-labelledby="feedback-modal-title">
+      <div class="feedback-modal-content">
+        <div class="feedback-modal__handle" aria-hidden="true"></div>
+        <button type="button" class="feedback-modal-close" data-action="close-feedback" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <p class="feedback-modal__eyebrow">Feedback</p>
+        <h3 id="feedback-modal-title">Send Feedback</h3>
+        <p class="muted small">Report bugs, suggest features, or share your experience.</p>
+        <form id="feedback-form">
+          <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+          <input type="hidden" name="page" value="/admin">
+          <label class="feedback-label" for="feedback-message">Your message</label>
+          <textarea id="feedback-message" name="message" rows="5" maxlength="4000" placeholder="Your feedback..." required></textarea>
+          <div class="btn-pair">
+            <button type="submit">Send</button>
+            <button type="button" class="secondary" data-action="close-feedback">Cancel</button>
+          </div>
+        </form>
+        <div id="feedback-result" style="margin-top:12px;" aria-live="polite"></div>
+      </div>
+    </dialog>
+
+    
+    
+    <dialog id="disclaimer-modal" class="feedback-modal" aria-labelledby="disclaimer-modal-title" open>
+      <div class="feedback-modal-content">
+        <h3 id="disclaimer-modal-title">Important Notice</h3>
+        <p>Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and reporting workflow before use on real client files.</p>
+        <form method="post" action="/acknowledge-disclaimer">
+          <input type="hidden" name="csrf_token" value="IgPej3OL7dR9IpE3FdU7fEEUQg_r4QVQ">
+          <button type="submit">I Understand</button>
+        </form>
+      </div>
+    </dialog>
+    
+  </main>
+  </div>
+</div>
+
+
+
+<div id="cookie-notice" class="cookie-notice no-print" style="display:none;" role="status">
+  <p>
+    <span class="cookie-full">groAML uses a small number of strictly necessary cookies (sign-in, security,
+    and one-time messages). No advertising or tracking cookies, and nothing is
+    shared with third parties.</span>
+    
+    <span class="cookie-short">Strictly necessary cookies only. No advertising or tracking.</span>
+    <a href="/privacy">Learn more</a>
+  </p>
+  <button type="button" data-action="dismiss-cookie-notice">Got it</button>
+</div>
+
+
+
+
+<script src="/static/js/countries.js"></script>
+<script src="/static/js/app.js"></script>
+<script src="/static/js/jsonld.js" defer></script>
+
+<script src="/static/js/search-palette.js"></script>
+</body>
+</html>
