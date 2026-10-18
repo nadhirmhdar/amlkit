@@ -1,0 +1,25 @@
+== 1. four-eyes bypass through the real rename route ==
+Same operator (BRAVO-officer) attempted to confirm own disposition; ask your MLRO to add an independent operator or enable single-operator mode
+ officer confirms own proposal: 303 [('pending_review',)]
+ MLRO renames the proposer: 303 /admin
+ proposer now confirms own proposal: 303 alert status = [('false_positive',)]
+ review rows: [('BRAVO-officer', 'propose'), ('Renamed Officer', 'confirm')]
+== 1b. same bypass, proposal created through the route (stores operator_id, #426) ==
+ officer proposes via route: 303 [('pending_review',)] [('BRAVO-officer', 4, 'propose')]
+ MLRO renames the proposer: 303 /admin
+Same operator (Renamed Officer 2) attempted to confirm own disposition; ask your MLRO to add an independent operator or enable single-operator mode
+ proposer confirms own proposal after rename: 303 alert status = [('pending_review',)] (pending_review = bypass refused)
+== 2. CSRF sweep: POST with valid MLRO session, no token and bad token ==
+ POST routes tested: 48; state changed without valid CSRF: none
+ skipped prefixes: ('/logout', '/system', '/login', '/register', '/forgot', '/apply', '/verify', '/mfa', '/setup', '/reset', '/auth', '/blog', '/feedback-public', '/console')
+== 3. GET routes that change state (MLRO session) ==
+ GET routes tested: 59 | changed non-session state: [('/admin/feedback/export', 200), ('/alerts.csv', 200), ('/audit/export', 200), ('/customers.csv', 200)]
+3659:@app.get("/admin/refresh-stream")
+== 4. session lifecycle ==
+ logout: 303
+ old cookie after logout -> 303 (303 = rejected)
+ reset-password with a weak password -> UNHANDLED PasswordComplexityError (HTTP 500)
+ own session after self password-reset -> 303
+  Set-Cookie: amlkit_session=<v>; HttpOnly; Max-Age=1209600; Path=/; SameSite=strict
+  Set-Cookie: amlkit_csrf=<v>; HttpOnly; Max-Age=1209600; Path=/; SameSite=lax
+ session fixation: login issued a fresh session cookie != attacker-chosen value: True | status 303

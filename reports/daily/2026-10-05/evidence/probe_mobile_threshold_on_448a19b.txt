@@ -1,0 +1,8 @@
+ {"threshold": 0.99}        -> 200 '{"threshold":0.99}' stored=[(0.99,)]
+ {"threshold": 1.0}         -> 200 '{"threshold":1.0}' stored=[(1.0,)]
+ {"threshold": 0.0}         -> 200 '{"threshold":0.0}' stored=[(0.0,)]
+ {"threshold": NaN}         -> 400 '{"detail":"Threshold must be between 0.0 and 1.0."}' stored=[(0.0,)]
+ {"threshold": Infinity}    -> 400 '{"detail":"Threshold must be between 0.0 and 1.0."}' stored=[(0.0,)]
+ {"threshold": -1}          -> 400 '{"detail":"Threshold must be between 0.0 and 1.0."}' stored=[(0.0,)]
+ {"threshold": 1.5}         -> 400 '{"detail":"Threshold must be between 0.0 and 1.0."}' stored=[(0.0,)]
+ {"threshold": null}        -> 200 '{"threshold":null}' stored=[(None,)]
