@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Register an organization — groAML</title>
+<meta name="description" content="groAML by Grovisor: sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs under Federal Decree-Law No. 10 of 2025.">
+
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="groAML by Grovisor">
+<meta property="og:title" content="groAML by Grovisor">
+<meta property="og:description" content="Sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs.">
+<meta name="twitter:card" content="summary">
+
+<link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="/static/img/favicon.ico" sizes="48x48">
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css?v=1792460423">
+
+</head>
+<body>
+
+<a href="#main-content" class="skip-to-content">Skip to content</a>
+
+
+<div class="fade-in">
+  
+  
+  
+  
+  
+  
+  
+  
+
+
+
+
+<div style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
+  <div style="width:400px;">
+    <div style="text-align:center; margin-bottom:36px;">
+      <div class="wm wm--accent" role="img" aria-label="groAML" style="font-size:30px;"><span aria-hidden="true">gr<span class="nd"></span>AML</span></div>
+    </div>
+
+    <div class="panel">
+      
+        <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Register your firm</h2>
+        <p class="muted small mt-0">
+          Creates a new, fully isolated workspace — your firm's screening data is
+          never visible to any other organization using this deployment — and its
+          first login, with the MLRO role.
+        </p>
+        <form method="post" action="/register-organization">
+          <input type="hidden" name="csrf_token" value="Zb1WqIsutu7u_c38d2pPHBvgBBwnjNUI">
+          <div class="field">
+            <label for="reg-invite-code">Invite code</label>
+            <input type="text" name="invite_code" id="reg-invite-code" autocomplete="off" required>
+          </div>
+          <div class="field">
+            <label for="reg-org-name">Firm name</label>
+            <input type="text" name="org_name" id="reg-org-name" autofocus required>
+          </div>
+          <div class="field">
+            <label for="reg-name">Your name</label>
+            <input type="text" name="name" id="reg-name" required>
+          </div>
+          <div class="field">
+            <label for="reg-email">Email</label>
+            <input type="email" name="email" id="reg-email" autocomplete="username" required>
+          </div>
+          <div class="field">
+            <label for="reg-password">Password — at least 10 characters</label>
+            <input type="password" name="password" id="reg-password" autocomplete="new-password" required minlength="10" data-action="check-strength">
+            <div class="progress-track mt-4"><div class="progress-track__fill" id="pwd-strength" style="width:0%; background:var(--danger);"></div></div>
+            <div class="muted small mt-4" id="pwd-feedback">At least 10 characters, 1 uppercase, 1 number</div>
+          </div>
+          <button type="submit" class="btn-glow mt-4" data-loading="Creating…">Create organization</button>
+        </form>
+      
+    </div>
+
+    <p class="text-center muted small mt-4">
+      Already have a login? <a href="/login">Sign in</a>.
+    </p>
+    <div class="text-center mt-6 muted small">Powered by Grovisor</div>
+  </div>
+</div>
+
+
+
+
+
+  
+</div>
+
+
+
+<div id="cookie-notice" class="cookie-notice no-print" style="display:none;" role="status">
+  <p>
+    <span class="cookie-full">groAML uses a small number of strictly necessary cookies (sign-in, security,
+    and one-time messages). No advertising or tracking cookies, and nothing is
+    shared with third parties.</span>
+    
+    <span class="cookie-short">Strictly necessary cookies only. No advertising or tracking.</span>
+    <a href="/privacy">Learn more</a>
+  </p>
+  <button type="button" data-action="dismiss-cookie-notice">Got it</button>
+</div>
+
+
+
+
+<script src="/static/js/countries.js"></script>
+<script src="/static/js/app.js"></script>
+<script src="/static/js/jsonld.js" defer></script>
+
+
+</body>
+</html>
