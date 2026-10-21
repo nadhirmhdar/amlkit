@@ -12,13 +12,18 @@
 {% block title %}{{ page_title }} — groAML Insights{% endblock %}
 {% block meta_description %}<meta name="description" content="{{ page_desc }}">{% endblock %}
 {% block canonical %}<link rel="canonical" href="{{ page_url }}">{% endblock %}
+{% block robots %}{% if active_topic or q %}<meta name="robots" content="noindex, follow">{% endif %}{% endblock %}
 {% block og %}
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="groAML by Grovisor">
 <meta property="og:title" content="{{ page_title }} — groAML Insights">
 <meta property="og:description" content="{{ page_desc }}">
 <meta property="og:url" content="{{ page_url }}">
+<meta property="og:image" content="https://groaml.grovisor.ae/static/img/grovisor-logo.png">
 <meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{{ page_title }} — groAML Insights">
+<meta name="twitter:description" content="{{ page_desc }}">
+<meta name="twitter:image" content="https://groaml.grovisor.ae/static/img/grovisor-logo.png">
 {% endblock %}
 {% set ld = {
   "@context": "https://schema.org",

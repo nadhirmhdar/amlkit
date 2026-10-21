@@ -201,3 +201,29 @@ def test_public_header_and_footer_appear_on_content_pages_not_auth_flows(client)
         html = client.get(path).text
         assert '<header class="no-print"' not in html, path
         assert "Grovisor Business Consultants LLC. groAML" not in html, path
+
+
+def test_snippet_metadata_fits_search_result_limits(client) -> None:
+    """Titles <=60 and descriptions <=160 characters so they are not truncated."""
+    for post in blog.all_posts():
+        title = f"{post.meta_title} — groAML Insights"
+        assert len(title) <= 60, (post.slug, len(title))
+        assert len(post.meta_description) <= 160, (post.slug, len(post.meta_description))
+        html_ = client.get(f"/blog/{post.slug}").text
+        assert f"<title>{html.escape(title, quote=False)}</title>" in html_
+        assert 'name="twitter:image"' in html_ and 'property="og:image"' in html_
+
+
+def test_auth_pages_are_noindex_and_topic_views_are_noindex_follow(client) -> None:
+    for path in ("/login", "/register-organization"):
+        assert 'name="robots" content="noindex, nofollow"' in client.get(path).text, path
+    topic = blog.TOPICS[0].slug
+    assert 'name="robots" content="noindex, follow"' in client.get(f"/blog?topic={topic}").text
+    assert 'name="robots" content="noindex, follow"' in client.get("/blog?q=sanctions").text
+    # The main guides index and real content pages stay indexable.
+    for path in ("/blog", "/about", "/privacy", "/apply"):
+        assert 'name="robots"' not in client.get(path).text, path
+
+
+def test_sitemap_lists_the_quotation_page(client) -> None:
+    assert "<loc>https://groaml.grovisor.ae/apply</loc>" in client.get("/sitemap.xml").text

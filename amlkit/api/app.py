@@ -2924,7 +2924,7 @@ def robots_txt():
 
 @app.get("/sitemap.xml", response_class=Response)
 def sitemap_xml():
-    urls = ["/about", "/privacy", "/blog"] + [f"/blog/{p.slug}" for p in blog.all_posts()]
+    urls = ["/about", "/privacy", "/apply", "/blog"] + [f"/blog/{p.slug}" for p in blog.all_posts()]
     lastmods = {"/blog": blog.all_posts()[0].updated if blog.all_posts() else None}
     for p in blog.all_posts():
         lastmods[f"/blog/{p.slug}"] = p.updated

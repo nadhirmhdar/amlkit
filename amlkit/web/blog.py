@@ -50,6 +50,16 @@ class BlogPost:
     audience: tuple[str, ...] = ()
     featured: bool = False
     related: tuple[str, ...] = field(default=())   # other post slugs
+    seo_title: str = ""        # <title>/social title, <=42 chars (" — groAML Insights" is appended); falls back to title
+    seo_description: str = ""  # meta/social description, <=160 chars; falls back to description
+
+    @property
+    def meta_title(self) -> str:
+        return self.seo_title or self.title
+
+    @property
+    def meta_description(self) -> str:
+        return self.seo_description or self.description
 
     @property
     def topic_obj(self) -> Topic:
@@ -59,6 +69,8 @@ class BlogPost:
 POSTS: list[BlogPost] = [
     BlogPost(
         slug="uae-sanctions-screening-24-hour-rule",
+        seo_title="UAE 24-Hour Freezing Rule for DNFBPs",
+        seo_description="Which lists trigger the 24-hour freeze, what to do in the first day after a match, how to report it on goAML, and how to prove it in an inspection.",
         title="The 24-hour freezing rule: a practical guide to sanctions screening for UAE DNFBPs",
         description=(
             "Which lists trigger the 24-hour freeze, what to do in the first day after "
@@ -89,6 +101,8 @@ POSTS: list[BlogPost] = [
     ),
     BlogPost(
         slug="uae-dnfbp-cdd-kyc-beneficial-ownership",
+        seo_title="UAE DNFBP CDD, KYC and Beneficial Owners",
+        seo_description="What CDD and KYC require in practice: verifying identity, tracing beneficial owners, simplified vs enhanced due diligence, and ongoing monitoring.",
         title="Customer due diligence for UAE DNFBPs: identity, beneficial ownership and the risk-based approach",
         description=(
             "What CDD and KYC actually require in practice: verifying identity, "
@@ -120,6 +134,8 @@ POSTS: list[BlogPost] = [
     ),
     BlogPost(
         slug="uae-goaml-str-sar-filing-guide",
+        seo_title="goAML STR and SAR Filing for DNFBPs",
+        seo_description="What goAML is, the real difference between an STR and an SAR, what triggers a filing, realistic timelines and the record-keeping duty.",
         title="STR and SAR filing on goAML: a practical guide for UAE DNFBPs",
         description=(
             "What goAML actually is, the real difference between an STR and an "
@@ -150,6 +166,8 @@ POSTS: list[BlogPost] = [
     ),
     BlogPost(
         slug="uae-dnfbp-aml-risk-assessment-risk-scoring",
+        seo_title="UAE DNFBP AML Risk Assessment Guide",
+        seo_description="What a business-wide and customer risk assessment must cover under Cabinet Resolution No. 134 of 2025, and how risk scoring feeds your CDD tier.",
         title="AML/CFT risk assessment for UAE DNFBPs: what it must cover, and why it is never finished",
         description=(
             "What a business-wide and customer risk assessment actually has to "
@@ -181,6 +199,8 @@ POSTS: list[BlogPost] = [
     ),
     BlogPost(
         slug="uae-aml-cft-regulatory-updates",
+        seo_title="UAE AML/CFT Regulatory Updates",
+        seo_description="A running guide to the UAE AML/CFT framework: Federal Decree-Law No. 10 of 2025, its Executive Regulations and what has followed since.",
         title="UAE AML/CFT regulatory updates: what changed, and what DNFBPs need to do",
         description=(
             "A running guide to the current UAE AML/CFT legal framework: "
