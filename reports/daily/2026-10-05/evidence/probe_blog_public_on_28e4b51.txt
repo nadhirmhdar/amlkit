@@ -1,0 +1,32 @@
+== 1. slug / topic / q handling ==
+ /blog/..%2f..%2fetc%2fpasswd                                   -> 404
+ /blog/%2e%2e/login                                             -> 404
+ /blog/..                                                       -> 303
+ /blog/uae-sanctions-screening-24-hour-rule%00                  -> 404
+ /blog/UAE-SANCTIONS-SCREENING-24-HOUR-RULE                     -> 404
+ /blog/%252e%252e                                               -> 404
+ /blog/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa   -> 404
+ /blog?topic=../x                                               -> 404
+ /blog?topic=%00                                                -> 404
+ /blog?topic=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa   -> 404
+== 2. reflected q (unauthenticated) ==
+ q='<script>alert(1)</script>'                  -> 200  raw (unescaped) reflection: False  '49' rendered: False
+ q='"><img src=x onerror=alert(1)>'             -> 200  raw (unescaped) reflection: False  '49' rendered: False
+ q="' onfocus='alert(1)"                        -> 200  raw (unescaped) reflection: False  '49' rendered: False
+ q='{{7*7}}'                                    -> 200  raw (unescaped) reflection: False  '49' rendered: False
+ q='{% raw %}'                                  -> 200  raw (unescaped) reflection: False  '49' rendered: False
+ q='\u202e<b>'                                  -> 200  raw (unescaped) reflection: False  '49' rendered: False
+ regex-ish / max-length q: 0.01s
+== 3. every post: inline script, JSON-LD, external links, headers ==
+ uae-dnfbp-cdd-kyc-beneficial-ownership             200 inline_script=0 jsonld_ok=True(1) ext_links=7 target_blank_without_noopener=0 http_links=0
+ uae-goaml-str-sar-filing-guide                     200 inline_script=0 jsonld_ok=True(1) ext_links=7 target_blank_without_noopener=0 http_links=0
+ uae-dnfbp-aml-risk-assessment-risk-scoring         200 inline_script=0 jsonld_ok=True(1) ext_links=7 target_blank_without_noopener=0 http_links=0
+ uae-aml-cft-regulatory-updates                     200 inline_script=0 jsonld_ok=True(1) ext_links=8 target_blank_without_noopener=0 http_links=0
+ uae-sanctions-screening-24-hour-rule               200 inline_script=0 jsonld_ok=True(1) ext_links=7 target_blank_without_noopener=0 http_links=0
+  content-security-policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'
+  x-content-type-options: nosniff
+  x-frame-options: DENY
+  referrer-policy: <missing>
+  cache-control: no-store
+== 4. methods ==
+ POST /blog -> 405 | POST /blog/<slug> -> 405
