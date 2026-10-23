@@ -1,0 +1,92 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "case file links to kg-screen / gdelt-bq?",
+  "status": "info",
+  "detail": "{'kg-screen': False, 'gdelt-bq': False}"
+ },
+ {
+  "step": "anon /kg-screen",
+  "status": "info",
+  "detail": "303 /login ''"
+ },
+ {
+  "step": "MLRO /kg-screen (offline sandbox)",
+  "status": "info",
+  "detail": "200 '{\"status\":\"unconfigured\",\"entities\":[]}'"
+ },
+ {
+  "step": "MLRO /kg-screen missing customer",
+  "status": "info",
+  "detail": "404 '{\"error\":\"not found\"}'"
+ },
+ {
+  "step": "MLRO /kg-screen other org's customer",
+  "status": "info",
+  "detail": "404 '{\"error\":\"not found\"}'"
+ },
+ {
+  "step": "anon /gdelt-bq",
+  "status": "info",
+  "detail": "401 None '{\"error\":\"unauthorized\"}'"
+ },
+ {
+  "step": "MLRO /gdelt-bq (offline sandbox)",
+  "status": "info",
+  "detail": "200 '{\"status\":\"unconfigured\",\"theme_counts\":{},\"avg_tone\":0.0,\"article_count\":0,\"sample_sources\":[],\"sample_headlines\":[]}'"
+ },
+ {
+  "step": "MLRO /gdelt-bq missing customer",
+  "status": "info",
+  "detail": "404 '{\"error\":\"not found\"}'"
+ },
+ {
+  "step": "MLRO /gdelt-bq other org's customer",
+  "status": "info",
+  "detail": "404 '{\"error\":\"not found\"}'"
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-10-23 01:40:56 Layla MLRO screening.run \u00b7 screening #1 {'query': 'Fatima Khan', 'trigger': 'onboarding', 'candidates': 0, 'hits': 0, 'alerts_created': 0, 'datasets_u"
+ }
+]
