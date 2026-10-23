@@ -1,0 +1,10 @@
+== 1. size / rate ==
+ 900KB message + 50KB page -> 200 (1, 900000)
+ 300 rapid posts -> {200} in 2.9s; rows/maxlen: (301, 900000)
+ audit rows feedback.submit: 301
+== 2. stored markup rendering ==
+ /admin/feedback: status ok=True raw <script>alert in html: False | raw <img src=x onerror in html: False | raw <b>pg: False
+ /dashboard: status ok=True raw <script>alert in html: False | raw <img src=x onerror in html: False | raw <b>pg: False
+== 3. CSRF / unauth ==
+ no csrf -> 401
+ unauth -> 401
