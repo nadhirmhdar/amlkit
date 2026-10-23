@@ -32,6 +32,7 @@ from slowapi.util import get_remote_address
 
 from .. import auth, notifications, queries, uaepass
 from ..web import blog
+from .compress import SelectiveGZipMiddleware
 from .limits import limiter, login_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
@@ -193,6 +194,8 @@ _FLASH_COOKIE = "amlkit_flash"
 
 
 app.state.limiter = limiter
+# Compress static assets and anonymous public pages only (see compress.py: BREACH).
+app.add_middleware(SelectiveGZipMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # JSON API for the native mobile app -- bearer-token auth, no CSRF, no HTML.

@@ -227,3 +227,24 @@ def test_auth_pages_are_noindex_and_topic_views_are_noindex_follow(client) -> No
 
 def test_sitemap_lists_the_quotation_page(client) -> None:
     assert "<loc>https://groaml.grovisor.ae/apply</loc>" in client.get("/sitemap.xml").text
+
+
+def test_static_and_public_pages_are_gzipped(client) -> None:
+    hdr = {"Accept-Encoding": "gzip"}
+    for path in ("/static/app.css", "/about", "/blog", f"/blog/{blog.all_posts()[0].slug}", "/sitemap.xml"):
+        r = client.get(path, headers=hdr)
+        assert r.status_code == 200, path
+        assert r.headers.get("content-encoding") == "gzip", path
+    # Decoded body is still the real document.
+    assert "groAML" in client.get("/about", headers=hdr).text
+
+
+def test_secret_bearing_pages_are_not_gzipped(client) -> None:
+    """Login/forms embed CSRF tokens -- compressing them would enable BREACH."""
+    hdr = {"Accept-Encoding": "gzip"}
+    for path in ("/login", "/privacy", "/apply"):
+        r = client.get(path, headers=hdr)
+        assert r.headers.get("content-encoding") is None, path
+    # Public page requested with a session cookie is left uncompressed too.
+    r = client.get("/about", headers={**hdr, "Cookie": "amlkit_session=x"})
+    assert r.headers.get("content-encoding") is None
