@@ -189,18 +189,18 @@ def test_public_header_and_footer_appear_on_content_pages_not_auth_flows(client)
     for path in ("/about", "/privacy"):
         html = client.get(path).text
         assert '<header class="no-print"' in html, path
-        assert "Grovisor Business Consultants LLC. groAML" in html, path
+        assert "Grovisor Business Consultants FZE. groAML" in html, path
 
     # Blog pages carry their own header (search, topics) and footer.
     for path in ("/blog", "/blog/uae-sanctions-screening-24-hour-rule"):
         html = client.get(path).text
         assert '<header class="bl-top no-print"' in html, path
-        assert "Grovisor Business Consultants LLC. groAML" in html, path
+        assert "Grovisor Business Consultants FZE. groAML" in html, path
 
     for path in ("/login", "/register-organization", "/setup"):
         html = client.get(path).text
         assert '<header class="no-print"' not in html, path
-        assert "Grovisor Business Consultants LLC. groAML" not in html, path
+        assert "Grovisor Business Consultants FZE. groAML" not in html, path
 
 
 def test_snippet_metadata_fits_search_result_limits(client) -> None:
