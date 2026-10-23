@@ -258,3 +258,11 @@ def test_public_pages_do_not_link_to_the_redirecting_root(client) -> None:
         assert 'href="/about"' in html_, path
     assert 'href="/auth/uaepass/start" class="si-alt" rel="nofollow"' in client.get("/login").text or \
         "uaepass/start" not in client.get("/login").text
+
+
+def test_share_image_is_the_branded_card(client) -> None:
+    for path in ("/about", "/blog", f"/blog/{blog.all_posts()[0].slug}"):
+        html_ = client.get(path).text
+        assert 'property="og:image" content="https://groaml.grovisor.ae/static/img/og-card.png"' in html_, path
+        assert 'name="twitter:image" content="https://groaml.grovisor.ae/static/img/og-card.png"' in html_, path
+    assert client.get("/static/img/og-card.png").status_code == 200
