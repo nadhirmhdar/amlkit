@@ -248,3 +248,13 @@ def test_secret_bearing_pages_are_not_gzipped(client) -> None:
     # Public page requested with a session cookie is left uncompressed too.
     r = client.get("/about", headers={**hdr, "Cookie": "amlkit_session=x"})
     assert r.headers.get("content-encoding") is None
+
+
+def test_public_pages_do_not_link_to_the_redirecting_root(client) -> None:
+    """"/" 303-redirects signed-out visitors to /login; public pages should link /about instead."""
+    for path in ("/about", "/privacy", "/apply"):
+        html_ = client.get(path).text
+        assert 'href="/"' not in html_, path
+        assert 'href="/about"' in html_, path
+    assert 'href="/auth/uaepass/start" class="si-alt" rel="nofollow"' in client.get("/login").text or \
+        "uaepass/start" not in client.get("/login").text

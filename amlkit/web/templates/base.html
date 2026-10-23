@@ -194,7 +194,8 @@
      sign-in page overrides this block to keep its own bare layout. #}
   {% block public_header %}
   <header class="no-print" style="max-width:860px;margin:0 auto;padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-    <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
+    {# Signed-out visitors: "/" 303-redirects to /login, so link the product page instead. #}
+    <a href="{{ '/' if session else '/about' }}" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
       <img src="/static/img/grovisor-logo.png" alt="" style="height:26px;">
       <span class="wm wm--accent" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></span>
     </a>
