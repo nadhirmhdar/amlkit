@@ -1913,9 +1913,21 @@ def resolve_freeze_obligation(
             f"Must be one of: {', '.join(sorted(valid_reasons))}"
         )
 
+    authority_ref = (authority_ref or "").strip()
+    notes = (notes or "").strip()
+    if resolution_reason == "authority_clearance" and not authority_ref:
+        raise ValueError("authority_clearance requires the authority's reference")
+    if resolution_reason == "false_positive" and len(notes) < 20:
+        raise ValueError(
+            "Explain why the confirmed match is a false positive (at least 20 characters)"
+        )
+
     # Check current status (tenant-scoped)
     row = conn.execute(
-        "SELECT status, executed_at FROM freeze_obligations WHERE id = ? AND org_id = ?",
+        """SELECT f.status, f.executed_at, a.status AS alert_status
+           FROM freeze_obligations f
+           LEFT JOIN alerts a ON a.id = f.alert_id AND a.org_id = f.org_id
+           WHERE f.id = ? AND f.org_id = ?""",
         (freeze_obligation_id, org_id)
     ).fetchone()
 
@@ -1937,11 +1949,19 @@ def resolve_freeze_obligation(
             f"Freeze obligation {freeze_obligation_id} already resolved"
         )
 
+    # The two records must not contradict each other: a confirmed (four-eyes)
+    # true positive cannot be closed as a false positive from here.
+    if resolution_reason == "false_positive" and row["alert_status"] == "true_positive":
+        raise ValueError(
+            "The linked alert is a confirmed true positive. Re-disposition the alert "
+            "(four-eyes review) before resolving this obligation as a false positive."
+        )
+
     now = utcnow()
 
     # Update freeze obligation and log audit atomically
     with conn:
-        conn.execute(
+        cur = conn.execute(
             """UPDATE freeze_obligations
                SET status = 'resolved',
                    resolved_at = ?,
@@ -1949,9 +1969,13 @@ def resolve_freeze_obligation(
                    resolution_reason = ?,
                    authority_ref = ?,
                    notes = ?
-               WHERE id = ? AND org_id = ?""",
+               WHERE id = ? AND org_id = ? AND status != 'resolved'""",
             (now, resolved_by, resolution_reason, authority_ref, notes, freeze_obligation_id, org_id)
         )
+        if cur.rowcount != 1:
+            raise ValueError(
+                f"Freeze obligation {freeze_obligation_id} already resolved"
+            )
 
         # Log audit entry
         audit(
@@ -2027,7 +2051,11 @@ def check_unexecuted_freeze_obligations(
         (org_id,)
     )
 
-    overdue = [dict(row) for row in cursor.fetchall()]
+    from ..sanctions_scope import freeze_obligation_in_scope
+    # Obligations raised before the UN/UAE-list scope rule from OFAC/EU/UK-only
+    # alerts carry no 24h clock and no "Execute asset freeze" email.
+    overdue = [dict(row) for row in cursor.fetchall()
+               if freeze_obligation_in_scope(conn, row["id"], org_id)]
     for ob in overdue:
         ob["newly_notified"] = False
         # unsent: overdue and not yet alerted, and this call could not alert

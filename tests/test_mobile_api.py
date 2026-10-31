@@ -42,7 +42,7 @@ def api(tmp_path, monkeypatch):
     c = TestClient(app)
     r = c.post("/api/v1/auth/register-organization", json={
         "org_name": "Test Firm", "name": "alice", "email": "alice@testfirm.ae",
-        "password": "a-strong-password-1", "invite_code": "test-invite",
+        "password": "A-strong-password-1", "invite_code": "test-invite",
     })
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "verification_required"
@@ -73,7 +73,7 @@ class TestAuth:
         client, _ = api
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "A Totally Different Firm", "name": "alice again",
-            "email": "alice@testfirm.ae", "password": "another-strong-pw-1",
+            "email": "alice@testfirm.ae", "password": "Another-strong-pw-1",
             "invite_code": "test-invite",
         })
         assert r.status_code == 400, r.text
@@ -83,7 +83,7 @@ class TestAuth:
         # not just the error message cleaned up.
         r2 = client.post("/api/v1/auth/register-organization", json={
             "org_name": "A Totally Different Firm", "name": "someone else",
-            "email": "someone.else@testfirm.ae", "password": "yet-another-pw-1",
+            "email": "someone.else@testfirm.ae", "password": "Yet-another-pw-1",
             "invite_code": "test-invite",
         })
         assert r2.status_code == 200, r2.text
@@ -109,7 +109,7 @@ class TestAuth:
     def test_login_with_right_password_returns_token(self, api):
         client, _ = api
         r = client.post("/api/v1/auth/login", json={
-            "email": "alice@testfirm.ae", "password": "a-strong-password-1",
+            "email": "alice@testfirm.ae", "password": "A-strong-password-1",
         })
         assert r.status_code == 200
         assert r.json()["token"]
@@ -260,7 +260,8 @@ class TestDocumentScan:
     at their import site inside amlkit/api/mobile.py."""
 
     # Minimal bytes that pass the JPEG magic-byte MIME check (\xff\xd8\xff\xe0).
-    _JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
+    from conftest import real_image_bytes as _rib
+    _JPEG = _rib("JPEG")
 
     def test_scan_passport_merges_image_quality_into_response(self, api, monkeypatch):
         import amlkit.cases.ocr as ocr
@@ -393,13 +394,13 @@ class TestAlertsAndAdmin:
         client, headers = api
 
         r = client.post("/api/v1/admin/operators", headers=headers, json={
-            "name": "bob", "email": "bob@testfirm.ae", "password": "another-strong-pw",
+            "name": "bob", "email": "bob@testfirm.ae", "password": "Another-strong-pw-1",
             "role": "officer",
         })
         assert r.status_code == 200
 
         login = client.post("/api/v1/auth/login", json={
-            "email": "bob@testfirm.ae", "password": "another-strong-pw",
+            "email": "bob@testfirm.ae", "password": "Another-strong-pw-1",
         })
         bob_headers = {"Authorization": f"Bearer {login.json()['token']}"}
 
@@ -520,7 +521,7 @@ class TestTransactionEndpoints:
         # Register a second org
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "Other Firm", "name": "bob", "email": "bob@otherfirm.ae",
-            "password": "b-strong-password-1", "invite_code": "test-invite",
+            "password": "B-strong-password-1", "invite_code": "test-invite",
         })
         verify_token_b = r.json()["dev_verification_token"]
         r2 = client.post("/api/v1/auth/verify-email", json={"token": verify_token_b})

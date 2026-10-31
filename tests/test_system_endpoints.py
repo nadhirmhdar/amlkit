@@ -61,7 +61,7 @@ class TestSystemRefreshAuth:
 
 class TestSystemCreateOperatorAuth:
     def test_disabled_without_secret_configured(self, client) -> None:
-        r = client.post("/system/create-operator", json={"name": "x", "email": "x@test.invalid", "password": "a-strong-password-1"})
+        r = client.post("/system/create-operator", json={"name": "x", "email": "x@test.invalid", "password": "A-strong-password-1"})
         assert r.status_code == 403
         assert "ADMIN_API_SECRET" in r.json()["error"]
 
@@ -69,7 +69,7 @@ class TestSystemCreateOperatorAuth:
         monkeypatch.setenv("ADMIN_API_SECRET", "correct-secret")
         r = client.post(
             "/system/create-operator",
-            json={"name": "x", "email": "x@test.invalid", "password": "a-strong-password-1"},
+            json={"name": "x", "email": "x@test.invalid", "password": "A-strong-password-1"},
             headers={"Authorization": "Bearer wrong-secret"},
         )
         assert r.status_code == 401
@@ -78,7 +78,7 @@ class TestSystemCreateOperatorAuth:
         monkeypatch.setenv("SCHEDULER_SECRET", "scheduler-secret")
         r = client.post(
             "/system/create-operator",
-            json={"name": "x", "email": "x@test.invalid", "password": "a-strong-password-1"},
+            json={"name": "x", "email": "x@test.invalid", "password": "A-strong-password-1"},
             headers={"Authorization": "Bearer scheduler-secret"},
         )
         assert r.status_code in (401, 403)
@@ -147,14 +147,14 @@ class TestSystemCreateOperatorBehavior:
     def test_rejects_invalid_role(self, client, seeded_org) -> None:
         r = client.post(
             "/system/create-operator",
-            json={"name": "x", "email": "x@grovisor.test", "password": "a-strong-password-1",
+            json={"name": "x", "email": "x@grovisor.test", "password": "A-strong-password-1",
                   "role": "superuser", "org_slug": seeded_org},
             headers=self.headers,
         )
         assert r.status_code == 400
 
     def test_duplicate_email_rejected(self, client, seeded_org) -> None:
-        payload = {"name": "x", "email": "dup@grovisor.test", "password": "a-strong-password-1", "org_slug": seeded_org}
+        payload = {"name": "x", "email": "dup@grovisor.test", "password": "A-strong-password-1", "org_slug": seeded_org}
         r1 = client.post("/system/create-operator", json=payload, headers=self.headers)
         assert r1.status_code == 200
         r2 = client.post("/system/create-operator", json=payload, headers=self.headers)
@@ -163,7 +163,7 @@ class TestSystemCreateOperatorBehavior:
     def test_unknown_org_slug_rejected(self, client, seeded_org) -> None:
         r = client.post(
             "/system/create-operator",
-            json={"name": "x", "email": "x@grovisor.test", "password": "a-strong-password-1",
+            json={"name": "x", "email": "x@grovisor.test", "password": "A-strong-password-1",
                   "org_slug": "does-not-exist"},
             headers=self.headers,
         )
@@ -172,7 +172,7 @@ class TestSystemCreateOperatorBehavior:
     def test_defaults_to_the_only_active_org_when_slug_omitted(self, client, seeded_org) -> None:
         r = client.post(
             "/system/create-operator",
-            json={"name": "x", "email": "noorg@grovisor.test", "password": "a-strong-password-1"},
+            json={"name": "x", "email": "noorg@grovisor.test", "password": "A-strong-password-1"},
             headers=self.headers,
         )
         assert r.status_code == 200

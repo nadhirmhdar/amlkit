@@ -46,7 +46,7 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register(client, org_name, name, email, password="a-strong-password-1"):
+def _register(client, org_name, name, email, password="A-strong-password-1"):
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
@@ -113,14 +113,14 @@ def officer_client(mlro_client):
 
     mlro_client.post("/admin/operators", data={
         "name": "officer_user", "email": "officer@react.ae",
-        "password": "a-strong-password-2", "role": "officer",
+        "password": "A-strong-password-2", "role": "officer",
         "csrf_token": _csrf(mlro_client),
     })
 
     officer = TestClient(app)
     officer.get("/login")
     officer.post("/login", data={
-        "email": "officer@react.ae", "password": "a-strong-password-2",
+        "email": "officer@react.ae", "password": "A-strong-password-2",
         "csrf_token": officer.cookies.get("amlkit_csrf"),
     }, follow_redirects=True)
     from conftest import settle_mfa  # p15: MLRO sessions start locked
