@@ -724,6 +724,10 @@ def due_for_review(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]
     return [dict(r) for r in rows]
 
 
+# Sanity ceiling (AED/units) for a single transaction; well inside Money's range.
+MAX_TRANSACTION_AMOUNT = 1e13
+
+
 def record_transaction(
     conn: sqlite3.Connection,
     customer_id: int,
@@ -753,8 +757,19 @@ def record_transaction(
     from ..datamodel import VALID_METHODS
     from ..screening.kyt import evaluate_transaction
 
-    if amount <= 0:
-        raise ValueError("transaction amount must be positive")
+    import math
+
+    # NaN/inf/absurd magnitudes would raise InvalidOperation/OverflowError in
+    # Money and surface as HTTP 500 (and NaN slips past a plain `<= 0` check).
+    if not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0:
+        raise ValueError("transaction amount must be a positive, finite number")
+    if amount > MAX_TRANSACTION_AMOUNT:
+        raise ValueError("transaction amount is too large")
+    if amount_aed is not None and (
+        not isinstance(amount_aed, (int, float)) or not math.isfinite(amount_aed)
+        or amount_aed <= 0 or amount_aed > MAX_TRANSACTION_AMOUNT
+    ):
+        raise ValueError("amount_aed must be a positive, finite number")
     method = method.strip().lower()
     if method not in VALID_METHODS:
         raise ValueError(f"Unknown method {method!r}; expected one of {sorted(VALID_METHODS)}")
@@ -763,6 +778,11 @@ def record_transaction(
         if currency != "AED":
             raise ValueError("amount_aed is required when currency is not AED")
         amount_aed = amount
+    elif currency == "AED" and abs(amount_aed - amount) > 0.005:
+        # amount_aed overrides `amount` for every rule; for an AED transaction
+        # the two are the same number, so a mismatch is an error, not a way to
+        # hide a large amount under the threshold.
+        raise ValueError("for an AED transaction amount_aed must equal amount")
     occurred_at = occurred_at or utcnow()
     now = utcnow()
 
@@ -2613,7 +2633,14 @@ def report_finalize_error(rep, db, org_id: int) -> str | None:
     missing = [f for f in REPORT_REQUIRED_FIELDS if not payload.get(f)]
     if missing:
         return f"Cannot finalize report. Missing required fields: {', '.join(missing)}"
-    from ..reporting.goaml import is_field_gap, missing_export_fields
+    from ..reporting.goaml import find_xml_illegal, is_field_gap, missing_export_fields
+    illegal = find_xml_illegal(payload)
+    if illegal:
+        return (
+            "Cannot finalize report: these fields contain characters that are not "
+            "allowed in the goAML XML (control characters, often pasted from Word or "
+            "a PDF): " + ", ".join(illegal[:10]) + ". Remove them and finalize again."
+        )
     problems = missing_export_fields(payload, db, org_id)
     if problems:
         fields = [p for p in problems if is_field_gap(p)]
