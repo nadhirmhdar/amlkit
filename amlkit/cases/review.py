@@ -159,6 +159,14 @@ def _auto_create_freeze_if_required(
         # Alert not found or other error - already handled elsewhere
         return None
 
+    # TFS scope (Cabinet Decision 74/2020): only UN Security Council and UAE
+    # local (EOCN) list matches carry a freeze obligation. OFAC/EU/UK-only
+    # confirmed matches stay alerts. A UN+OFAC dual-listed person has one alert
+    # per dataset, so the UN alert still freezes.
+    from ..sanctions_scope import alert_dataset, is_uae_freeze_list
+    if not is_uae_freeze_list(alert_dataset(conn, alert_id, org_id)):
+        return None
+
     # Check if this is a freeze-worthy hit
     is_freeze_worthy = bool(categories) or "sanction" in topics
     if not is_freeze_worthy:

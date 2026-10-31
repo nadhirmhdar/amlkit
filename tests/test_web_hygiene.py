@@ -152,8 +152,8 @@ def test_twitter_card_is_large_image(anon):
 
 # ------------------------------------------------------------ L-79 password
 @pytest.mark.parametrize("path,fields", [
-    ("/account/password", {"current_password": "a-strong-password-1", "confirm_password": "Another-Strong-Pass-2"}),
-    ("/profile/change-password", {"old_password": "a-strong-password-1"}),
+    ("/account/password", {"current_password": "A-strong-password-1", "confirm_password": "Another-Strong-Pass-2"}),
+    ("/profile/change-password", {"old_password": "A-strong-password-1"}),
 ])
 def test_password_change_keeps_this_session_and_signs_out_others(client, path, fields):
     conn = _db()
@@ -197,7 +197,7 @@ def test_officer_audit_export_redirects_with_flash_like_audit(client):
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
     bob = TestClient(app)
-    _login(bob, "bob-hyg@testfirm.ae", "a-strong-password-2")
+    _login(bob, "bob-hyg@testfirm.ae", "A-strong-password-2")
     r = bob.get("/audit/export", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/"
     assert _flash_texts(r)
@@ -210,7 +210,7 @@ def test_mfa_locked_mlro_opening_admin_goes_straight_to_challenge(client):
     from amlkit.api.app import app
     c2 = TestClient(app)
     c2.get("/login")
-    c2.post("/login", data={"email": "alice@testfirm.ae", "password": "a-strong-password-1",
+    c2.post("/login", data={"email": "alice@testfirm.ae", "password": "A-strong-password-1",
                             "csrf_token": _csrf(c2)}, follow_redirects=False)
     r = c2.get("/admin", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/mfa/verify"
@@ -252,10 +252,10 @@ def test_case_file_shows_overdue_marker_only_when_review_is_due(client):
     assert conn.execute("SELECT COUNT(*) c FROM risk_assessments WHERE customer_id=?", (cid,)).fetchone()["c"] >= 1
     conn.execute("UPDATE risk_assessments SET next_review='2999-01-01' WHERE customer_id=?", (cid,))
     conn.commit()
-    assert 'class="tag high">overdue' not in client.get(f"/customers/{cid}").text
+    assert 'class="tag high">Overdue' not in client.get(f"/customers/{cid}").text
     conn.execute("UPDATE risk_assessments SET next_review='2000-01-01' WHERE customer_id=?", (cid,))
     conn.commit()
-    assert 'class="tag high">overdue' in client.get(f"/customers/{cid}").text
+    assert 'class="tag high">Overdue' in client.get(f"/customers/{cid}").text
 
 
 # ------------------------------------------------------------------ L-27

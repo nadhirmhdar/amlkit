@@ -19,7 +19,7 @@ from test_api import _csrf, client  # noqa: F401,E402
 def test_scan_trade_licence_returns_trade_licence_shaped_fields(client) -> None:  # noqa: F811
     r = client.post(
         "/customers/scan-trade-licence",
-        files={"licence_file": ("licence.jpg", io.BytesIO(b"not a real image"), "image/jpeg")},
+        files={"licence_file": ("licence.jpg", io.BytesIO(__import__("conftest").real_image_bytes()), "image/jpeg")},
         data={"csrf_token": _csrf(client)},
     )
     assert r.status_code == 200
@@ -66,7 +66,7 @@ def test_scan_trade_licence_extracts_real_fields_from_ocr_text(client, monkeypat
     )
     r = client.post(
         "/customers/scan-trade-licence",
-        files={"licence_file": ("licence.jpg", io.BytesIO(b"x"), "image/jpeg")},
+        files={"licence_file": ("licence.jpg", io.BytesIO(__import__("conftest").real_image_bytes()), "image/jpeg")},
         data={"csrf_token": _csrf(client)},
     )
     assert r.status_code == 200

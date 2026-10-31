@@ -28,7 +28,7 @@ def _seed_sanctions_data(db_file) -> None:
     conn.close()
 
 
-def _register(client, org_name, name, email, password="a-strong-password-1"):
+def _register(client, org_name, name, email, password="A-strong-password-1"):
     client.get("/register-organization")
     r = client.post("/register-organization", data={
         "org_name": org_name, "name": name, "email": email, "password": password,
@@ -68,7 +68,7 @@ def test_login_success_records_ip(client):
     # Login again
     r = client.post("/login", data={
         "email": "alice@testfirm.ae",
-        "password": "a-strong-password-1",
+        "password": "A-strong-password-1",
         "csrf_token": _csrf(client),
     }, follow_redirects=False)
     from conftest import settle_mfa  # p15: MLRO sessions start locked

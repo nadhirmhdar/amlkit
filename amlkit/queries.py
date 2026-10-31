@@ -335,7 +335,7 @@ def dashboard(conn: sqlite3.Connection, org_id: int, alerts_sort_by: str | None 
            WHERE c.org_id=? AND c.status='active' AND EXISTS (
              SELECT 1 FROM risk_assessments r WHERE r.customer_id=c.id AND r.rating='high'
              AND r.id = (SELECT id FROM risk_assessments WHERE customer_id=c.id
-                         ORDER BY assessed_at DESC LIMIT 1))""",
+                         ORDER BY id DESC LIMIT 1))""",
         (org_id,),
     ).fetchone()["c"]
 
@@ -632,7 +632,7 @@ SELECT c.id, c.reference, c.full_name, c.name_arabic, c.customer_type,
 FROM customers c
 LEFT JOIN risk_assessments r ON r.id = (
      SELECT id FROM risk_assessments WHERE customer_id=c.id
-     ORDER BY assessed_at DESC LIMIT 1)
+     ORDER BY id DESC LIMIT 1)
 """
 
 
@@ -785,7 +785,7 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
         (customer_id, org_id))]
 
     risk_rows = conn.execute(
-        "SELECT * FROM risk_assessments WHERE customer_id=? AND org_id=? ORDER BY assessed_at DESC",
+        "SELECT * FROM risk_assessments WHERE customer_id=? AND org_id=? ORDER BY id DESC",
         (customer_id, org_id)).fetchall()
     risks = [dict(r) | {"factors": json.loads(r["factors"] or "{}")} for r in risk_rows]
 
@@ -798,7 +798,16 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
 
     notes = case_notes(conn, customer_id, org_id)
 
+    # Names whose most recent screening searched nothing (no usable tokens).
+    # `screenings` is newest-first, so the first row seen per (owner, name) is
+    # the latest; a later successful re-screen under the same name clears it.
+    latest: dict[tuple, dict] = {}
+    for s in screenings:
+        latest.setdefault((s["ubo_id"], s["query_name"]), s)
+    unscreenable_names = [s["query_name"] for s in latest.values() if s.get("unscreenable")]
+
     return {
+        "unscreenable_names": unscreenable_names,
         "customer": dict(row),
         "ubos": ubos,
         "risk": risks[0] if risks else None,
@@ -850,7 +859,7 @@ def effective_risk(conn: sqlite3.Connection, customer_id: int, org_id: int) -> s
     assessment_row = conn.execute(
         """SELECT rating FROM risk_assessments
            WHERE customer_id=? AND org_id=?
-           ORDER BY assessed_at DESC LIMIT 1""",
+           ORDER BY id DESC LIMIT 1""",
         (customer_id, org_id)
     ).fetchone()
 
@@ -995,9 +1004,20 @@ def recent_audit(conn: sqlite3.Connection, org_id: int, limit: int = 6) -> list[
 
 
 def operators(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
-    return [dict(r) for r in conn.execute(
-        "SELECT id, name, email, role, is_active, super_admin FROM operators WHERE org_id=? ORDER BY name",
-        (org_id,))]
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    rows = []
+    for r in conn.execute(
+        "SELECT o.id, o.name, o.email, o.role, o.is_active, o.super_admin,"
+        " (o.locked_until IS NOT NULL AND o.locked_until > ?) AS login_locked,"
+        " (m.locked_until IS NOT NULL AND m.locked_until > ?) AS mfa_locked"
+        " FROM operators o LEFT JOIN mfa_secrets m ON m.operator_id = o.id"
+        " WHERE o.org_id=? ORDER BY o.name",
+        (now, now, org_id)):
+        d = dict(r)
+        d["login_locked"] = bool(d["login_locked"])
+        d["mfa_locked"] = bool(d["mfa_locked"])
+        rows.append(d)
+    return rows
 
 
 def datasets(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -1189,7 +1209,7 @@ def console_overview(conn: sqlite3.Connection) -> dict[str, Any]:
                WHERE c.org_id=? AND c.status='active' AND EXISTS (
                  SELECT 1 FROM risk_assessments r WHERE r.customer_id=c.id AND r.rating='high'
                  AND r.id = (SELECT id FROM risk_assessments WHERE customer_id=c.id
-                             ORDER BY assessed_at DESC LIMIT 1))""",
+                             ORDER BY id DESC LIMIT 1))""",
             (org_id,),
         ).fetchone()["c"]
 

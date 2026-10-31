@@ -17,6 +17,7 @@ every tenant.
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -31,9 +32,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, notifications, queries, uaepass
+from ..datamodel import MAX_NAME_LENGTH
 from ..web import blog
 from .compress import SelectiveGZipMiddleware
-from .limits import limiter, login_rate_limit_key, rate_limit_key_func
+from .limits import limiter, login_rate_limit_key, operator_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     EXIT_REASONS,
@@ -41,6 +43,8 @@ from ..cases.manager import (
     add_case_note,
     add_ubo,
     close_relationship,
+    complete_periodic_review,
+    periodic_reviews,
     reactivate_customer,
     disposition_adverse_media_finding,
     disposition_transaction_alert,
@@ -51,6 +55,7 @@ from ..cases.manager import (
     run_adverse_media,
     run_due_adverse_media,
 )
+from ..datamodel import validate_required_name
 from ..cases.review import (
     REASON_CODES,
     ReviewError,
@@ -629,14 +634,18 @@ def _login_page_error(request: Request, message: str) -> HTMLResponse:
 @limiter.limit("3/minute", key_func=login_rate_limit_key)  # Per-account: prevents rapid stuffing of one account
 def login_submit(
     request: Request, db: DB,
-    email: Annotated[str, Form()],
-    password: Annotated[str, Form()],
+    email: Annotated[str, Form()] = "",
+    password: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
 ):
     try:
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return _login_page_error(request, str(exc))
+    if not email.strip() or not password:
+        # An empty field is "missing" to FastAPI's Form(); answer with the
+        # form, not a raw 422 JSON body.
+        return _login_page_error(request, "Enter your email and password.")
     try:
         token, info = auth.login(db, email, password, ip=client_ip(request))
     except auth.AuthError as exc:
@@ -858,9 +867,9 @@ def password_change_submit(
             "session": session, "nav": None, "err": "New passwords do not match."
         })
 
-    # Validate password complexity
+    # Validate password complexity (and that it differs from the current one)
     try:
-        auth.validate_password_complexity(new_password)
+        auth.check_new_password(new_password, current_hash=op_row["password_hash"])
     except auth.PasswordComplexityError as exc:
         return render(request, "password_change.html", {
             "session": session, "nav": None, "err": str(exc)
@@ -1157,6 +1166,15 @@ def setup_submit(
 
     try:
         result = complete_initial_setup(db, token, name, email, password)
+    except (auth.PasswordComplexityError, auth.IdentityError) as exc:
+        # The link itself is still good: keep the form so the user can fix the field.
+        tok_row = _valid_setup_token(db, token)
+        org = db.execute("SELECT name FROM organizations WHERE id=?", (tok_row["org_id"],)).fetchone() if tok_row else None
+        if org is None:
+            return render(request, "setup.html", {"session": None, "valid": False, "err": str(exc)})
+        return render(request, "setup.html", {
+            "session": None, "valid": True, "token": token, "org_name": org["name"], "err": str(exc),
+        })
     except ValueError as exc:
         return render(request, "setup.html", {
             "session": None, "valid": False, "err": str(exc),
@@ -1592,6 +1610,14 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         return back(f"/freeze-obligations/{freeze_id}", err="Filing a CNMR requires the MLRO role")
 
     from ..cases import freeze as freeze_ops
+    from ..sanctions_scope import freeze_obligation_in_scope
+    if not freeze_obligation_in_scope(db, freeze_id, session.org_id):
+        return back(
+            f"/freeze-obligations/{freeze_id}",
+            err="A CNMR applies only to matches on the UN Security Council or UAE Local "
+                "Terrorist lists. This match is on another list: consult your supervisory "
+                "authority and consider an STR/SAR instead.",
+        )
     reporter_name = form.get("reporter_name") or session.operator_name
     reporter_email = form.get("reporter_email", "")
 
@@ -1736,9 +1762,20 @@ def screen_run(
         return render(request, "screen.html", {"session": session, "result": None, "query": name, "err": str(exc)}, db)
 
     name = name.strip()
+    try:
+        validate_required_name("name", name)
+    except ValueError:
+        # Blank, or nothing but invisible characters: nothing to search.
+        name = ""
     if not name:
         return render(request, "screen.html",
                       {"session": session, "result": None, "query": "", "err": "Enter a name to screen."}, db)
+    if len(name) > MAX_NAME_LENGTH:
+        too_long = render(request, "screen.html",
+                          {"session": session, "result": None, "query": name[:MAX_NAME_LENGTH],
+                           "err": f"Name exceeds {MAX_NAME_LENGTH} characters."}, db)
+        too_long.status_code = 400
+        return too_long
 
     result = screen(
         db, name, org_id=session.org_id, trigger="adhoc",
@@ -1797,14 +1834,18 @@ def customer_new(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+    return render(request, "customer_new.html", _customer_new_ctx(session))
+
+
+def _customer_new_ctx(session) -> dict:
     rs = ruleset()
-    return render(request, "customer_new.html", {
+    return {
         "session": session,
         "sectors": sorted(rs["factors"]["sector"]["points_by_sector"]),
         "channels": sorted(rs["factors"]["delivery_channel"]["points_by_channel"]),
         "structures": sorted(rs["factors"]["structure"]["points_by_type"]),
         "tiers": sorted(rs["factors"]["jurisdiction"]["points_by_tier"]),
-    })
+    }
 
 
 @app.post("/customers")
@@ -1847,6 +1888,17 @@ def customer_create(
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back("/customers/new", err=str(exc))
+
+    # A blank name cannot be screened and would read as "clear": reject it with
+    # the form re-shown, rather than a redirect that loses what was typed.
+    try:
+        validate_required_name("full_name", full_name)
+    except ValueError as exc:
+        resp = render(request, "customer_new.html", {
+            **_customer_new_ctx(session), "err": f"{exc}. Enter the customer's name.",
+        }, db)
+        resp.status_code = 400
+        return resp
 
     # Validate EDD fields for high-risk customers (at onboarding, use declared risk_level)
     if risk_level and risk_level.strip() == "high":
@@ -1912,10 +1964,33 @@ def customer_create(
         if result.blocked else
         f"Onboarded. Risk rating: {result.risk.rating}."
     )
+    if result.unscreenable:
+        # Not a clear result: the name had no searchable tokens (e.g. non-Latin,
+        # non-Arabic script). Say so rather than leave "no alerts" to be read
+        # as "no hits".
+        note += (
+            " WARNING: " + ", ".join(result.unscreenable_names)
+            + " could NOT be screened (no searchable name tokens) - screen"
+            " manually with a Latin or Arabic spelling before relying on this result."
+        )
     return back(f"/customers/{result.customer_id}", msg=note)
 
 
+def _read_scan_upload(upload: UploadFile) -> bytes:
+    """Read + validate a scan upload (size, type, pixel count) or raise HTTPException 413/415."""
+    from fastapi import HTTPException
+    from ..validation import IMAGE_MIMES, PDF, UploadRejected, read_capped, validate_upload
+
+    content = read_capped(upload.file)
+    try:
+        validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF})
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return content
+
+
 @app.post("/customers/scan-passport")
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)
 def customer_scan_passport(
     request: Request, db: DB,
     passport_file: UploadFile,
@@ -1935,8 +2010,8 @@ def customer_scan_passport(
     import io
     from ..cases.ocr import extract_passport_data
 
+    content = _read_scan_upload(passport_file)
     try:
-        content = passport_file.file.read()
         file_like = io.BytesIO(content)
         data = extract_passport_data(file_like)
         return data
@@ -1946,6 +2021,7 @@ def customer_scan_passport(
 
 
 @app.post("/customers/scan-trade-licence")
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)
 def customer_scan_trade_licence(
     request: Request, db: DB,
     licence_file: UploadFile,
@@ -1972,8 +2048,8 @@ def customer_scan_trade_licence(
     import io
     from ..cases.ocr import extract_trade_licence_data
 
+    content = _read_scan_upload(licence_file)
     try:
-        content = licence_file.file.read()
         file_like = io.BytesIO(content)
         data = extract_trade_licence_data(file_like)
         return data
@@ -1999,12 +2075,10 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
-    # L-71: same overdue rule as the customers list (queries.py: next_review <= today).
-    nxt = (data.get("risk") or {}).get("next_review")
-    from datetime import datetime as _dt, timezone as _tz
-    review_overdue = bool(nxt and nxt <= _dt.now(_tz.utc).date().isoformat())
     return render(request, "customer.html",
-                 data | {"review_overdue": review_overdue, "session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
+                 data | {"today": datetime.now(timezone.utc).date().isoformat(),
+                         "reviews": periodic_reviews(db, customer_id, session.org_id),
+                         "review_outcomes": REVIEW_OUTCOME_LABELS, "session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
                          "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
 
 
@@ -2264,6 +2338,41 @@ def customer_close(request: Request, db: DB, customer_id: int,
     return back(f"/customers/{customer_id}", msg=f"Relationship closed. Records retained until {until}.")
 
 
+REVIEW_OUTCOME_LABELS = {
+    "no_change": "No change",
+    "risk_changed": "Risk changed (re-assess)",
+    "exit_relationship": "Exit the relationship",
+}
+
+
+@app.post("/customers/{customer_id}/periodic-review")
+def customer_periodic_review(
+    request: Request, db: DB, customer_id: int,
+    outcome: Annotated[str, Form()] = "",
+    note: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Complete a periodic CDD review. The only action that resets the
+    customer's next review date."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+        require_role(session, *auth.OPERATOR_ROLES)
+    except PermissionError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    try:
+        complete_periodic_review(db, session.org_id, customer_id, session,
+                                 outcome, note)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return back(f"/customers/{customer_id}", msg="Periodic review recorded.")
+
+
 @app.post("/customers/{customer_id}/reactivate")
 def customer_reactivate(
     request: Request, db: DB, customer_id: int,
@@ -2341,8 +2450,13 @@ def customer_add_ubo(
     res = screen(db, person_name.strip(), org_id=session.org_id, trigger="onboarding",
                  customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name,
                  threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD)
-    note = ("Beneficial owner added. MATCH FOUND - review alerts."
-            if res.hits else "Beneficial owner added and screened clear.")
+    if res.unscreenable:
+        note = ("Beneficial owner added but NOT screened: the name has no searchable tokens."
+                " Screen manually with a Latin or Arabic spelling.")
+    elif res.hits:
+        note = "Beneficial owner added. MATCH FOUND - review alerts."
+    else:
+        note = "Beneficial owner added and screened clear."
     return back(f"/customers/{customer_id}", msg=note)
 
 
@@ -3002,7 +3116,12 @@ def sitemap_xml():
 
 
 # ---------------------------------------------------------------------- feedback
+MAX_FEEDBACK_LENGTH = 5000
+MAX_FEEDBACK_PAGE_LENGTH = 200
+
+
 @app.post("/feedback")
+@limiter.limit("10/minute")  # per IP (default key)
 def feedback_submit(
     request: Request, db: DB,
     page: Annotated[str, Form()],
@@ -3025,6 +3144,11 @@ def feedback_submit(
     if not message:
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "Feedback message cannot be empty."}, status_code=400)
+    if len(message) > MAX_FEEDBACK_LENGTH:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"error": f"Feedback is too long (maximum {MAX_FEEDBACK_LENGTH} characters)."}, status_code=400)
+    page = page.strip()[:MAX_FEEDBACK_PAGE_LENGTH]
 
     now = utcnow()
     with db:
@@ -3539,8 +3663,10 @@ def admin_reset_password(
     ).fetchone()
     if row is None:
         return back("/admin", err="Operator not found.")
-    if len(new_password) < 10:
-        return back("/admin", err="Password must be at least 10 characters.")
+    try:
+        auth.check_new_password(new_password)
+    except auth.PasswordComplexityError as exc:
+        return back("/admin", err=str(exc))
 
     auth.set_password(db, operator_id, new_password)
     from ..db import audit
@@ -3548,6 +3674,44 @@ def admin_reset_password(
           None, org_id=session.org_id)
     db.commit()
     return back("/admin", msg="Password reset. All of that operator's sessions were signed out.")
+
+
+@app.post("/admin/operators/{operator_id}/unlock")
+def admin_unlock_operator(
+    request: Request, db: DB, operator_id: int, csrf_token: Annotated[str, Form()] = ""
+):
+    """Clear an operator's MFA lock and password-login lock (L-74, L-46).
+
+    Same gate as the other /admin/operators actions: MLRO only, same org.
+    """
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    row = db.execute(
+        "SELECT id, name FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
+    ).fetchone()
+    if row is None:
+        return back("/admin", err="Operator not found.")
+    db.execute(
+        "UPDATE operators SET failed_login_count=0, locked_until=NULL WHERE id=? AND org_id=?",
+        (operator_id, session.org_id),
+    )
+    db.execute(
+        "UPDATE mfa_secrets SET failed_attempts=0, locked_until=NULL WHERE operator_id=?",
+        (operator_id,),
+    )
+    from ..db import audit
+    audit(db, session.operator_name, "operator.unlock", "operator", operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+    return back("/admin", msg=f"Sign-in and MFA locks cleared for {row['name']}.")
 
 
 @app.post("/admin/operators/{operator_id}/rename")
@@ -3597,12 +3761,16 @@ def admin_create_operator(
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": str(exc)}, status_code=403)
 
-    if len(password) < 10:
-        return back("/admin", err="Password must be at least 10 characters.")
+    try:
+        auth.check_new_password(password)
+        clean_name, clean_email = auth.check_operator_identity(name, email)
+    except ValueError as exc:  # PasswordComplexityError / IdentityError
+        return back("/admin", err=str(exc))
     if role not in auth.OPERATOR_ROLES:
         return back("/admin", err="Role must be Officer or MLRO.")
-    if not auth.looks_like_email(email):
-        return back("/admin", err="Enter a valid email address.")
+    from ..cases.operators import operator_name_taken
+    if operator_name_taken(db, session.org_id, clean_name):
+        return back("/admin", err="An operator with that name or email already exists.")
     try:
         now = utcnow()
         cur = db.execute(
@@ -3615,16 +3783,16 @@ def admin_create_operator(
             """INSERT INTO operators
                    (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
                VALUES (?,?,?,?,?,1,?,?)""",
-            (session.org_id, name.strip(), email.strip().lower(),
+            (session.org_id, clean_name, clean_email,
              auth.hash_password(password), role, now, now),
         )
     except sqlite3.IntegrityError:
         return back("/admin", err="An operator with that name or email already exists.")
     from ..db import audit
     audit(db, session.operator_name, "operator.create", "operator", cur.lastrowid,
-          {"email": email.strip().lower(), "role": role}, org_id=session.org_id)
+          {"email": clean_email, "role": role}, org_id=session.org_id)
     db.commit()
-    return back("/admin", msg=f"Operator {name.strip()} created.")
+    return back("/admin", msg=f"Operator {clean_name} created.")
 
 
 @app.post("/admin/operators/{operator_id}/deactivate")
@@ -3777,9 +3945,14 @@ def admin_rescreen(
         outcome = rescreen_all(db, session.org_id, actor=session.operator_name)
         db.commit()
 
-        msg = f"Re-screened {outcome['customers']} customer(s)."
+        msg = f"Re-screened {outcome['screened']} name(s) across customers and related parties."
         if outcome["alerts"]:
             msg += f" {outcome['alerts']} new alert(s) raised — check Alerts."
+        if outcome.get("unscreenable"):
+            msg += (
+                f" {outcome['unscreenable']} name(s) could not be screened"
+                " (no searchable tokens) and need manual screening."
+            )
         return back("/admin", msg=msg)
     except Exception as exc:
         log.exception("rescreen_all failed for org %s: %s", session.org_id, exc)
@@ -3909,13 +4082,17 @@ def policies_upload(
     from ..cases.manager import upload_policy
 
     try:
-        file_content = file.file.read()
+        from ..validation import read_capped
+        file_content = read_capped(file.file)
 
         # Validate MIME type by magic bytes
-        from ..validation import validate_file_mime
+        from ..validation import DOCX, PDF, UploadRejected, validate_upload
         try:
-            detected_mime = validate_file_mime(file_content, file.filename or "upload.pdf")
-        except ValueError as exc:
+            detected_mime = validate_upload(file_content, allowed_mimes={PDF, DOCX})
+            ext = (file.filename or "").lower().rsplit(".", 1)[-1]
+            if {"pdf": PDF, "docx": DOCX}.get(ext, detected_mime) != detected_mime:
+                raise UploadRejected("File content does not match its extension.")
+        except UploadRejected as exc:
             return back("/policies", err=f"File validation failed: {exc}")
 
         policy_id, version = upload_policy(
@@ -4630,7 +4807,7 @@ def change_password(
         return back("/profile", err="Current password is incorrect.")
 
     try:
-        auth.validate_password_complexity(new_password)
+        auth.check_new_password(new_password, current_hash=operator["password_hash"])
     except auth.PasswordComplexityError as exc:
         return back("/profile", err=str(exc))
 

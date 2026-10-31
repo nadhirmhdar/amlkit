@@ -22,7 +22,7 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1",
+def _register(client, org_name: str, name: str, email: str, password: str = "A-strong-password-1",
               invite_code: str = "test-invite"):
     """Register and verify an organization."""
     import re
@@ -109,7 +109,7 @@ def super_admin_client(multi_org_db, monkeypatch, complete_mfa):
                                   email_verified_at, super_admin, created_at)
            VALUES (?,?,?,?,?,1,?,1,?)""",
         (org_id, "Super Admin", "superadmin@amlkit.local",
-         auth.hash_password("super-secure-123"), "mlro", now, now),
+         auth.hash_password("Super-secure-123"), "mlro", now, now),
     )
     conn.commit()
 
@@ -128,7 +128,7 @@ def super_admin_client(multi_org_db, monkeypatch, complete_mfa):
                     reference=f"C-{i}-{j}",
                     full_name=f"Customer {i}-{j}",
                     customer_type="natural",
-                    sector="finance",
+                    sector="professional_services",
                     delivery_channel="face_to_face",
                     cash_level="non_cash",
                     jurisdiction_tier="standard",
@@ -146,7 +146,7 @@ def super_admin_client(multi_org_db, monkeypatch, complete_mfa):
     c.get("/login")
     c.post("/login", data={
         "email": "superadmin@amlkit.local",
-        "password": "super-secure-123",
+        "password": "Super-secure-123",
         "csrf_token": _csrf(c),
     }, follow_redirects=True)
     complete_mfa(c)  # p15: MLRO sessions are locked until TOTP enrolment
@@ -227,7 +227,7 @@ def test_regular_operator_cannot_access_console(multi_org_db, monkeypatch):
     c.get("/login")
     c.post("/login", data={
         "email": "regular@test.ae",
-        "password": "a-strong-password-1",
+        "password": "A-strong-password-1",
         "csrf_token": _csrf(c),
     }, follow_redirects=True)
 

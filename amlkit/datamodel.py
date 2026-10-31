@@ -160,6 +160,20 @@ def validate_customer_type(customer_type: str) -> None:
         )
 
 
+def validate_required_name(field: str, value: str | None) -> None:
+    """Reject a missing, blank or invisible-characters-only name.
+
+    A nameless record cannot be screened, so it must never be created: the
+    screening engine would find no blocking keys and report it as clear.
+    Invisible characters (zero-width, variation selectors, controls...) are
+    removed first, so a name of nothing but those counts as blank too.
+    """
+    from .names.arabic import clean_name_text
+
+    if not value or not clean_name_text(value).strip():
+        raise ValueError(f"{field} is required")
+
+
 def validate_name_length(field: str, value: str | None) -> None:
     if value and len(value) > MAX_NAME_LENGTH:
         raise ValueError(f"{field} exceeds {MAX_NAME_LENGTH} characters")
