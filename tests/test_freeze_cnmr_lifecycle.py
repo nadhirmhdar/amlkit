@@ -190,7 +190,7 @@ def test_other_org_cannot_submit_and_report_the_freeze(client):
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
     bob = TestClient(app)
-    _register(bob, "Other Firm", "bob", "bob@otherfirm.ae", "strong-pass-123")
+    _register(bob, "Other Firm", "bob", "bob@otherfirm.ae", "Strong-pass-123")
     r = bob.post(f"/reports/{report_id}/submit", data={"csrf_token": _csrf(bob)},
                  follow_redirects=True)
     assert r.status_code == 200

@@ -71,6 +71,7 @@ amlkit/
 - **Audit trail**: Append-only via DB triggers. `db.audit()` requires `org_id` explicitly (even `None` for shared data).
 - **Test style**: Integration tests with real SQLite databases (no mocks for DB). `TestClient` from FastAPI for HTTP tests. Register + verify email flow via `_register()` helper in test_api.py.
 - **DB writes**: `busy_timeout=30000` PRAGMA + `retry_on_lock` decorator in db.py for long operations.
+- **Periodic review clock**: `risk_assessments.next_review` is set at onboarding and then ONLY by `cases.manager.complete_periodic_review` (web `POST /customers/{id}/periodic-review`, mobile `POST /api/v1/customers/{id}/periodic-review`). Transaction-alert, adverse-media, rescreen and factor re-assessments carry the prior date forward (`risk.model.save(carry_next_review=True)`).
 - **CSRF**: Synchronizer token pattern — cookie + hidden form field, validated on every POST.
 - **MFA (TOTP)**: Mandatory for MLROs only. Every path that mints a session (password login, verify-email auto-login, setup-token claim, UAE PASS SSO, mobile) calls `auth.mfa_lock_session()` right after `create_session()`, which locks an MLRO's session until `/mfa/verify` (or `/mfa/setup` if not enrolled). Backup codes, a 5-miss/15-min lockout, and a 30-day "remember this device" cookie (`amlkit_trusted_device`) are supported. Other roles are not challenged.
 
@@ -131,6 +132,7 @@ Merged in #361. **Switched on in production against the UAE PASS staging sandbox
 - `AMLKIT_BIND_HOST` / `AMLKIT_PORT` — server bind address
 - `AMLKIT_SSL_KEYFILE` / `AMLKIT_SSL_CERTFILE` — TLS config
 - `AMLKIT_BEHIND_PROXY` — set to `1` when behind a reverse proxy
+- `AMLKIT_MAX_UPLOAD_BYTES` / `AMLKIT_MAX_IMAGE_PIXELS` — caps enforced by `validation.validate_upload()` on every scan route (web + mobile passport / Emirates ID / trade licence), mobile document upload and policy upload: default 10 MB per upload (413) and 25 megapixels per image, read from the header only (413); content that is not PDF/PNG/JPEG (DOCX too, for policies) is 415. Scan routes are limited to 10/minute per operator. Stored document blobs get a generated unique name (`storage.stored_name`); the client filename lives only in `documents.filename`
 - `SCHEDULER_SECRET` — bearer token for `/system/refresh` and `/system/check-freeze-obligations` (hourly Cloud Scheduler job `amlkit-freeze-obligations-check`; emails MLROs once per freeze obligation pending > 24h)
 - `ADMIN_API_SECRET` — bearer token for `/system/create-operator`
 - `AMLKIT_SINGLE_OPERATOR_MODE` — skip four-eyes review requirement

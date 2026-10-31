@@ -65,7 +65,7 @@ def _flash_parse(cookie_val: str) -> dict:
     return json.loads(base64.b64decode(cookie_val.encode()).decode())
 
 
-def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1",
+def _register(client, org_name: str, name: str, email: str, password: str = "A-strong-password-1",
               invite_code: str = "test-invite"):
     """Registers, then completes email verification and signs in.
 
@@ -94,7 +94,7 @@ def _register(client, org_name: str, name: str, email: str, password: str = "a-s
     return client
 
 
-def _login(client, email: str, password: str = "a-strong-password-1"):
+def _login(client, email: str, password: str = "A-strong-password-1"):
     client.get("/login")
     r = client.post("/login", data={
         "email": email, "password": password, "csrf_token": _csrf(client),
@@ -143,7 +143,7 @@ def _alert(field: str):
     return row[field]
 
 
-def _add_operator(client, name: str, email: str, password: str = "a-strong-password-2",
+def _add_operator(client, name: str, email: str, password: str = "A-strong-password-2",
                   role: str = "officer") -> None:
     """MLRO (the fixture's logged-in session) creates a second operator."""
     client.post("/admin/operators", data={
@@ -215,7 +215,7 @@ class TestAuth:
 
     def test_login_without_csrf_rejected(self, client) -> None:
         client.cookies.delete("amlkit_session")
-        r = client.post("/login", data={"email": "alice@testfirm.ae", "password": "a-strong-password-1"})
+        r = client.post("/login", data={"email": "alice@testfirm.ae", "password": "A-strong-password-1"})
         from conftest import settle_mfa  # p15: MLRO sessions start locked
         settle_mfa(client)
         assert "Incorrect email or password" not in r.text
@@ -238,7 +238,7 @@ class TestAuth:
         client.get("/register-organization")
         r = client.post("/register-organization", data={
             "org_name": "A Totally Different Firm", "name": "alice again",
-            "email": "alice@testfirm.ae", "password": "another-strong-pw-1",
+            "email": "alice@testfirm.ae", "password": "Another-strong-pw-1",
             "csrf_token": _csrf(client), "invite_code": "test-invite",
         })
         assert r.status_code == 200
@@ -250,7 +250,7 @@ class TestAuth:
         client.get("/register-organization")
         r2 = client.post("/register-organization", data={
             "org_name": "A Totally Different Firm", "name": "someone else",
-            "email": "someone.else@testfirm.ae", "password": "yet-another-pw-1",
+            "email": "someone.else@testfirm.ae", "password": "Yet-another-pw-1",
             "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
         assert "Check your email" in r2.text, f"registration failed: {r2.text[:300]}"
@@ -558,7 +558,7 @@ class TestFourEyes:
         from amlkit.api.app import app
         bob = TestClient(app)
         bob.get("/login")
-        _login(bob, "bob@testfirm.ae", "a-strong-password-2")
+        _login(bob, "bob@testfirm.ae", "A-strong-password-2")
         bob.post(f"/alerts/{alert_id}/confirm", data={"agree": "yes", "csrf_token": _csrf(bob)},
                  follow_redirects=True)
 
@@ -824,7 +824,7 @@ class TestAdminThreshold:
         from amlkit.api.app import app
         bob = TestClient(app)
         bob.get("/login")
-        _login(bob, "bob-threshold@testfirm.ae", "a-strong-password-2")
+        _login(bob, "bob-threshold@testfirm.ae", "A-strong-password-2")
         r = bob.post("/admin/threshold",
                      data={"threshold": "0.9", "csrf_token": _csrf(bob)},
                      follow_redirects=True)
@@ -1140,7 +1140,7 @@ class TestCookieSecurity:
             "org_name": "Secure Test Org",
             "name": "Admin",
             "email": "secure@test.local",
-            "password": "SecurePass123",
+            "password": "SecurePass-123",
             "csrf_token": csrf, "invite_code": "test-invite",
         }, follow_redirects=True)
 
@@ -1184,7 +1184,7 @@ class TestCookieSecurity:
             "org_name": "Dev Org",
             "name": "Dev Admin",
             "email": "dev@test.local",
-            "password": "DevPass123",
+            "password": "DevPass-123",
             "csrf_token": csrf, "invite_code": "test-invite",
         }, follow_redirects=True)
 
@@ -1212,7 +1212,7 @@ class TestCookieSecurity:
 
         r = client.post("/login", data={
             "email": "alice@testfirm.ae",
-            "password": "a-strong-password-1",
+            "password": "A-strong-password-1",
             "csrf_token": csrf_before,
         }, follow_redirects=False)
         from conftest import settle_mfa  # p15: MLRO sessions start locked
@@ -1252,7 +1252,7 @@ class TestCookieSecurity:
             "org_name": "Verify Org",
             "name": "Admin",
             "email": "verify@test.local",
-            "password": "VerifyPass123",
+            "password": "VerifyPass-123",
             "csrf_token": _csrf(client), "invite_code": "test-invite",
         }, follow_redirects=True)
 
@@ -1335,8 +1335,11 @@ class TestBatchRescreening:
                         data={"csrf_token": _csrf(client)},
                         follow_redirects=True)
         assert r.status_code == 200
-        # Should show admin page (no error redirect)
-        assert "admin" in r.text.lower() or "sanctions" in r.text.lower()
+        # The error redirect also lands on /admin, so assert on the flash text:
+        # the route once read outcome['customers'] (a key rescreen_all does not
+        # return) and always reported "Re-screening failed: 'customers'".
+        assert "Re-screening failed" not in r.text
+        assert "Re-screened" in r.text
 
 
 class TestRuleConfigRoutes:
@@ -1357,7 +1360,7 @@ class TestRuleConfigRoutes:
         from amlkit.api.app import app
         alice = TestClient(app)
         alice.get("/login")
-        _login(alice, "alice-rules@testfirm.ae", "a-strong-password-2")
+        _login(alice, "alice-rules@testfirm.ae", "A-strong-password-2")
 
         r = alice.get("/admin/rule-config")
         assert r.status_code in (200, 403)
@@ -1426,7 +1429,7 @@ class TestRuleConfigRoutes:
         from amlkit.api.app import app
         bob = TestClient(app)
         bob.get("/login")
-        _login(bob, "bob-rescreen@testfirm.ae", "a-strong-password-2")
+        _login(bob, "bob-rescreen@testfirm.ae", "A-strong-password-2")
 
         r = bob.post(
             "/admin/rescreen",
@@ -1456,7 +1459,7 @@ class TestPolicyRepository:
         from amlkit.api.app import app
         bob = TestClient(app)
         bob.get("/login")
-        _login(bob, "bob-policy@testfirm.ae", "a-strong-password-2")
+        _login(bob, "bob-policy@testfirm.ae", "A-strong-password-2")
         r = bob.get("/policies")
         assert r.status_code == 200
         assert "policies" in r.text.lower()
@@ -1469,7 +1472,7 @@ class TestPolicyRepository:
         from amlkit.api.app import app
         sara = TestClient(app)
         sara.get("/login")
-        _login(sara, "sara-policy@testfirm.ae", "a-strong-password-2")
+        _login(sara, "sara-policy@testfirm.ae", "A-strong-password-2")
 
         # Try to upload as officer
         import io
@@ -1590,7 +1593,7 @@ class TestRuleConfigRoutes:
         from amlkit.api.app import app
         alice = TestClient(app)
         alice.get("/login")
-        _login(alice, "alice-rules@testfirm.ae", "a-strong-password-2")
+        _login(alice, "alice-rules@testfirm.ae", "A-strong-password-2")
 
         r = alice.get("/admin/rule-config")
         assert r.status_code in (200, 403)
@@ -1659,7 +1662,7 @@ class TestRuleConfigRoutes:
         from amlkit.api.app import app
         bob = TestClient(app)
         bob.get("/login")
-        _login(bob, "bob-rescreen@testfirm.ae", "a-strong-password-2")
+        _login(bob, "bob-rescreen@testfirm.ae", "A-strong-password-2")
 
         r = bob.post(
             "/admin/rescreen",

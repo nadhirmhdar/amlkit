@@ -112,7 +112,7 @@ def client(tmp_path, monkeypatch):
     register_org(c, "Mobile Test Firm", "Reviewer MLRO", "reviewer.mlro@mobiletestfirm.ae")
     for name, email, role in [("Second Officer With Long Name", "second.officer@mobiletestfirm.ae", "officer"),
                               ("Third MLRO", "third@mobiletestfirm.ae", "mlro")]:
-        c.post("/admin/operators", data={"name": name, "email": email, "password": "a-strong-password-2",
+        c.post("/admin/operators", data={"name": name, "email": email, "password": "A-strong-password-2",
                                          "role": role, "csrf_token": c.cookies.get("amlkit_csrf")})
     return c
 

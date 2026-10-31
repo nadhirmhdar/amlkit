@@ -18,7 +18,7 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
+def _register(client, org_name: str, name: str, email: str, password: str = "A-strong-password-1"):
     """Registers, completes email verification and signs in."""
     import re
 

@@ -105,7 +105,7 @@ def officer_client(mlro_client):
 
     created = mlro_client.post("/admin/operators", data={
         "name": "audit_officer", "email": "officer@audit.ae",
-        "password": "a-strong-password-2", "role": "officer",
+        "password": "A-strong-password-2", "role": "officer",
         "csrf_token": _csrf(mlro_client),
     }, follow_redirects=False)
     assert created.status_code in (200, 302, 303), created.status_code
@@ -117,7 +117,7 @@ def officer_client(mlro_client):
     officer = TestClient(app)
     officer.get("/login")
     officer.post("/login", data={
-        "email": "officer@audit.ae", "password": "a-strong-password-2",
+        "email": "officer@audit.ae", "password": "A-strong-password-2",
         "csrf_token": officer.cookies.get("amlkit_csrf"),
     }, follow_redirects=True)
     settle_mfa(officer)  # same as test_api._login; a no-op for officers
