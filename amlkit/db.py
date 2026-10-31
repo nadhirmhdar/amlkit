@@ -151,7 +151,15 @@ CREATE TABLE IF NOT EXISTS organizations (
     org_address            TEXT,
     reporting_person_name  TEXT,
     reporting_person_title TEXT,
-    reporting_person_phone TEXT
+    reporting_person_phone TEXT,
+    -- Stripe billing (optional; see amlkit/billing). plan 'trial' with no
+    -- trial_ends_at is a legacy org: unlimited, never write-blocked.
+    billing_customer_id     TEXT,
+    billing_subscription_id TEXT,
+    plan                    TEXT NOT NULL DEFAULT 'trial',
+    plan_status             TEXT,     -- trialing|active|past_due|canceled|unpaid
+    trial_ends_at           TEXT,
+    current_period_end      TEXT
 );
 
 -- Session tokens are stored hashed, exactly like a password would be -- the
@@ -931,6 +939,21 @@ CREATE TABLE IF NOT EXISTS uaepass_verifications (
 CREATE INDEX IF NOT EXISTS ix_uaepass_verif_org  ON uaepass_verifications(org_id);
 CREATE INDEX IF NOT EXISTS ix_uaepass_verif_cust ON uaepass_verifications(customer_id);
 
+-- Stripe webhook inbox. stripe_event_id UNIQUE makes handling idempotent: a
+-- replayed event is recognised by its id and not processed twice. payload is
+-- the verified event JSON; org_id is NULL when the event could not be
+-- attributed to an organisation.
+CREATE TABLE IF NOT EXISTS billing_events (
+    id              INTEGER PRIMARY KEY,
+    org_id          INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+    stripe_event_id TEXT NOT NULL UNIQUE,
+    type            TEXT NOT NULL,
+    payload         TEXT NOT NULL,
+    received_at     TEXT NOT NULL,
+    processed_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_billing_events_org ON billing_events(org_id);
+
 -- ---------------------------------------------------------- data_migrations
 -- One-shot data fixes that must not re-run on every connect() (unlike the
 -- IS NULL backfills, whose own WHERE clause makes them no-ops). No org_id:
@@ -1127,6 +1150,14 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # the name comparison when either side lacks an operator_id so existing
     # pending reviews are not silently reopened or blocked by this migration.
     ("alert_reviews", "operator_id", "ALTER TABLE alert_reviews ADD COLUMN operator_id INTEGER"),
+    # Stripe billing (additive; all nullable or defaulted so existing orgs are
+    # untouched: plan 'trial' + NULL trial_ends_at = legacy/unlimited).
+    ("organizations", "billing_customer_id",     "ALTER TABLE organizations ADD COLUMN billing_customer_id TEXT"),
+    ("organizations", "billing_subscription_id", "ALTER TABLE organizations ADD COLUMN billing_subscription_id TEXT"),
+    ("organizations", "plan",                    "ALTER TABLE organizations ADD COLUMN plan TEXT NOT NULL DEFAULT 'trial'"),
+    ("organizations", "plan_status",             "ALTER TABLE organizations ADD COLUMN plan_status TEXT"),
+    ("organizations", "trial_ends_at",           "ALTER TABLE organizations ADD COLUMN trial_ends_at TEXT"),
+    ("organizations", "current_period_end",      "ALTER TABLE organizations ADD COLUMN current_period_end TEXT"),
 )
 
 # Actions that operate on shared reference data (sanctions-list refreshes)

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% set nav = 'pricing' %}
+{% block title %}Pricing | groAML by Grovisor{% endblock %}
+{% block body %}
+
+<div style="max-width:860px;">
+  <div class="page-head">
+    <div class="eyebrow">Pricing</div>
+    <h1>Simple plans for UAE <span style="font-weight:500; color:var(--ink-2);">AML/CFT compliance</span></h1>
+    <p class="sub">
+      Every plan starts with a {{ trial_days }}-day free trial. Choose the plan that fits
+      how you work; you can change or cancel at any time from the billing page.
+    </p>
+  </div>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;" class="mb-6">
+    {% for c in cards %}
+    <div class="panel" style="display:flex; flex-direction:column;">
+      <h2 style="margin-bottom:4px;">{{ c.plan.name }}</h2>
+      <div class="muted small" style="min-height:40px;">{{ c.plan.audience }}</div>
+      <div style="font-size:22px; font-weight:700; margin:14px 0;">
+        {% if c.price %}{{ c.price }}{% else %}Contact us{% endif %}
+      </div>
+      <ul style="padding-left:18px; margin:0 0 14px; font-size:14px; line-height:1.6; color:var(--ink-2);">
+        <li>{{ c.plan.max_workspaces }} workspace{{ 's' if c.plan.max_workspaces != 1 }}</li>
+        <li>Up to {{ c.plan.max_operators }} operators</li>
+        <li>Up to {{ '{:,}'.format(c.plan.max_customers) }} customers</li>
+        {% for f in c.plan.features %}<li>{{ f }}</li>{% endfor %}
+      </ul>
+      <div style="margin-top:auto;">
+        <a class="btn" href="/register-organization">Start {{ trial_days }}-day trial</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="panel mb-6">
+    <h3>Need something different?</h3>
+    <p class="muted small mt-0">
+      Larger teams, several client firms beyond the Consultant plan, or specific
+      requirements: request a custom quotation and the Grovisor team will get back to you.
+    </p>
+    <a class="btn-outline" href="/apply">Request a quotation</a>
+  </div>
+
+  <p class="muted small">
+    groAML is provided by Grovisor Business Consultants FZE. Payments are processed by
+    Stripe; groAML never sees or stores your card details.
+  </p>
+</div>
+
+{% endblock %}

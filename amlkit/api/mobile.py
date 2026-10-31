@@ -41,6 +41,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from .. import auth, mail, queries, storage
 from .limits import limiter, login_rate_limit_key
+from ..billing.limits import BillingLimitError, check_limit
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     EXIT_REASONS,
@@ -629,6 +630,8 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
         )
     except StaleDatasetsError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except BillingLimitError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except sqlite3.IntegrityError as exc:
@@ -1480,6 +1483,10 @@ def api_admin_create_operator(body: OperatorCreateRequest, db: DB, session: Sess
     _require_mlro(session)
     if len(body.password) < 10:
         raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
+    try:
+        check_limit(db, session.org_id, "operators")
+    except BillingLimitError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     try:
         now = utcnow()
         cur = db.execute(

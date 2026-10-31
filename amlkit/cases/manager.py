@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from ..billing.limits import check_limit
 from ..db import audit, retry_on_lock, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, ScreeningResult, screen
 from ..names.arabic import canonical_key
@@ -240,6 +241,9 @@ def onboard(
             "Cannot onboard: no fresh mandatory sanctions dataset available. "
             "Ask an MLRO to run Admin → Refresh sources"
         )
+    # Plan cap / lapsed subscription (no-op unless Stripe billing is configured).
+    # Raises BillingLimitError, a ValueError, before anything is written.
+    check_limit(conn, org_id, "customers")
 
     # H-01: Validate UBO ownership sum cannot exceed 100%
     # All UBOs passed to onboard() are direct links (no parent_ubo_id)
