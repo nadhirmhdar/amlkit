@@ -261,14 +261,16 @@ class TestAlertDedup:
         assert n == 1
 
     def test_new_alert_allowed_once_prior_is_dispositioned(self, conn, org_id, customer_id) -> None:
-        """Dedup only suppresses *open* duplicates -- once a reviewer has
-        actually dispositioned the earlier alert, a fresh match must still
-        raise a new one rather than being silently swallowed forever."""
+        """Dedup suppresses open / pending_review duplicates and unchanged
+        dismissed (false_positive) matches. A *confirmed* match (true_positive)
+        must keep re-alerting after every list update rather than being
+        silently swallowed forever. (Dismissed matches: see
+        tests/test_screening_correctness.py::TestRealertDedupe.)"""
         first = screen(
             conn, "FOAD SALEHI", org_id=org_id, trigger="onboarding", customer_id=customer_id
         )
         conn.execute(
-            "UPDATE alerts SET status='false_positive' WHERE screening_id=?",
+            "UPDATE alerts SET status='true_positive' WHERE screening_id=?",
             (first.screening_id,),
         )
         conn.commit()

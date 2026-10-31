@@ -82,7 +82,36 @@ def clean_name_text(text: str) -> str:
     if not text:
         return ""
     text = unicodedata.normalize("NFKC", text)
-    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    return "".join(_name_char(ch) for ch in text)
+
+
+# Characters that are invisible (or render as blank space) but are not Cf.
+# Each was a confirmed bypass: dropping them is what makes "Ab<char>dul" and
+# "Abdul" the same name. Zs (all Unicode space separators, incl. U+3000) and
+# real whitespace controls (tab, CR/LF...) become a plain space so they still
+# separate tokens; every other control, VS, filler and private-use code point
+# is dropped so it cannot split one.
+_INVISIBLE_DROP = frozenset({
+    "\u034f",   # combining grapheme joiner (Mn)
+    "\u2800",   # braille pattern blank (So)
+    "\u115f", "\u1160", "\u3164", "\uffa0",  # hangul fillers (Lo, render blank)
+})
+
+
+_WHITESPACE_CONTROLS = frozenset("\t\n\r\x0b\x0c\x1c\x1d\x1e\x1f\x85\u2028\u2029")
+
+
+def _name_char(ch: str) -> str:
+    cat = unicodedata.category(ch)
+    if cat in ("Cf", "Co", "Cs") or ch in _INVISIBLE_DROP:
+        return ""
+    if "\ufe00" <= ch <= "\ufe0f" or "\U000e0100" <= ch <= "\U000e01ef":
+        return ""  # variation selectors (VS1-16, VS17-256)
+    if cat == "Zs" or ch in _WHITESPACE_CONTROLS:
+        return " "  # every space separator (incl. U+3000) and real whitespace
+    if cat == "Cc":
+        return ""  # other C0/C1 controls and DEL are invisible: drop, never split
+    return ch
 
 # Names that inherently start with "ال" or hamza-bearing variants as part of
 # their root, not as a definite article prefix. Issue #139: these must be

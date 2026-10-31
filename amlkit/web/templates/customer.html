@@ -7,6 +7,16 @@
 
 <a href="/customers" class="back-link">&larr; Customers</a>
 
+{% if unscreenable_names %}
+<div class="banner warning" id="unscreenable-banner">
+  <strong>Not screened.</strong>
+  {% for n in unscreenable_names %}{{ name(n) }}{% if not loop.last %}, {% endif %}{% endfor %}
+  could not be reduced to any searchable name tokens (unsupported characters?).
+  The absence of alerts is <strong>not</strong> a clear result &mdash; screen manually
+  with a Latin or Arabic spelling and record the outcome.
+</div>
+{% endif %}
+
 <div class="page-head" style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
   <div>
     <div class="title-row">
@@ -140,8 +150,35 @@
       <p class="muted small mt-4">
         Ruleset <code class="mono">{{ risk.ruleset_version }}</code> ·
         assessed {{ risk.assessed_at[:10] }} · next review {{ risk.next_review }}
+        {% if risk.next_review and risk.next_review < today %}<span class="tag high">Overdue</span>{% endif %}
       </p>
+      <form method="post" action="/customers/{{ c.id }}/periodic-review" class="row mt-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div><label for="review-outcome">Outcome</label>
+          <select id="review-outcome" name="outcome" required>
+            {% for key, label in review_outcomes.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+          </select></div>
+        <div class="grow"><label for="review-note">Review note (min. 10 characters)</label>
+          <input type="text" id="review-note" name="note" minlength="10" required></div>
+        <div><button class="small" type="submit">Complete periodic review</button></div>
+      </form>
     {% else %}<p class="muted">Not assessed.</p>{% endif %}
+  </div>
+
+  <div>
+    <div class="section-label">Periodic reviews</div>
+    {% if reviews %}
+    <div class="flat-list">
+      {% for rv in reviews %}
+      <div class="list-row">
+        <div class="nowrap">{{ rv.reviewed_at[:10] }}</div>
+        <div class="grow">{{ rv.reviewer_name }} · {{ review_outcomes.get(rv.outcome, rv.outcome) }}
+          {% if rv.new_risk_rating %}(now {{ rv.new_risk_rating }}){% endif %}
+          <div class="secondary" style="margin-top:0;">{{ rv.note }}</div></div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}<p class="muted small">No periodic review recorded.</p>{% endif %}
   </div>
 
   {% if effective_risk == 'high' and (customer.source_of_wealth or customer.source_of_funds) %}
