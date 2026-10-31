@@ -89,7 +89,10 @@ def test_setup_token_failed_insert_does_not_burn_token(dbp):
     _mk_setup_token(dbp, "tok-dup")
     k = dbm.connect(dbp)
     k.row_factory = sqlite3.Row
-    with pytest.raises(sqlite3.IntegrityError):
+    # The identity pre-check (WP-7) refuses the taken email with a ValueError
+    # before the claim; a race that slips past it still hits the UNIQUE index.
+    # Either way the token must stay unused.
+    with pytest.raises((sqlite3.IntegrityError, ValueError)):
         complete_initial_setup(k, "tok-dup", "D", "m@t.test", "Str0ng!Passw0rd")  # email exists
     k.close()
     assert _count(dbp, "SELECT used_at IS NULL FROM setup_tokens") == 1

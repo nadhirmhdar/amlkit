@@ -29,7 +29,7 @@ def api(tmp_path, monkeypatch):
     c = TestClient(app)
     r = c.post("/api/v1/auth/register-organization", json={
         "org_name": "Test Firm", "name": "alice", "email": "alice@testfirm.ae",
-        "password": "a-strong-password-1", "invite_code": "test-invite",
+        "password": "A-strong-password-1", "invite_code": "test-invite",
     })
     assert r.status_code == 200, r.text
     verify_token = r.json()["dev_verification_token"]
@@ -42,11 +42,11 @@ def api(tmp_path, monkeypatch):
 
     r3 = c.post("/api/v1/admin/operators", headers=mlro_headers, json={
         "name": "bob", "email": "bob@testfirm.ae",
-        "password": "another-strong-pw-1", "role": "officer",
+        "password": "Another-strong-pw-1", "role": "officer",
     })
     assert r3.status_code == 200, r3.text
     login = c.post("/api/v1/auth/login", json={
-        "email": "bob@testfirm.ae", "password": "another-strong-pw-1",
+        "email": "bob@testfirm.ae", "password": "Another-strong-pw-1",
     })
     assert login.status_code == 200, login.text
     officer_headers = {"Authorization": f"Bearer {login.json()['token']}"}

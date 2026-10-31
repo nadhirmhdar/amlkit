@@ -7,7 +7,7 @@ from amlkit.names.arabic import blocking_keys, canonical_key
 INVITE_CODE = "test-invite"
 
 
-def register_org(client, org_name, name, email, password="a-strong-password-1", invite_code="test-invite"):
+def register_org(client, org_name, name, email, password="A-strong-password-1", invite_code="test-invite"):
     """Register an organization and verify email to get a logged-in session.
 
     Used by test files that need a working organization fixture but don't use

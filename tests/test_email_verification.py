@@ -37,7 +37,7 @@ def client(tmp_path, monkeypatch):
 
 
 def _register(client, email="alice@testfirm.ae", org_name="Test Firm", name="alice",
-              password="a-strong-password-1", invite_code="test-invite"):
+              password="A-strong-password-1", invite_code="test-invite"):
     return client.post("/api/v1/auth/register-organization", json={
         "org_name": org_name, "name": name, "email": email, "password": password,
         "invite_code": invite_code,
@@ -55,7 +55,7 @@ class TestRegistrationDoesNotGrantAccess:
     def test_unverified_account_cannot_log_in(self, client) -> None:
         _register(client)
         r = client.post("/api/v1/auth/login", json={
-            "email": "alice@testfirm.ae", "password": "a-strong-password-1",
+            "email": "alice@testfirm.ae", "password": "A-strong-password-1",
         })
         assert r.status_code == 401
         assert "verify your email" in r.json()["detail"].lower()
@@ -84,7 +84,7 @@ class TestVerifyEmail:
         token = _register(client).json()["dev_verification_token"]
         client.post("/api/v1/auth/verify-email", json={"token": token})
         r = client.post("/api/v1/auth/login", json={
-            "email": "alice@testfirm.ae", "password": "a-strong-password-1",
+            "email": "alice@testfirm.ae", "password": "A-strong-password-1",
         })
         assert r.status_code == 200
         assert r.json()["token"]
@@ -233,7 +233,7 @@ class TestConfiguredMailFailureDoesNotLeakTheToken:
         # must remain unusable rather than quietly activating.
         _register(client)
         r = client.post("/api/v1/auth/login", json={
-            "email": "alice@testfirm.ae", "password": "a-strong-password-1",
+            "email": "alice@testfirm.ae", "password": "A-strong-password-1",
         })
         assert r.status_code == 401
 
@@ -244,7 +244,7 @@ class TestConfiguredMailFailureDoesNotLeakTheToken:
         csrf = client.cookies.get("amlkit_csrf")
         r = client.post("/register-organization", data={
             "org_name": "Web Firm", "name": "bob", "email": "bob@webfirm.ae",
-            "password": "a-strong-password-1", "csrf_token": csrf,
+            "password": "A-strong-password-1", "csrf_token": csrf,
             "invite_code": "test-invite",
         }, follow_redirects=True)
         assert r.status_code == 200

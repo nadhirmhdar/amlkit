@@ -116,7 +116,7 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
+def _register(client, org_name: str, name: str, email: str, password: str = "A-strong-password-1"):
     import re
 
     client.get("/register-organization")
@@ -215,7 +215,7 @@ class TestMobileScanEmiratesIdPdfRoute:
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "PDF Mobile OCR Test Firm",
             "name": "nadhir", "email": "nadhir@pdf-mobile-ocr-test.invalid",
-            "password": "a-strong-password-1", "invite_code": "test-invite",
+            "password": "A-strong-password-1", "invite_code": "test-invite",
         })
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "verification_required"

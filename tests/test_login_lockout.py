@@ -14,8 +14,8 @@ from amlkit import auth, db as dbm  # noqa: E402
 from amlkit.auth import MAX_FAILED_LOGINS  # noqa: E402
 
 GENERIC = "Incorrect email or password."
-PW = "a-strong-password-1"
-PW2 = "a-strong-password-2"
+PW = "A-strong-password-1"
+PW2 = "A-strong-password-2"
 
 
 @pytest.fixture()

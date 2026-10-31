@@ -826,9 +826,9 @@ def password_change_submit(
             "session": session, "nav": None, "err": "New passwords do not match."
         })
 
-    # Validate password complexity
+    # Validate password complexity (and that it differs from the current one)
     try:
-        auth.validate_password_complexity(new_password)
+        auth.check_new_password(new_password, current_hash=op_row["password_hash"])
     except auth.PasswordComplexityError as exc:
         return render(request, "password_change.html", {
             "session": session, "nav": None, "err": str(exc)
@@ -1124,6 +1124,15 @@ def setup_submit(
 
     try:
         result = complete_initial_setup(db, token, name, email, password)
+    except (auth.PasswordComplexityError, auth.IdentityError) as exc:
+        # The link itself is still good: keep the form so the user can fix the field.
+        tok_row = _valid_setup_token(db, token)
+        org = db.execute("SELECT name FROM organizations WHERE id=?", (tok_row["org_id"],)).fetchone() if tok_row else None
+        if org is None:
+            return render(request, "setup.html", {"session": None, "valid": False, "err": str(exc)})
+        return render(request, "setup.html", {
+            "session": None, "valid": True, "token": token, "org_name": org["name"], "err": str(exc),
+        })
     except ValueError as exc:
         return render(request, "setup.html", {
             "session": None, "valid": False, "err": str(exc),
@@ -3487,8 +3496,10 @@ def admin_reset_password(
     ).fetchone()
     if row is None:
         return back("/admin", err="Operator not found.")
-    if len(new_password) < 10:
-        return back("/admin", err="Password must be at least 10 characters.")
+    try:
+        auth.check_new_password(new_password)
+    except auth.PasswordComplexityError as exc:
+        return back("/admin", err=str(exc))
 
     auth.set_password(db, operator_id, new_password)
     from ..db import audit
@@ -3583,12 +3594,16 @@ def admin_create_operator(
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": str(exc)}, status_code=403)
 
-    if len(password) < 10:
-        return back("/admin", err="Password must be at least 10 characters.")
+    try:
+        auth.check_new_password(password)
+        clean_name, clean_email = auth.check_operator_identity(name, email)
+    except ValueError as exc:  # PasswordComplexityError / IdentityError
+        return back("/admin", err=str(exc))
     if role not in auth.OPERATOR_ROLES:
         return back("/admin", err="Role must be Officer or MLRO.")
-    if not auth.looks_like_email(email):
-        return back("/admin", err="Enter a valid email address.")
+    from ..cases.operators import operator_name_taken
+    if operator_name_taken(db, session.org_id, clean_name):
+        return back("/admin", err="An operator with that name or email already exists.")
     try:
         now = utcnow()
         cur = db.execute(
@@ -3601,16 +3616,16 @@ def admin_create_operator(
             """INSERT INTO operators
                    (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
                VALUES (?,?,?,?,?,1,?,?)""",
-            (session.org_id, name.strip(), email.strip().lower(),
+            (session.org_id, clean_name, clean_email,
              auth.hash_password(password), role, now, now),
         )
     except sqlite3.IntegrityError:
         return back("/admin", err="An operator with that name or email already exists.")
     from ..db import audit
     audit(db, session.operator_name, "operator.create", "operator", cur.lastrowid,
-          {"email": email.strip().lower(), "role": role}, org_id=session.org_id)
+          {"email": clean_email, "role": role}, org_id=session.org_id)
     db.commit()
-    return back("/admin", msg=f"Operator {name.strip()} created.")
+    return back("/admin", msg=f"Operator {clean_name} created.")
 
 
 @app.post("/admin/operators/{operator_id}/deactivate")
@@ -4616,7 +4631,7 @@ def change_password(
         return back("/profile", err="Current password is incorrect.")
 
     try:
-        auth.validate_password_complexity(new_password)
+        auth.check_new_password(new_password, current_hash=operator["password_hash"])
     except auth.PasswordComplexityError as exc:
         return back("/profile", err=str(exc))
 

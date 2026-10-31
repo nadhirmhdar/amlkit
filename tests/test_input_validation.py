@@ -77,7 +77,7 @@ def _operator_count() -> int:
 class TestAdminCreateOperator:
     def _post(self, client, **overrides):
         data = {"name": "bob", "email": "bob@testfirm.ae",
-                "password": "a-strong-password-2", "role": "officer",
+                "password": "A-strong-password-2", "role": "officer",
                 "csrf_token": _csrf(client)}
         data.update(overrides)
         return client.post("/admin/operators", data=data, follow_redirects=False)
@@ -182,7 +182,7 @@ def api(tmp_path, monkeypatch):
     c = TestClient(app)
     r = c.post("/api/v1/auth/register-organization", json={
         "org_name": "Test Firm", "name": "alice", "email": "alice@testfirm.ae",
-        "password": "a-strong-password-1", "invite_code": "test-invite",
+        "password": "A-strong-password-1", "invite_code": "test-invite",
     })
     assert r.status_code == 200, r.text
     r2 = c.post("/api/v1/auth/verify-email",

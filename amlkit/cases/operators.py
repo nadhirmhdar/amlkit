@@ -8,11 +8,53 @@ concerns like form rendering and cookie management.
 from __future__ import annotations
 
 import re
+import secrets
 import sqlite3
+import unicodedata
 from typing import Any
 
 from .. import auth, mail
 from ..db import audit, utcnow
+
+
+def operator_name_taken(
+    conn: sqlite3.Connection, org_id: int, name: str, exclude_id: int | None = None
+) -> bool:
+    """True when another operator in the org has this name, ignoring case,
+    width/compatibility forms (NFKC) and whitespace runs. The UNIQUE (org_id,
+    name) constraint only catches byte-identical names, so "Bob" and "bob"
+    would otherwise coexist and read as one person in the audit trail."""
+    key = auth.normalise_name_key(name)
+    for row in conn.execute("SELECT id, name FROM operators WHERE org_id=?", (org_id,)):
+        if row["id"] != exclude_id and auth.normalise_name_key(row["name"]) == key:
+            return True
+    return False
+
+
+def make_org_slug(conn: sqlite3.Connection, org_name: str) -> str:
+    """Return a unique slug for a new organisation, or raise ValueError.
+
+    A display name that matches an existing organisation (case/NFKC-folded) is
+    refused. Latin names slugify as before (and a slug already in use is
+    refused as "similar name"). A name with nothing slug-able in it (Arabic,
+    CJK, ...) gets "org-" plus a short random suffix so distinct firms never
+    collide on the UNIQUE slug.
+    """
+    key = auth.normalise_name_key(org_name)
+    for row in conn.execute("SELECT name FROM organizations"):
+        if auth.normalise_name_key(row["name"]) == key:
+            raise ValueError("An organization with a similar name already exists.")
+    # NFKD + ASCII fold keeps accented Latin names readable ("Societe" for "Société").
+    ascii_name = unicodedata.normalize("NFKD", org_name).encode("ascii", "ignore").decode()
+    base = re.sub(r"[^a-z0-9]+", "-", ascii_name.strip().lower()).strip("-")
+    if base:
+        if conn.execute("SELECT 1 FROM organizations WHERE slug=?", (base,)).fetchone():
+            raise ValueError("An organization with a similar name already exists.")
+        return base
+    while True:
+        slug = f"org-{secrets.token_hex(3)}"
+        if not conn.execute("SELECT 1 FROM organizations WHERE slug=?", (slug,)).fetchone():
+            return slug
 
 
 def register_organization(
@@ -28,23 +70,18 @@ def register_organization(
         ValueError: Invalid input (password too short, bad email, etc.)
         sqlite3.IntegrityError: Duplicate org name or email
     """
-    # Validate inputs
-    if len(password) < 10:
-        raise ValueError("Password must be at least 10 characters.")
-    if not auth.looks_like_email(email):
-        raise ValueError("Enter a valid email address.")
-
-    # Generate slug from org name
-    slug = re.sub(r"[^a-z0-9]+", "-", org_name.strip().lower()).strip("-") or "org"
-    clean_email = email.strip().lower()
-    clean_name = operator_name.strip()
+    # Validate inputs (PasswordComplexityError and IdentityError are ValueErrors)
+    auth.check_new_password(password)
+    clean_name, clean_email = auth.check_operator_identity(operator_name, email)
+    org_name = auth.check_org_name(org_name)
+    slug = make_org_slug(conn, org_name)
     now = utcnow()
 
     # Create organization
     try:
         cur = conn.execute(
             "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-            (org_name.strip(), slug, "active", now),
+            (org_name, slug, "active", now),
         )
     except sqlite3.IntegrityError as exc:
         raise ValueError("An organization with a similar name already exists.") from exc
@@ -67,7 +104,7 @@ def register_organization(
 
     # Audit organization creation
     audit(conn, clean_name, "organization.register", "organization", org_id,
-          {"org_name": org_name.strip()}, org_id=org_id)
+          {"org_name": org_name}, org_id=org_id)
     conn.commit()
 
     # Create email verification token and send email
@@ -108,8 +145,8 @@ def complete_initial_setup(
 
     if not setup_token:
         raise ValueError("Setup token is required.")
-    if len(password) < 10:
-        raise ValueError("Password must be at least 10 characters.")
+    auth.check_new_password(password)
+    clean_name, clean_email = auth.check_operator_identity(name, email)
 
     # Validate setup token
     token_hash = sha256(setup_token.encode()).hexdigest()
@@ -127,13 +164,18 @@ def complete_initial_setup(
     if expires_at < datetime.now(timezone.utc):
         raise ValueError("This setup link has expired.")
 
+    # Refuse a taken email / name BEFORE the token is consumed, so the link
+    # stays usable for a corrected retry.
+    if conn.execute("SELECT 1 FROM operators WHERE lower(email)=?", (clean_email,)).fetchone():
+        raise ValueError("An account with that email already exists.")
+    if operator_name_taken(conn, row["org_id"], clean_name):
+        raise ValueError("An operator with that name already exists in this organisation.")
+
     # Claim the token FIRST, atomically (L-66): the UPDATE only matches while
     # used_at IS NULL, so of N concurrent claimants exactly one gets
     # rowcount == 1. The operator INSERT shares the transaction, so a loser
     # creates nothing and a failed INSERT releases the token again.
     now = utcnow()
-    clean_email = email.strip().lower()
-    clean_name = name.strip()
     claim = conn.execute(
         "UPDATE setup_tokens SET used_at=? WHERE id=? AND used_at IS NULL",
         (now, row["id"]),
@@ -187,13 +229,11 @@ def provision_operator(
     # Validate inputs
     if not name or not email:
         raise ValueError("name and email are required")
-    if len(password) < 10:
-        raise ValueError("password must be at least 10 characters")
+    auth.check_new_password(password)
     if role not in auth.OPERATOR_ROLES:
         raise ValueError("role must be 'officer' or 'mlro'")
 
-    clean_email = email.strip().lower()
-    clean_name = name.strip()
+    clean_name, clean_email = auth.check_operator_identity(name, email)
 
     # Find target organization
     if org_slug:
@@ -208,6 +248,9 @@ def provision_operator(
 
     if org is None:
         raise ValueError("no matching active organization")
+
+    if operator_name_taken(conn, org["id"], clean_name):
+        raise ValueError("an operator with that name or email already exists")
 
     # Create operator with email already verified
     now = utcnow()
@@ -237,7 +280,7 @@ def provision_operator(
     }
 
 
-OPERATOR_NAME_MAX = 80
+OPERATOR_NAME_MAX = auth.OPERATOR_NAME_MAX
 
 
 def rename_operator(
@@ -261,11 +304,7 @@ def rename_operator(
         ValueError: blank or over-long name, operator not in this org, or the
             name is already taken by another operator in the org.
     """
-    clean = " ".join((new_name or "").split())
-    if not clean:
-        raise ValueError("Enter a name.")
-    if len(clean) > OPERATOR_NAME_MAX:
-        raise ValueError(f"Name must be {OPERATOR_NAME_MAX} characters or fewer.")
+    clean, _ = auth.check_operator_identity(new_name)
 
     row = conn.execute(
         "SELECT id, name FROM operators WHERE id=? AND org_id=?", (operator_id, org_id)
@@ -277,6 +316,9 @@ def rename_operator(
     if row["name"] == clean:
         return {**result, "changed": False}
 
+    # Case-/NFKC-insensitive: UNIQUE (org_id, name) only catches identical bytes.
+    if operator_name_taken(conn, org_id, clean, exclude_id=operator_id):
+        raise ValueError("Another operator in this organisation already has that name.")
     try:
         conn.execute(
             "UPDATE operators SET name=? WHERE id=? AND org_id=?", (clean, operator_id, org_id)

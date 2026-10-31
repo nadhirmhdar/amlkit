@@ -31,6 +31,7 @@ import hmac
 import re
 import secrets
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
@@ -128,6 +129,76 @@ def validate_password_complexity(password: str) -> None:
     # Special characters: anything that's not alphanumeric
     if not any(not c.isalnum() for c in password):
         raise PasswordComplexityError("Password must contain at least one special character")
+
+
+def _has_control_chars(value: str) -> bool:
+    """True for NUL and every other Unicode control character (category Cc)."""
+    return any(unicodedata.category(c) == "Cc" for c in value)
+
+
+def check_new_password(password: str, *, current_hash: str | None = None) -> None:
+    """The one password rule, used at every entry point that sets a password.
+
+    Runs the full complexity rule (validate_password_complexity), refuses NUL
+    and control characters, and, when `current_hash` is given (self-service
+    change), refuses a new password equal to the current one.
+
+    Raises PasswordComplexityError with a readable message; callers turn it
+    into a 400 / form error, never a 500.
+    """
+    if _has_control_chars(password):
+        raise PasswordComplexityError("Password must not contain control characters")
+    validate_password_complexity(password)
+    if current_hash and verify_password(password, current_hash):
+        raise PasswordComplexityError("New password must be different from the current password")
+
+
+class IdentityError(ValueError):
+    """Raised when an operator/organisation name or email is not acceptable."""
+
+
+OPERATOR_NAME_MAX = 120
+ORG_NAME_MAX = 200
+EMAIL_MAX = 254
+
+
+def normalise_name_key(value: str) -> str:
+    """Comparison key for duplicate-name checks: NFKC, casefolded, whitespace collapsed."""
+    return " ".join(unicodedata.normalize("NFKC", value or "").casefold().split())
+
+
+def check_operator_identity(name: str, email: str | None = None) -> tuple[str, str | None]:
+    """Validate and clean an operator's name (and email when given).
+
+    Returns (clean_name, clean_email). Raises IdentityError with a readable
+    message: blank name, name over OPERATOR_NAME_MAX, NUL/control characters,
+    or a malformed email.
+    """
+    clean_name = " ".join((name or "").split()) if not _has_control_chars(name or "") else None
+    if clean_name is None:
+        raise IdentityError("Name must not contain control characters.")
+    if not clean_name:
+        raise IdentityError("Enter a name.")
+    if len(clean_name) > OPERATOR_NAME_MAX:
+        raise IdentityError(f"Name must be {OPERATOR_NAME_MAX} characters or fewer.")
+    clean_email = None
+    if email is not None:
+        clean_email = email.strip().lower()
+        if _has_control_chars(clean_email) or len(clean_email) > EMAIL_MAX or not looks_like_email(clean_email):
+            raise IdentityError("Enter a valid email address.")
+    return clean_name, clean_email
+
+
+def check_org_name(org_name: str) -> str:
+    """Validate and clean an organisation name. Raises IdentityError."""
+    if _has_control_chars(org_name or ""):
+        raise IdentityError("Organisation name must not contain control characters.")
+    clean = " ".join((org_name or "").split())
+    if not clean:
+        raise IdentityError("Enter an organisation name.")
+    if len(clean) > ORG_NAME_MAX:
+        raise IdentityError(f"Organisation name must be {ORG_NAME_MAX} characters or fewer.")
+    return clean
 
 
 # --------------------------------------------------------------------- hash
