@@ -32,7 +32,7 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
+def _register(client, org_name: str, name: str, email: str, password: str = "A-strong-password-1"):
     """Registers, then completes email verification via the dev-fallback
     link the response renders (no SMTP configured in tests -- see
     amlkit/mail.py), so callers still get back a signed-in client."""
@@ -214,7 +214,7 @@ class TestIdentityVerificationE2E:
         import io
         r = client.post(
             "/customers/scan-passport",
-            files={"passport_file": ("test.jpg", io.BytesIO(b"not a real image"), "image/jpeg")},
+            files={"passport_file": ("test.jpg", io.BytesIO(__import__("conftest").real_image_bytes()), "image/jpeg")},
             data={"csrf_token": _csrf(client)},
         )
         assert r.status_code == 200

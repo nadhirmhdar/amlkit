@@ -1002,9 +1002,20 @@ def recent_audit(conn: sqlite3.Connection, org_id: int, limit: int = 6) -> list[
 
 
 def operators(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
-    return [dict(r) for r in conn.execute(
-        "SELECT id, name, email, role, is_active, super_admin FROM operators WHERE org_id=? ORDER BY name",
-        (org_id,))]
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    rows = []
+    for r in conn.execute(
+        "SELECT o.id, o.name, o.email, o.role, o.is_active, o.super_admin,"
+        " (o.locked_until IS NOT NULL AND o.locked_until > ?) AS login_locked,"
+        " (m.locked_until IS NOT NULL AND m.locked_until > ?) AS mfa_locked"
+        " FROM operators o LEFT JOIN mfa_secrets m ON m.operator_id = o.id"
+        " WHERE o.org_id=? ORDER BY o.name",
+        (now, now, org_id)):
+        d = dict(r)
+        d["login_locked"] = bool(d["login_locked"])
+        d["mfa_locked"] = bool(d["mfa_locked"])
+        rows.append(d)
+    return rows
 
 
 def datasets(conn: sqlite3.Connection) -> list[dict[str, Any]]:

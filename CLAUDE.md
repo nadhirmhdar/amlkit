@@ -131,6 +131,7 @@ Merged in #361. **Switched on in production against the UAE PASS staging sandbox
 - `AMLKIT_BIND_HOST` / `AMLKIT_PORT` — server bind address
 - `AMLKIT_SSL_KEYFILE` / `AMLKIT_SSL_CERTFILE` — TLS config
 - `AMLKIT_BEHIND_PROXY` — set to `1` when behind a reverse proxy
+- `AMLKIT_MAX_UPLOAD_BYTES` / `AMLKIT_MAX_IMAGE_PIXELS` — caps enforced by `validation.validate_upload()` on every scan route (web + mobile passport / Emirates ID / trade licence), mobile document upload and policy upload: default 10 MB per upload (413) and 25 megapixels per image, read from the header only (413); content that is not PDF/PNG/JPEG (DOCX too, for policies) is 415. Scan routes are limited to 10/minute per operator. Stored document blobs get a generated unique name (`storage.stored_name`); the client filename lives only in `documents.filename`
 - `SCHEDULER_SECRET` — bearer token for `/system/refresh` and `/system/check-freeze-obligations` (hourly Cloud Scheduler job `amlkit-freeze-obligations-check`; emails MLROs once per freeze obligation pending > 24h)
 - `ADMIN_API_SECRET` — bearer token for `/system/create-operator`
 - `AMLKIT_SINGLE_OPERATOR_MODE` — skip four-eyes review requirement

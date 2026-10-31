@@ -56,7 +56,7 @@ def api(tmp_path, monkeypatch):
     c = TestClient(app)
     r = c.post("/api/v1/auth/register-organization", json={
         "org_name": "Order Firm", "name": "alice", "email": "alice@order.ae",
-        "password": "a-strong-password-1", "invite_code": "test-invite"})
+        "password": "A-strong-password-1", "invite_code": "test-invite"})
     assert r.status_code == 200, r.text
     r2 = c.post("/api/v1/auth/verify-email", json={"token": r.json()["dev_verification_token"]})
     assert r2.status_code == 200, r2.text

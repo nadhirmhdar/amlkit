@@ -127,7 +127,7 @@ def test_officers_have_an_empty_inbox(client):
     _make_match(client)
     _add_operator(client, "olive", "olive@testfirm.ae")
     client.post("/logout", data={"csrf_token": _csrf(client)})
-    _login(client, "olive@testfirm.ae", "a-strong-password-2")
+    _login(client, "olive@testfirm.ae", "A-strong-password-2")
     assert _count(client) == 0
     assert "No notifications" in client.get("/notifications").text
 

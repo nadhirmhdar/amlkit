@@ -24,7 +24,7 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register_mlro(client, org_name: str, email: str, password: str = "strong-pass-1"):
+def _register_mlro(client, org_name: str, email: str, password: str = "Strong-pass-1"):
     """Register MLRO and complete verification."""
     import re
     client.get("/register-organization")

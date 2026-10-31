@@ -128,7 +128,7 @@ def test_mobile_api_rejects_non_creatable_type(tmp_path, monkeypatch) -> None:
     client = TestClient(app)
     r = client.post("/api/v1/auth/register-organization", json={
         "org_name": "Test Firm", "name": "alice", "email": "alice@testfirm.ae",
-        "password": "a-strong-password-1", "invite_code": "test-invite",
+        "password": "A-strong-password-1", "invite_code": "test-invite",
     })
     r = client.post("/api/v1/auth/verify-email", json={"token": r.json()["dev_verification_token"]})
     token = r.json()["token"]

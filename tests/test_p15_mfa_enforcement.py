@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-PASSWORD = "a-strong-password-1"
+PASSWORD = "A-strong-password-1"
 EMAIL = "alice@testfirm.ae"
 
 
@@ -178,11 +178,11 @@ def test_officer_login_is_not_challenged(client):
     _login(client)
     _enrol(client)
     client.post("/admin/operators", data={
-        "name": "bob", "email": "bob@testfirm.ae", "password": "a-strong-password-2",
+        "name": "bob", "email": "bob@testfirm.ae", "password": "A-strong-password-2",
         "role": "officer", "csrf_token": _csrf(client),
     })
     _logout(client)
-    r = _login(client, "bob@testfirm.ae", "a-strong-password-2")
+    r = _login(client, "bob@testfirm.ae", "A-strong-password-2")
     assert r.status_code == 303 and r.headers["location"] == "/"
     assert client.get("/dashboard", follow_redirects=False).status_code == 200
 
@@ -304,11 +304,11 @@ def test_mobile_officer_token_is_not_locked(client):
     _login(client)
     _enrol(client)
     client.post("/admin/operators", data={
-        "name": "bob", "email": "bob@testfirm.ae", "password": "a-strong-password-2",
+        "name": "bob", "email": "bob@testfirm.ae", "password": "A-strong-password-2",
         "role": "officer", "csrf_token": _csrf(client),
     })
     _logout(client)
-    body = _mobile_login(client, "bob@testfirm.ae", "a-strong-password-2").json()
+    body = _mobile_login(client, "bob@testfirm.ae", "A-strong-password-2").json()
     assert body["mfa_required"] is False and "mfa_enrolled" not in body
     headers = {"Authorization": f"Bearer {body['token']}"}
     assert client.get("/api/v1/dashboard", headers=headers).status_code == 200

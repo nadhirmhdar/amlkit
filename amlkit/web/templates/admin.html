@@ -83,6 +83,16 @@
       <div class="op-col-status" data-label="Status"><span class="tag {{ 'low' if op.is_active else 'other' }}">{{ 'active' if op.is_active else 'deactivated' }}</span></div>
       <div class="op-col-actions">
         {% if op.is_active %}
+        {% if op.login_locked or op.mfa_locked %}
+        <form method="post" action="/admin/operators/{{ op.id }}/unlock" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <span class="tag high">{{ 'MFA locked' if op.mfa_locked else 'Sign-in locked' }}</span>
+          <button class="small" type="submit"
+                  data-confirm="Clear the sign-in and MFA locks for {{ op.name }}?">
+            Unlock
+          </button>
+        </form>
+        {% endif %}
         <details class="d-inline">
           <summary class="small cursor-pointer" style="color:var(--accent); font-weight:700;">Rename</summary>
           <form method="post" action="/admin/operators/{{ op.id }}/rename" class="mt-4">

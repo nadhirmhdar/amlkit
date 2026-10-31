@@ -58,7 +58,7 @@ def _create_org_with_mlro(conn, org_name, slug, mlro_email):
     conn.execute(
         """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
            VALUES (?,?,?,?,?,1,?)""",
-        (org_id, "mlro", mlro_email, hash_password("test-password-1"), "mlro", now),
+        (org_id, "mlro", mlro_email, hash_password("Test-password-1"), "mlro", now),
     )
     conn.commit()
     return org_id
