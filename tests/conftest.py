@@ -228,3 +228,15 @@ def org_id(conn) -> int:
     ).fetchone()
     conn.commit()
     return row["id"]
+
+
+def real_image_bytes(fmt: str = "JPEG", size: tuple[int, int] = (16, 16)) -> bytes:
+    """A small but genuinely decodable image. Upload routes now read the image
+    header (amlkit.validation.validate_upload), so magic-byte stubs no longer pass."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", size, "white").save(buf, fmt)
+    return buf.getvalue()

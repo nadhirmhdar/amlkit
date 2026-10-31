@@ -308,7 +308,13 @@ async function performPassportOCR(input) {
       method: 'POST',
       body: formData
     });
-    if (!res.ok) throw new Error('Scan failed');
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json()).detail || ''; } catch (e) { /* non-JSON body */ }
+      const failure = new Error('Scan failed');
+      failure.detail = (typeof detail === 'string') ? detail : '';
+      throw failure;
+    }
     const data = await res.json();
 
     // Auto-fill form fields
@@ -340,6 +346,9 @@ async function performPassportOCR(input) {
       document.querySelector('select[name="gender"]').value = data.gender;
     }
 
+    // "Scan complete" only when at least one field was actually extracted.
+    const extracted = ['full_name', 'nationality', 'birth_date', 'gender', 'id_number', 'expiry_date']
+      .some(function (k) { return !!data[k]; });
     const warnEl = document.getElementById('scan-authenticity');
     const flags = [
       ...((data.authenticity && data.authenticity.flags) || []),
@@ -354,15 +363,21 @@ async function performPassportOCR(input) {
       warnEl.textContent = 'Document check: ' + flags.join('; ') +
         '. Verify this document manually before relying on the extracted fields.';
       warnEl.style.display = 'block';
-      statusEl.textContent = 'Scan complete — see warning below.';
+      statusEl.textContent = extracted
+        ? 'Scan complete — see warning below.'
+        : 'Nothing could be read from this image — enter the details manually. See warning below.';
     } else {
       warnEl.style.display = 'none';
-      statusEl.textContent = data.authenticity
-        ? 'Scan complete. MRZ checksums verified.'
-        : 'Scan complete (MRZ not read — fields extracted via OCR fallback have no authenticity check).';
+      if (!extracted) {
+        statusEl.textContent = 'Nothing could be read from this image — enter the details manually.';
+      } else {
+        statusEl.textContent = data.authenticity
+          ? 'Scan complete. MRZ checksums verified.'
+          : 'Scan complete (MRZ not read — fields extracted via OCR fallback have no authenticity check).';
+      }
     }
   } catch (err) {
-    statusEl.textContent = 'Scan failed. Please enter manually.';
+    statusEl.textContent = (err && err.detail ? err.detail + ' ' : '') + 'Scan failed. Please enter manually.';
   }
 }
 
@@ -382,7 +397,13 @@ async function performTradeLicenceOCR(input) {
       method: 'POST',
       body: formData
     });
-    if (!res.ok) throw new Error('Scan failed');
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json()).detail || ''; } catch (e) { /* non-JSON body */ }
+      const failure = new Error('Scan failed');
+      failure.detail = (typeof detail === 'string') ? detail : '';
+      throw failure;
+    }
     const data = await res.json();
 
     if (data.full_name) {
@@ -431,7 +452,7 @@ async function performTradeLicenceOCR(input) {
         + ' No authenticity check exists for trade licences -- verify manually.';
     }
   } catch (err) {
-    statusEl.textContent = 'Scan failed. Please enter manually.';
+    statusEl.textContent = (err && err.detail ? err.detail + ' ' : '') + 'Scan failed. Please enter manually.';
   }
 }
 

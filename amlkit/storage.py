@@ -22,6 +22,8 @@ rows and new GCS rows coexist without a migration.
 from __future__ import annotations
 
 import os
+import re
+import uuid
 from pathlib import Path
 
 from .db import DB_PATH
@@ -37,8 +39,33 @@ def _gcs_client():
     return storage.Client()
 
 
+def check_client_filename(filename: str) -> None:
+    """Reject a client-supplied filename that carries a path (separators or `..`)."""
+    if not filename or "/" in filename or "\\" in filename or ".." in filename or "\x00" in filename:
+        raise ValueError("Invalid filename.")
+
+
+def stored_name(filename: str) -> str:
+    """Unique object name for one upload: uuid4 hex plus a sanitised extension.
+
+    The client's filename is display metadata only (it lives in the
+    `documents` row); it never becomes part of the storage key, so two
+    uploads named alike can never overwrite each other.
+    """
+    check_client_filename(filename)
+    ext = Path(filename).suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,10}", ext):
+        ext = ""
+    return f"{uuid.uuid4().hex}{ext}"
+
+
 def upload(content: bytes, org_id: int, customer_id: int, filename: str) -> str:
-    """Store document content and return the stored_path to record in the DB."""
+    """Store document content and return the stored_path to record in the DB.
+
+    `filename` is the client's name (validated, then replaced by a unique
+    stored name); keep it in the `documents` row for display.
+    """
+    filename = stored_name(filename)
     if _GCS_BUCKET:
         return _upload_gcs(content, org_id, customer_id, filename)
     return _upload_local(content, org_id, customer_id, filename)
