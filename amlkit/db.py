@@ -590,8 +590,8 @@ CREATE INDEX IF NOT EXISTS ix_am_find_status ON adverse_media_findings(status);
 
 -- ------------------------------------------------------ Google Cloud media pipeline
 -- The "Audit Vault" for screening/media_pipeline.py: a 4-stage pipeline
--- (BigQuery GKG + GDELT DOC + Vertex AI Search acquisition -> Knowledge Graph
--- + Natural Language entity resolution -> Gemini triage) that is a richer,
+-- (GDELT DOC + Vertex AI Search acquisition ->
+-- Natural Language entity resolution -> Gemini triage) that is a richer,
 -- optional *implementation* of adverse-media screening, gated by
 -- AMLKIT_MEDIA_PIPELINE. It is not a replacement for the tables above: every
 -- pipeline-sourced finding an operator should be able to disposition is ALSO
@@ -609,7 +609,7 @@ CREATE TABLE IF NOT EXISTS media_pipeline_runs (
     status             TEXT NOT NULL,   -- ok | partial | unavailable
     query_name         TEXT NOT NULL,
     query_arabic       TEXT,
-    -- json: {"gdelt_doc": n, "gdelt_bq": n, "vertex_search": n} -- how many
+    -- json: {"gdelt_doc": n, "vertex_search": n} -- how many
     -- candidate articles each acquisition source contributed, even ones later
     -- dropped at entity-resolution or triage. Lets a reviewer tell "Vertex AI
     -- Search found nothing" apart from "Vertex AI Search was never queried".
@@ -636,7 +636,7 @@ CREATE TABLE IF NOT EXISTS media_pipeline_articles (
     run_id         INTEGER NOT NULL REFERENCES media_pipeline_runs(id) ON DELETE CASCADE,
     customer_id    INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
     url            TEXT NOT NULL,
-    source         TEXT NOT NULL,   -- gdelt_doc | gdelt_bq | vertex_search
+    source         TEXT NOT NULL,   -- gdelt_doc | vertex_search
     title          TEXT,
     domain         TEXT,
     language       TEXT,

@@ -2103,43 +2103,6 @@ def evidence_pack(request: Request, db: DB, customer_id: int):
                                                      "effective_risk": eff_risk}, db)
 
 
-@app.get("/customers/{customer_id}/gdelt-bq")
-def customer_gdelt_bq(request: Request, db: DB, customer_id: int):
-    from fastapi.responses import JSONResponse
-    try:
-        session = require_session(request, db)
-    except PermissionError:
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-    cust = queries.customer(db, customer_id, session.org_id)
-    if not cust:
-        return JSONResponse({"error": "not found"}, status_code=404)
-
-    from ..screening.gdelt_bq import GdeltBqScreener
-    screener = GdeltBqScreener()
-    result = screener.screen(cust["customer"]["full_name"])
-
-    from dataclasses import asdict
-    return JSONResponse(asdict(result))
-
-
-@app.get("/customers/{customer_id}/kg-screen")
-def customer_kg_screen(request: Request, db: DB, customer_id: int):
-    from fastapi.responses import JSONResponse
-    try:
-        session = require_session(request, db)
-    except PermissionError:
-        return RedirectResponse("/login", status_code=303)
-    cust = queries.customer(db, customer_id, session.org_id)
-    if cust is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    from ..screening.knowledge_graph import KnowledgeGraphScreener
-    from dataclasses import asdict
-    screener = KnowledgeGraphScreener()
-    result = screener.screen(cust["customer"]["full_name"])
-    return JSONResponse(asdict(result))
-
-
 @app.get("/customers/{customer_id}/evidence.pdf")
 def evidence_pack_pdf(request: Request, db: DB, customer_id: int):
     try:

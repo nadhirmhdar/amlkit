@@ -21,7 +21,7 @@ rather than skipping entity resolution outright.
 Pinned against google-cloud-language 2.21.0 (the `language_v1` module,
 `LanguageServiceClient.analyze_entity_sentiment`). Uses Application Default
 Credentials -- no API key, consistent with running as a Cloud Run service
-account (see module docstring pattern in screening/gdelt_bq.py).
+account (see module docstring pattern in screening/vertex_search.py).
 """
 
 from __future__ import annotations

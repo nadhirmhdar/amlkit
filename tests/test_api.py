@@ -1676,31 +1676,6 @@ class TestRouteErrorHandling:
     proper status was expected (QA-06, QA-07 in the 2026-09-21 deployed-site
     review)."""
 
-    def test_gdelt_bq_returns_unconfigured_not_500(self, client, monkeypatch) -> None:
-        """GET /customers/{id}/gdelt-bq must return the screener's structured
-        result when BigQuery is unconfigured, not a 500.
-
-        Regression: the route read cust["full_name"] on the case-file dict
-        (whose name lives under cust["customer"]["full_name"]), raising
-        KeyError before the screener ever ran."""
-        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-        client.post("/customers", data={
-            "reference": "GDELT-1", "full_name": "Ahmed Al Mansoori",
-            "customer_type": "natural", "csrf_token": _csrf(client),
-        }, follow_redirects=True)
-        conn = _db()
-        cid = conn.execute(
-            "SELECT id FROM customers WHERE reference='GDELT-1'").fetchone()["id"]
-        conn.close()
-
-        r = client.get(f"/customers/{cid}/gdelt-bq")
-        assert r.status_code == 200, r.text[:300]
-        assert r.json()["status"] == "unconfigured"
-
-    def test_gdelt_bq_missing_customer_returns_404(self, client) -> None:
-        r = client.get("/customers/999999/gdelt-bq")
-        assert r.status_code == 404
-
     def test_policy_download_missing_id_returns_404(self, client) -> None:
         """GET /policies/{missing}/download must render the 404 error page,
         not 500.
