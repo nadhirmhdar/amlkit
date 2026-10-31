@@ -71,6 +71,7 @@ amlkit/
 - **Audit trail**: Append-only via DB triggers. `db.audit()` requires `org_id` explicitly (even `None` for shared data).
 - **Test style**: Integration tests with real SQLite databases (no mocks for DB). `TestClient` from FastAPI for HTTP tests. Register + verify email flow via `_register()` helper in test_api.py.
 - **DB writes**: `busy_timeout=30000` PRAGMA + `retry_on_lock` decorator in db.py for long operations.
+- **Periodic review clock**: `risk_assessments.next_review` is set at onboarding and then ONLY by `cases.manager.complete_periodic_review` (web `POST /customers/{id}/periodic-review`, mobile `POST /api/v1/customers/{id}/periodic-review`). Transaction-alert, adverse-media, rescreen and factor re-assessments carry the prior date forward (`risk.model.save(carry_next_review=True)`).
 - **CSRF**: Synchronizer token pattern — cookie + hidden form field, validated on every POST.
 - **MFA (TOTP)**: Mandatory for MLROs only. Every path that mints a session (password login, verify-email auto-login, setup-token claim, UAE PASS SSO, mobile) calls `auth.mfa_lock_session()` right after `create_session()`, which locks an MLRO's session until `/mfa/verify` (or `/mfa/setup` if not enrolled). Backup codes, a 5-miss/15-min lockout, and a 30-day "remember this device" cookie (`amlkit_trusted_device`) are supported. Other roles are not challenged.
 

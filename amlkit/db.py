@@ -423,6 +423,22 @@ CREATE TABLE IF NOT EXISTS risk_assessments (
 );
 CREATE INDEX IF NOT EXISTS ix_risk_cust ON risk_assessments(customer_id);
 
+-- Completed periodic CDD reviews. Only an explicit review resets
+-- risk_assessments.next_review; see cases.manager.complete_periodic_review.
+CREATE TABLE IF NOT EXISTS periodic_reviews (
+    id                   INTEGER PRIMARY KEY,
+    org_id               INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id          INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    reviewer_operator_id INTEGER,
+    reviewer_name        TEXT NOT NULL,
+    outcome              TEXT NOT NULL
+                         CHECK (outcome IN ('no_change','risk_changed','exit_relationship')),
+    new_risk_rating      TEXT,
+    note                 TEXT NOT NULL CHECK (length(note) >= 10),
+    reviewed_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_periodic_reviews_cust ON periodic_reviews(customer_id, id);
+
 CREATE TABLE IF NOT EXISTS documents (
     id          INTEGER PRIMARY KEY,
     org_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

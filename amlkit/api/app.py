@@ -17,6 +17,7 @@ every tenant.
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -42,6 +43,8 @@ from ..cases.manager import (
     add_case_note,
     add_ubo,
     close_relationship,
+    complete_periodic_review,
+    periodic_reviews,
     reactivate_customer,
     disposition_adverse_media_finding,
     disposition_transaction_alert,
@@ -2036,7 +2039,9 @@ def customer_detail(request: Request, db: DB, customer_id: int):
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
-                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
+                 data | {"today": datetime.now(timezone.utc).date().isoformat(),
+                         "reviews": periodic_reviews(db, customer_id, session.org_id),
+                         "review_outcomes": REVIEW_OUTCOME_LABELS,"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
                          "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
 
 
@@ -2294,6 +2299,41 @@ def customer_close(request: Request, db: DB, customer_id: int,
     except ValueError as exc:
         return back(f"/customers/{customer_id}", err=str(exc))
     return back(f"/customers/{customer_id}", msg=f"Relationship closed. Records retained until {until}.")
+
+
+REVIEW_OUTCOME_LABELS = {
+    "no_change": "No change",
+    "risk_changed": "Risk changed (re-assess)",
+    "exit_relationship": "Exit the relationship",
+}
+
+
+@app.post("/customers/{customer_id}/periodic-review")
+def customer_periodic_review(
+    request: Request, db: DB, customer_id: int,
+    outcome: Annotated[str, Form()] = "",
+    note: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Complete a periodic CDD review. The only action that resets the
+    customer's next review date."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+        require_role(session, *auth.OPERATOR_ROLES)
+    except PermissionError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    try:
+        complete_periodic_review(db, session.org_id, customer_id, session,
+                                 outcome, note)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return back(f"/customers/{customer_id}", msg="Periodic review recorded.")
 
 
 @app.post("/customers/{customer_id}/reactivate")
