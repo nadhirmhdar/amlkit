@@ -27,6 +27,7 @@ review rather than the obvious first draft:
 
 from __future__ import annotations
 
+import hmac
 import re
 import secrets
 import sqlite3
@@ -415,11 +416,20 @@ def _log_auth_event(
 def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None = None) -> tuple[str, SessionInfo]:
     """Authenticate and return (raw_session_token, SessionInfo).
 
-    Raises AuthError with one generic message on any failure -- unknown
-    email, no password set yet (pre-tenancy operator that has not been
-    claimed), wrong password, inactive account, or lockout. An attacker
-    should not be able to tell these apart, and an operator who forgot which
-    of these applies to them contacts their admin either way.
+    Raises AuthError with one generic message on any credential failure --
+    unknown email, no password set yet (pre-tenancy operator that has not
+    been claimed), wrong password, inactive account, or an active lockout.
+    An attacker should not be able to tell these apart (a distinct lock
+    message would confirm the email exists and, with an expiry time, say
+    when to strike again), and an operator who forgot which of these applies
+    to them contacts their admin either way. The cause of a lockout stays in
+    auth_log (reason "locked") for admins. The one specific message is "verify
+    your email", raised only after the correct password was supplied.
+
+    A lock that has expired is cleared (failed_login_count=0,
+    locked_until=NULL) before the password is checked, so a single wrong
+    password after the lock lapses starts a fresh window instead of
+    re-locking the account at once.
     """
     email = (email or "").strip().lower()
     generic = AuthError("Incorrect email or password.")
@@ -444,14 +454,20 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
         _log_auth_event(conn, "login_failure", email, {"reason": "unknown_email"}, ip=ip)
         raise generic
 
+    failed_so_far = row["failed_login_count"]
     if row["locked_until"]:
         locked_until = datetime.fromisoformat(row["locked_until"])
         if locked_until > datetime.now(timezone.utc):
+            # Same text as an unknown email or a wrong password: nothing here
+            # confirms the account exists or when the lock lapses.
             _log_auth_event(conn, "login_failure", email, {"reason": "locked"}, ip=ip)
-            raise AuthError(
-                f"Account locked after repeated failed attempts. Try again after "
-                f"{locked_until.strftime('%H:%M UTC')}, or ask an admin to reset it."
-            )
+            raise generic
+        # Lock has expired: start a fresh window.
+        conn.execute(
+            "UPDATE operators SET failed_login_count=0, locked_until=NULL WHERE id=?", (row["id"],)
+        )
+        conn.commit()
+        failed_so_far = 0
 
     # Explicitly named guard, not relied upon implicitly via a hash-comparison
     # that would fail against None anyway -- this is the one line standing
@@ -463,7 +479,7 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
         raise generic
 
     if not verify_password(password, row["password_hash"]):
-        failed = row["failed_login_count"] + 1
+        failed = failed_so_far + 1
         lock_sql = ""
         params: list = [failed]
         if failed >= MAX_FAILED_LOGINS:
@@ -637,7 +653,14 @@ def consume_email_verify_token(conn: sqlite3.Connection, raw_token: str):
     if row is None:
         return None
     now = utcnow()
-    conn.execute("UPDATE email_verify_tokens SET used_at=? WHERE id=?", (now, row["id"]))
+    # Atomic single-use claim (L-76): only one concurrent redeemer matches.
+    claim = conn.execute(
+        "UPDATE email_verify_tokens SET used_at=? WHERE id=? AND used_at IS NULL",
+        (now, row["id"]),
+    )
+    if claim.rowcount != 1:
+        conn.rollback()
+        return None
     conn.execute(
         "UPDATE operators SET email_verified_at=? WHERE id=? AND email_verified_at IS NULL",
         (now, row["operator_id"]),
@@ -747,15 +770,33 @@ def mfa_verify(conn, operator_id: int, code: str, *, confirmed_only: bool = Fals
     import pyotp
 
     row = conn.execute(
-        "SELECT secret, confirmed_at FROM mfa_secrets WHERE operator_id=?",
+        "SELECT secret, confirmed_at, last_step FROM mfa_secrets WHERE operator_id=?",
         (operator_id,)
     ).fetchone()
 
     if not row or (confirmed_only and row["confirmed_at"] is None):
         return False
 
+    # RFC 6238 s5.2 (L-40): a TOTP code is accepted once. Find the matching
+    # time-step within the +-1 window and refuse it unless it is newer than the
+    # last accepted step; the UPDATE re-checks that, so two concurrent
+    # submissions of one code cannot both pass.
+    code = (code or "").strip()
     totp = pyotp.TOTP(row["secret"])
-    return totp.verify(code, valid_window=1)
+    now_step = totp.timecode(datetime.now(timezone.utc))
+    last = row["last_step"] if row["last_step"] is not None else -1
+    for step in (now_step - 1, now_step, now_step + 1):
+        if step <= last:
+            continue
+        if hmac.compare_digest(totp.generate_otp(step), code):
+            cur = conn.execute(
+                "UPDATE mfa_secrets SET last_step=? WHERE operator_id=?"
+                " AND (last_step IS NULL OR last_step < ?)",
+                (step, operator_id, step),
+            )
+            conn.commit()
+            return cur.rowcount == 1
+    return False
 
 
 def mfa_confirm(conn, operator_id: int) -> list[str]:
@@ -920,12 +961,14 @@ def mfa_verify_backup_code(conn, operator_id: int, code: str) -> bool:
         except (VerifyMismatchError, Exception):
             continue
         from .db import utcnow
-        conn.execute(
-            "UPDATE mfa_backup_codes SET used_at=? WHERE id=?",
+        # Atomic single-use claim (L-69): of two concurrent submissions of the
+        # same code only the one whose UPDATE matches used_at IS NULL succeeds.
+        cur = conn.execute(
+            "UPDATE mfa_backup_codes SET used_at=? WHERE id=? AND used_at IS NULL",
             (utcnow(), row["id"])
         )
         conn.commit()
-        return True
+        return cur.rowcount == 1
 
     return False
 
@@ -1083,7 +1126,14 @@ def consume_uaepass_state(
         row["org_id"] != org_id or row["customer_id"] != customer_id
     ):
         return None
-    conn.execute("UPDATE uaepass_states SET consumed_at=? WHERE id=?", (utcnow(), row["id"]))
+    # Atomic single-use claim (L-77): only one concurrent callback matches.
+    cur = conn.execute(
+        "UPDATE uaepass_states SET consumed_at=? WHERE id=? AND consumed_at IS NULL",
+        (utcnow(), row["id"]),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
+        return None
     conn.commit()
     return row
 

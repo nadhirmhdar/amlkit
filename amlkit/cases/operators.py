@@ -171,18 +171,29 @@ def complete_initial_setup(
     if operator_name_taken(conn, row["org_id"], clean_name):
         raise ValueError("An operator with that name already exists in this organisation.")
 
-    # Create operator with email already verified
+    # Claim the token FIRST, atomically (L-66): the UPDATE only matches while
+    # used_at IS NULL, so of N concurrent claimants exactly one gets
+    # rowcount == 1. The operator INSERT shares the transaction, so a loser
+    # creates nothing and a failed INSERT releases the token again.
     now = utcnow()
-    cur = conn.execute(
-        """INSERT INTO operators
-               (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-           VALUES (?,?,?,?,?,1,?,?)""",
-        (row["org_id"], clean_name, clean_email, auth.hash_password(password), "mlro", now, now),
+    claim = conn.execute(
+        "UPDATE setup_tokens SET used_at=? WHERE id=? AND used_at IS NULL",
+        (now, row["id"]),
     )
+    if claim.rowcount != 1:
+        conn.rollback()
+        raise ValueError("This setup link has already been used.")
+    try:
+        cur = conn.execute(
+            """INSERT INTO operators
+                   (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
+               VALUES (?,?,?,?,?,1,?,?)""",
+            (row["org_id"], clean_name, clean_email, auth.hash_password(password), "mlro", now, now),
+        )
+    except Exception:
+        conn.rollback()
+        raise
     operator_id = cur.lastrowid
-
-    # Mark token as used
-    conn.execute("UPDATE setup_tokens SET used_at=? WHERE id=?", (now, row["id"]))
     conn.commit()
 
     # Audit setup completion
