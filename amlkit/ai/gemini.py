@@ -12,7 +12,7 @@ Two backends, selected by `AMLKIT_GEMINI_BACKEND`:
                        Credentials (the Cloud Run service account in
                        production -- no API key at all). Set
                        AMLKIT_VERTEX_PROJECT (or GOOGLE_CLOUD_PROJECT, already
-                       used by screening/gdelt_bq.py and pii.py) and
+                       used by pii.py) and
                        optionally AMLKIT_VERTEX_LOCATION.
 
 Both backends are driven through the current `google-genai` SDK

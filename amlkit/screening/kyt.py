@@ -91,7 +91,14 @@ HIGH_RISK_COUNTRIES: frozenset[str] = frozenset({
 # request pattern above anyway, so this adds no cost to the normal case.
 _CACHE_TTL_SECONDS = 300.0
 
-_config_cache: dict[tuple[int, int], tuple[dict[str, Any], float]] = {}
+# Value: (connection, config, expires_at). The entry holds a STRONG reference
+# to its connection, so CPython cannot recycle that connection's id() for a new
+# one while the entry is alive, and get_rule_config additionally checks
+# `entry_conn is conn`. (id() alone was unsafe: a fresh connection could get a
+# closed one's id and read its stale config for up to the TTL. sqlite3
+# connections allow neither attributes nor weakrefs, so a per-connection
+# attribute is not an option.) Closed connections are dropped by the TTL sweep.
+_config_cache: dict[tuple[int, int], tuple[Any, dict[str, Any], float]] = {}
 
 
 def _cache_key(conn, org_id: int) -> tuple[int, int]:
@@ -99,7 +106,7 @@ def _cache_key(conn, org_id: int) -> tuple[int, int]:
 
 
 def _prune_expired_cache_entries(now: float) -> None:
-    expired = [k for k, (_, expires_at) in _config_cache.items() if expires_at <= now]
+    expired = [k for k, (_, _, expires_at) in _config_cache.items() if expires_at <= now]
     for k in expired:
         del _config_cache[k]
 
@@ -205,9 +212,13 @@ def evaluate_transaction(
     if method in STRUCTURING_METHODS and not _has_open_alert(
         conn, org_id, customer_id, "structuring"
     ):
-        window_start = (
-            _parse(occurred_at) - timedelta(days=structuring_window_days)
-        ).isoformat()
+        # Transactions can be entered out of order (a back-dated one recorded
+        # after a later one), so look on BOTH sides of this transaction and
+        # test every window of structuring_window_days that contains it, in
+        # timestamp order. For in-order entry nothing exists after `occurred_at`,
+        # so this reduces to the earlier "window ending at this transaction".
+        window = timedelta(days=structuring_window_days)
+        current_ts = _parse(occurred_at)
         placeholders = ",".join("?" * len(STRUCTURING_METHODS))
         rows = conn.execute(
             f"""SELECT amount_aed, amount_units, amount_nanos, occurred_at
@@ -217,7 +228,8 @@ def evaluate_transaction(
                   AND occurred_at >= ? AND occurred_at <= ?
                   AND id != ?""",
             (customer_id, org_id, direction, *sorted(STRUCTURING_METHODS),
-             window_start, occurred_at, transaction_id),
+             (current_ts - window).isoformat(), (current_ts + window).isoformat(),
+             transaction_id),
         ).fetchall()
 
         def _row_to_money(r) -> Money:
@@ -225,18 +237,30 @@ def evaluate_transaction(
                 return Money("AED", r["amount_units"], r["amount_nanos"] or 0)
             return Money.from_float(r["amount_aed"], "AED")
 
-        recent_money = [current_money] + [_row_to_money(r) for r in rows]
-        under_threshold = [m for m in recent_money if m < threshold_money]
+        events: list[tuple[datetime, Money, bool]] = [(current_ts, current_money, True)]
+        for r in rows:
+            try:
+                events.append((_parse(r["occurred_at"]), _row_to_money(r), False))
+            except ValueError:
+                continue
+        events.sort(key=lambda e: e[0])
         zero = Money("AED", 0, 0)
-        under_threshold_total = zero
-        for m in under_threshold:
-            under_threshold_total = under_threshold_total + m
-        under_threshold_count = len(under_threshold)
-        if (
-            under_threshold_total >= threshold_money
-            and current_money < threshold_money
-            and under_threshold_count >= structuring_min_count
-        ):
+        hit: tuple[Money, int] | None = None
+        if current_money < threshold_money:
+            for i, (start_ts, _, _) in enumerate(events):
+                total, count, has_current = zero, 0, False
+                for ts, m, is_current in events[i:]:
+                    if ts - start_ts > window:
+                        break
+                    if m < threshold_money:
+                        total = total + m
+                        count += 1
+                    has_current = has_current or is_current
+                if has_current and total >= threshold_money and count >= structuring_min_count:
+                    hit = (total, count)
+                    break
+        if hit is not None:
+            under_threshold_total, under_threshold_count = hit
             triggered.append(TriggeredRule(
                 rule_key="structuring",
                 severity="high",
@@ -346,8 +370,8 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
     key = _cache_key(conn, org_id)
     cached = _config_cache.get(key)
     if cached is not None:
-        config, expires_at = cached
-        if time.monotonic() < expires_at:
+        cached_conn, config, expires_at = cached
+        if cached_conn is conn and time.monotonic() < expires_at:
             return config
 
     row = conn.execute(
@@ -382,7 +406,7 @@ def get_rule_config(conn, org_id: int) -> dict[str, Any]:
 
     now = time.monotonic()
     _prune_expired_cache_entries(now)
-    _config_cache[key] = (config, now + _CACHE_TTL_SECONDS)
+    _config_cache[key] = (conn, config, now + _CACHE_TTL_SECONDS)
     return config
 
 
@@ -405,6 +429,11 @@ def save_rule_config(
     """
     from ..db import audit, utcnow
 
+    for _k in ("large_cash_threshold_aed", "structuring_window_days",
+               "velocity_window_hours", "velocity_max_count"):
+        if _k in config and not (isinstance(config[_k], (int, float))
+                                 and math.isfinite(config[_k])):
+            raise ValueError(f"{_k.replace('_', ' ')} must be a finite number")
     for key, value in config.items():
         if isinstance(value, float) and not math.isfinite(value):
             raise ValueError(f"{key.replace('_', ' ')} must be a finite number")

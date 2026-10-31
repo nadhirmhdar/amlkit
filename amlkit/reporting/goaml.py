@@ -17,9 +17,45 @@ Generates XML files compliant with goAML 5.x schema requirements for:
 
 from __future__ import annotations
 
+import re
 import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+
+
+# Characters XML 1.0 forbids: C0 controls except tab/LF/CR, lone surrogates,
+# and U+FFFE/U+FFFF. A single one (a vertical tab pasted from Word or a PDF is
+# the usual source) makes the whole filing non-well-formed.
+_XML_ILLEGAL_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+
+
+def find_xml_illegal(value, path: str = "") -> list[str]:
+    """Paths (e.g. ``narrative`` or ``transactions[0].description``) of every
+    string in ``value`` containing an XML-illegal character."""
+    found: list[str] = []
+    if isinstance(value, str):
+        if _XML_ILLEGAL_RE.search(value):
+            found.append(path or "(value)")
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            found += find_xml_illegal(v, f"{path}.{k}" if path else str(k))
+    elif isinstance(value, (list, tuple)):
+        for i, v in enumerate(value):
+            found += find_xml_illegal(v, f"{path}[{i}]")
+    return found
+
+
+def strip_xml_illegal(value):
+    """Copy of ``value`` with XML-illegal characters removed from every string.
+    The exporter's safety net for drafts saved before finalise rejected them;
+    finalise itself refuses (report_finalize_error) rather than altering text."""
+    if isinstance(value, str):
+        return _XML_ILLEGAL_RE.sub("", value)
+    if isinstance(value, dict):
+        return {k: strip_xml_illegal(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [strip_xml_illegal(v) for v in value]
+    return value
 
 
 class GoAMLValidationError(ValueError):
@@ -193,6 +229,7 @@ def serialize_goaml_xml(report_data: dict) -> str:
     - assets_frozen (list of asset dicts with type/identifier/amount_aed)
     - identified_at, executed_at (ISO timestamps)
     """
+    report_data = strip_xml_illegal(report_data)
     report_code = report_data.get("report_type", "STR").upper()
 
     # Gate unsupported report types (no creation routes)

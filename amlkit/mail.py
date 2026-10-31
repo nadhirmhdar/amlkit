@@ -222,6 +222,15 @@ def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
         return FAILED
 
 
+def header_safe(value, *, max_len: int = 120) -> str:
+    """Collapse a user-supplied value to one printable line for an email header:
+    CR/LF and every other control character become a space, runs of whitespace
+    collapse, and the result is capped at max_len."""
+    text = "".join(" " if (ord(c) < 32 or 0x7F <= ord(c) < 0xA0 or c in "\u2028\u2029") else c
+                   for c in str(value if value is not None else ""))
+    return " ".join(text.split())[:max_len]
+
+
 def send_freeze_obligation_alert(
     to_email: str,
     freeze_obligation_id: int,
@@ -262,12 +271,15 @@ def send_freeze_obligation_alert(
     risk_badge = "🔴 CRITICAL" if risk_category == "critical" else "🟡 HIGH"
 
     detail_url = f"{app_base_url()}/freeze-obligations/{freeze_obligation_id}"
+    # The reference is operator-typed and ends up in a header: strip CR/LF and
+    # other control characters so one bad row cannot raise and stop the batch.
+    ref_safe = header_safe(customer_reference)
 
     if not is_configured():
         print(
             "\n" + "=" * 72 +
             f"\namlkit: TFS FREEZE OBLIGATION ALERT\n"
-            f"Customer: {customer_reference}\n"
+            f"Customer: {ref_safe}\n"
             f"Type: {type_display}\n"
             f"Risk: {risk_badge}\n\n"
             "No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.\n\n"
@@ -283,25 +295,30 @@ def send_freeze_obligation_alert(
     from_addr = sender_address(user)
     use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
 
-    msg = EmailMessage()
-    msg["Subject"] = f"[URGENT] TFS Freeze Obligation - {customer_reference}"
-    msg["From"] = from_header(from_addr)
-    msg["To"] = to_email
-    msg.set_content(
-        f"URGENT: New TFS freeze obligation identified\n\n"
-        f"Customer: {customer_reference}\n"
-        f"Obligation Type: {type_display}\n"
-        f"Risk Category: {risk_badge}\n\n"
-        "IMMEDIATE ACTION REQUIRED:\n"
-        "- Review the freeze obligation details immediately\n"
-        "- Execute asset freeze without delay\n"
-        "- Document all frozen assets\n"
-        "- File a CNMR (Confirmed Name Match Report) on goAML within 5 business days\n\n"
-        "Cabinet Resolution 134/2025 places personal liability on senior management\n"
-        "for TFS compliance failures. Asset freezes must be executed immediately upon\n"
-        "identification per UAE law.\n\n"
-        f"View freeze obligation: {detail_url}\n"
-    )
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = f"[URGENT] TFS Freeze Obligation - {ref_safe}"
+        msg["From"] = from_header(from_addr)
+        msg["To"] = to_email
+        msg.set_content(
+            f"URGENT: New TFS freeze obligation identified\n\n"
+            f"Customer: {ref_safe}\n"
+            f"Obligation Type: {type_display}\n"
+            f"Risk Category: {risk_badge}\n\n"
+            "IMMEDIATE ACTION REQUIRED:\n"
+            "- Review the freeze obligation details immediately\n"
+            "- Execute asset freeze without delay\n"
+            "- Document all frozen assets\n"
+            "- File a CNMR (Confirmed Name Match Report) on goAML within 5 business days\n\n"
+            "Cabinet Resolution 134/2025 places personal liability on senior management\n"
+            "for TFS compliance failures. Asset freezes must be executed immediately upon\n"
+            "identification per UAE law.\n\n"
+            f"View freeze obligation: {detail_url}\n"
+        )
+    except (ValueError, TypeError, UnicodeError):
+        logger.exception("Could not build freeze obligation alert for obligation %d",
+                         freeze_obligation_id)
+        return FAILED
 
     try:
         with smtplib.SMTP(host, port, timeout=15) as smtp:
@@ -430,7 +447,7 @@ def send_application_notice(application_id: int, a: dict) -> str:
         "Reply to this email to answer them directly.",
     ]
     msg = EmailMessage()
-    msg["Subject"] = f"groAML quotation request: {a['org_name']}"[:150]
+    msg["Subject"] = f"groAML quotation request: {header_safe(a['org_name'])}"[:150]
     recipients = quote_recipients()
     msg["To"] = ", ".join(recipients)
     msg["Reply-To"] = formataddr((a["contact_name"], a["email"]))
