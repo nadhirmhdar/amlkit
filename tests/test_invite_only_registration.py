@@ -40,7 +40,7 @@ class TestRegistrationDisabledWhenNotConfigured:
         monkeypatch.delenv("AMLKIT_REGISTRATION_INVITE_CODE", raising=False)
         r = client.post("/register-organization", data={
             "org_name": "Evil Corp", "name": "mallory", "email": "mallory@evil.ae",
-            "password": "strong-enough-1", "csrf_token": csrf,
+            "password": "Strong-enough-1", "csrf_token": csrf,
         })
         assert r.status_code in (200, 403)
         assert "invalid invite code" in r.text.lower()
@@ -49,7 +49,7 @@ class TestRegistrationDisabledWhenNotConfigured:
         monkeypatch.delenv("AMLKIT_REGISTRATION_INVITE_CODE", raising=False)
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "Evil Corp", "name": "mallory", "email": "mallory@evil.ae",
-            "password": "strong-enough-1",
+            "password": "Strong-enough-1",
         })
         assert r.status_code == 403
         assert "invite code" in r.json()["detail"].lower()
@@ -60,7 +60,7 @@ class TestWrongInviteCode:
         csrf = _csrf(client)
         r = client.post("/register-organization", data={
             "org_name": "Evil Corp", "name": "mallory", "email": "mallory@evil.ae",
-            "password": "strong-enough-1", "csrf_token": csrf,
+            "password": "Strong-enough-1", "csrf_token": csrf,
             "invite_code": "wrong-code",
         })
         assert "invalid invite code" in r.text.lower()
@@ -69,21 +69,21 @@ class TestWrongInviteCode:
         csrf = _csrf(client)
         r = client.post("/register-organization", data={
             "org_name": "Evil Corp", "name": "mallory", "email": "mallory@evil.ae",
-            "password": "strong-enough-1", "csrf_token": csrf,
+            "password": "Strong-enough-1", "csrf_token": csrf,
         })
         assert "invalid invite code" in r.text.lower()
 
     def test_api_refused_with_wrong_code(self, client):
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "Evil Corp", "name": "mallory", "email": "mallory@evil.ae",
-            "password": "strong-enough-1", "invite_code": "wrong-code",
+            "password": "Strong-enough-1", "invite_code": "wrong-code",
         })
         assert r.status_code == 403
 
     def test_api_refused_without_code(self, client):
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "Evil Corp", "name": "mallory", "email": "mallory@evil.ae",
-            "password": "strong-enough-1",
+            "password": "Strong-enough-1",
         })
         assert r.status_code == 403
 
@@ -93,7 +93,7 @@ class TestValidInviteCode:
         csrf = _csrf(client)
         r = client.post("/register-organization", data={
             "org_name": "Good Firm", "name": "alice", "email": "alice@good.ae",
-            "password": "strong-enough-1", "csrf_token": csrf,
+            "password": "Strong-enough-1", "csrf_token": csrf,
             "invite_code": INVITE_CODE,
         }, follow_redirects=True)
         assert "check your email" in r.text.lower() or "Check" in r.text
@@ -101,7 +101,7 @@ class TestValidInviteCode:
     def test_api_registration_succeeds(self, client):
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "Good Firm", "name": "alice", "email": "alice@good.ae",
-            "password": "strong-enough-1", "invite_code": INVITE_CODE,
+            "password": "Strong-enough-1", "invite_code": INVITE_CODE,
         })
         assert r.status_code == 200
         assert r.json()["status"] == "verification_required"
@@ -109,7 +109,7 @@ class TestValidInviteCode:
     def test_invite_code_with_whitespace_accepted(self, client):
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "Good Firm", "name": "alice", "email": "alice@good.ae",
-            "password": "strong-enough-1", "invite_code": f"  {INVITE_CODE}  ",
+            "password": "Strong-enough-1", "invite_code": f"  {INVITE_CODE}  ",
         })
         assert r.status_code == 200
 
@@ -126,7 +126,7 @@ class TestAuthEventLogging:
         csrf = _csrf(client)
         client.post("/register-organization", data={
             "org_name": "Evil Corp", "name": "mallory", "email": "mallory@evil.ae",
-            "password": "strong-enough-1", "csrf_token": csrf,
+            "password": "Strong-enough-1", "csrf_token": csrf,
             "invite_code": "wrong-code",
         })
         conn = connect(str(tmp_path / "test.db"))
@@ -148,21 +148,21 @@ class TestAuthEventLogging:
         csrf = _csrf(client)
         client.post("/register-organization", data={
             "org_name": "Good Firm", "name": "alice", "email": "alice@good.ae",
-            "password": "strong-enough-1", "csrf_token": csrf,
+            "password": "Strong-enough-1", "csrf_token": csrf,
             "invite_code": INVITE_CODE,
         }, follow_redirects=True)
         m = re.search(r"/verify-email\?token=([^\"&<\s]+)", client.get("/register-organization").text)
         if not m:
             r2 = client.post("/register-organization", data={
                 "org_name": "Good Firm", "name": "alice", "email": "alice@good.ae",
-                "password": "strong-enough-1", "csrf_token": _csrf(client),
+                "password": "Strong-enough-1", "csrf_token": _csrf(client),
                 "invite_code": INVITE_CODE,
             }, follow_redirects=True)
             m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r2.text)
 
         client.post("/register-organization", data={
             "org_name": "Attacker Inc", "name": "attacker", "email": "attacker@evil.ae",
-            "password": "strong-enough-1", "csrf_token": _csrf(client),
+            "password": "Strong-enough-1", "csrf_token": _csrf(client),
             "invite_code": "bad-code",
         })
 
@@ -191,7 +191,7 @@ class TestNonRegression:
         csrf = _csrf(client)
         r = client.post("/register-organization", data={
             "org_name": "Login Test Firm", "name": "bob", "email": "bob@login.ae",
-            "password": "strong-enough-1", "csrf_token": csrf,
+            "password": "Strong-enough-1", "csrf_token": csrf,
             "invite_code": INVITE_CODE,
         }, follow_redirects=True)
         import re
@@ -201,7 +201,7 @@ class TestNonRegression:
 
         client.get("/login")
         r2 = client.post("/login", data={
-            "email": "bob@login.ae", "password": "strong-enough-1",
+            "email": "bob@login.ae", "password": "Strong-enough-1",
             "csrf_token": client.cookies.get("amlkit_csrf"),
         }, follow_redirects=True)
         assert r2.status_code == 200
@@ -213,7 +213,7 @@ class TestNonRegression:
         csrf = _csrf(client)
         r = client.post("/register-organization", data={
             "org_name": "System Test Firm", "name": "admin", "email": "admin@sys.ae",
-            "password": "strong-enough-1", "csrf_token": csrf,
+            "password": "Strong-enough-1", "csrf_token": csrf,
             "invite_code": INVITE_CODE,
         }, follow_redirects=True)
         m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
@@ -228,7 +228,7 @@ class TestNonRegression:
 
         r = client.post("/system/create-operator", json={
             "name": "officer", "email": "officer@sys.ae",
-            "password": "strong-enough-1", "role": "officer",
+            "password": "Strong-enough-1", "role": "officer",
             "org_slug": org_slug,
         }, headers={"Authorization": "Bearer test-admin-secret"})
         assert r.status_code == 200
@@ -239,13 +239,13 @@ class TestNonRegression:
         for i in range(5):
             r = client.post("/api/v1/auth/register-organization", json={
                 "org_name": f"Firm {i}", "name": f"user{i}", "email": f"user{i}@test.ae",
-                "password": "strong-enough-1", "invite_code": INVITE_CODE,
+                "password": "Strong-enough-1", "invite_code": INVITE_CODE,
             })
             assert r.status_code == 200, f"attempt {i+1} should succeed: {r.status_code}"
 
         r = client.post("/api/v1/auth/register-organization", json={
             "org_name": "ExtraFirm", "name": "extra", "email": "extra@test.ae",
-            "password": "strong-enough-1", "invite_code": INVITE_CODE,
+            "password": "Strong-enough-1", "invite_code": INVITE_CODE,
         })
         assert r.status_code == 429, f"6th attempt should be 429 (got {r.status_code})"
 
@@ -255,14 +255,14 @@ class TestNonRegression:
             csrf = _csrf(client)
             r = client.post("/register-organization", data={
                 "org_name": f"WebFirm{i}", "name": f"user{i}", "email": f"web{i}@test.ae",
-                "password": "strong-enough-1", "csrf_token": csrf, "invite_code": INVITE_CODE,
+                "password": "Strong-enough-1", "csrf_token": csrf, "invite_code": INVITE_CODE,
             })
             assert r.status_code in (200, 303), f"attempt {i+1} should succeed: {r.status_code}"
 
         csrf = _csrf(client)
         r = client.post("/register-organization", data={
             "org_name": "WebFirmExtra", "name": "extra", "email": "webextra@test.ae",
-            "password": "strong-enough-1", "csrf_token": csrf, "invite_code": INVITE_CODE,
+            "password": "Strong-enough-1", "csrf_token": csrf, "invite_code": INVITE_CODE,
         })
         assert r.status_code == 429, f"6th attempt should be 429 (got {r.status_code})"
 

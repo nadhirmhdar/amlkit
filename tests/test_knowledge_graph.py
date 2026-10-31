@@ -210,7 +210,7 @@ class TestKgScreenRoute:
         c.get("/register-organization")
         r = c.post("/register-organization", data={
             "org_name": "KG Test Firm", "name": "tester",
-            "email": "tester@kgtest.ae", "password": "a-strong-password-1",
+            "email": "tester@kgtest.ae", "password": "A-strong-password-1",
             "csrf_token": c.cookies.get("amlkit_csrf"), "invite_code": "test-invite",
         }, follow_redirects=True)
         m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)

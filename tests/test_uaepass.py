@@ -306,7 +306,7 @@ def _extract_state(location: str) -> str:
     return parse_qs(urlparse(location).query)["state"][0]
 
 
-def _create_officer(client, name: str, email: str, password: str = "a-strong-password-1") -> None:
+def _create_officer(client, name: str, email: str, password: str = "A-strong-password-1") -> None:
     r = client.post("/admin/operators", data={
         "name": name, "email": email, "password": password, "role": "officer",
         "csrf_token": _csrf(client),

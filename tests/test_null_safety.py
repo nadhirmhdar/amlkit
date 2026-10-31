@@ -88,7 +88,7 @@ class TestAdminViewOrgMissing:
         client.get("/register-organization")
         r = client.post("/register-organization", data={
             "org_name": "Vanishing Org", "name": "admin",
-            "email": "admin@vanish.test", "password": "a-strong-password-1",
+            "email": "admin@vanish.test", "password": "A-strong-password-1",
             "csrf_token": _csrf(), "invite_code": "test-invite",
         }, follow_redirects=True)
         m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)

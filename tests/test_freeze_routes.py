@@ -227,7 +227,7 @@ def test_officer_cannot_execute_freeze(client):
     from amlkit.api.app import app
     officer_client = TestClient(app)
     officer_client.get("/login")
-    _login(officer_client, "charlie@testfirm.ae", "a-strong-password-2")
+    _login(officer_client, "charlie@testfirm.ae", "A-strong-password-2")
 
     # Officer attempts to execute
     r = officer_client.post(f"/freeze-obligations/{freeze_id}/execute",
@@ -278,7 +278,7 @@ def test_cross_org_freeze_isolation(client):
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
     bob_client = TestClient(app)
-    _register(bob_client, "Other Firm", "bob", "bob@otherfirm.ae", "strong-pass-123")
+    _register(bob_client, "Other Firm", "bob", "bob@otherfirm.ae", "Strong-pass-123")
 
     # Bob (different org MLRO) tries to execute Alice's freeze
     r = bob_client.post(f"/freeze-obligations/{alice_freeze_id}/execute",
@@ -638,7 +638,7 @@ def test_freeze_button_on_dashboard_for_mlro_only(client):
     from amlkit.api.app import app
     officer = TestClient(app)
     officer.get("/login")
-    _login(officer, "dora@testfirm.ae", "a-strong-password-2")
+    _login(officer, "dora@testfirm.ae", "A-strong-password-2")
     officer_dash = officer.get("/dashboard").text
     assert 'class="btn-outline"' not in officer_dash
 
@@ -694,7 +694,7 @@ def test_freeze_detail_hides_action_forms_from_officers(client):
     from amlkit.api.app import app
     officer = TestClient(app)
     officer.get("/login")
-    _login(officer, "erin@testfirm.ae", "a-strong-password-2")
+    _login(officer, "erin@testfirm.ae", "A-strong-password-2")
     page = officer.get(f"/freeze-obligations/{freeze_id}").text
     assert f"<h1>Freeze Obligation #{freeze_id}</h1>" in page
     assert 'class="freeze-action"' not in page

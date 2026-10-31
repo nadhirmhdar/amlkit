@@ -243,6 +243,9 @@ def send_freeze_obligation_alert(
         - Link to freeze obligation detail page
         - Reminder: freeze must be executed immediately per UAE law
 
+    Only raised for UN Security Council / UAE Local Terrorist List matches
+    (see ``sanctions_scope.is_uae_freeze_list``); callers gate on that.
+
     Returns the same three-valued outcome: SENT, NOT_CONFIGURED, or FAILED.
     Never raises.
     """

@@ -7,7 +7,7 @@ from amlkit.names.arabic import blocking_keys, canonical_key
 INVITE_CODE = "test-invite"
 
 
-def register_org(client, org_name, name, email, password="a-strong-password-1", invite_code="test-invite"):
+def register_org(client, org_name, name, email, password="A-strong-password-1", invite_code="test-invite"):
     """Register an organization and verify email to get a logged-in session.
 
     Used by test files that need a working organization fixture but don't use
@@ -37,6 +37,36 @@ def _invite_code_and_limiter_reset(monkeypatch):
     limiter.reset()
     yield
     limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def _totp_fresh_step(monkeypatch):
+    """Tests mint a code with pyotp.TOTP(...).now() and may do so several times
+    inside one 30 s step (enrol, then log in again). The server now accepts a
+    TOTP step once (RFC 6238 s5.2, mfa_secrets.last_step), so minting a code
+    here stands in for 'a new step has begun': clear the stored step in the
+    app database first. Replay behaviour itself is tested in
+    test_atomic_consume.py with explicit steps and its own database."""
+    import os
+    import sqlite3
+    import pyotp
+
+    orig = pyotp.TOTP.now
+
+    def now(self):
+        path = os.environ.get("AMLKIT_DB")
+        if path and os.path.exists(path):
+            try:
+                c = sqlite3.connect(path, timeout=5)
+                c.execute("UPDATE mfa_secrets SET last_step=NULL")
+                c.commit()
+                c.close()
+            except sqlite3.Error:
+                pass
+        return orig(self)
+
+    monkeypatch.setattr(pyotp.TOTP, "now", now)
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -198,3 +228,15 @@ def org_id(conn) -> int:
     ).fetchone()
     conn.commit()
     return row["id"]
+
+
+def real_image_bytes(fmt: str = "JPEG", size: tuple[int, int] = (16, 16)) -> bytes:
+    """A small but genuinely decodable image. Upload routes now read the image
+    header (amlkit.validation.validate_upload), so magic-byte stubs no longer pass."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", size, "white").save(buf, fmt)
+    return buf.getvalue()

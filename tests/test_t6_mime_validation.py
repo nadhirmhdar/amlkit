@@ -99,8 +99,10 @@ def test_valid_png_accepted(tmp_path, monkeypatch):
 
     token = _setup_db(tmp_path, monkeypatch)
 
-    # Valid PNG content
-    png_content = PNG_MAGIC + b'\x00\x00\x00\rIHDR' + b'\x00' * 100
+    # Valid PNG content (a genuinely decodable image: uploads now have their header read)
+    from conftest import real_image_bytes
+    png_content = real_image_bytes("PNG")
+    assert png_content.startswith(PNG_MAGIC)
     valid_png = io.BytesIO(png_content)
 
     client = TestClient(app)

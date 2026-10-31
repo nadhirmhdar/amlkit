@@ -994,6 +994,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("mfa_secrets", "failed_attempts",
      "ALTER TABLE mfa_secrets ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0"),
     ("mfa_secrets", "locked_until", "ALTER TABLE mfa_secrets ADD COLUMN locked_until TEXT"),
+    # Last accepted TOTP time-step (RFC 6238 s5.2): a code at or below it is a replay.
+    ("mfa_secrets", "last_step", "ALTER TABLE mfa_secrets ADD COLUMN last_step INTEGER"),
     ("entities", "programs", "ALTER TABLE entities ADD COLUMN programs TEXT"),
     # Fingerprint of a list entry's substance and when it last changed (set by
     # ingest.loader). Screening re-alerts a dismissed (false_positive) match
