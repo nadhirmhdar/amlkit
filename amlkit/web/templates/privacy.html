@@ -16,7 +16,7 @@
   <div class="mb-6">
     <div class="section-label">Cookies we set</div>
     <p style="font-size:14px; color:var(--ink-2); line-height:1.7; margin-bottom:14px;">
-      groAML sets three cookies, all strictly necessary for the site to
+      groAML sets the five cookies listed below, all strictly necessary for the site to
       function. None are used for advertising, analytics, or tracking across
       other sites, and none are shared with third parties.
     </p>
@@ -26,7 +26,8 @@
           <div class="primary" style="font-size:14px;">amlkit_session</div>
           <div class="secondary" style="font-size:13px; color:var(--ink-2); margin-top:4px; line-height:1.5;">
             Keeps you signed in. HttpOnly (not readable by page scripts) and
-            SameSite=Strict. Expires when you log out or your session times out.
+            SameSite=Strict. Lasts up to 14 days; removed when you sign out
+            or your session ends.
           </div>
         </div>
       </div>
@@ -36,7 +37,7 @@
           <div class="secondary" style="font-size:13px; color:var(--ink-2); margin-top:4px; line-height:1.5;">
             Protects forms and actions from cross-site request forgery.
             HttpOnly. Present even before you sign in, since the login and
-            registration forms need it too.
+            registration forms need it too. Lasts up to 14 days.
           </div>
         </div>
       </div>
@@ -47,6 +48,28 @@
             Carries a one-time success or error message across a redirect
             (for example, after saving a form). HttpOnly, expires after 60
             seconds or as soon as the message is shown.
+          </div>
+        </div>
+      </div>
+      <div class="list-row" style="align-items:flex-start;">
+        <div class="grow">
+          <div class="primary" style="font-size:14px;">amlkit_trusted_device</div>
+          <div class="secondary" style="font-size:13px; color:var(--ink-2); margin-top:4px; line-height:1.5;">
+            Only set if you choose &ldquo;remember this device&rdquo; when
+            confirming your two-step verification code (compliance officers).
+            It lets that browser skip the code for 30 days. HttpOnly and
+            SameSite=Strict.
+          </div>
+        </div>
+      </div>
+      <div class="list-row" style="align-items:flex-start;">
+        <div class="grow">
+          <div class="primary" style="font-size:14px;">amlkit_uaepass_state</div>
+          <div class="secondary" style="font-size:13px; color:var(--ink-2); margin-top:4px; line-height:1.5;">
+            Only set if you start a UAE PASS sign-in or verification. It ties
+            the UAE PASS response to the browser that began it. HttpOnly,
+            SameSite=Lax, and removed as soon as the attempt finishes (it
+            otherwise expires within minutes).
           </div>
         </div>
       </div>

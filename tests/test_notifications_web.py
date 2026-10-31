@@ -90,7 +90,7 @@ def test_inbox_lists_the_notification_with_a_deep_link(client):
     conn = _db()
     link = conn.execute("SELECT link FROM notifications ORDER BY id LIMIT 1").fetchone()["link"]
     conn.close()
-    assert link.startswith("/customers/") and link.endswith("#alerts")
+    assert link.startswith("/alerts?status=open#alert-")  # L-61: the alert itself
 
 
 def test_layout_has_a_bell_linking_to_the_inbox(client):
@@ -104,7 +104,7 @@ def test_opening_a_notification_marks_it_read_and_goes_to_the_alert(client):
     nid = _first_notification_id()
     r = client.post(f"/notifications/{nid}/read", data={"csrf_token": _csrf(client)}, follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"].startswith("/customers/")
+    assert r.headers["location"].startswith("/alerts?status=open#alert-")
     assert _count(client) == 0
 
 

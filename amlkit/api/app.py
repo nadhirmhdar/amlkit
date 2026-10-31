@@ -216,6 +216,19 @@ templates.env.globals["blog_asset_v"] = int(max(
 ))
 
 
+DEFAULT_PUBLIC_BASE_URL = "https://groaml.grovisor.ae"
+
+
+def public_base_url() -> str:
+    """Canonical public origin for canonical/og:url links, robots.txt and the sitemap.
+
+    ``AMLKIT_PUBLIC_BASE_URL`` (no trailing slash needed); defaults to the
+    production host so staging/preview deploys can stop claiming it (L-89).
+    Read per call so tests and deploys can change it without a re-import.
+    """
+    return (os.environ.get("AMLKIT_PUBLIC_BASE_URL") or DEFAULT_PUBLIC_BASE_URL).strip().rstrip("/")
+
+
 async def _async_form(request: Request) -> FormData:
     """Async dependency to read request form data.
 
@@ -262,6 +275,7 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
         session = current_session(request, db)
     ctx.setdefault("session", session)
     ctx.setdefault("security_warning", startup_warning())
+    ctx.setdefault("public_base_url", public_base_url())
     # Gate every "Sign in / Verify via UAE PASS" button on whether the
     # feature is actually configured (see uaepass.load_config()) -- inert
     # until UAEPASS_CLIENT_ID/UAEPASS_CLIENT_SECRET are set, so no template
@@ -289,6 +303,11 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
             pass
     ctx.setdefault("msg", _flash_msg or request.query_params.get("msg"))
     ctx.setdefault("err", _flash_err or request.query_params.get("err"))
+    # L-81: one-shot "oldest session was signed out" notice from the session cap.
+    if session and db is not None:
+        _notice = auth.pop_session_notice(db, request.cookies.get(SESSION_COOKIE))
+        if _notice:
+            ctx["msg"] = f"{ctx['msg']} {_notice}" if ctx.get("msg") else _notice
 
     # Check dataset health for authenticated sessions
     if session and db is not None:
@@ -559,6 +578,9 @@ async def security_headers(request: Request, call_next):
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # No page uses the camera (scans are file uploads), mic or geolocation.
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     # Pages and API responses carry customer PII, so nothing may be kept in
     # a shared machine's disk cache (H7). Versionless static assets are
     # exempt: re-downloading app.css/js/fonts on every page load buys nothing.
@@ -795,6 +817,20 @@ def password_change_form(request: Request, db: DB):
     return render(request, "password_change.html", {"session": session, "nav": None})
 
 
+def _keep_signed_in_after_password_change(db, session, resp):
+    """auth.set_password revokes every session, this one included. Mint a fresh
+    one for the operator who just changed the password so the banner ("all
+    OTHER sessions have been signed out") is true (L-79). The caller has
+    already passed require_session, so MFA was satisfied."""
+    token = auth.create_session(db, session.operator_id, session.org_id, mfa_verified=True)
+    _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
+    resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict",
+                    secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    resp.set_cookie(CSRF_COOKIE, auth.new_csrf_token(), httponly=True,
+                    samesite="lax", secure=_behind_proxy, max_age=_COOKIE_MAX_AGE)
+    return resp
+
+
 @app.post("/account/password")
 def password_change_submit(
     request: Request, db: DB,
@@ -838,7 +874,8 @@ def password_change_submit(
           None, org_id=session.org_id)
     db.commit()
 
-    return back("/", msg="Password changed successfully. All other sessions have been signed out.")
+    return _keep_signed_in_after_password_change(
+        db, session, back("/", msg="Password changed successfully. All other sessions have been signed out."))
 
 
 @app.post("/account/forget-devices")
@@ -1962,8 +1999,12 @@ def customer_detail(request: Request, db: DB, customer_id: int):
     for alert in data["alerts"]:
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
+    # L-71: same overdue rule as the customers list (queries.py: next_review <= today).
+    nxt = (data.get("risk") or {}).get("next_review")
+    from datetime import datetime as _dt, timezone as _tz
+    review_overdue = bool(nxt and nxt <= _dt.now(_tz.utc).date().isoformat())
     return render(request, "customer.html",
-                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
+                 data | {"review_overdue": review_overdue, "session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
                          "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
 
 
@@ -2561,6 +2602,9 @@ def customer_add_signature(
 
 
 # --------------------------------------------------------------------- alerts
+_ALERT_STATUSES = ("open", "pending_review", "false_positive", "true_positive", "escalated", "all")
+
+
 @app.get("/alerts", response_class=HTMLResponse)
 def alerts(request: Request, db: DB, status: str = "open", sort: str = "age_asc", group_by: str = "",
            category: str = ""):
@@ -2568,10 +2612,21 @@ def alerts(request: Request, db: DB, status: str = "open", sort: str = "age_asc"
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+    # L-62: say so when a filter value isn't recognised, instead of silently
+    # showing a different list.
+    unknown_filter = (
+        status not in _ALERT_STATUSES
+        or sort not in ("age_asc", "age_desc")
+        or (bool(category) and category not in queries.CATEGORY_LABELS)
+        or group_by not in ("", "customer")
+    )
+    if status not in _ALERT_STATUSES:
+        status = "open"
     sort_by = sort if sort in ("age_asc", "age_desc") else "age_asc"
     effective_status = None if status == "all" else status
     cat = category if category in queries.CATEGORY_LABELS else None
-    cat_ctx = {"category": cat or "", "category_label": queries.CATEGORY_LABELS.get(cat, "")}
+    cat_ctx = {"category": cat or "", "category_label": queries.CATEGORY_LABELS.get(cat, ""),
+               "unknown_filter": unknown_filter}
     if group_by == "customer":
         grouped = queries.alert_queue_grouped(db, session.org_id, status=effective_status, category=cat)
         for g in grouped:
@@ -2921,7 +2976,12 @@ def favicon_ico():
 
 @app.get("/robots.txt", response_class=Response)
 def robots_txt():
-    body = "User-agent: *\nAllow: /\nSitemap: https://groaml.grovisor.ae/sitemap.xml\n"
+    # Disallow only stops crawling; the noindex meta on signed-in pages is the
+    # real control (L-88).
+    private = ("customers", "alerts", "admin", "audit", "reports", "compliance", "billing",
+               "dashboard", "screen", "freeze", "policies", "notifications", "profile")
+    body = ("User-agent: *\n" + "".join(f"Disallow: /{p}\n" for p in private)
+            + f"Allow: /\nSitemap: {public_base_url()}/sitemap.xml\n")
     return Response(body, media_type="text/plain")
 
 
@@ -2932,7 +2992,7 @@ def sitemap_xml():
     for p in blog.all_posts():
         lastmods[f"/blog/{p.slug}"] = p.updated
     entries = "\n".join(
-        f'  <url><loc>https://groaml.grovisor.ae{u}</loc>'
+        f'  <url><loc>{public_base_url()}{u}</loc>'
         + (f'<lastmod>{lastmods[u]}</lastmod>' if lastmods.get(u) else '')
         + '</url>'
         for u in urls
@@ -3077,8 +3137,7 @@ def audit_export(request: Request, db: DB):
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
-        from fastapi.responses import Response as _R
-        return _R(status_code=403)
+        return back("/", err=str(exc))
 
     import csv
     import json
@@ -3220,6 +3279,11 @@ def admin_view(request: Request, db: DB):
     except PermissionError as exc:
         if current_session(request, db) is None:
             return RedirectResponse("/login", status_code=303)
+        # L-75: an MLRO still locked behind MFA goes straight to the challenge
+        # (one hop) instead of "/" -> /login -> /mfa/verify.
+        pending = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
+        if pending and pending["role"] == "mlro" and not pending["mfa_verified"]:
+            return RedirectResponse(auth.mfa_challenge_path(db, pending["operator_id"]), status_code=303)
         return back("/", err=str(exc))
     org = db.execute("""
         SELECT name, slug, org_address, reporting_person_name,
@@ -4577,4 +4641,5 @@ def change_password(
           None, org_id=session.org_id)
     db.commit()
 
-    return back("/profile", msg="Password changed successfully. All other sessions have been signed out.")
+    return _keep_signed_in_after_password_change(
+        db, session, back("/profile", msg="Password changed successfully. All other sessions have been signed out."))

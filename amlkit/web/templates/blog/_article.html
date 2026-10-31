@@ -7,7 +7,7 @@
      reviewed_against -- short string naming what the guide was checked against
    and fills {% block article %} with the body. Everything else (header,
    TOC, FAQ, sources, related guides, schema.org) comes from here. #}
-{% set post_url = "https://groaml.grovisor.ae/blog/" ~ post.slug %}
+{% set post_url = public_base_url ~ "/blog/" ~ post.slug %}
 {% block title %}{{ post.meta_title }} — groAML Insights{% endblock %}
 {% block meta_description %}<meta name="description" content="{{ post.meta_description }}">{% endblock %}
 {% block canonical %}<link rel="canonical" href="{{ post_url }}">{% endblock %}
@@ -20,14 +20,14 @@
 <meta property="article:published_time" content="{{ post.published }}">
 <meta property="article:modified_time" content="{{ post.updated }}">
 <meta property="article:section" content="{{ post.topic_obj.name }}">
-<meta property="og:image" content="https://groaml.grovisor.ae/static/img/og-card.png">
+<meta property="og:image" content="{{ public_base_url }}/static/img/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="groAML by Grovisor: UAE AML/CFT compliance software for DNFBPs">
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{{ post.meta_title }} — groAML Insights">
 <meta name="twitter:description" content="{{ post.meta_description }}">
-<meta name="twitter:image" content="https://groaml.grovisor.ae/static/img/og-card.png">
+<meta name="twitter:image" content="{{ public_base_url }}/static/img/og-card.png">
 {% endblock %}
 
 {% block json_ld %}
@@ -37,9 +37,9 @@
   "@context": "https://schema.org",
   "@graph": [
     {"@type": "BreadcrumbList", "itemListElement": [
-      {"@type": "ListItem", "position": 1, "name": "groAML", "item": "https://groaml.grovisor.ae/about"},
-      {"@type": "ListItem", "position": 2, "name": "Insights", "item": "https://groaml.grovisor.ae/blog"},
-      {"@type": "ListItem", "position": 3, "name": post.topic_obj.name, "item": "https://groaml.grovisor.ae/blog?topic=" ~ post.topic},
+      {"@type": "ListItem", "position": 1, "name": "groAML", "item": public_base_url ~ "/about"},
+      {"@type": "ListItem", "position": 2, "name": "Insights", "item": public_base_url ~ "/blog"},
+      {"@type": "ListItem", "position": 3, "name": post.topic_obj.name, "item": public_base_url ~ "/blog?topic=" ~ post.topic},
       {"@type": "ListItem", "position": 4, "name": post.title, "item": post_url}
     ]},
     {"@type": "BlogPosting",
@@ -49,7 +49,7 @@
      "audience": {"@type": "BusinessAudience", "audienceType": post.audience | join(", ")},
      "author": {"@type": "Organization", "name": "groAML compliance team, Grovisor Business Consultants FZE", "url": "https://grovisor.ae/"},
      "publisher": {"@type": "Organization", "name": "Grovisor Business Consultants FZE", "url": "https://grovisor.ae/",
-                   "logo": {"@type": "ImageObject", "url": "https://groaml.grovisor.ae/static/img/grovisor-logo.png"}}},
+                   "logo": {"@type": "ImageObject", "url": public_base_url ~ "/static/img/grovisor-logo.png"}}},
     {"@type": "FAQPage", "mainEntity": ld_faq}
   ]
 } -%}

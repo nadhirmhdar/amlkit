@@ -59,7 +59,16 @@ def notify_new_match(conn: sqlite3.Connection, org_id: int, result: Any, *, cust
         f'"{result.query}" matched {top.caption} ({top.dataset}) at {top.score:.2f}.'
         + (f" {n} new alerts." if n > 1 else "")
     )
+    # L-61: land on the new alert itself (anchored card in the open queue), not
+    # the customer's alerts tab. Falls back to the old targets if the alert row
+    # can't be found (e.g. no screening_id on the result).
     link = f"/customers/{customer_id}#alerts" if customer_id else "/alerts"
+    sid = getattr(result, "screening_id", None)
+    if sid:
+        row = conn.execute("SELECT MIN(id) AS id FROM alerts WHERE screening_id=? AND org_id=?",
+                           (sid, org_id)).fetchone()
+        if row and row["id"]:
+            link = f"/alerts?status=open#alert-{row['id']}"
     _insert(conn, org_id, mlros, KIND_MATCH, title, body, link)
 
     try:

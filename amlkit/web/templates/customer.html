@@ -2,7 +2,7 @@
 {% from "_macros.html" import name, score_breakdown, aliases, review_trail, disposition_form with context %}
 {% set nav = 'customers' %}
 {% set c = customer %}
-{% block title %}{{ c.full_name }} — groAML{% endblock %}
+{% block title %}Customer case file — groAML{% endblock %}
 {% block body %}
 
 <a href="/customers" class="back-link">&larr; Customers</a>
@@ -139,7 +139,7 @@
       </div>
       <p class="muted small mt-4">
         Ruleset <code class="mono">{{ risk.ruleset_version }}</code> ·
-        assessed {{ risk.assessed_at[:10] }} · next review {{ risk.next_review }}
+        assessed {{ risk.assessed_at[:10] }} · next review {{ risk.next_review }}{% if review_overdue %} <span class="tag high">overdue</span>{% endif %}
       </p>
     {% else %}<p class="muted">Not assessed.</p>{% endif %}
   </div>

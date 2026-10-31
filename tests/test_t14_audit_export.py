@@ -51,7 +51,7 @@ def test_audit_export_mlro_returns_csv(tmp_path, monkeypatch):
 
 
 def test_audit_export_officer_forbidden(tmp_path, monkeypatch):
-    """Officer role → 403."""
+    """Officer role is refused (L-84: redirected to / with a flash, like /audit)."""
     from fastapi.testclient import TestClient
     from amlkit.api.app import app
     from amlkit.db import connect, utcnow
@@ -74,8 +74,10 @@ def test_audit_export_officer_forbidden(tmp_path, monkeypatch):
     client = TestClient(app)
     client.cookies.set("amlkit_session", token)
 
-    resp = client.get("/audit/export")
-    assert resp.status_code == 403, "Officer should not be able to export audit log"
+    resp = client.get("/audit/export", follow_redirects=False)
+    assert resp.status_code == 303 and resp.headers["location"] == "/", \
+        "Officer should not be able to export audit log"
+    assert "text/csv" not in resp.headers.get("content-type", "")
 
 
 def test_audit_export_csv_has_headers(tmp_path, monkeypatch):

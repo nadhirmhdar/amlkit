@@ -256,8 +256,7 @@ def test_public_pages_do_not_link_to_the_redirecting_root(client) -> None:
         html_ = client.get(path).text
         assert 'href="/"' not in html_, path
         assert 'href="/about"' in html_, path
-    assert 'href="/auth/uaepass/start" class="si-alt" rel="nofollow"' in client.get("/login").text or \
-        "uaepass/start" not in client.get("/login").text
+    # (the UAE PASS link's rel="nofollow" is asserted precisely in test_web_hygiene.py)
 
 
 def test_share_image_is_the_branded_card(client) -> None:

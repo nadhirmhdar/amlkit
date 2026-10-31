@@ -174,12 +174,12 @@ def test_password_change_invalidates_other_sessions(tmp_path, monkeypatch):
 
     assert r.status_code == 200
 
-    # Verify ALL sessions were revoked
+    # Both pre-existing sessions were revoked; the changer got one fresh session (L-79)
     conn = connect(db_file)
     sessions_after = conn.execute(
         "SELECT COUNT(*) as count FROM sessions WHERE operator_id=1 AND revoked_at IS NULL"
     ).fetchone()["count"]
-    assert sessions_after == 0  # All sessions invalidated
+    assert sessions_after == 1  # only the re-minted session of the operator who changed it
 
     revoked_sessions = conn.execute(
         "SELECT COUNT(*) as count FROM sessions WHERE operator_id=1 AND revoked_at IS NOT NULL"

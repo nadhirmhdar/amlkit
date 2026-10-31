@@ -135,6 +135,7 @@ Merged in #361. **Switched on in production against the UAE PASS staging sandbox
 - `ADMIN_API_SECRET` — bearer token for `/system/create-operator`
 - `AMLKIT_SINGLE_OPERATOR_MODE` — skip four-eyes review requirement
 - `AMLKIT_PURGE_ENABLED` - set to `true` to let `cases.manager.purge_expired()` actually delete expired customer records. Defaults to disabled; `dry_run=True` previews regardless. Retention is the firm's 10-year policy (`RETENTION_YEARS` in `cases/manager.py`), counted from the end of the relationship (ad-hoc screenings: from the run date, `screenings.retention_until`). Copy never quotes a statutory figure or article
+- `AMLKIT_PUBLIC_BASE_URL` — public origin used for canonical / `og:url` / `og:image` links, `robots.txt` and `sitemap.xml` (default `https://groaml.grovisor.ae`; set it on staging/preview deploys so they don't claim the production host). Distinct from `AMLKIT_APP_BASE_URL`, which builds links inside emails
 - `AMLKIT_QUOTE_TO` — where `/apply` quotation requests are emailed (comma separated; default `info@grovisor.ae`). Needs `AMLKIT_SMTP_HOST` (and friends, see `mail.py`) or requests are only saved and printed to the log
 - `LITESTREAM_REPLICA_URL` — production replica (container refuses to start if unset; no default)
 - `AMLKIT_ALLOW_FRESH_START` — `1` lets a brand-new deployment boot with no replica; otherwise a missing replica refuses to start
