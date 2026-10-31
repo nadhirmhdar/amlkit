@@ -17,6 +17,7 @@ every tenant.
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -42,6 +43,8 @@ from ..cases.manager import (
     add_case_note,
     add_ubo,
     close_relationship,
+    complete_periodic_review,
+    periodic_reviews,
     reactivate_customer,
     disposition_adverse_media_finding,
     disposition_transaction_alert,
@@ -52,6 +55,7 @@ from ..cases.manager import (
     run_adverse_media,
     run_due_adverse_media,
 )
+from ..datamodel import validate_required_name
 from ..cases.review import (
     REASON_CODES,
     ReviewError,
@@ -1721,6 +1725,11 @@ def screen_run(
         return render(request, "screen.html", {"session": session, "result": None, "query": name, "err": str(exc)}, db)
 
     name = name.strip()
+    try:
+        validate_required_name("name", name)
+    except ValueError:
+        # Blank, or nothing but invisible characters: nothing to search.
+        name = ""
     if not name:
         return render(request, "screen.html",
                       {"session": session, "result": None, "query": "", "err": "Enter a name to screen."}, db)
@@ -1788,14 +1797,18 @@ def customer_new(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+    return render(request, "customer_new.html", _customer_new_ctx(session))
+
+
+def _customer_new_ctx(session) -> dict:
     rs = ruleset()
-    return render(request, "customer_new.html", {
+    return {
         "session": session,
         "sectors": sorted(rs["factors"]["sector"]["points_by_sector"]),
         "channels": sorted(rs["factors"]["delivery_channel"]["points_by_channel"]),
         "structures": sorted(rs["factors"]["structure"]["points_by_type"]),
         "tiers": sorted(rs["factors"]["jurisdiction"]["points_by_tier"]),
-    })
+    }
 
 
 @app.post("/customers")
@@ -1838,6 +1851,17 @@ def customer_create(
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back("/customers/new", err=str(exc))
+
+    # A blank name cannot be screened and would read as "clear": reject it with
+    # the form re-shown, rather than a redirect that loses what was typed.
+    try:
+        validate_required_name("full_name", full_name)
+    except ValueError as exc:
+        resp = render(request, "customer_new.html", {
+            **_customer_new_ctx(session), "err": f"{exc}. Enter the customer's name.",
+        }, db)
+        resp.status_code = 400
+        return resp
 
     # Validate EDD fields for high-risk customers (at onboarding, use declared risk_level)
     if risk_level and risk_level.strip() == "high":
@@ -1903,6 +1927,15 @@ def customer_create(
         if result.blocked else
         f"Onboarded. Risk rating: {result.risk.rating}."
     )
+    if result.unscreenable:
+        # Not a clear result: the name had no searchable tokens (e.g. non-Latin,
+        # non-Arabic script). Say so rather than leave "no alerts" to be read
+        # as "no hits".
+        note += (
+            " WARNING: " + ", ".join(result.unscreenable_names)
+            + " could NOT be screened (no searchable name tokens) - screen"
+            " manually with a Latin or Arabic spelling before relying on this result."
+        )
     return back(f"/customers/{result.customer_id}", msg=note)
 
 
@@ -2006,7 +2039,9 @@ def customer_detail(request: Request, db: DB, customer_id: int):
         alert["reviews"] = review_history(db, alert["id"], session.org_id)
     eff_risk = queries.effective_risk(db, customer_id, session.org_id)
     return render(request, "customer.html",
-                 data | {"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
+                 data | {"today": datetime.now(timezone.utc).date().isoformat(),
+                         "reviews": periodic_reviews(db, customer_id, session.org_id),
+                         "review_outcomes": REVIEW_OUTCOME_LABELS,"session": session, "reason_codes": REASON_CODES, "ubo_diagram": diagram_svg,
                          "effective_risk": eff_risk, "exit_reasons": EXIT_REASONS})
 
 
@@ -2229,6 +2264,41 @@ def customer_close(request: Request, db: DB, customer_id: int,
     return back(f"/customers/{customer_id}", msg=f"Relationship closed. Records retained until {until}.")
 
 
+REVIEW_OUTCOME_LABELS = {
+    "no_change": "No change",
+    "risk_changed": "Risk changed (re-assess)",
+    "exit_relationship": "Exit the relationship",
+}
+
+
+@app.post("/customers/{customer_id}/periodic-review")
+def customer_periodic_review(
+    request: Request, db: DB, customer_id: int,
+    outcome: Annotated[str, Form()] = "",
+    note: Annotated[str, Form()] = "",
+    csrf_token: Annotated[str, Form()] = "",
+):
+    """Complete a periodic CDD review. The only action that resets the
+    customer's next review date."""
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        require_csrf(request, csrf_token)
+        require_role(session, *auth.OPERATOR_ROLES)
+    except PermissionError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    try:
+        complete_periodic_review(db, session.org_id, customer_id, session,
+                                 outcome, note)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return back(f"/customers/{customer_id}", msg="Periodic review recorded.")
+
+
 @app.post("/customers/{customer_id}/reactivate")
 def customer_reactivate(
     request: Request, db: DB, customer_id: int,
@@ -2306,8 +2376,13 @@ def customer_add_ubo(
     res = screen(db, person_name.strip(), org_id=session.org_id, trigger="onboarding",
                  customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name,
                  threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD)
-    note = ("Beneficial owner added. MATCH FOUND - review alerts."
-            if res.hits else "Beneficial owner added and screened clear.")
+    if res.unscreenable:
+        note = ("Beneficial owner added but NOT screened: the name has no searchable tokens."
+                " Screen manually with a Latin or Arabic spelling.")
+    elif res.hits:
+        note = "Beneficial owner added. MATCH FOUND - review alerts."
+    else:
+        note = "Beneficial owner added and screened clear."
     return back(f"/customers/{customer_id}", msg=note)
 
 
@@ -3773,9 +3848,14 @@ def admin_rescreen(
         outcome = rescreen_all(db, session.org_id, actor=session.operator_name)
         db.commit()
 
-        msg = f"Re-screened {outcome['customers']} customer(s)."
+        msg = f"Re-screened {outcome['screened']} name(s) across customers and related parties."
         if outcome["alerts"]:
             msg += f" {outcome['alerts']} new alert(s) raised — check Alerts."
+        if outcome.get("unscreenable"):
+            msg += (
+                f" {outcome['unscreenable']} name(s) could not be screened"
+                " (no searchable tokens) and need manual screening."
+            )
         return back("/admin", msg=msg)
     except Exception as exc:
         log.exception("rescreen_all failed for org %s: %s", session.org_id, exc)

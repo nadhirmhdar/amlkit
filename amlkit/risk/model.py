@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +88,7 @@ _ALLOWED_FACTOR_VALUES = (
     ("delivery_channel", "delivery_channel", "points_by_channel"),
     ("cash_level", "cash_intensity", "points_by_level"),
     ("structure", "structure", "points_by_type"),
+    ("sector", "sector", "points_by_sector"),
 )
 
 
@@ -97,11 +98,12 @@ def validate_risk_inputs(
     delivery_channel: str | None = None,
     cash_level: str | None = None,
     structure: str | None = None,
+    sector: str | None = None,
 ) -> None:
     """Raise ValueError for any risk-factor value the ruleset doesn't know.
 
-    Unknown values would otherwise score 0 points (lowest risk) via the
-    points-table lookups in assess(). None means "not supplied" and is
+    Unknown values would otherwise score 0 points (lowest risk; 5 for an
+    unknown sector) via the points-table lookups in assess(). None means "not supplied" and is
     skipped, so callers can validate just the overrides they were given.
     Call this at input boundaries, before anything is written.
     """
@@ -110,6 +112,7 @@ def validate_risk_inputs(
         "delivery_channel": delivery_channel,
         "cash_level": cash_level,
         "structure": structure,
+        "sector": sector,
     }
     factors = ruleset()["factors"]
     for arg, factor, table in _ALLOWED_FACTOR_VALUES:
@@ -192,8 +195,10 @@ def assess(profile: CustomerProfile) -> RiskAssessment:
         )
     )
 
-    months = rs["review_months"].get(rating, 12)
-    next_review = (datetime.now(timezone.utc) + timedelta(days=30 * months)).date().isoformat()
+    # The initial review date, set at onboarding. Later re-assessments carry
+    # it forward (see `save(carry_next_review=...)`); only a completed
+    # periodic review sets a new one (cases.manager.complete_periodic_review).
+    next_review = review_date_for(rating)
 
     return RiskAssessment(
         score=total,
@@ -203,6 +208,14 @@ def assess(profile: CustomerProfile) -> RiskAssessment:
         ruleset_version=rs["version"],
         next_review=next_review,
     )
+
+
+def review_date_for(rating: str, today: date | None = None) -> str:
+    """Date the next periodic CDD review falls due for a customer of `rating`,
+    from the `review_months` interval in ruleset.yaml."""
+    months = ruleset()["review_months"].get(rating, 12)
+    start = today or datetime.now(timezone.utc).date()
+    return (start + timedelta(days=30 * months)).isoformat()
 
 
 def _band(score: float, bands: dict[str, dict[str, int]]) -> str:
@@ -219,8 +232,25 @@ def save(
     assessment: RiskAssessment,
     org_id: int,
     actor: str = "system",
+    carry_next_review: bool = False,
 ) -> int:
+    """Persist an assessment.
+
+    `carry_next_review=True` is for event-driven re-assessments (transaction
+    alert, adverse media, rescreen, factor correction): the new row keeps the
+    customer's previous `next_review` rather than the freshly computed one, so
+    an unrelated event can never clear an overdue periodic review.
+    """
     with conn:
+        if carry_next_review:
+            prior = conn.execute(
+                "SELECT next_review FROM risk_assessments"
+                " WHERE customer_id=? AND org_id=? ORDER BY id DESC LIMIT 1",
+                (customer_id, org_id),
+            ).fetchone()
+            if prior is not None and prior["next_review"]:
+                # Mutated in place so the caller's copy matches the saved row.
+                assessment.next_review = prior["next_review"]
         cur = conn.execute(
             """INSERT INTO risk_assessments
                (org_id, customer_id, score, rating, factors, ruleset_version,

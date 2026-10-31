@@ -23,7 +23,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -36,6 +36,7 @@ from ..risk.model import (
     RiskAssessment,
     assess,
     ruleset,
+    review_date_for,
     save as save_risk,
     validate_risk_inputs,
 )
@@ -141,6 +142,14 @@ class OnboardingResult:
     ubo_screenings: list[tuple[str, ScreeningResult]]
     risk: RiskAssessment
     blocked: bool
+    # Names (customer, Arabic name, owners) that had letters but no screenable
+    # tokens: nothing was searched for them, so "no hits" is NOT a clear result
+    # and they need manual screening.
+    unscreenable_names: list[str] = field(default_factory=list)
+
+    @property
+    def unscreenable(self) -> bool:
+        return bool(self.unscreenable_names)
 
     def summary(self) -> str:
         lines = [
@@ -231,7 +240,7 @@ def onboard(
     """
     from ..datamodel import (
         validate_birth_date, validate_country_code, validate_customer_type,
-        validate_emirate, validate_name_length,
+        validate_emirate, validate_name_length, validate_required_name,
     )
     from ..ingest.loader import datasets_fresh
 
@@ -255,6 +264,11 @@ def onboard(
             )
 
     validate_customer_type(customer_type)
+    validate_required_name("full_name", full_name)
+    # Before the customer INSERT: a blank beneficial-owner name would otherwise
+    # fail inside add_ubo() after the customer had already been committed.
+    for ubo in ubos or []:
+        validate_required_name("person_name", ubo.get("person_name"))
     validate_name_length("full_name", full_name)
     validate_name_length("name_arabic", name_arabic)
     validate_birth_date(birth_date)
@@ -286,6 +300,7 @@ def onboard(
         delivery_channel=delivery_channel,
         cash_level=cash_level,
         structure=structure,
+        sector=sector,
     )
 
     now = utcnow()
@@ -328,17 +343,22 @@ def onboard(
 
     # --- screen the customer, in both scripts where available --------------
     all_nats = nationalities or ([nationality] if nationality else None)
+    unscreenable_names: list[str] = []
     result = screen(
         conn, full_name, org_id=org_id, trigger="onboarding",
         countries=all_nats, birth_date=birth_date, gender=gender,
         customer_id=customer_id, actor=actor, threshold=threshold,
     )
+    if result.unscreenable:
+        unscreenable_names.append(full_name)
     if name_arabic:
         ar = screen(
             conn, name_arabic, org_id=org_id, trigger="onboarding",
             countries=all_nats, birth_date=birth_date, gender=gender,
             customer_id=customer_id, actor=actor, threshold=threshold,
         )
+        if ar.unscreenable:
+            unscreenable_names.append(name_arabic)
         # Keep whichever script produced the stronger evidence.
         if ar.hits and (not result.hits or max(h.score for h in ar.hits) > max(h.score for h in result.hits)):
             result = ar
@@ -354,6 +374,8 @@ def onboard(
             threshold=threshold,
         )
         ubo_results.append((ubo["person_name"], res))
+        if res.unscreenable:
+            unscreenable_names.append(ubo["person_name"])
 
     sanctions_hit = any(h.is_sanction for h in result.hits) or any(
         h.is_sanction for _, r in ubo_results for h in r.hits
@@ -386,6 +408,7 @@ def onboard(
         ubo_screenings=ubo_results,
         risk=risk,
         blocked=sanctions_hit,
+        unscreenable_names=unscreenable_names,
     )
 
 
@@ -412,6 +435,8 @@ def add_ubo(
     natural person meets the ownership test.  Nominees are never beneficial
     owners regardless of their ownership percentage.
     """
+    from ..datamodel import validate_required_name
+    validate_required_name("person_name", person_name)
     if ownership_pct is not None and not (0 <= ownership_pct <= 100):
         raise ValueError(
             f"ownership percentage must be between 0 and 100, got {ownership_pct}"
@@ -715,7 +740,7 @@ def due_for_review(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]
            FROM customers c
            JOIN risk_assessments r ON r.id = (
                SELECT id FROM risk_assessments WHERE customer_id=c.id
-               ORDER BY assessed_at DESC LIMIT 1)
+               ORDER BY id DESC LIMIT 1)
            WHERE c.status='active' AND c.org_id=?
              AND r.next_review IS NOT NULL AND r.next_review <= ?
            ORDER BY r.next_review""",
@@ -1422,7 +1447,8 @@ def reassess_transaction_risk(
         sanctions_hit=bool(_prior_value(factors, "sanctions_hit", False)),
     )
     assessment = assess(profile)
-    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor)
+    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor,
+              carry_next_review=True)
     audit(conn, actor, "risk.reassessed_transaction", "customer", customer_id,
           {"open_transaction_alerts": open_alerts, "cash_level": cash_level,
            "new_rating": assessment.rating},
@@ -1483,7 +1509,8 @@ def reassess_adverse_media(
         sanctions_hit=bool(_prior_value(factors, "sanctions_hit", False)),
     )
     assessment = assess(profile)
-    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor)
+    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor,
+              carry_next_review=True)
     return assessment.rating
 
 
@@ -1498,8 +1525,13 @@ def reassess_risk(
     delivery_channel: str | None = None,
     cash_level: str | None = None,
     structure: str | None = None,
+    reset_review_clock: bool = False,
 ) -> RiskAssessment | None:
     """Re-rate a customer from current state.
+
+    The periodic review date is NOT touched: the new row carries the prior
+    `next_review` forward. Only `complete_periodic_review` passes
+    `reset_review_clock=True`, taking the new rating's interval.
 
     Derives `sanctions_hit` from currently-open (unresolved) screening alerts.
     All other factors are carried forward from the prior assessment unless an
@@ -1518,6 +1550,7 @@ def reassess_risk(
         delivery_channel=delivery_channel,
         cash_level=cash_level,
         structure=structure,
+        sector=sector,
     )
     prior = conn.execute(
         "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"
@@ -1581,8 +1614,102 @@ def reassess_risk(
         sanctions_hit=sanctions_hit,
     )
     assessment = assess(profile)
-    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor)
+    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor,
+              carry_next_review=not reset_review_clock)
     return assessment
+
+
+# ------------------------------------------------------- periodic CDD review
+REVIEW_OUTCOMES = ("no_change", "risk_changed", "exit_relationship")
+REVIEW_NOTE_MIN_CHARS = 10
+
+
+def complete_periodic_review(
+    conn: sqlite3.Connection,
+    org_id: int,
+    customer_id: int,
+    operator: Any,
+    outcome: str,
+    note: str,
+    new_rating: str | None = None,
+) -> int:
+    """Record a completed periodic CDD review and reset the review clock.
+
+    This is the ONLY place that sets `next_review` after onboarding: a
+    transaction alert, an adverse-media ruling or a rescreen carries the
+    prior date forward. `operator` is the session (needs `operator_id` /
+    `operator_name`) or a plain name string.
+
+    `risk_changed` re-assesses the customer from current state; the stored
+    `new_risk_rating` is the rating that assessment produced (`new_rating`,
+    if given, is only checked against it). Other outcomes re-save the current
+    assessment unchanged apart from the new `next_review`. Returns the
+    `periodic_reviews` row id. Raises ValueError on bad input or an unknown
+    customer (the caller maps that to 404/400).
+    """
+    if outcome not in REVIEW_OUTCOMES:
+        raise ValueError(f"Outcome must be one of: {', '.join(REVIEW_OUTCOMES)}.")
+    note = (note or "").strip()
+    if len(note) < REVIEW_NOTE_MIN_CHARS:
+        raise ValueError(
+            f"A review note of at least {REVIEW_NOTE_MIN_CHARS} characters is required.")
+    cust = conn.execute(
+        "SELECT id FROM customers WHERE id=? AND org_id=?", (customer_id, org_id)
+    ).fetchone()
+    if cust is None:
+        raise LookupError("Customer not found.")
+    prior = conn.execute(
+        "SELECT * FROM risk_assessments WHERE customer_id=? AND org_id=?"
+        " ORDER BY id DESC LIMIT 1", (customer_id, org_id)
+    ).fetchone()
+    if prior is None:
+        raise ValueError("No prior assessment found. Complete onboarding before a review.")
+
+    reviewer_id = getattr(operator, "operator_id", None)
+    reviewer_name = getattr(operator, "operator_name", None) or str(operator)
+
+    if outcome == "risk_changed":
+        assessment = reassess_risk(
+            conn, customer_id, org_id, actor=reviewer_name, reset_review_clock=True)
+        rating = assessment.rating
+        if new_rating and new_rating != rating:
+            raise ValueError(
+                f"Re-assessment produced a {rating} rating, not {new_rating}; "
+                "correct the risk factors first.")
+    else:
+        rating = prior["rating"]
+        assessment = RiskAssessment(
+            score=prior["score"], rating=rating,
+            requires_edd=bool(prior["requires_edd"]),
+            factors=json.loads(prior["factors"] or "{}"),
+            ruleset_version=prior["ruleset_version"],
+            next_review=review_date_for(rating))
+        save_risk(conn, customer_id, assessment, org_id=org_id, actor=reviewer_name)
+
+    with conn:
+        cur = conn.execute(
+            """INSERT INTO periodic_reviews
+               (org_id, customer_id, reviewer_operator_id, reviewer_name, outcome,
+                new_risk_rating, note, reviewed_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (org_id, customer_id, reviewer_id, reviewer_name, outcome,
+             rating if outcome == "risk_changed" else None, note, utcnow()),
+        )
+        audit(conn, reviewer_name, "review.completed", "customer", customer_id,
+              {"review_id": cur.lastrowid, "outcome": outcome,
+               "previous_rating": prior["rating"], "rating": rating,
+               "previous_next_review": prior["next_review"],
+               "next_review": assessment.next_review, "note": note},
+              org_id=org_id)
+    return cur.lastrowid
+
+
+def periodic_reviews(conn: sqlite3.Connection, customer_id: int,
+                     org_id: int) -> list[dict[str, Any]]:
+    """Completed periodic reviews of one customer, newest first."""
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM periodic_reviews WHERE customer_id=? AND org_id=?"
+        " ORDER BY id DESC", (customer_id, org_id))]
 
 
 # ------------------------------------------------- adverse media, periodic
@@ -1640,7 +1767,7 @@ def adverse_media_due(
            FROM customers c
            LEFT JOIN risk_assessments r ON r.id = (
                SELECT id FROM risk_assessments WHERE customer_id = c.id
-               ORDER BY assessed_at DESC LIMIT 1)
+               ORDER BY id DESC LIMIT 1)
            WHERE c.status = 'active' AND c.org_id = ?
            ORDER BY c.id""",
         (org_id,),
