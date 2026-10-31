@@ -40,7 +40,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 from .. import auth, mail, queries, storage
-from .limits import limiter, login_rate_limit_key
+from ..datamodel import MAX_NAME_LENGTH
+from .limits import limiter, login_rate_limit_key, operator_rate_limit_key
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     EXIT_REASONS,
@@ -521,10 +522,13 @@ def _hit_json(db: sqlite3.Connection, h) -> dict[str, Any]:
 
 
 @router.post("/screen")
-def api_screen(body: ScreenRequest, db: DB, session: Session):
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)  # same ceiling as web POST /screen
+def api_screen(request: Request, body: ScreenRequest, db: DB, session: Session):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Enter a name to screen.")
+    if len(name) > MAX_NAME_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Name exceeds {MAX_NAME_LENGTH} characters.")
     result = screen(
         db, name, org_id=session.org_id, trigger="adhoc",
         threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
@@ -673,33 +677,33 @@ def _scan_document(content: bytes, extractor) -> dict:
     return result
 
 
-@router.post("/customers/scan-passport")
-def api_scan_passport(session: Session, passport_file: UploadFile):
-    from ..cases.ocr import extract_passport_data
-    from ..validation import validate_file_mime
+def _read_scan_upload(upload: UploadFile) -> bytes:
+    """Read + validate a scan upload (size, type, pixel count) or raise 413/415."""
+    from ..validation import IMAGE_MIMES, PDF, UploadRejected, read_capped, validate_upload
 
-    content = passport_file.file.read()
-    # Validate MIME type
+    content = read_capped(upload.file)
     try:
-        validate_file_mime(content, passport_file.filename or "passport.jpg")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF})
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return content
 
+
+@router.post("/customers/scan-passport")
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)
+def api_scan_passport(request: Request, session: Session, passport_file: UploadFile):
+    from ..cases.ocr import extract_passport_data
+
+    content = _read_scan_upload(passport_file)
     return _scan_document(content, extract_passport_data)
 
 
 @router.post("/customers/scan-emirates-id")
-def api_scan_emirates_id(session: Session, emirates_id_file: UploadFile):
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)
+def api_scan_emirates_id(request: Request, session: Session, emirates_id_file: UploadFile):
     from ..cases.ocr import extract_emirates_id_data
-    from ..validation import validate_file_mime
 
-    content = emirates_id_file.file.read()
-    # Validate MIME type
-    try:
-        validate_file_mime(content, emirates_id_file.filename or "emirates_id.jpg")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
+    content = _read_scan_upload(emirates_id_file)
     return _scan_document(content, extract_emirates_id_data)
 
 
@@ -1101,19 +1105,33 @@ def api_customer_upload_document(
     if not file.filename:
         raise HTTPException(status_code=400, detail="filename is required.")
 
-    content = file.file.read()
-
-    # Validate MIME type by magic bytes before accepting upload
-    from ..validation import validate_file_mime
+    # Reject a client filename that carries a path before touching the body.
     try:
+        storage.check_client_filename(file.filename)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filename: path separators and '..' are not allowed.")
+
+    from ..validation import (
+        IMAGE_MIMES, PDF, UploadRejected, max_upload_bytes, read_capped, validate_file_mime, validate_upload,
+    )
+    content = read_capped(file.file)
+
+    # Validate type (magic bytes + extension agreement), then size/pixels, before accepting upload
+    try:
+        if len(content) > max_upload_bytes():
+            validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF})  # raises 413
         detected_mime = validate_file_mime(content, file.filename)
+        validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF})
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
     sha256 = hashlib.sha256(content).hexdigest()
 
-    # Prevent path traversal: store only the basename, never relative segments.
-    safe_name = Path(file.filename).name
+    # The client's name is display metadata only; storage.upload() stores the blob
+    # under a unique generated name so same-name uploads never overwrite each other.
+    safe_name = file.filename
     stored_path = storage.upload(content, session.org_id, customer_id, safe_name)
 
     now = utcnow()

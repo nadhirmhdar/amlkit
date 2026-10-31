@@ -260,7 +260,8 @@ class TestDocumentScan:
     at their import site inside amlkit/api/mobile.py."""
 
     # Minimal bytes that pass the JPEG magic-byte MIME check (\xff\xd8\xff\xe0).
-    _JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
+    from conftest import real_image_bytes as _rib
+    _JPEG = _rib("JPEG")
 
     def test_scan_passport_merges_image_quality_into_response(self, api, monkeypatch):
         import amlkit.cases.ocr as ocr

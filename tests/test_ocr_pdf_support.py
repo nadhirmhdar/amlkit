@@ -179,7 +179,7 @@ class TestWebScanPassportPdfRoute:
         so this file doesn't depend on that one)."""
         r = client.post(
             "/customers/scan-passport",
-            files={"passport_file": ("test.jpg", io.BytesIO(b"not a real image"), "image/jpeg")},
+            files={"passport_file": ("test.jpg", io.BytesIO(__import__("conftest").real_image_bytes()), "image/jpeg")},
             data={"csrf_token": _csrf(client)},
         )
         assert r.status_code == 200
@@ -193,7 +193,8 @@ class TestMobileScanEmiratesIdPdfRoute:
     """Mirrors tests/test_mobile_api.py's TestOcrRoutes auth/header pattern:
     a bearer token from /auth/verify-email, exercised over the JSON API."""
 
-    _JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
+    from conftest import real_image_bytes as _rib
+    _JPEG = _rib("JPEG")
 
     @pytest.fixture()
     def api(self, tmp_path, monkeypatch):

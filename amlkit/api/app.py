@@ -31,9 +31,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, notifications, queries, uaepass
+from ..datamodel import MAX_NAME_LENGTH
 from ..web import blog
 from .compress import SelectiveGZipMiddleware
-from .limits import limiter, login_rate_limit_key, rate_limit_key_func
+from .limits import limiter, login_rate_limit_key, operator_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     EXIT_REASONS,
@@ -1702,6 +1703,12 @@ def screen_run(
     if not name:
         return render(request, "screen.html",
                       {"session": session, "result": None, "query": "", "err": "Enter a name to screen."}, db)
+    if len(name) > MAX_NAME_LENGTH:
+        too_long = render(request, "screen.html",
+                          {"session": session, "result": None, "query": name[:MAX_NAME_LENGTH],
+                           "err": f"Name exceeds {MAX_NAME_LENGTH} characters."}, db)
+        too_long.status_code = 400
+        return too_long
 
     result = screen(
         db, name, org_id=session.org_id, trigger="adhoc",
@@ -1878,7 +1885,21 @@ def customer_create(
     return back(f"/customers/{result.customer_id}", msg=note)
 
 
+def _read_scan_upload(upload: UploadFile) -> bytes:
+    """Read + validate a scan upload (size, type, pixel count) or raise HTTPException 413/415."""
+    from fastapi import HTTPException
+    from ..validation import IMAGE_MIMES, PDF, UploadRejected, read_capped, validate_upload
+
+    content = read_capped(upload.file)
+    try:
+        validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF})
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return content
+
+
 @app.post("/customers/scan-passport")
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)
 def customer_scan_passport(
     request: Request, db: DB,
     passport_file: UploadFile,
@@ -1898,8 +1919,8 @@ def customer_scan_passport(
     import io
     from ..cases.ocr import extract_passport_data
 
+    content = _read_scan_upload(passport_file)
     try:
-        content = passport_file.file.read()
         file_like = io.BytesIO(content)
         data = extract_passport_data(file_like)
         return data
@@ -1909,6 +1930,7 @@ def customer_scan_passport(
 
 
 @app.post("/customers/scan-trade-licence")
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)
 def customer_scan_trade_licence(
     request: Request, db: DB,
     licence_file: UploadFile,
@@ -1935,8 +1957,8 @@ def customer_scan_trade_licence(
     import io
     from ..cases.ocr import extract_trade_licence_data
 
+    content = _read_scan_upload(licence_file)
     try:
-        content = licence_file.file.read()
         file_like = io.BytesIO(content)
         data = extract_trade_licence_data(file_like)
         return data
@@ -2942,7 +2964,12 @@ def sitemap_xml():
 
 
 # ---------------------------------------------------------------------- feedback
+MAX_FEEDBACK_LENGTH = 5000
+MAX_FEEDBACK_PAGE_LENGTH = 200
+
+
 @app.post("/feedback")
+@limiter.limit("10/minute")  # per IP (default key)
 def feedback_submit(
     request: Request, db: DB,
     page: Annotated[str, Form()],
@@ -2965,6 +2992,11 @@ def feedback_submit(
     if not message:
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "Feedback message cannot be empty."}, status_code=400)
+    if len(message) > MAX_FEEDBACK_LENGTH:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"error": f"Feedback is too long (maximum {MAX_FEEDBACK_LENGTH} characters)."}, status_code=400)
+    page = page.strip()[:MAX_FEEDBACK_PAGE_LENGTH]
 
     now = utcnow()
     with db:
@@ -3845,13 +3877,17 @@ def policies_upload(
     from ..cases.manager import upload_policy
 
     try:
-        file_content = file.file.read()
+        from ..validation import read_capped
+        file_content = read_capped(file.file)
 
         # Validate MIME type by magic bytes
-        from ..validation import validate_file_mime
+        from ..validation import DOCX, PDF, UploadRejected, validate_upload
         try:
-            detected_mime = validate_file_mime(file_content, file.filename or "upload.pdf")
-        except ValueError as exc:
+            detected_mime = validate_upload(file_content, allowed_mimes={PDF, DOCX})
+            ext = (file.filename or "").lower().rsplit(".", 1)[-1]
+            if {"pdf": PDF, "docx": DOCX}.get(ext, detected_mime) != detected_mime:
+                raise UploadRejected("File content does not match its extension.")
+        except UploadRejected as exc:
             return back("/policies", err=f"File validation failed: {exc}")
 
         policy_id, version = upload_policy(
