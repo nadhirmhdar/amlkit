@@ -1559,6 +1559,14 @@ def freeze_obligation_file_ffr(request: Request, db: DB, freeze_id: int, form: A
         return back(f"/freeze-obligations/{freeze_id}", err="Filing a CNMR requires the MLRO role")
 
     from ..cases import freeze as freeze_ops
+    from ..sanctions_scope import freeze_obligation_in_scope
+    if not freeze_obligation_in_scope(db, freeze_id, session.org_id):
+        return back(
+            f"/freeze-obligations/{freeze_id}",
+            err="A CNMR applies only to matches on the UN Security Council or UAE Local "
+                "Terrorist lists. This match is on another list: consult your supervisory "
+                "authority and consider an STR/SAR instead.",
+        )
     reporter_name = form.get("reporter_name") or session.operator_name
     reporter_email = form.get("reporter_email", "")
 
