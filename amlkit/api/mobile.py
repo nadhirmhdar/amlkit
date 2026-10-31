@@ -40,7 +40,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 from .. import auth, mail, queries, storage
-from .limits import limiter, login_rate_limit_key
+from ..datamodel import MAX_NAME_LENGTH
+from .limits import limiter, login_rate_limit_key, operator_rate_limit_key
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     EXIT_REASONS,
@@ -268,18 +269,20 @@ def api_register_organization(request: Request, body: RegisterOrgRequest, db: DB
         db.commit()
         raise HTTPException(status_code=403, detail="Registration requires a valid invite code.")
 
-    if len(body.password) < 10:
-        raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
-    if not auth.looks_like_email(body.email):
-        raise HTTPException(status_code=400, detail="Enter a valid email address.")
-    import re
+    from ..cases.operators import make_org_slug
 
-    slug = re.sub(r"[^a-z0-9]+", "-", body.org_name.strip().lower()).strip("-") or "org"
+    try:
+        auth.check_new_password(body.password)
+        clean_name, clean_email = auth.check_operator_identity(body.name, body.email)
+        org_name = auth.check_org_name(body.org_name)
+        slug = make_org_slug(db, org_name)
+    except ValueError as exc:  # PasswordComplexityError / IdentityError / duplicate org
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     now = utcnow()
     try:
         cur = db.execute(
             "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-            (body.org_name.strip(), slug, "active", now),
+            (org_name, slug, "active", now),
         )
     except sqlite3.IntegrityError as exc:
         raise HTTPException(
@@ -290,7 +293,7 @@ def api_register_organization(request: Request, body: RegisterOrgRequest, db: DB
         cur2 = db.execute(
             """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
                VALUES (?,?,?,?,?,1,?)""",
-            (org_id, body.name.strip(), body.email.strip().lower(),
+            (org_id, clean_name, clean_email,
              auth.hash_password(body.password), "mlro", now),
         )
     except sqlite3.IntegrityError as exc:
@@ -310,19 +313,19 @@ def api_register_organization(request: Request, body: RegisterOrgRequest, db: DB
     db.commit()
     from ..db import audit
 
-    email = body.email.strip().lower()
-    audit(db, body.name.strip(), "organization.register", "organization", org_id,
-          {"org_name": body.org_name.strip()}, org_id=org_id)
+    email = clean_email
+    audit(db, clean_name, "organization.register", "organization", org_id,
+          {"org_name": org_name}, org_id=org_id)
     db.commit()
 
     # Not activated yet -- see auth.login()'s email_verified_at guard. The
     # account exists and is fully privileged (MLRO) the moment this link is
     # clicked, so it must not be usable before then.
     raw_token = auth.create_email_verify_token(db, operator_id)
-    delivery = mail.send_verification_email(email, body.name.strip(), raw_token)
+    delivery = mail.send_verification_email(email, clean_name, raw_token)
     # Outcome, not just the attempt -- a provider failing every send is
     # otherwise invisible; see the matching note in app.py.
-    audit(db, body.name.strip(), "operator.verification_sent", "operator", operator_id,
+    audit(db, clean_name, "operator.verification_sent", "operator", operator_id,
           {"email": email, "delivery": delivery}, org_id=org_id)
     db.commit()
 
@@ -358,7 +361,8 @@ class VerifyEmailRequest(BaseModel):
 
 
 @router.post("/auth/verify-email")
-def api_verify_email(body: VerifyEmailRequest, db: DB):
+@limiter.limit("10/minute")  # IP ceiling, same pattern as /auth/login
+def api_verify_email(request: Request, body: VerifyEmailRequest, db: DB):
     operator = auth.consume_email_verify_token(db, body.token)
     if operator is None:
         raise HTTPException(
@@ -391,7 +395,8 @@ class ResendVerificationRequest(BaseModel):
 
 
 @router.post("/auth/resend-verification")
-def api_resend_verification(body: ResendVerificationRequest, db: DB):
+@limiter.limit("10/minute")  # IP ceiling, same pattern as /auth/login
+def api_resend_verification(request: Request, body: ResendVerificationRequest, db: DB):
     """Always returns the same generic message, whether or not the email
     belongs to a real, still-unverified account -- same anti-enumeration
     reasoning as auth.login()'s single error string. The actual resend (or
@@ -436,7 +441,8 @@ class SetupRequest(BaseModel):
 
 
 @router.get("/auth/setup")
-def api_setup_check(token: str, db: DB):
+@limiter.limit("10/minute")  # IP ceiling, same pattern as /auth/login
+def api_setup_check(request: Request, token: str, db: DB):
     from .app import _valid_setup_token
 
     row = _valid_setup_token(db, token)
@@ -453,31 +459,54 @@ def api_setup_submit(body: SetupRequest, db: DB):
     row = _valid_setup_token(db, body.token)
     if row is None:
         raise HTTPException(status_code=400, detail="This setup link is invalid, expired, or already used.")
-    if len(body.password) < 10:
-        raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
+    from ..cases.operators import operator_name_taken
+
+    try:
+        auth.check_new_password(body.password)
+        clean_name, clean_email = auth.check_operator_identity(body.name, body.email)
+    except ValueError as exc:  # PasswordComplexityError / IdentityError
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # A taken email/name is refused here, before anything is written, so the
+    # setup token stays unused and the admin can resend a corrected claim.
+    if db.execute("SELECT 1 FROM operators WHERE lower(email)=?", (clean_email,)).fetchone():
+        raise HTTPException(status_code=409, detail="An account with that email already exists.")
+    if operator_name_taken(db, row["org_id"], clean_name):
+        raise HTTPException(status_code=409, detail="An operator with that name already exists in this organisation.")
 
     now = utcnow()
-    cur = db.execute(
-        # email_verified_at=now: claiming a setup link already proves control
-        # of a channel an admin trusted, so there's no separate
-        # email-ownership gap left to close here, unlike public
-        # self-registration in api_register_organization (see
-        # auth.login()'s guard).
-        """INSERT INTO operators
-               (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-           VALUES (?,?,?,?,?,1,?,?)""",
-        (row["org_id"], body.name.strip(), body.email.strip().lower(),
-         auth.hash_password(body.password), "mlro", now, now),
+    # Claim the token first, atomically (L-66): exactly one concurrent claimant
+    # gets rowcount == 1; the operator INSERT shares its transaction.
+    claim = db.execute(
+        "UPDATE setup_tokens SET used_at=? WHERE id=? AND used_at IS NULL",
+        (now, row["id"]),
     )
+    if claim.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="This setup link is invalid, expired, or already used.")
+    try:
+        cur = db.execute(
+            # email_verified_at=now: claiming a setup link already proves control
+            # of a channel an admin trusted, so there's no separate
+            # email-ownership gap left to close here, unlike public
+            # self-registration in api_register_organization (see
+            # auth.login()'s guard).
+            """INSERT INTO operators
+                   (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
+               VALUES (?,?,?,?,?,1,?,?)""",
+            (row["org_id"], clean_name, clean_email,
+             auth.hash_password(body.password), "mlro", now, now),
+        )
+    except Exception:
+        db.rollback()
+        raise
     operator_id = cur.lastrowid
-    db.execute("UPDATE setup_tokens SET used_at=? WHERE id=?", (now, row["id"]))
     db.commit()
     from ..db import audit
 
-    audit(db, body.name.strip(), "operator.setup_claimed", "operator", operator_id,
-          {"email": body.email.strip().lower()}, org_id=row["org_id"])
+    audit(db, clean_name, "operator.setup_claimed", "operator", operator_id,
+          {"email": clean_email}, org_id=row["org_id"])
     db.commit()
-    token, info = auth.login(db, body.email.strip().lower(), body.password)
+    token, info = auth.login(db, clean_email, body.password)
     return _login_json(db, token, info)
 
 
@@ -522,10 +551,13 @@ def _hit_json(db: sqlite3.Connection, h) -> dict[str, Any]:
 
 
 @router.post("/screen")
-def api_screen(body: ScreenRequest, db: DB, session: Session):
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)  # same ceiling as web POST /screen
+def api_screen(request: Request, body: ScreenRequest, db: DB, session: Session):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Enter a name to screen.")
+    if len(name) > MAX_NAME_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Name exceeds {MAX_NAME_LENGTH} characters.")
     result = screen(
         db, name, org_id=session.org_id, trigger="adhoc",
         threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
@@ -674,33 +706,33 @@ def _scan_document(content: bytes, extractor) -> dict:
     return result
 
 
-@router.post("/customers/scan-passport")
-def api_scan_passport(session: Session, passport_file: UploadFile):
-    from ..cases.ocr import extract_passport_data
-    from ..validation import validate_file_mime
+def _read_scan_upload(upload: UploadFile) -> bytes:
+    """Read + validate a scan upload (size, type, pixel count) or raise 413/415."""
+    from ..validation import IMAGE_MIMES, PDF, UploadRejected, read_capped, validate_upload
 
-    content = passport_file.file.read()
-    # Validate MIME type
+    content = read_capped(upload.file)
     try:
-        validate_file_mime(content, passport_file.filename or "passport.jpg")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF})
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return content
 
+
+@router.post("/customers/scan-passport")
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)
+def api_scan_passport(request: Request, session: Session, passport_file: UploadFile):
+    from ..cases.ocr import extract_passport_data
+
+    content = _read_scan_upload(passport_file)
     return _scan_document(content, extract_passport_data)
 
 
 @router.post("/customers/scan-emirates-id")
-def api_scan_emirates_id(session: Session, emirates_id_file: UploadFile):
+@limiter.limit("10/minute", key_func=operator_rate_limit_key)
+def api_scan_emirates_id(request: Request, session: Session, emirates_id_file: UploadFile):
     from ..cases.ocr import extract_emirates_id_data
-    from ..validation import validate_file_mime
 
-    content = emirates_id_file.file.read()
-    # Validate MIME type
-    try:
-        validate_file_mime(content, emirates_id_file.filename or "emirates_id.jpg")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
+    content = _read_scan_upload(emirates_id_file)
     return _scan_document(content, extract_emirates_id_data)
 
 
@@ -1131,19 +1163,33 @@ def api_customer_upload_document(
     if not file.filename:
         raise HTTPException(status_code=400, detail="filename is required.")
 
-    content = file.file.read()
-
-    # Validate MIME type by magic bytes before accepting upload
-    from ..validation import validate_file_mime
+    # Reject a client filename that carries a path before touching the body.
     try:
+        storage.check_client_filename(file.filename)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filename: path separators and '..' are not allowed.")
+
+    from ..validation import (
+        IMAGE_MIMES, PDF, UploadRejected, max_upload_bytes, read_capped, validate_file_mime, validate_upload,
+    )
+    content = read_capped(file.file)
+
+    # Validate type (magic bytes + extension agreement), then size/pixels, before accepting upload
+    try:
+        if len(content) > max_upload_bytes():
+            validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF})  # raises 413
         detected_mime = validate_file_mime(content, file.filename)
+        validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF})
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
     sha256 = hashlib.sha256(content).hexdigest()
 
-    # Prevent path traversal: store only the basename, never relative segments.
-    safe_name = Path(file.filename).name
+    # The client's name is display metadata only; storage.upload() stores the blob
+    # under a unique generated name so same-name uploads never overwrite each other.
+    safe_name = file.filename
     stored_path = storage.upload(content, session.org_id, customer_id, safe_name)
 
     now = utcnow()
@@ -1487,8 +1533,10 @@ def api_admin_reset_password(operator_id: int, body: PasswordResetRequest, db: D
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Operator not found.")
-    if len(body.new_password) < 10:
-        raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
+    try:
+        auth.check_new_password(body.new_password)
+    except auth.PasswordComplexityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     auth.set_password(db, operator_id, body.new_password)
     from ..db import audit
 
@@ -1508,8 +1556,17 @@ class OperatorCreateRequest(BaseModel):
 @router.post("/admin/operators")
 def api_admin_create_operator(body: OperatorCreateRequest, db: DB, session: Session):
     _require_mlro(session)
-    if len(body.password) < 10:
-        raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
+    from ..cases.operators import operator_name_taken
+
+    try:
+        auth.check_new_password(body.password)
+        clean_name, clean_email = auth.check_operator_identity(body.name, body.email)
+    except ValueError as exc:  # PasswordComplexityError / IdentityError
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.role not in auth.OPERATOR_ROLES:
+        raise HTTPException(status_code=400, detail="Role must be officer or mlro.")
+    if operator_name_taken(db, session.org_id, clean_name):
+        raise HTTPException(status_code=400, detail="An operator with that name or email already exists.")
     try:
         now = utcnow()
         cur = db.execute(
@@ -1519,7 +1576,7 @@ def api_admin_create_operator(body: OperatorCreateRequest, db: DB, session: Sess
             """INSERT INTO operators
                    (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
                VALUES (?,?,?,?,?,1,?,?)""",
-            (session.org_id, body.name.strip(), body.email.strip().lower(),
+            (session.org_id, clean_name, clean_email,
              auth.hash_password(body.password), body.role, now, now),
         )
     except sqlite3.IntegrityError as exc:
@@ -1529,7 +1586,7 @@ def api_admin_create_operator(body: OperatorCreateRequest, db: DB, session: Sess
     from ..db import audit
 
     audit(db, session.operator_name, "operator.create", "operator", cur.lastrowid,
-          {"email": body.email.strip().lower(), "role": body.role}, org_id=session.org_id)
+          {"email": clean_email, "role": body.role}, org_id=session.org_id)
     db.commit()
     return {"operator_id": cur.lastrowid}
 

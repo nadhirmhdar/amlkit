@@ -37,7 +37,7 @@ def web(tmp_path, monkeypatch, complete_mfa):
     import re
     r = c.post("/register-organization", data={
         "org_name": "Test Firm", "name": "alice",
-        "email": "alice@testfirm.ae", "password": "a-strong-password-1",
+        "email": "alice@testfirm.ae", "password": "A-strong-password-1",
         "csrf_token": _csrf(c), "invite_code": "test-invite",
     }, follow_redirects=True)
     m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
@@ -46,7 +46,7 @@ def web(tmp_path, monkeypatch, complete_mfa):
 
     c.get("/login")
     c.post("/login", data={
-        "email": "alice@testfirm.ae", "password": "a-strong-password-1",
+        "email": "alice@testfirm.ae", "password": "A-strong-password-1",
         "csrf_token": _csrf(c),
     }, follow_redirects=True)
     complete_mfa(c)  # p15: MLRO sessions are locked until TOTP enrolment

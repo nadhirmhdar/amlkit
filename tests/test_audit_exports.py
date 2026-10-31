@@ -99,7 +99,7 @@ def api(tmp_path, monkeypatch):
     c = TestClient(app)
     r = c.post("/api/v1/auth/register-organization", json={
         "org_name": "Mobile Firm", "name": "alice", "email": "alice@mobilefirm.ae",
-        "password": "a-strong-password-1", "invite_code": "test-invite",
+        "password": "A-strong-password-1", "invite_code": "test-invite",
     })
     assert r.status_code == 200, r.text
     r2 = c.post("/api/v1/auth/verify-email",
@@ -211,7 +211,7 @@ class TestConsoleCrossOrgAccessIsAudited:
         client.post("/logout", data={"csrf_token": _csrf(client)})
         client.get("/login")
         client.post("/login", data={"email": "alice@testfirm.ae",
-                                    "password": "a-strong-password-1",
+                                    "password": "A-strong-password-1",
                                     "csrf_token": _csrf(client)}, follow_redirects=True)
         from conftest import settle_mfa
         settle_mfa(client)

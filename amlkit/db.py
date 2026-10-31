@@ -1010,6 +1010,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("mfa_secrets", "failed_attempts",
      "ALTER TABLE mfa_secrets ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0"),
     ("mfa_secrets", "locked_until", "ALTER TABLE mfa_secrets ADD COLUMN locked_until TEXT"),
+    # Last accepted TOTP time-step (RFC 6238 s5.2): a code at or below it is a replay.
+    ("mfa_secrets", "last_step", "ALTER TABLE mfa_secrets ADD COLUMN last_step INTEGER"),
     ("entities", "programs", "ALTER TABLE entities ADD COLUMN programs TEXT"),
     ("alerts", "reason_code", "ALTER TABLE alerts ADD COLUMN reason_code TEXT"),
     # Retention anchor for ad-hoc screenings (customer_id NULL): there is no

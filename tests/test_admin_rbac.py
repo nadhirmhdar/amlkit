@@ -21,7 +21,7 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register_and_login(client, org_name: str, name: str, email: str, password: str = "a-strong-password-1"):
+def _register_and_login(client, org_name: str, name: str, email: str, password: str = "A-strong-password-1"):
     """Registers, verifies email, and logs in."""
     import re
 
@@ -39,7 +39,7 @@ def _register_and_login(client, org_name: str, name: str, email: str, password: 
     return client
 
 
-def _add_operator(client, name: str, email: str, password: str = "a-strong-password-2",
+def _add_operator(client, name: str, email: str, password: str = "A-strong-password-2",
                   role: str = "officer") -> None:
     """MLRO creates a second operator."""
     client.post("/admin/operators", data={
@@ -91,7 +91,7 @@ class TestAdminRBAC:
         _add_operator(client, "bob1", "bob1@testfirm.ae", role="officer")
         client.cookies.delete("amlkit_session")
         client.post("/login", data={
-            "email": "bob1@testfirm.ae", "password": "a-strong-password-2",
+            "email": "bob1@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(client),
         })
         from conftest import settle_mfa  # p15: MLRO sessions start locked
@@ -108,7 +108,7 @@ class TestAdminRBAC:
         _add_operator(client, "bob2", "bob2@testfirm.ae", role="officer")
         client.cookies.delete("amlkit_session")
         client.post("/login", data={
-            "email": "bob2@testfirm.ae", "password": "a-strong-password-2",
+            "email": "bob2@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(client),
         })
         from conftest import settle_mfa  # p15: MLRO sessions start locked
@@ -116,7 +116,7 @@ class TestAdminRBAC:
 
         r = client.post("/admin/operators", data={
             "name": "charlie", "email": "charlie@testfirm.ae",
-            "password": "a-strong-password-3", "role": "officer",
+            "password": "A-strong-password-3", "role": "officer",
             "csrf_token": _csrf(client),
         }, follow_redirects=False)
         assert r.status_code == 403
@@ -133,14 +133,14 @@ class TestAdminRBAC:
         # Log in as bob3
         client.cookies.delete("amlkit_session")
         client.post("/login", data={
-            "email": "bob3@testfirm.ae", "password": "a-strong-password-2",
+            "email": "bob3@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(client),
         })
         from conftest import settle_mfa  # p15: MLRO sessions start locked
         settle_mfa(client)
 
         r = client.post(f"/admin/operators/{bob_id}/reset-password", data={
-            "new_password": "new-password-123", "csrf_token": _csrf(client),
+            "new_password": "New-password-123", "csrf_token": _csrf(client),
         }, follow_redirects=False)
         assert r.status_code == 403
 
@@ -156,7 +156,7 @@ class TestAdminRBAC:
         # Log in as bob4 (officer)
         client.cookies.delete("amlkit_session")
         client.post("/login", data={
-            "email": "bob4@testfirm.ae", "password": "a-strong-password-2",
+            "email": "bob4@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(client),
         })
         from conftest import settle_mfa  # p15: MLRO sessions start locked
@@ -172,7 +172,7 @@ class TestAdminRBAC:
         _add_operator(client, "bob5", "bob5@testfirm.ae", role="officer")
         client.cookies.delete("amlkit_session")
         client.post("/login", data={
-            "email": "bob5@testfirm.ae", "password": "a-strong-password-2",
+            "email": "bob5@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(client),
         })
         from conftest import settle_mfa  # p15: MLRO sessions start locked
@@ -188,7 +188,7 @@ class TestAdminRBAC:
         _add_operator(client, "bob6", "bob6@testfirm.ae", role="officer")
         client.cookies.delete("amlkit_session")
         client.post("/login", data={
-            "email": "bob6@testfirm.ae", "password": "a-strong-password-2",
+            "email": "bob6@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(client),
         })
         from conftest import settle_mfa  # p15: MLRO sessions start locked
@@ -204,7 +204,7 @@ class TestAdminRBAC:
         _add_operator(client, "bob7", "bob7@testfirm.ae", role="officer")
         client.cookies.delete("amlkit_session")
         client.post("/login", data={
-            "email": "bob7@testfirm.ae", "password": "a-strong-password-2",
+            "email": "bob7@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(client),
         })
         from conftest import settle_mfa  # p15: MLRO sessions start locked
@@ -296,7 +296,7 @@ class TestMlroLockout:
         _add_operator(client, "dave8", "dave8@testfirm.ae", role="officer")
         client.cookies.delete("amlkit_session")
         client.post("/login", data={
-            "email": "dave8@testfirm.ae", "password": "a-strong-password-2",
+            "email": "dave8@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(client),
         })
         from conftest import settle_mfa  # p15: MLRO sessions start locked
@@ -337,7 +337,7 @@ class TestMlroLockout:
         fresh = TestClient(app)
         fresh.get("/login")
         login_r = fresh.post("/login", data={
-            "email": "erin8@testfirm.ae", "password": "a-strong-password-2",
+            "email": "erin8@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(fresh),
         }, follow_redirects=True)
         assert login_r.status_code == 200
