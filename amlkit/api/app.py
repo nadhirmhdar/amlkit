@@ -607,14 +607,18 @@ def _login_page_error(request: Request, message: str) -> HTMLResponse:
 @limiter.limit("3/minute", key_func=login_rate_limit_key)  # Per-account: prevents rapid stuffing of one account
 def login_submit(
     request: Request, db: DB,
-    email: Annotated[str, Form()],
-    password: Annotated[str, Form()],
+    email: Annotated[str, Form()] = "",
+    password: Annotated[str, Form()] = "",
     csrf_token: Annotated[str, Form()] = "",
 ):
     try:
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return _login_page_error(request, str(exc))
+    if not email.strip() or not password:
+        # An empty field is "missing" to FastAPI's Form(); answer with the
+        # form, not a raw 422 JSON body.
+        return _login_page_error(request, "Enter your email and password.")
     try:
         token, info = auth.login(db, email, password, ip=client_ip(request))
     except auth.AuthError as exc:
@@ -3484,6 +3488,44 @@ def admin_reset_password(
           None, org_id=session.org_id)
     db.commit()
     return back("/admin", msg="Password reset. All of that operator's sessions were signed out.")
+
+
+@app.post("/admin/operators/{operator_id}/unlock")
+def admin_unlock_operator(
+    request: Request, db: DB, operator_id: int, csrf_token: Annotated[str, Form()] = ""
+):
+    """Clear an operator's MFA lock and password-login lock (L-74, L-46).
+
+    Same gate as the other /admin/operators actions: MLRO only, same org.
+    """
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(exc)}, status_code=403)
+
+    row = db.execute(
+        "SELECT id, name FROM operators WHERE id=? AND org_id=?", (operator_id, session.org_id)
+    ).fetchone()
+    if row is None:
+        return back("/admin", err="Operator not found.")
+    db.execute(
+        "UPDATE operators SET failed_login_count=0, locked_until=NULL WHERE id=? AND org_id=?",
+        (operator_id, session.org_id),
+    )
+    db.execute(
+        "UPDATE mfa_secrets SET failed_attempts=0, locked_until=NULL WHERE operator_id=?",
+        (operator_id,),
+    )
+    from ..db import audit
+    audit(db, session.operator_name, "operator.unlock", "operator", operator_id,
+          None, org_id=session.org_id)
+    db.commit()
+    return back("/admin", msg=f"Sign-in and MFA locks cleared for {row['name']}.")
 
 
 @app.post("/admin/operators/{operator_id}/rename")
