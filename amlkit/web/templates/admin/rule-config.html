@@ -18,6 +18,16 @@
   </div>
   {% endif %}
 
+  {% if threshold_above_default %}
+  <div class="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-6" role="alert">
+    <p class="text-yellow-800">
+      The large cash threshold is set to {{ large_cash_threshold_display }} AED, above the
+      default of {{ large_cash_default_display }} AED. Cash transactions between the two
+      do not raise a large-cash alert.
+    </p>
+  </div>
+  {% endif %}
+
   <form method="post" action="/admin/rule-config" class="space-y-6">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -28,7 +38,7 @@
       <input type="number" name="large_cash_threshold_aed" value="{{ large_cash_threshold_aed }}"
              min="1" max="1000000" step="100"
              class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-      <p class="text-xs text-gray-500 mt-1">Threshold for single large-cash transaction alerts (1–1,000,000 AED)</p>
+      <p class="text-xs text-gray-500 mt-1">Threshold for single large-cash transaction alerts (1–1,000,000 AED). Current: {{ large_cash_threshold_display }} AED; default: {{ large_cash_default_display }} AED.</p>
     </div>
 
     <div>

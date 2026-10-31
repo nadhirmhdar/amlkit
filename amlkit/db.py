@@ -995,6 +995,13 @@ UAEPASS_STATE_LIFETIME = timedelta(minutes=15)
 # This is a deliberate, stated tradeoff: a hand-edited database bypassing the
 # application is not caught by the schema alone.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    # L-50: whether a UAE PASS result agreed with what the customer file already
+    # held. match | mismatch | no_baseline (nothing stored to compare against);
+    # NULL on rows recorded before the check existed.
+    ("uaepass_verifications", "match_status",
+     "ALTER TABLE uaepass_verifications ADD COLUMN match_status TEXT"),
+    ("uaepass_verifications", "match_detail",
+     "ALTER TABLE uaepass_verifications ADD COLUMN match_detail TEXT"),
     # /apply: who is applying (and, for consultants, how many client firms).
     # Only matters to a database that created the table before these existed.
     ("applications", "applicant_type",

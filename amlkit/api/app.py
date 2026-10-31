@@ -217,6 +217,18 @@ templates.env.globals["has_arabic"] = has_arabic_script
 templates.env.globals["asset_v"] = int((WEB / "static" / "app.css").stat().st_mtime)
 # blog.css/blog.js change independently of app.css, so they get their own cache-buster.
 templates.env.filters["blog_date"] = blog.format_date
+
+
+def _fmt_amount(value: object) -> str:
+    """55000.0 -> '55,000'; 1234.5 -> '1,234.50'. Non-numbers pass through."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return str(value)
+    if float(value).is_integer():
+        return f"{value:,.0f}"
+    return f"{value:,.2f}"
+
+
+templates.env.filters["amount"] = _fmt_amount
 templates.env.globals["blog_asset_v"] = int(max(
     (WEB / "static" / "blog.css").stat().st_mtime,
     (WEB / "static" / "js" / "blog.js").stat().st_mtime,
@@ -2162,6 +2174,18 @@ def uaepass_customer_callback(
         # customer_id in this file (see add_case_note()'s docstring).
         return _clear_uaepass_state_cookie(back("/customers", err=str(exc)))
     db.commit()
+    latest = db.execute(
+        "SELECT match_status, match_detail FROM uaepass_verifications"
+        " WHERE customer_id=? AND org_id=? ORDER BY id DESC LIMIT 1",
+        (customer_id, session.org_id),
+    ).fetchone()
+    if latest is not None and latest["match_status"] == "mismatch":
+        return _clear_uaepass_state_cookie(back(
+            f"/customers/{customer_id}",
+            err=("UAE PASS result recorded but does NOT match this customer file: "
+                 f"{latest['match_detail']}. No details were copied onto the customer. "
+                 "Review before relying on this verification."),
+        ))
     return _clear_uaepass_state_cookie(
         back(f"/customers/{customer_id}", msg="Customer identity verified via UAE PASS.")
     )
@@ -3787,7 +3811,7 @@ def admin_refresh_sanctions(
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": str(exc)}, status_code=403)
 
-    result = run_sanctions_refresh(db, actor=session.operator_name)
+    result = run_sanctions_refresh(db, actor=session.operator_name, org_id=session.org_id)
 
     if result["failures"]:
         return back("/admin", err="Refresh failed for: " + "; ".join(result["failures"]))
@@ -3816,7 +3840,7 @@ def admin_refresh_stream(request: Request, db: DB):
     from ..cases.scheduler import refresh_with_progress
 
     def event_stream():
-        for event in refresh_with_progress(db, actor=session.operator_name):
+        for event in refresh_with_progress(db, actor=session.operator_name, org_id=session.org_id):
             yield f"data: {_json.dumps(event)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -3880,10 +3904,16 @@ def admin_rule_config_get(request: Request, db: DB):
 
     from ..screening.kyt import get_rule_config
 
+    from ..screening.kyt import LARGE_CASH_THRESHOLD_AED
+
     config = get_rule_config(db, session.org_id)
+    threshold = config["large_cash_threshold_aed"]
     return render(request, "admin/rule-config.html", {
         "session": session,
-        "large_cash_threshold_aed": config["large_cash_threshold_aed"],
+        "large_cash_threshold_aed": _fmt_amount(threshold).replace(",", ""),
+        "large_cash_threshold_display": _fmt_amount(threshold),
+        "large_cash_default_display": _fmt_amount(LARGE_CASH_THRESHOLD_AED),
+        "threshold_above_default": threshold > LARGE_CASH_THRESHOLD_AED,
         "structuring_window_days": config["structuring_window_days"],
         "velocity_window_hours": config["velocity_window_hours"],
         "velocity_max_count": config["velocity_max_count"],
@@ -3915,16 +3945,26 @@ def admin_rule_config_post(
 
     from ..screening.kyt import save_rule_config, get_rule_config
 
+    from ..screening.kyt import LARGE_CASH_THRESHOLD_AED
+
     config_update = {}
     try:
-        if large_cash_threshold_aed:
-            config_update["large_cash_threshold_aed"] = float(large_cash_threshold_aed)
-        if structuring_window_days:
-            config_update["structuring_window_days"] = int(structuring_window_days)
-        if velocity_window_hours:
-            config_update["velocity_window_hours"] = int(velocity_window_hours)
-        if velocity_max_count:
-            config_update["velocity_max_count"] = int(velocity_max_count)
+        for key, raw, kind, label in (
+            ("large_cash_threshold_aed", large_cash_threshold_aed, float, "Large cash threshold"),
+            ("structuring_window_days", structuring_window_days, int, "Structuring window"),
+            ("velocity_window_hours", velocity_window_hours, int, "Velocity window"),
+            ("velocity_max_count", velocity_max_count, int, "Velocity max count"),
+        ):
+            raw = raw.strip().replace(",", "")
+            if not raw:
+                continue
+            try:
+                config_update[key] = kind(raw)
+            except ValueError:
+                return back("/admin/rule-config", err=(
+                    f"{label} must be a "
+                    f"{'number' if kind is float else 'whole number'} (for example "
+                    f"{'55,000' if kind is float else '7'}); '{raw[:40]}' is not valid."))
         if high_risk_countries:
             config_update["high_risk_countries"] = [
                 c.strip().upper() for c in high_risk_countries.split(",") if c.strip()
@@ -3932,7 +3972,13 @@ def admin_rule_config_post(
 
         save_rule_config(db, session.org_id, config_update, actor=session.operator_name)
         db.commit()
-        return back("/admin/rule-config", msg="Rule configuration updated successfully")
+        msg = "Rule configuration updated successfully."
+        if config_update.get("large_cash_threshold_aed", 0) > LARGE_CASH_THRESHOLD_AED:
+            msg += (f" Warning: the large cash threshold is now "
+                    f"{_fmt_amount(config_update['large_cash_threshold_aed'])} AED, above the "
+                    f"default of {_fmt_amount(LARGE_CASH_THRESHOLD_AED)} AED. Cash transactions "
+                    "between the two will no longer raise a large-cash alert.")
+        return back("/admin/rule-config", msg=msg)
     except ValueError as exc:
         return back("/admin/rule-config", err=str(exc))
     except Exception as exc:
@@ -4610,6 +4656,8 @@ def compliance_deadlines_list(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         return RedirectResponse("/login", status_code=303)
+    if session.operator_role not in _DEADLINE_ROLES:
+        return Response(status_code=403)
     return queries.compliance_deadlines(db, session.org_id)
 
 class _DeadlineCreate(BaseModel):
@@ -4626,22 +4674,69 @@ class _DeadlineUpdate(BaseModel):
     recurrence: str | None = None
 
 
+_DEADLINE_ROLES = ("officer", "mlro")
+_DEADLINE_RECURRENCES = ("none", "one-time", "monthly", "quarterly", "annual", "annually")
+
+
+def _deadline_gate(request: Request, db: DB, *, write: bool):
+    """Session and role (officer/MLRO). Returns (session, error_response).
+
+    Write routes also call `require_csrf` themselves (the static CSRF scan in
+    tests/test_goaml_reference_csrf_finalise.py wants it visible in each route).
+    """
+    try:
+        session = require_session(request, db)
+        require_role(session, *_DEADLINE_ROLES)
+    except PermissionError:
+        return None, Response(status_code=403)
+    return session, None
+
+
+def _clean_deadline_fields(title, due_date, recurrence, *, require_all: bool):
+    """Validate deadline input. Returns (fields, error message or None)."""
+    from datetime import date
+    out: dict[str, str] = {}
+    if title is not None or require_all:
+        t = (title or "").strip()
+        if not t:
+            return out, "A title is required."
+        out["title"] = t
+    if due_date is not None or require_all:
+        try:
+            out["due_date"] = date.fromisoformat((due_date or "").strip()).isoformat()
+        except ValueError:
+            return out, "due_date must be an ISO date (YYYY-MM-DD)."
+    if recurrence is not None:
+        rec = recurrence.strip().lower() or "none"
+        if rec not in _DEADLINE_RECURRENCES:
+            return out, "recurrence must be one of: " + ", ".join(_DEADLINE_RECURRENCES) + "."
+        out["recurrence"] = rec
+    return out, None
+
+
 @app.post("/compliance/deadlines")
 def compliance_deadlines_create(request: Request, db: DB, body: _DeadlineCreate):
     try:
-        session = require_session(request, db)
-        csrf_token = request.headers.get("X-CSRF-Token") or ""
-        require_csrf(request, csrf_token)
+        require_csrf(request, request.headers.get("X-CSRF-Token") or "")
     except PermissionError:
         return Response(status_code=403)
+    session, denied = _deadline_gate(request, db, write=True)
+    if denied is not None:
+        return denied
+    fields, err = _clean_deadline_fields(body.title, body.due_date, body.recurrence, require_all=True)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    fields.setdefault("recurrence", "none")
     from ..db import audit, utcnow
     cur = db.execute(
         "INSERT INTO compliance_deadlines (org_id, title, description, due_date, recurrence, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (session.org_id, body.title, body.description, body.due_date, body.recurrence, utcnow())
+        (session.org_id, fields["title"], body.description, fields["due_date"],
+         fields["recurrence"], utcnow())
     )
     deadline_id = cur.lastrowid
     audit(db, session.operator_name, "compliance.deadline_created", "compliance_deadline", deadline_id,
-          {"title": body.title}, org_id=session.org_id)
+          {"title": fields["title"], "due_date": fields["due_date"],
+           "recurrence": fields["recurrence"]}, org_id=session.org_id)
     db.commit()
     return queries.compliance_deadline(db, session.org_id, deadline_id)
 
@@ -4649,31 +4744,53 @@ def compliance_deadlines_create(request: Request, db: DB, body: _DeadlineCreate)
 @app.patch("/compliance/deadlines/{deadline_id}")
 def compliance_deadlines_update(request: Request, db: DB, deadline_id: int, body: _DeadlineUpdate):
     try:
-        session = require_session(request, db)
-        csrf_token = request.headers.get("X-CSRF-Token") or ""
-        require_csrf(request, csrf_token)
+        require_csrf(request, request.headers.get("X-CSRF-Token") or "")
     except PermissionError:
         return Response(status_code=403)
+    session, denied = _deadline_gate(request, db, write=True)
+    if denied is not None:
+        return denied
     existing = queries.compliance_deadline(db, session.org_id, deadline_id)
     if existing is None:
         return Response(status_code=404)
-    if body.title:
-        db.execute("UPDATE compliance_deadlines SET title=? WHERE id=? AND org_id=?", (body.title, deadline_id, session.org_id))
+    fields, err = _clean_deadline_fields(
+        body.title if body.title else None, body.due_date, body.recurrence, require_all=False)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    if body.description is not None:
+        fields["description"] = body.description
+    changes = {k: v for k, v in fields.items() if existing.get(k) != v}
+    if changes:
+        from ..db import audit
+        # Column names come from the fixed set built above, never from the client.
+        sets = ", ".join(f"{k}=?" for k in changes)
+        # One literal filled by .format(), not an f-string: the static tenant scan
+        # (tests/test_tenant_isolation.py) otherwise sees the split-off prefix.
+        db.execute("UPDATE compliance_deadlines SET {} WHERE id=? AND org_id=?".format(sets),
+                   (*changes.values(), deadline_id, session.org_id))
+        audit(db, session.operator_name, "compliance.deadline_updated", "compliance_deadline",
+              deadline_id,
+              {"old": {k: existing.get(k) for k in changes}, "new": changes},
+              org_id=session.org_id)
         db.commit()
     return queries.compliance_deadline(db, session.org_id, deadline_id)
 
 @app.delete("/compliance/deadlines/{deadline_id}")
 def compliance_deadlines_delete(request: Request, db: DB, deadline_id: int):
     try:
-        session = require_session(request, db)
-        csrf_token = request.headers.get("X-CSRF-Token") or ""
-        require_csrf(request, csrf_token)
+        require_csrf(request, request.headers.get("X-CSRF-Token") or "")
     except PermissionError:
         return Response(status_code=403)
+    session, denied = _deadline_gate(request, db, write=True)
+    if denied is not None:
+        return denied
     existing = queries.compliance_deadline(db, session.org_id, deadline_id)
     if existing is None:
         return Response(status_code=404)
+    from ..db import audit
     db.execute("DELETE FROM compliance_deadlines WHERE id=? AND org_id=?", (deadline_id, session.org_id))
+    audit(db, session.operator_name, "compliance.deadline_deleted", "compliance_deadline",
+          deadline_id, {"old": existing}, org_id=session.org_id)
     db.commit()
     return Response(status_code=204)
 

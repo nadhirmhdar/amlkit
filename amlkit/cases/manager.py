@@ -865,6 +865,9 @@ def record_transaction(
     return transaction_id, triggered
 
 
+MIN_DISPOSITION_NOTE = 10
+
+
 def disposition_transaction_alert(
     conn: sqlite3.Connection, alert_id: int, org_id: int, *,
     status: str, note: str = "", actor: str = "system",
@@ -874,6 +877,11 @@ def disposition_transaction_alert(
     sanctions/PF disposition workflow."""
     if status not in ("true_positive", "false_positive"):
         raise ValueError(f"invalid disposition status: {status!r}")
+    if status == "false_positive" and len((note or "").strip()) < MIN_DISPOSITION_NOTE:
+        raise ValueError(
+            "Closing an alert as a false positive needs a note of at least "
+            f"{MIN_DISPOSITION_NOTE} characters explaining why."
+        )
     with conn:
         owned = conn.execute(
             "SELECT 1 FROM transaction_alerts WHERE id=? AND org_id=?", (alert_id, org_id)
@@ -885,10 +893,10 @@ def disposition_transaction_alert(
             """UPDATE transaction_alerts
                SET status=?, disposition=?, dispositioned_by=?, dispositioned_at=?
                WHERE id=? AND org_id=?""",
-            (status, note.strip() or None, actor, now, alert_id, org_id),
+            (status, (note or "").strip() or None, actor, now, alert_id, org_id),
         )
         audit(conn, actor, "transaction_alert.disposition", "transaction_alert", alert_id,
-              {"status": status, "note": note}, org_id=org_id)
+              {"status": status, "note": (note or "").strip()}, org_id=org_id)
 
 
 def record_signature(
@@ -990,6 +998,50 @@ def add_case_note(
 
 
 # ---------------------------------------------------------------------- UAE PASS
+def _digits(value: str | None) -> str:
+    return "".join(ch for ch in (value or "") if ch.isdigit())
+
+
+def _uaepass_match(owned: sqlite3.Row, profile: UaePassProfile) -> tuple[str, list[str]]:
+    """Compare a UAE PASS result with the identity already on the customer file.
+
+    Returns (match_status, reasons). `no_baseline` when the file holds no name
+    or Emirates ID to compare against; `mismatch` when any stored value that
+    can be compared disagrees. Names are compared order-independently
+    (canonical_key); a name passes if either the English or the Arabic form
+    agrees. The ID is compared only when the stored ID is an Emirates ID (or
+    untyped), so a passport number is never held against an IDN.
+    """
+    from ..uaepass import EMIRATES_ID_TYPE
+
+    reasons: list[str] = []
+    compared = False
+
+    name_checks: list[bool] = []
+    for stored, asserted in ((owned["full_name"], profile.fullname_en),
+                             (owned["name_arabic"], profile.fullname_ar)):
+        if (stored or "").strip() and (asserted or "").strip():
+            name_checks.append(canonical_key(stored) == canonical_key(asserted))
+    if name_checks:
+        compared = True
+        if not any(name_checks):
+            reasons.append("name differs from the customer file")
+    elif (owned["full_name"] or "").strip() and profile.idn is not None:
+        # A stored name but nothing from UAE PASS to compare it with is not a match.
+        compared = True
+        reasons.append("UAE PASS returned no name to compare")
+
+    stored_id = _digits(owned["id_number"])
+    if stored_id and owned["id_type"] in (None, "", EMIRATES_ID_TYPE):
+        compared = True
+        if stored_id != _digits(profile.idn):
+            reasons.append("Emirates ID number differs from the customer file")
+
+    if not compared:
+        return "no_baseline", []
+    return ("mismatch" if reasons else "match"), reasons
+
+
 def record_uaepass_verification(
     conn: sqlite3.Connection,
     customer_id: int,
@@ -1021,6 +1073,13 @@ def record_uaepass_verification(
     customer's canonical_key/screening identity without re-running screen(),
     which onboard() does but this append-only evidence path does not.
 
+    Before any backfill the result is compared with the name / Emirates ID
+    already on the file (`_uaepass_match`). The outcome is stored on the
+    verification row (`match_status` = match | mismatch | no_baseline) and a
+    mismatch suppresses the backfill and is shown on the customer page. An IDN
+    that already belongs to another customer in the org is never copied onto
+    this one.
+
     The full raw UAE PASS userinfo response is kept on the accompanying
     audit_log row's `detail` (uaepass_verifications itself has no raw/JSON
     column -- see db.py's schema comment), so a response shape this parser
@@ -1032,30 +1091,60 @@ def record_uaepass_verification(
     now = utcnow()
     with conn:
         owned = conn.execute(
-            "SELECT id, nationality, nationalities, id_number, id_type, email, phone, gender"
+            "SELECT id, full_name, name_arabic, nationality, nationalities, id_number,"
+            " id_type, email, phone, gender"
             " FROM customers WHERE id=? AND org_id=?",
             (customer_id, org_id),
         ).fetchone()
         if owned is None:
             raise ValueError(f"customer {customer_id} not found")
 
+        match_status, reasons = _uaepass_match(owned, profile)
+
+        # The same Emirates ID already on ANOTHER customer in this org: never
+        # copy it onto this one (one person, two files), and flag it.
+        idn_digits = _digits(profile.idn)
+        idn_elsewhere = None
+        if idn_digits:
+            idn_elsewhere = conn.execute(
+                "SELECT id FROM customers WHERE org_id=? AND id<>?"
+                " AND REPLACE(REPLACE(id_number,'-',''),' ','')=? LIMIT 1",
+                (org_id, customer_id, idn_digits),
+            ).fetchone()
+            if idn_elsewhere is not None:
+                reasons.append(
+                    "this Emirates ID already belongs to another customer in the organisation")
+                match_status = "mismatch"
+        match_detail = "; ".join(reasons) or None
+
         cur = conn.execute(
             """INSERT INTO uaepass_verifications
                (org_id, customer_id, uaepass_uuid, idn, fullname_en, fullname_ar,
-                nationality_en, mobile, email, user_type, verified_at, verified_by)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                nationality_en, mobile, email, user_type, verified_at, verified_by,
+                match_status, match_detail)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id, customer_id, profile.uuid, profile.idn,
                 profile.fullname_en, profile.fullname_ar, profile.nationality_en,
                 profile.mobile, profile.email, profile.user_type, now, verified_by,
+                match_status, match_detail,
             ),
         )
         verification_id = cur.lastrowid
 
         audit(conn, actor, "customer.uaepass_verify", "customer", customer_id,
               {"verification_id": verification_id, "uaepass_uuid": profile.uuid,
-               "user_type": profile.user_type, "raw": profile.raw},
+               "user_type": profile.user_type, "match_status": match_status,
+               "match_detail": match_detail,
+               "idn_on_other_customer": idn_elsewhere["id"] if idn_elsewhere else None,
+               "raw": profile.raw},
               org_id=org_id)
+
+        # A mismatch means UAE PASS may be describing a different person than
+        # this file: keep the evidence row, but do not pour its attributes into
+        # the customer record.
+        if match_status == "mismatch":
+            return verification_id
 
         # Best-effort, non-destructive backfill -- see docstring above.
         updates: dict[str, Any] = {}
@@ -1546,6 +1635,7 @@ def reassess_risk(
     cash_level: str | None = None,
     structure: str | None = None,
     reset_review_clock: bool = False,
+    dry_run: bool = False,
 ) -> RiskAssessment | None:
     """Re-rate a customer from current state.
 
@@ -1562,6 +1652,10 @@ def reassess_risk(
     Optional overrides (`jurisdiction_tier`, `sector`, etc.) are used by the
     profile-update API endpoint when a compliance officer corrects a risk
     factor. All other callers (post-rescreen, manual re-assess) omit them.
+
+    `dry_run=True` computes the assessment without saving it, so a caller can
+    inspect the resulting rating (e.g. to require a reason for a downgrade)
+    before committing anything.
 
     Returns None when there is no prior assessment to build on.
     """
@@ -1634,8 +1728,9 @@ def reassess_risk(
         sanctions_hit=sanctions_hit,
     )
     assessment = assess(profile)
-    save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor,
-              carry_next_review=not reset_review_clock)
+    if not dry_run:
+        save_risk(conn, customer_id, assessment, org_id=org_id, actor=actor,
+                  carry_next_review=not reset_review_clock)
     return assessment
 
 

@@ -17,6 +17,7 @@ burden. This is a stated scope choice, not an oversight.
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -428,12 +429,14 @@ def save_rule_config(
     """
     from ..db import audit, utcnow
 
-    import math
     for _k in ("large_cash_threshold_aed", "structuring_window_days",
                "velocity_window_hours", "velocity_max_count"):
         if _k in config and not (isinstance(config[_k], (int, float))
                                  and math.isfinite(config[_k])):
-            raise ValueError(f"{_k} must be a finite number")
+            raise ValueError(f"{_k.replace('_', ' ')} must be a finite number")
+    for key, value in config.items():
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"{key.replace('_', ' ')} must be a finite number")
 
     # Validate lower bounds
     if "large_cash_threshold_aed" in config and config["large_cash_threshold_aed"] <= 0:
@@ -454,6 +457,10 @@ def save_rule_config(
         raise ValueError("velocity_window_hours cannot exceed 168 hours (7 days)")
     if "velocity_max_count" in config and config["velocity_max_count"] > 1000:
         raise ValueError("velocity_max_count cannot exceed 1000 transactions")
+
+    # Previous values (the effective config, defaults included) for the audit row.
+    previous = get_rule_config(conn, org_id)
+    old_values = {k: previous.get(k) for k in config}
 
     # Upsert org_settings row
     conn.execute(
@@ -491,6 +498,7 @@ def save_rule_config(
             params
         )
 
-    audit(conn, actor, "settings.kyt_rules_update", detail=config, org_id=org_id)
+    audit(conn, actor, "settings.kyt_rules_update",
+          detail={"new": config, "old": old_values}, org_id=org_id)
 
     _clear_config_cache(conn, org_id)

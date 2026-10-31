@@ -807,6 +807,12 @@ class RiskFactorUpdateRequest(BaseModel):
     delivery_channel: str | None = None
     cash_level: str | None = None
     structure: str | None = None
+    # Required (>= 10 chars) when the change would lower the customer's rating.
+    reason: str | None = None
+
+
+_RATING_RANK = {"low": 0, "medium": 1, "high": 2}
+MIN_DOWNGRADE_REASON = 10
 
 
 @router.post("/customers/{customer_id}/risk")
@@ -891,6 +897,33 @@ def api_customer_update_risk_factors(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # A change that lowers the rating needs a recorded reason. The rating is
+    # recomputed from the factors, so compute it first (nothing is saved).
+    from ..db import audit
+    prior = db.execute(
+        "SELECT rating, score, factors FROM risk_assessments"
+        " WHERE customer_id=? AND org_id=? ORDER BY id DESC LIMIT 1",
+        (customer_id, session.org_id),
+    ).fetchone()
+    reason = (body.reason or "").strip()
+    if prior is not None:
+        projected = reassess_risk(
+            db, customer_id, session.org_id, actor=session.operator_name,
+            jurisdiction_tier=body.jurisdiction_tier, sector=body.sector,
+            delivery_channel=body.delivery_channel, cash_level=body.cash_level,
+            structure=body.structure, dry_run=True,
+        )
+        if (projected is not None
+                and _RATING_RANK.get(projected.rating, 0) < _RATING_RANK.get(prior["rating"], 0)
+                and len(reason) < MIN_DOWNGRADE_REASON):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"This change lowers the risk rating from {prior['rating']} to "
+                        f"{projected.rating}. Provide a reason of at least "
+                        f"{MIN_DOWNGRADE_REASON} characters."),
+            )
+
+    changed = {k: v for k, v in body.__dict__.items() if v is not None and k != "reason"}
     updates: dict[str, Any] = {}
     if body.sector is not None:
         updates["sector"] = body.sector
@@ -905,10 +938,8 @@ def api_customer_update_risk_factors(
             f"UPDATE customers SET {set_clause}, updated_at=? WHERE id=? AND org_id=?",
             (*updates.values(), utcnow(), customer_id, session.org_id),
         )
-        from ..db import audit
         audit(db, session.operator_name, "customer.risk_factors_updated", "customer",
-              customer_id, {k: v for k, v in body.__dict__.items() if v is not None},
-              org_id=session.org_id)
+              customer_id, changed, org_id=session.org_id)
         db.commit()
 
     assessment = reassess_risk(
@@ -924,6 +955,16 @@ def api_customer_update_risk_factors(
             status_code=409,
             detail="No prior assessment found. Complete onboarding before updating risk factors.",
         )
+    if changed:
+        audit(db, session.operator_name, "customer.risk_factors_changed", "customer",
+              customer_id,
+              {"requested": changed,
+               "old": {"rating": prior["rating"], "score": prior["score"]},
+               "new": {"rating": assessment.rating, "score": assessment.score},
+               "downgrade": _RATING_RANK.get(assessment.rating, 0) < _RATING_RANK.get(prior["rating"], 0),
+               "reason": reason or None},
+              org_id=session.org_id)
+        db.commit()
     return _assessment_json(assessment)
 
 
@@ -1625,7 +1666,7 @@ def api_admin_refresh(db: DB, session: Session):
     _require_mlro(session)
     from .app import run_sanctions_refresh
 
-    result = run_sanctions_refresh(db, actor=session.operator_name)
+    result = run_sanctions_refresh(db, actor=session.operator_name, org_id=session.org_id)
     if result["failures"]:
         raise HTTPException(status_code=502, detail="Refresh failed for: " + "; ".join(result["failures"]))
     return result

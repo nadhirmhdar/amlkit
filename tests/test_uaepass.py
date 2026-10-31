@@ -527,7 +527,9 @@ class TestCustomerVerification:
 
     def test_happy_path_records_verification_and_audit(self, client, monkeypatch):
         customer_id = self._make_customer(client, "UP-1", "Empty Identity Customer")
-        _mock_uaepass_exchange(monkeypatch, userinfo=dict(_SAMPLE_USERINFO))
+        # L-50: the verified name must agree with the file for a clean verification.
+        _mock_uaepass_exchange(
+            monkeypatch, userinfo={**_SAMPLE_USERINFO, "fullnameEN": "Empty Identity Customer"})
 
         start = client.get(f"/customers/{customer_id}/uaepass/start", follow_redirects=False)
         assert start.status_code in (302, 303)
@@ -583,7 +585,8 @@ class TestCustomerVerification:
         conn.commit()
         conn.close()
 
-        _mock_uaepass_exchange(monkeypatch, userinfo=dict(_SAMPLE_USERINFO))
+        _mock_uaepass_exchange(
+            monkeypatch, userinfo={**_SAMPLE_USERINFO, "fullnameEN": "Already Has Phone"})
         start = client.get(f"/customers/{customer_id}/uaepass/start", follow_redirects=False)
         state = _extract_state(start.headers["location"])
         client.get(
