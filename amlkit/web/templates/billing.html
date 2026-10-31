@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% set nav = 'billing' %}
+{% block title %}Billing | groAML by Grovisor{% endblock %}
+{% block body %}
+
+<div style="max-width:860px;">
+  <div class="page-head">
+    <div class="eyebrow">Billing</div>
+    <h1>Plan &amp; billing</h1>
+    <p class="sub">Your groAML subscription for {{ org.name }}.</p>
+  </div>
+
+  {% if state.write_blocked %}
+  <div class="banner err" role="alert">
+    <strong>This workspace is read-only.</strong>
+    Your subscription is {{ (state.status or 'lapsed').replace('_', ' ') }} and the {{ grace_days }}-day grace
+    period has ended. All records, reports and exports remain available. Resolve billing below to
+    add operators or customers again.
+  </div>
+  {% elif state.status in ('past_due', 'unpaid', 'canceled') %}
+  <div class="banner warning" role="alert">
+    <strong>Your subscription is {{ state.status.replace('_', ' ') }}.</strong>
+    Everything keeps working until {{ state.grace_ends_at[:10] if state.grace_ends_at else 'the grace period ends' }};
+    after that, adding operators or customers is paused (your records stay available).
+  </div>
+  {% endif %}
+
+  <div class="panel mb-6">
+    <h2>Current plan</h2>
+    {% if state.legacy %}
+      <p style="margin:0 0 6px;"><strong>Founding access</strong></p>
+      <p class="muted small mt-0">
+        This organisation is on the original groAML access without plan limits. Choose a plan below
+        when you are ready to move to a subscription.
+      </p>
+    {% else %}
+      <p style="margin:0 0 6px;">
+        <strong>{{ current_plan.name if current_plan else 'Trial' }}</strong>
+        <span class="tag {{ 'low' if state.status in ('active', 'trialing') else 'high' }}">{{ (state.status or 'none').replace('_', ' ') }}</span>
+      </p>
+      <p class="muted small mt-0">
+        {% if org.trial_ends_at and state.status == 'trialing' %}Trial ends {{ org.trial_ends_at[:10] }}. {% endif %}
+        {% if org.current_period_end %}Current period ends {{ org.current_period_end[:10] }}.{% endif %}
+      </p>
+    {% endif %}
+
+    <div class="flat-list">
+      {% for label, key in resources %}
+      <div class="list-row">
+        <div class="grow"><div class="primary">{{ label }}</div></div>
+        <div class="num">
+          {{ '{:,}'.format(state.usage[key]) }}
+          / {% if state.plan is none %}unlimited{% else %}{{ '{:,}'.format(state.limit(key)) }}{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if has_customer %}
+    <form method="post" action="/billing/portal" style="margin-top:16px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">Manage billing</button>
+      <span class="muted small">Invoices, payment method, change plan or cancel.</span>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if not has_live_subscription %}
+  <div class="section-label">{{ 'Choose a plan' if state.legacy or not has_customer else 'Resubscribe' }}</div>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;" class="mb-6">
+    {% for c in cards %}
+    <div class="panel" style="display:flex; flex-direction:column;">
+      <h3>{{ c.plan.name }}</h3>
+      <div class="muted small" style="min-height:40px;">{{ c.plan.audience }}</div>
+      <div style="font-size:18px; font-weight:700; margin:10px 0;">{{ c.price or '' }}</div>
+      <div class="muted small" style="margin-bottom:12px;">
+        {{ c.plan.max_workspaces }} workspace{{ 's' if c.plan.max_workspaces != 1 }},
+        {{ c.plan.max_operators }} operators, {{ '{:,}'.format(c.plan.max_customers) }} customers
+      </div>
+      <form method="post" action="/billing/checkout" style="margin-top:auto;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="tier" value="{{ c.plan.key }}">
+        <button type="submit" {{ 'disabled' if not c.offered }}>
+          {% if has_customer %}Subscribe{% else %}Start {{ trial_days }}-day trial{% endif %}
+        </button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <p class="muted small">
+    groAML is provided by Grovisor Business Consultants FZE. Payments are processed by Stripe.
+    Need custom terms? <a href="/apply">Request a quotation</a>.
+  </p>
+</div>
+
+{% endblock %}

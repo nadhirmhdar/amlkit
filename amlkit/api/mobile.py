@@ -42,6 +42,7 @@ from pydantic import BaseModel, Field, field_validator
 from .. import auth, mail, queries, storage
 from ..datamodel import MAX_NAME_LENGTH
 from .limits import limiter, login_rate_limit_key, operator_rate_limit_key
+from ..billing.limits import BillingLimitError, check_limit
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     EXIT_REASONS,
@@ -665,6 +666,8 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
         )
     except StaleDatasetsError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except BillingLimitError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except sqlite3.IntegrityError as exc:
@@ -1619,6 +1622,10 @@ def api_admin_create_operator(body: OperatorCreateRequest, db: DB, session: Sess
         raise HTTPException(status_code=400, detail="Role must be officer or mlro.")
     if operator_name_taken(db, session.org_id, clean_name):
         raise HTTPException(status_code=400, detail="An operator with that name or email already exists.")
+    try:
+        check_limit(db, session.org_id, "operators")
+    except BillingLimitError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     try:
         now = utcnow()
         cur = db.execute(

@@ -95,6 +95,7 @@
         <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
         {% if session.operator_role == 'mlro' %}
           <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
+          {% if billing_enabled %}<a href="/billing" class="user-dropdown__item" role="menuitem">Billing</a>{% endif %}
           <a href="/admin/feedback" class="user-dropdown__item" role="menuitem">Feedback</a>
           <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
           <a href="/admin/rule-config" class="user-dropdown__item" role="menuitem">Transaction rules</a>
@@ -161,6 +162,7 @@
         <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
         {% if session.operator_role == 'mlro' %}
           <a href="/admin" class="user-dropdown__item" role="menuitem">Admin</a>
+          {% if billing_enabled %}<a href="/billing" class="user-dropdown__item" role="menuitem">Billing</a>{% endif %}
           <a href="/admin/feedback" class="user-dropdown__item" role="menuitem">Feedback</a>
           <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
           <a href="/admin/rule-config" class="user-dropdown__item" role="menuitem">Transaction rules</a>
@@ -206,6 +208,7 @@
     </a>
     <nav aria-label="Site" style="display:flex;gap:18px;font-size:14px;">
       <a href="/about">About</a>
+      {% if billing_enabled %}<a href="/pricing">Pricing</a>{% endif %}
       <a href="/blog">Blog</a>
       <a href="https://grovisor.ae" target="_blank" rel="noopener">grovisor.ae</a>
     </nav>

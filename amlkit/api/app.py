@@ -35,6 +35,7 @@ from .. import auth, notifications, queries, uaepass
 from ..datamodel import MAX_NAME_LENGTH
 from ..web import blog
 from .compress import SelectiveGZipMiddleware
+from ..billing.limits import BillingLimitError, check_limit
 from .limits import limiter, login_rate_limit_key, operator_rate_limit_key, rate_limit_key_func
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
@@ -211,6 +212,11 @@ from .mobile import router as mobile_router  # noqa: E402
 
 app.include_router(mobile_router)
 
+# Stripe billing: routes 404 unless STRIPE_SECRET_KEY is set (billing/stripe_client.py).
+from .billing import router as billing_router  # noqa: E402
+
+app.include_router(billing_router)
+
 app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 templates = Jinja2Templates(directory=str(WEB / "templates"))
 templates.env.globals["has_arabic"] = has_arabic_script
@@ -300,6 +306,9 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     # until UAEPASS_CLIENT_ID/UAEPASS_CLIENT_SECRET are set, so no template
     # needs to know that detail itself.
     ctx.setdefault("uaepass_enabled", uaepass.load_config() is not None)
+    # Same gating for the Billing nav link and the /pricing links.
+    from ..billing import stripe_client as _stripe
+    ctx.setdefault("billing_enabled", _stripe.load_config() is not None)
     # single_operator_mode requires db + org_id; only set if both available
     if db and session:
         ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))
@@ -1968,7 +1977,7 @@ def customer_create(
         )
     except StaleDatasetsError as exc:
         return back("/customers/new", err=str(exc))
-    except ValueError as exc:
+    except ValueError as exc:  # includes BillingLimitError (plan cap / lapsed subscription)
         return back("/customers/new", err=str(exc))
     except sqlite3.IntegrityError:
         return back("/customers/new", err=f"Reference {reference!r} already exists.")
@@ -2379,6 +2388,10 @@ def customer_reactivate(
     try:
         require_role(session, "mlro")
     except PermissionError as exc:
+        return back(f"/customers/{customer_id}", err=str(exc))
+    try:
+        check_limit(db, session.org_id, "customers")
+    except BillingLimitError as exc:
         return back(f"/customers/{customer_id}", err=str(exc))
     try:
         reactivate_customer(db, customer_id, org_id=session.org_id,
@@ -3090,7 +3103,8 @@ def robots_txt():
 
 @app.get("/sitemap.xml", response_class=Response)
 def sitemap_xml():
-    urls = ["/about", "/privacy", "/apply", "/blog"] + [f"/blog/{p.slug}" for p in blog.all_posts()]
+    from ..billing import stripe_client as _stripe
+    urls = ["/about", "/privacy", "/apply"] + (["/pricing"] if _stripe.load_config() else []) + ["/blog"] + [f"/blog/{p.slug}" for p in blog.all_posts()]
     lastmods = {"/blog": blog.all_posts()[0].updated if blog.all_posts() else None}
     for p in blog.all_posts():
         lastmods[f"/blog/{p.slug}"] = p.updated
@@ -3763,6 +3777,10 @@ def admin_create_operator(
     if operator_name_taken(db, session.org_id, clean_name):
         return back("/admin", err="An operator with that name or email already exists.")
     try:
+        check_limit(db, session.org_id, "operators")
+    except BillingLimitError as exc:
+        return back("/admin", err=str(exc))
+    try:
         now = utcnow()
         cur = db.execute(
             # email_verified_at=now: an MLRO adding a known colleague inside
@@ -3846,6 +3864,10 @@ def admin_reactivate_operator(
     ).fetchone()
     if row is None:
         return back("/admin", err="Operator not found.")
+    try:
+        check_limit(db, session.org_id, "operators")
+    except BillingLimitError as exc:
+        return back("/admin", err=str(exc))
     db.execute("UPDATE operators SET is_active=1 WHERE id=? AND org_id=?", (operator_id, session.org_id))
     from ..db import audit
     audit(db, session.operator_name, "operator.reactivate", "operator", operator_id,
