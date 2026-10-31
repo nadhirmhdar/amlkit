@@ -809,7 +809,7 @@ class TestAdminThreshold:
         r = client.post("/admin/threshold",
                         data={"threshold": "1.5", "csrf_token": _csrf(client)},
                         follow_redirects=True)
-        assert "between 0.0 and 1.0" in r.text
+        assert "between 0.5 and 1.0" in r.text
 
     def test_non_numeric_threshold_rejected(self, client) -> None:
         r = client.post("/admin/threshold",

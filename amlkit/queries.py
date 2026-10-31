@@ -721,15 +721,22 @@ def global_search(conn: sqlite3.Connection, org_id: int, query: str) -> dict[str
     return {"results": results[:GLOBAL_SEARCH_LIMIT], "truncated": truncated}
 
 
+SEARCH_QUERY_MAX = 200
+
+
 def search_customers(
     conn: sqlite3.Connection, org_id: int, query: str
 ) -> list[dict[str, Any]]:
     """Search customers by name, reference, or Arabic name with canonicalization.
 
     Matches against: full_name (LIKE), name_arabic (LIKE), reference (LIKE),
-    and canonical_key (prefix match on each canonical token from the query).
+    and canonical_key (substring match on each canonical token from the query;
+    tokens shorter than 2 characters are ignored because they match nearly
+    every key), so a degenerate query such as 'a' * 2000 matches nothing instead
+    of every customer. The query is capped at 200 characters. A literal one-
+    character query ('%', '_') still works as a plain substring search.
     """
-    query = query.strip()
+    query = query.strip()[:SEARCH_QUERY_MAX]
     if not query:
         return customer_list(conn, org_id)
 
@@ -739,7 +746,7 @@ def search_customers(
     params: list = [org_id, like, like, like]
 
     canon_clause = ""
-    tokens = canonical_tokens(query)
+    tokens = [t for t in canonical_tokens(query) if len(t) >= 2]
     if tokens:
         canon_conditions = []
         for tok in tokens:
@@ -1046,6 +1053,11 @@ def org_single_operator_setting(conn: sqlite3.Connection, org_id: int) -> bool |
     return bool(row["single_operator_mode"])
 
 
+# A threshold of 0.0 would raise an alert for every list entry; below 0.5 the
+# queue is noise. Not a valid setting: rejected on write (web and mobile).
+MIN_ALERT_THRESHOLD = 0.5
+
+
 def org_alert_threshold(conn: sqlite3.Connection, org_id: int) -> float | None:
     """The org's configured alert threshold, or None to use the engine
     default. A single global knob, not per-list-type "screening profiles" --
@@ -1055,6 +1067,17 @@ def org_alert_threshold(conn: sqlite3.Connection, org_id: int) -> float | None:
         "SELECT alert_threshold FROM org_settings WHERE org_id=?", (org_id,)
     ).fetchone()
     return row["alert_threshold"] if row and row["alert_threshold"] is not None else None
+
+
+def org_alert_threshold_or_default(conn: sqlite3.Connection, org_id: int) -> float:
+    """The threshold screening should run at: the org's stored value, else the
+    engine default. Compares with None, not truthiness -- a stored 0.0 must not
+    read back as the default (L-22). The setters reject values below
+    MIN_ALERT_THRESHOLD, so 0.0 can only be a legacy row."""
+    from .match.engine import DEFAULT_THRESHOLD
+
+    value = org_alert_threshold(conn, org_id)
+    return DEFAULT_THRESHOLD if value is None else value
 
 
 def report_list(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:

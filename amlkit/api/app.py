@@ -77,7 +77,9 @@ from .deps import (
     AUDIT_VIEW_ROLES,
     CSRF_COOKIE,
     SESSION_COOKIE,
+    bearer_ok,
     can_view_audit,
+    clamp_page,
     client_ip,
     current_session,
     db_path,
@@ -1742,7 +1744,7 @@ def screen_run(
 
     result = screen(
         db, name, org_id=session.org_id, trigger="adhoc",
-        threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
+        threshold=queries.org_alert_threshold_or_default(db, session.org_id),
         country=country.strip() or None,
         birth_date=birth_date.strip() or None,
         gender=gender.strip() or None,
@@ -1913,7 +1915,7 @@ def customer_create(
             civil_status_code=civil_status_code.strip() or None,
             occupation=occupation.strip() or None,
             ubos=ubos, actor=session.operator_name,
-            threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
+            threshold=queries.org_alert_threshold_or_default(db, session.org_id),
         )
     except StaleDatasetsError as exc:
         return back("/customers/new", err=str(exc))
@@ -2412,7 +2414,7 @@ def customer_add_ubo(
         return back(f"/customers/{customer_id}", err=str(exc))
     res = screen(db, person_name.strip(), org_id=session.org_id, trigger="onboarding",
                  customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name,
-                 threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD)
+                 threshold=queries.org_alert_threshold_or_default(db, session.org_id))
     if res.unscreenable:
         note = ("Beneficial owner added but NOT screened: the name has no searchable tokens."
                 " Screen manually with a Latin or Arabic spelling.")
@@ -3110,7 +3112,7 @@ def feedback_submit(
 
 
 @app.get("/admin/feedback", response_class=HTMLResponse)
-def feedback_view(request: Request, db: DB, page: int = 1):
+def feedback_view(request: Request, db: DB, page: str = "1"):
     """MLRO-only viewer for feedback submitted via the in-app widget above.
 
     Same pagination shape as /audit: no COUNT query, just "is this page
@@ -3124,6 +3126,7 @@ def feedback_view(request: Request, db: DB, page: int = 1):
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
 
+    page = clamp_page(page)
     per_page = 50
     offset = (page - 1) * per_page
 
@@ -3176,7 +3179,7 @@ def feedback_export(request: Request, db: DB):
 
 # ---------------------------------------------------------------------- audit
 @app.get("/audit", response_class=HTMLResponse)
-def audit_view(request: Request, db: DB, page: int = 1):
+def audit_view(request: Request, db: DB, page: str = "1"):
     try:
         session = require_session(request, db)
         require_role(session, *AUDIT_VIEW_ROLES)
@@ -3185,6 +3188,7 @@ def audit_view(request: Request, db: DB, page: int = 1):
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
 
+    page = clamp_page(page)
     per_page = 50
     offset = (page - 1) * per_page
 
@@ -3542,8 +3546,8 @@ def admin_set_threshold(
         value = float(raw)
     except ValueError:
         return back("/admin", err="Threshold must be a number.")
-    if not (0.0 <= value <= 1.0):
-        return back("/admin", err="Threshold must be between 0.0 and 1.0.")
+    if not (queries.MIN_ALERT_THRESHOLD <= value <= 1.0):  # also rejects NaN
+        return back("/admin", err=f"Threshold must be between {queries.MIN_ALERT_THRESHOLD} and 1.0.")
     set_org_alert_threshold(db, session.org_id, value)
     from ..db import audit
     audit(db, session.operator_name, "org.threshold_set", "organization", session.org_id,
@@ -4116,7 +4120,7 @@ def system_refresh(request: Request):
         return JSONResponse({"error": "endpoint disabled — set SCHEDULER_SECRET"}, status_code=403)
 
     auth_header = request.headers.get("Authorization", "")
-    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
+    if not bearer_ok(auth_header, secret):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
@@ -4180,7 +4184,7 @@ def system_check_freeze_obligations(request: Request):
         return JSONResponse({"error": "endpoint disabled — set SCHEDULER_SECRET"}, status_code=403)
 
     auth_header = request.headers.get("Authorization", "")
-    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
+    if not bearer_ok(auth_header, secret):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     from ..db import connect
@@ -4219,7 +4223,7 @@ async def system_create_operator(request: Request):
         return JSONResponse({"error": "endpoint disabled — set ADMIN_API_SECRET"}, status_code=403)
 
     auth_header = request.headers.get("Authorization", "")
-    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
+    if not bearer_ok(auth_header, secret):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
@@ -4266,7 +4270,7 @@ async def system_super_admin(request: Request):
         return JSONResponse({"error": "endpoint disabled — set ADMIN_API_SECRET"}, status_code=403)
 
     auth_header = request.headers.get("Authorization", "")
-    if not secrets.compare_digest(auth_header, f"Bearer {secret}"):
+    if not bearer_ok(auth_header, secret):
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
