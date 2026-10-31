@@ -344,11 +344,20 @@ def _log_auth_event(
 def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None = None) -> tuple[str, SessionInfo]:
     """Authenticate and return (raw_session_token, SessionInfo).
 
-    Raises AuthError with one generic message on any failure -- unknown
-    email, no password set yet (pre-tenancy operator that has not been
-    claimed), wrong password, inactive account, or lockout. An attacker
-    should not be able to tell these apart, and an operator who forgot which
-    of these applies to them contacts their admin either way.
+    Raises AuthError with one generic message on any credential failure --
+    unknown email, no password set yet (pre-tenancy operator that has not
+    been claimed), wrong password, inactive account, or an active lockout.
+    An attacker should not be able to tell these apart (a distinct lock
+    message would confirm the email exists and, with an expiry time, say
+    when to strike again), and an operator who forgot which of these applies
+    to them contacts their admin either way. The cause of a lockout stays in
+    auth_log (reason "locked") for admins. The one specific message is "verify
+    your email", raised only after the correct password was supplied.
+
+    A lock that has expired is cleared (failed_login_count=0,
+    locked_until=NULL) before the password is checked, so a single wrong
+    password after the lock lapses starts a fresh window instead of
+    re-locking the account at once.
     """
     email = (email or "").strip().lower()
     generic = AuthError("Incorrect email or password.")
@@ -373,14 +382,20 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
         _log_auth_event(conn, "login_failure", email, {"reason": "unknown_email"}, ip=ip)
         raise generic
 
+    failed_so_far = row["failed_login_count"]
     if row["locked_until"]:
         locked_until = datetime.fromisoformat(row["locked_until"])
         if locked_until > datetime.now(timezone.utc):
+            # Same text as an unknown email or a wrong password: nothing here
+            # confirms the account exists or when the lock lapses.
             _log_auth_event(conn, "login_failure", email, {"reason": "locked"}, ip=ip)
-            raise AuthError(
-                f"Account locked after repeated failed attempts. Try again after "
-                f"{locked_until.strftime('%H:%M UTC')}, or ask an admin to reset it."
-            )
+            raise generic
+        # Lock has expired: start a fresh window.
+        conn.execute(
+            "UPDATE operators SET failed_login_count=0, locked_until=NULL WHERE id=?", (row["id"],)
+        )
+        conn.commit()
+        failed_so_far = 0
 
     # Explicitly named guard, not relied upon implicitly via a hash-comparison
     # that would fail against None anyway -- this is the one line standing
@@ -392,7 +407,7 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
         raise generic
 
     if not verify_password(password, row["password_hash"]):
-        failed = row["failed_login_count"] + 1
+        failed = failed_so_far + 1
         lock_sql = ""
         params: list = [failed]
         if failed >= MAX_FAILED_LOGINS:
