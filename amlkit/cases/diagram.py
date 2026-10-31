@@ -4,10 +4,29 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 import sqlite3
 import graphviz
 
 log = logging.getLogger("amlkit.diagram")
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f\u2028\u2029]+")
+
+
+def _clean(text: object) -> str:
+    """Make a free-text name safe to embed in DOT.
+
+    Newlines (and other control characters) in a name used to end the
+    `// comment` line the Digraph writes first, so the rest of the name was
+    parsed as DOT and the whole diagram failed. Collapse them to a space and
+    strip; the result is then HTML-escaped where it goes into a label.
+    """
+    return _CONTROL_CHARS.sub(" ", str(text or "")).strip()
+
+
+def _edge_text(text: object) -> str:
+    """Plain-string edge label: cleaned, with DOT-special characters made harmless."""
+    return _clean(text).replace("\\", "/").replace('"', "'")
 
 
 def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int) -> str | None:
@@ -34,7 +53,7 @@ def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int
 
     # Create Digraph
     dot = graphviz.Digraph(
-        comment=f"UBO structure for {customer['full_name']}",
+        comment=f"UBO structure for customer {customer_id}",
         format="svg",
         graph_attr={
             "rankdir": "BT",  # Bottom-to-top layout (UBOs point up to target entity)
@@ -60,11 +79,11 @@ def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int
 
     # Customer node details
     cust_color = "#0F2140"  # Navy accent from Grovisor branding
-    cust_name = html.escape(customer["full_name"])
+    cust_name = html.escape(_clean(customer["full_name"]))
     cust_label = (
         f"<<TABLE BORDER='0' CELLBORDER='0' CELLSPACING='4'>\n"
         f"  <TR><TD><B><FONT COLOR='#FFFFFF'>{cust_name}</FONT></B></TD></TR>\n"
-        f"  <TR><TD><FONT COLOR='#A0B2C6' POINT-SIZE='9'>{customer['customer_type'].upper()} ENTITY</FONT></TD></TR>\n"
+        f"  <TR><TD><FONT COLOR='#A0B2C6' POINT-SIZE='9'>{html.escape(_clean(customer['customer_type']).upper())} ENTITY</FONT></TD></TR>\n"
         f"</TABLE>>"
     )
     
@@ -107,12 +126,12 @@ def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int
             fill_color = "#F8FAFC"
             border_color = "#64748B"
             text_color = "#334155"
-            role_text = ubo["control_type"].replace("_", " ").title()
+            role_text = html.escape(_clean(ubo["control_type"]).replace("_", " ").title())
 
         ownership_pct = ubo["ownership_pct"]
-        pct_label = f"{ownership_pct}% Ownership" if ownership_pct else "No direct equity"
+        pct_label = f"{html.escape(_clean(ownership_pct))}% Ownership" if ownership_pct else "No direct equity"
         
-        ubo_name = html.escape(ubo["person_name"])
+        ubo_name = html.escape(_clean(ubo["person_name"]))
         ubo_label = (
             f"<<TABLE BORDER='0' CELLBORDER='0' CELLSPACING='2'>\n"
             f"  <TR><TD><B><FONT COLOR='{text_color}'>{ubo_name}</FONT></B></TD></TR>\n"
@@ -129,7 +148,7 @@ def generate_ubo_diagram(conn: sqlite3.Connection, customer_id: int, org_id: int
         )
 
         # Draw edge from UBO to customer
-        edge_label = f" {ownership_pct}%" if ownership_pct else f" {role_text}"
+        edge_label = f" {_edge_text(ownership_pct)}%" if ownership_pct else f" {_edge_text(html.unescape(role_text))}"
         dot.edge(node_id, f"cust_{customer_id}", label=edge_label)
 
     try:

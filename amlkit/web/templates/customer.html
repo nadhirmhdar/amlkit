@@ -261,7 +261,7 @@
           </span>
         </div>
         <div class="small muted mt-4">
-          {% for k, v in ta.detail.items() %}{{ k.replace('_',' ') }}: {{ v }}{% if not loop.last %} · {% endif %}{% endfor %}
+          {% for k, v in ta.detail.items() %}{{ k.replace('_',' ') }}: {{ v|amount if k.endswith('_aed') else v }}{% if not loop.last %} · {% endif %}{% endfor %}
         </div>
         {% if ta.status == 'open' %}
         <form method="post" action="/transaction-alerts/{{ ta.id }}/disposition" class="row mt-4">
@@ -465,6 +465,13 @@
           {% if v.user_type %}<span class="muted">({{ v.user_type }})</span>{% endif %} ·
           <span class="muted">{{ v.verified_at[:16].replace('T',' ') }}</span>
         </div>
+        {% if v.match_status == 'mismatch' %}
+        <div class="small mt-2" role="alert" style="color:#b91c1c; font-weight:600;">
+          Warning: this UAE PASS result does not match the customer file
+          {% if v.match_detail %}({{ v.match_detail }}){% endif %}.
+          Nothing was copied onto the customer record; review before relying on it.
+        </div>
+        {% endif %}
         <div class="muted small mt-2">
           {% if v.idn %}Emirates ID: {{ v.idn }} &middot; {% endif %}
           {% if v.nationality_en %}Nationality: {{ v.nationality_en }} &middot; {% endif %}

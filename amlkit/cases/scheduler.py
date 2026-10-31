@@ -16,9 +16,35 @@ from ..db import retry_on_lock
 
 log = logging.getLogger("amlkit.scheduler")
 
+# Audit actor for work done on behalf of an org other than the one whose
+# operator pressed "refresh", and for the shared (org_id NULL) dataset rows.
+# Without it one firm's staff name ends up in another firm's audit trail.
+SYSTEM_REFRESH_ACTOR = "system:scheduled-refresh"
+
+
+def _refresh_actors(actor: str, org_id: int | None) -> tuple[str, "callable"]:
+    """(actor for shared dataset rows, per-org actor picker).
+
+    When an operator of `org_id` triggered the refresh, the shared rows and
+    every other org's re-screen are attributed to the system actor; the
+    operator's own name appears only in their own org's rows.
+    """
+    if org_id is None:
+        return actor, (lambda _oid: actor)
+    return SYSTEM_REFRESH_ACTOR, (lambda oid: actor if oid == org_id else SYSTEM_REFRESH_ACTOR)
+
+
+def _audit_refresh_request(conn: sqlite3.Connection, actor: str, org_id: int | None) -> None:
+    """Record who triggered a refresh, in their own org's trail only."""
+    if org_id is None:
+        return
+    from ..db import audit
+    audit(conn, actor, "dataset.refresh_requested", "organization", org_id,
+          {"scope": "all active organizations (shared sanctions lists)"}, org_id=org_id)
+
 
 @retry_on_lock(max_retries=3, base_delay=0.5)
-def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
+def run_sanctions_refresh(conn: sqlite3.Connection, actor: str, org_id: int | None = None) -> dict:
     """Load every mandatory sanctions source and re-screen every active org.
 
     Single source of truth for "what a refresh actually does" -- previously
@@ -29,6 +55,10 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     would click is exactly the kind of gap that isn't visible until an
     examiner asks why UK-sanctioned entities weren't being screened against.
     Both routes, and the scheduler, now call this one function.
+
+    `org_id` is the org of the operator who pressed the button (None for the
+    scheduler). Everything is still screened for every org; only the audit
+    actor differs -- see `_refresh_actors`.
     """
     from ..ingest.base import AdapterError
     from ..ingest.loader import load
@@ -45,6 +75,8 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     from ..match.cache import invalidate as invalidate_cache
     from ..db import audit, record_dataset_error, upsert_dataset
 
+    shared_actor, actor_for = _refresh_actors(actor, org_id)
+    _audit_refresh_request(conn, actor, org_id)
     loaded: list[str] = []
     failures: list[str] = []
     mandatory_failures: list[str] = []
@@ -53,7 +85,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
                      FATFAdapter, InterpolRedNoticeAdapter, wikidata_ministers]:
         adapter = factory()
         try:
-            result = load(conn, adapter, actor=actor)
+            result = load(conn, adapter, actor=shared_actor)
             loaded.append(f"{adapter.title}: {result.entities} entities")
         except AdapterError as exc:
             msg = f"{adapter.title}: {exc}"
@@ -76,7 +108,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
             # Persist onto the dataset row so /admin/compliance shows which
             # source failed and why, not just a transient audit-log line.
             record_dataset_error(conn, adapter.key, str(exc))
-            audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
+            audit(conn, shared_actor, "dataset.refresh_failed", "dataset", adapter.key,
                   {"error": str(exc)}, org_id=None)
     conn.commit()
 
@@ -97,7 +129,7 @@ def run_sanctions_refresh(conn: sqlite3.Connection, actor: str) -> dict:
     orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
     for org in orgs:
         try:
-            outcome = rescreen_all(conn, org["id"], actor=actor)
+            outcome = rescreen_all(conn, org["id"], actor=actor_for(org["id"]))
             total_alerts += outcome["alerts"]
             screened_orgs += 1
         except Exception as exc:
@@ -129,7 +161,7 @@ def _default_adapters():
             InterpolRedNoticeAdapter, wikidata_ministers]
 
 
-def refresh_with_progress(conn, actor, adapters=None):
+def refresh_with_progress(conn, actor, adapters=None, org_id: int | None = None):
     """Generator that yields progress dicts as each sanctions adapter completes.
 
     Used by the SSE endpoint to stream per-list progress to the browser.
@@ -142,6 +174,8 @@ def refresh_with_progress(conn, actor, adapters=None):
 
     if adapters is None:
         adapters = _default_adapters()
+    shared_actor, actor_for = _refresh_actors(actor, org_id)
+    _audit_refresh_request(conn, actor, org_id)
 
     total = len(adapters)
     loaded = []
@@ -150,7 +184,7 @@ def refresh_with_progress(conn, actor, adapters=None):
     for i, factory in enumerate(adapters):
         adapter = factory()
         try:
-            result = load(conn, adapter, actor=actor)
+            result = load(conn, adapter, actor=shared_actor)
             loaded.append(adapter.title)
             yield {
                 "type": "adapter_done",
@@ -171,7 +205,7 @@ def refresh_with_progress(conn, actor, adapters=None):
                             source_url=getattr(adapter, "source_url", ""),
                             licence=adapter.licence, is_mandatory=adapter.is_mandatory)
             record_dataset_error(conn, adapter.key, str(exc))
-            audit(conn, actor, "dataset.refresh_failed", "dataset", adapter.key,
+            audit(conn, shared_actor, "dataset.refresh_failed", "dataset", adapter.key,
                   {"error": str(exc)}, org_id=None)
             yield {
                 "type": "adapter_error",
@@ -189,7 +223,7 @@ def refresh_with_progress(conn, actor, adapters=None):
     orgs = conn.execute("SELECT id, name FROM organizations WHERE status='active'").fetchall()
     for org in orgs:
         try:
-            outcome = rescreen_all(conn, org["id"], actor=actor)
+            outcome = rescreen_all(conn, org["id"], actor=actor_for(org["id"]))
             total_alerts += outcome["alerts"]
         except Exception as exc:
             log.exception("rescreen_all failed for org %s", org["id"])
