@@ -1335,8 +1335,11 @@ class TestBatchRescreening:
                         data={"csrf_token": _csrf(client)},
                         follow_redirects=True)
         assert r.status_code == 200
-        # Should show admin page (no error redirect)
-        assert "admin" in r.text.lower() or "sanctions" in r.text.lower()
+        # The error redirect also lands on /admin, so assert on the flash text:
+        # the route once read outcome['customers'] (a key rescreen_all does not
+        # return) and always reported "Re-screening failed: 'customers'".
+        assert "Re-screening failed" not in r.text
+        assert "Re-screened" in r.text
 
 
 class TestRuleConfigRoutes:

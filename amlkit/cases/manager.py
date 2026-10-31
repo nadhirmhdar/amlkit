@@ -23,7 +23,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -141,6 +141,14 @@ class OnboardingResult:
     ubo_screenings: list[tuple[str, ScreeningResult]]
     risk: RiskAssessment
     blocked: bool
+    # Names (customer, Arabic name, owners) that had letters but no screenable
+    # tokens: nothing was searched for them, so "no hits" is NOT a clear result
+    # and they need manual screening.
+    unscreenable_names: list[str] = field(default_factory=list)
+
+    @property
+    def unscreenable(self) -> bool:
+        return bool(self.unscreenable_names)
 
     def summary(self) -> str:
         lines = [
@@ -231,7 +239,7 @@ def onboard(
     """
     from ..datamodel import (
         validate_birth_date, validate_country_code, validate_customer_type,
-        validate_emirate, validate_name_length,
+        validate_emirate, validate_name_length, validate_required_name,
     )
     from ..ingest.loader import datasets_fresh
 
@@ -255,6 +263,11 @@ def onboard(
             )
 
     validate_customer_type(customer_type)
+    validate_required_name("full_name", full_name)
+    # Before the customer INSERT: a blank beneficial-owner name would otherwise
+    # fail inside add_ubo() after the customer had already been committed.
+    for ubo in ubos or []:
+        validate_required_name("person_name", ubo.get("person_name"))
     validate_name_length("full_name", full_name)
     validate_name_length("name_arabic", name_arabic)
     validate_birth_date(birth_date)
@@ -286,6 +299,7 @@ def onboard(
         delivery_channel=delivery_channel,
         cash_level=cash_level,
         structure=structure,
+        sector=sector,
     )
 
     now = utcnow()
@@ -328,17 +342,22 @@ def onboard(
 
     # --- screen the customer, in both scripts where available --------------
     all_nats = nationalities or ([nationality] if nationality else None)
+    unscreenable_names: list[str] = []
     result = screen(
         conn, full_name, org_id=org_id, trigger="onboarding",
         countries=all_nats, birth_date=birth_date, gender=gender,
         customer_id=customer_id, actor=actor, threshold=threshold,
     )
+    if result.unscreenable:
+        unscreenable_names.append(full_name)
     if name_arabic:
         ar = screen(
             conn, name_arabic, org_id=org_id, trigger="onboarding",
             countries=all_nats, birth_date=birth_date, gender=gender,
             customer_id=customer_id, actor=actor, threshold=threshold,
         )
+        if ar.unscreenable:
+            unscreenable_names.append(name_arabic)
         # Keep whichever script produced the stronger evidence.
         if ar.hits and (not result.hits or max(h.score for h in ar.hits) > max(h.score for h in result.hits)):
             result = ar
@@ -354,6 +373,8 @@ def onboard(
             threshold=threshold,
         )
         ubo_results.append((ubo["person_name"], res))
+        if res.unscreenable:
+            unscreenable_names.append(ubo["person_name"])
 
     sanctions_hit = any(h.is_sanction for h in result.hits) or any(
         h.is_sanction for _, r in ubo_results for h in r.hits
@@ -386,6 +407,7 @@ def onboard(
         ubo_screenings=ubo_results,
         risk=risk,
         blocked=sanctions_hit,
+        unscreenable_names=unscreenable_names,
     )
 
 
@@ -412,6 +434,8 @@ def add_ubo(
     natural person meets the ownership test.  Nominees are never beneficial
     owners regardless of their ownership percentage.
     """
+    from ..datamodel import validate_required_name
+    validate_required_name("person_name", person_name)
     if ownership_pct is not None and not (0 <= ownership_pct <= 100):
         raise ValueError(
             f"ownership percentage must be between 0 and 100, got {ownership_pct}"
@@ -1518,6 +1542,7 @@ def reassess_risk(
         delivery_channel=delivery_channel,
         cash_level=cash_level,
         structure=structure,
+        sector=sector,
     )
     prior = conn.execute(
         "SELECT factors FROM risk_assessments WHERE customer_id=? AND org_id=?"

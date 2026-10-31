@@ -481,7 +481,7 @@ class TestTransactionEndpoints:
         r = client.post("/api/v1/customers", headers=headers, json={
             "reference": "C-TXN-API", "full_name": "Fatima Al Zaabi",
             "customer_type": "natural", "nationality": "ae",
-            "jurisdiction_tier": "standard", "sector": "employed",
+            "jurisdiction_tier": "standard", "sector": "other",
             "delivery_channel": "face_to_face", "cash_level": "non_cash",
         })
         assert r.status_code == 200, r.text

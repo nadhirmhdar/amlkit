@@ -7,6 +7,16 @@
 
 <a href="/customers" class="back-link">&larr; Customers</a>
 
+{% if unscreenable_names %}
+<div class="banner warning" id="unscreenable-banner">
+  <strong>Not screened.</strong>
+  {% for n in unscreenable_names %}{{ name(n) }}{% if not loop.last %}, {% endif %}{% endfor %}
+  could not be reduced to any searchable name tokens (unsupported characters?).
+  The absence of alerts is <strong>not</strong> a clear result &mdash; screen manually
+  with a Latin or Arabic spelling and record the outcome.
+</div>
+{% endif %}
+
 <div class="page-head" style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
   <div>
     <div class="title-row">

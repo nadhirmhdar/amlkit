@@ -63,14 +63,20 @@ def client(tmp_path, monkeypatch):
 
 
 def _blank_name_customer_id(org_id: int) -> int:
+    """A nameless customer as it exists in data stored before onboard() began
+    rejecting blank names (L-53): onboard() can no longer create one, so seed
+    a normal customer and blank the name in place."""
     import os
 
     from amlkit.cases.manager import onboard
     from amlkit.db import connect
 
     conn = connect(os.environ["AMLKIT_DB"])
-    result = onboard(conn, org_id=org_id, reference="C-BLANK-1", full_name="   ",
+    result = onboard(conn, org_id=org_id, reference="C-BLANK-1", full_name="Placeholder",
                       customer_type="natural", nationality="ae", actor="tester")
+    with conn:
+        conn.execute("UPDATE customers SET full_name='', canonical_key='' WHERE id=?",
+                     (result.customer_id,))
     conn.close()
     return result.customer_id
 

@@ -11,7 +11,7 @@ from typing import Any
 
 from .. import notifications
 from ..db import audit, utcnow
-from ..names.arabic import blocking_keys
+from ..names.arabic import blocking_keys, clean_name_text
 from ..screening.pf import classify_programs, obligation_for_category, triage_category
 from .scorer import DEFAULT_THRESHOLD, ScoreResult, score_entity
 
@@ -289,9 +289,13 @@ def screen(
     # Letters present but no blocking keys: the name could not be searched at
     # all (digits/symbols-only queries have no letters and stay as before).
     # Flag it rather than letting "0 candidates" read as a clean screening.
-    if not blocking_keys(name) and any(ch.isalpha() for ch in name):
+    # A blank name is the same case: onboarding rejects it, but a nameless
+    # record that predates that check must not rescreen as clear either.
+    if not blocking_keys(name) and (
+        any(ch.isalpha() for ch in name) or not clean_name_text(name or "").strip()
+    ):
         out.unscreenable = True
-        log.warning("screen(): name has letters but no screenable tokens; flagged unscreenable")
+        log.warning("screen(): name has no screenable tokens; flagged unscreenable")
 
     if persist:
         # blocking_keys(name) is also computed inside _candidates() -- cheap
@@ -337,8 +341,8 @@ def _persist(
         cur = conn.execute(
             """INSERT INTO screenings
                (org_id, customer_id, ubo_id, query_name, trigger, algorithm, threshold,
-                candidates, hits, datasets_used, run_at, retention_until)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                candidates, hits, datasets_used, run_at, retention_until, unscreenable)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 org_id,
                 customer_id,
@@ -352,28 +356,20 @@ def _persist(
                 json.dumps(datasets),
                 now,
                 retention_until,
+                int(res.unscreenable),
             ),
         )
         sid = cur.lastrowid
         alerts_created = 0
         for h in res.hits:
-            # An open (undispositioned) alert already covering this exact
-            # entity against this exact customer/UBO means an operator
-            # already has this match sitting in their queue -- rescreen_all
-            # runs this same query again after every dataset refresh
-            # (roughly every 20h in production), so without this check a
-            # match nobody has reviewed yet accumulates a fresh duplicate
-            # alert on every single refresh. The screening row above is
-            # still recorded either way -- "checked again, same known
-            # match" is still evidence the obligation was met.
-            already_open = conn.execute(
-                """SELECT 1 FROM alerts a JOIN screenings s ON s.id = a.screening_id
-                   WHERE a.org_id = ? AND a.entity_id = ? AND a.status = 'open'
-                     AND s.customer_id IS ? AND s.ubo_id IS ?
-                   LIMIT 1""",
-                (org_id, h.entity_id, customer_id, ubo_id),
-            ).fetchone()
-            if already_open:
+            # An alert already covering this exact entity against this exact
+            # customer/UBO means the match is known -- rescreen_all runs this
+            # same query again after every dataset refresh (roughly every 20h
+            # in production), so without this check a match nobody has
+            # resolved accumulates a fresh duplicate on every refresh. The
+            # screening row above is still recorded either way -- "checked
+            # again, same known match" is still evidence the obligation was met.
+            if _already_covered(conn, org_id, h.entity_id, customer_id, ubo_id):
                 continue
             conn.execute(
                 """INSERT INTO alerts
@@ -402,6 +398,41 @@ def _persist(
     return sid, alerts_created
 
 
+def _already_covered(
+    conn: sqlite3.Connection, org_id: int, entity_id: int,
+    customer_id: int | None, ubo_id: int | None,
+) -> bool:
+    """True when a hit should NOT raise a new alert.
+
+    - `open` and `pending_review`: the match is already in the queue / in the
+      four-eyes workflow; a duplicate would let a second operator dismiss it
+      independently and split the evidence trail.
+    - `false_positive`: dismissed by an operator, so stay quiet -- unless the
+      list entry's content changed after the decision (new DOB, alias,
+      programme...), when the earlier judgement may no longer hold.
+    - `true_positive` / `escalated`: keep re-alerting (a confirmed match must
+      keep surfacing after every list update).
+    """
+    rows = conn.execute(
+        """SELECT a.status, COALESCE(a.dispositioned_at, a.created_at) AS decided_at
+           FROM alerts a JOIN screenings s ON s.id = a.screening_id
+           WHERE a.org_id = ? AND a.entity_id = ?
+             AND a.status IN ('open', 'pending_review', 'false_positive')
+             AND s.customer_id IS ? AND s.ubo_id IS ?""",
+        (org_id, entity_id, customer_id, ubo_id),
+    ).fetchall()
+    if not rows:
+        return False
+    if any(r["status"] in ("open", "pending_review") for r in rows):
+        return True
+    last_decision = max(r["decided_at"] for r in rows)
+    changed_at = conn.execute(
+        "SELECT content_changed_at FROM entities WHERE id = ?", (entity_id,)
+    ).fetchone()
+    changed_at = changed_at["content_changed_at"] if changed_at else None
+    return not (changed_at and changed_at > last_decision)
+
+
 def rescreen_all(
     conn: sqlite3.Connection, org_id: int, *, threshold: float = DEFAULT_THRESHOLD,
     actor: str = "system",
@@ -421,6 +452,7 @@ def rescreen_all(
     """
     new_alerts = 0
     screened = 0
+    unscreenable = 0
     # Computed once for the whole batch: which datasets are loaded cannot
     # change mid-run, so re-querying it per name (thousands of times on a
     # large book) would be pure waste against reference data every call in
@@ -432,7 +464,10 @@ def rescreen_all(
         " FROM customers WHERE status='active' AND org_id=?",
         (org_id,),
     ).fetchall():
-        for nm in filter(None, (row["full_name"], row["name_arabic"])):
+        names = [n for n in (row["full_name"], row["name_arabic"]) if n and n.strip()]
+        if not names:
+            unscreenable += 1  # nameless legacy record: nothing can be searched
+        for nm in names:
             res = screen(
                 conn, nm, org_id=org_id, trigger="list_update", threshold=threshold,
                 country=row["nationality"], birth_date=row["birth_date"],
@@ -440,11 +475,15 @@ def rescreen_all(
                 active_datasets=active_datasets, notify=False,
             )
             screened += 1
+            unscreenable += int(res.unscreenable)
             new_alerts += res.alerts_created
 
+    # Every related party, not just >=25% owners: the 25% threshold decides who
+    # is a beneficial owner, not who must be sanctions-screened. Sub-threshold
+    # owners, nominees and directors/officials are all in ubo_links.
     for row in conn.execute(
         "SELECT id, customer_id, person_name, name_arabic, nationality, birth_date"
-        " FROM ubo_links WHERE is_ubo=1 AND is_nominee=0 AND org_id=?",
+        " FROM ubo_links WHERE org_id=?",
         (org_id,),
     ).fetchall():
         for nm in filter(None, (row["person_name"], row["name_arabic"])):
@@ -455,8 +494,9 @@ def rescreen_all(
                 active_datasets=active_datasets, notify=False,
             )
             screened += 1
+            unscreenable += int(res.unscreenable)
             new_alerts += res.alerts_created
 
     notifications.notify_rescreen_digest(conn, org_id, new_alerts)
-    return {"screened": screened, "alerts": new_alerts}
+    return {"screened": screened, "alerts": new_alerts, "unscreenable": unscreenable}
 

@@ -798,7 +798,16 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
 
     notes = case_notes(conn, customer_id, org_id)
 
+    # Names whose most recent screening searched nothing (no usable tokens).
+    # `screenings` is newest-first, so the first row seen per (owner, name) is
+    # the latest; a later successful re-screen under the same name clears it.
+    latest: dict[tuple, dict] = {}
+    for s in screenings:
+        latest.setdefault((s["ubo_id"], s["query_name"]), s)
+    unscreenable_names = [s["query_name"] for s in latest.values() if s.get("unscreenable")]
+
     return {
+        "unscreenable_names": unscreenable_names,
         "customer": dict(row),
         "ubos": ubos,
         "risk": risks[0] if risks else None,
