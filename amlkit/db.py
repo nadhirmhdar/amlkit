@@ -997,6 +997,15 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # Last accepted TOTP time-step (RFC 6238 s5.2): a code at or below it is a replay.
     ("mfa_secrets", "last_step", "ALTER TABLE mfa_secrets ADD COLUMN last_step INTEGER"),
     ("entities", "programs", "ALTER TABLE entities ADD COLUMN programs TEXT"),
+    # Fingerprint of a list entry's substance and when it last changed (set by
+    # ingest.loader). Screening re-alerts a dismissed (false_positive) match
+    # only when content_changed_at is later than the dismissal.
+    ("entities", "content_hash", "ALTER TABLE entities ADD COLUMN content_hash TEXT"),
+    ("entities", "content_changed_at", "ALTER TABLE entities ADD COLUMN content_changed_at TEXT"),
+    # 1 when the screened name had letters but no screenable tokens (nothing
+    # was searched): "0 hits" on that row is NOT a clear result.
+    ("screenings", "unscreenable",
+     "ALTER TABLE screenings ADD COLUMN unscreenable INTEGER NOT NULL DEFAULT 0"),
     ("alerts", "reason_code", "ALTER TABLE alerts ADD COLUMN reason_code TEXT"),
     # Retention anchor for ad-hoc screenings (customer_id NULL): there is no
     # customer row to carry a retention date. Set at insert (run date + 10y);

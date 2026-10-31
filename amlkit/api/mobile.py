@@ -70,6 +70,7 @@ from ..cases.review import (
 )
 from ..db import set_org_alert_threshold, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, screen
+from ..datamodel import validate_required_name
 from ..risk.model import validate_risk_inputs
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
 from ..screening.pf import triage_category
@@ -553,8 +554,10 @@ def _hit_json(db: sqlite3.Connection, h) -> dict[str, Any]:
 @limiter.limit("10/minute", key_func=operator_rate_limit_key)  # same ceiling as web POST /screen
 def api_screen(request: Request, body: ScreenRequest, db: DB, session: Session):
     name = body.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Enter a name to screen.")
+    try:
+        validate_required_name("name", name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Enter a name to screen.") from None
     if len(name) > MAX_NAME_LENGTH:
         raise HTTPException(status_code=400, detail=f"Name exceeds {MAX_NAME_LENGTH} characters.")
     result = screen(
@@ -671,6 +674,10 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
         "customer_id": result.customer_id, "reference": result.reference,
         "blocked": result.blocked, "risk_rating": result.risk.rating,
         "risk_score": result.risk.score, "requires_edd": result.risk.requires_edd,
+        # True when a name had no searchable tokens: "not blocked" is then NOT
+        # a clear result and the listed names need manual screening.
+        "unscreenable": result.unscreenable,
+        "unscreenable_names": result.unscreenable_names,
     }
 
 
@@ -849,6 +856,7 @@ def api_customer_update_risk_factors(
             delivery_channel=body.delivery_channel,
             cash_level=body.cash_level,
             structure=body.structure,
+            sector=body.sector,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -940,7 +948,8 @@ def api_customer_add_ubo(customer_id: int, body: UboAddRequest, db: DB, session:
         customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name,
         threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
     )
-    return {"ubo_id": ubo_id, "hits": [_hit_json(db, h) for h in result.hits]}
+    return {"ubo_id": ubo_id, "hits": [_hit_json(db, h) for h in result.hits],
+            "unscreenable": result.unscreenable}
 
 
 class NoteRequest(BaseModel):

@@ -128,7 +128,7 @@ def super_admin_client(multi_org_db, monkeypatch, complete_mfa):
                     reference=f"C-{i}-{j}",
                     full_name=f"Customer {i}-{j}",
                     customer_type="natural",
-                    sector="finance",
+                    sector="professional_services",
                     delivery_channel="face_to_face",
                     cash_level="non_cash",
                     jurisdiction_tier="standard",

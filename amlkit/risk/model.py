@@ -88,6 +88,7 @@ _ALLOWED_FACTOR_VALUES = (
     ("delivery_channel", "delivery_channel", "points_by_channel"),
     ("cash_level", "cash_intensity", "points_by_level"),
     ("structure", "structure", "points_by_type"),
+    ("sector", "sector", "points_by_sector"),
 )
 
 
@@ -97,11 +98,12 @@ def validate_risk_inputs(
     delivery_channel: str | None = None,
     cash_level: str | None = None,
     structure: str | None = None,
+    sector: str | None = None,
 ) -> None:
     """Raise ValueError for any risk-factor value the ruleset doesn't know.
 
-    Unknown values would otherwise score 0 points (lowest risk) via the
-    points-table lookups in assess(). None means "not supplied" and is
+    Unknown values would otherwise score 0 points (lowest risk; 5 for an
+    unknown sector) via the points-table lookups in assess(). None means "not supplied" and is
     skipped, so callers can validate just the overrides they were given.
     Call this at input boundaries, before anything is written.
     """
@@ -110,6 +112,7 @@ def validate_risk_inputs(
         "delivery_channel": delivery_channel,
         "cash_level": cash_level,
         "structure": structure,
+        "sector": sector,
     }
     factors = ruleset()["factors"]
     for arg, factor, table in _ALLOWED_FACTOR_VALUES:
