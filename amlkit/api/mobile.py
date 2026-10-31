@@ -48,6 +48,7 @@ from ..cases.manager import (
     add_case_note,
     add_ubo,
     close_relationship,
+    complete_periodic_review,
     disposition_adverse_media_finding,
     disposition_transaction_alert,
     due_for_review,
@@ -790,6 +791,35 @@ def api_customer_reassess_risk(customer_id: int, db: DB, session: Session):
             detail="No prior assessment found. Complete onboarding before re-assessing.",
         )
     return _assessment_json(assessment)
+
+
+class PeriodicReviewRequest(BaseModel):
+    outcome: str
+    note: str
+    new_risk_rating: str | None = None
+
+
+@router.post("/customers/{customer_id}/periodic-review")
+def api_customer_periodic_review(
+    customer_id: int, body: PeriodicReviewRequest, db: DB, session: Session
+):
+    """Complete a periodic CDD review (same service as the web form). The
+    only call that resets the customer's next review date; `POST .../risk`
+    re-assesses without moving it."""
+    try:
+        review_id = complete_periodic_review(
+            db, session.org_id, customer_id, session,
+            body.outcome, body.note, body.new_risk_rating)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    row = db.execute(
+        "SELECT rating, next_review FROM risk_assessments"
+        " WHERE customer_id=? AND org_id=? ORDER BY id DESC LIMIT 1",
+        (customer_id, session.org_id)).fetchone()
+    return {"review_id": review_id, "outcome": body.outcome,
+            "rating": row["rating"], "next_review": row["next_review"]}
 
 
 @router.patch("/customers/{customer_id}/risk-factors")
