@@ -27,10 +27,10 @@ I looked for what could go wrong with the gzip change: (1) a compressed page tha
 | Gzip does not strip the security headers | red-team | **CONFIRMED** | none | Matches `compress.py`, which wraps only the response body; the headers middleware is outside it. |
 
 ### My own checks of #428 (gzip)
-- **BREACH gate holds on reading.** The only per-user secret in a public page is a CSRF token. `base.html` renders it only in signed-in blocks (logout form lines 104/169, feedback dialog line 261 inside the `{% if session %}` that begins at 224, disclaimer form lines 278-289); `blog/_base.html`, `blog_index.html` and `_article.html` contain no `csrf` at all. I did not execute a compressed signed-in page. The blog search term `q` is reflected, but with no secret in the same response there is nothing to extract.
+- **BREACH gate holds on reading.** The only per-user secret in a public page is a CSRF token. `base.html` renders it only in signed-in blocks (logout form lines 104/169, feedback dialog line 261, which sits after the `{% if session %}` at line 224; I did not confirm where that block closes, disclaimer form lines 278-289); `blog/_base.html`, `blog_index.html` and `_article.html` contain no `csrf` at all. I did not execute a compressed signed-in page. The blog search term `q` is reflected, but with no secret in the same response there is nothing to extract.
 - **Cookie check errs the safe way.** `_has_session_cookie` does a substring match on `amlkit_session=` in the raw Cookie header, so any cookie whose value or name merely contains that text turns compression off. A false positive costs bandwidth, never security.
 - **Flash banners on `/about`:** the banner can render on a compressed anonymous page after a redirect (server-generated text, not a secret). Acceptable.
-- **Verdict: no defect found in #428.** This is the first time the diff of a performance change was designed against a named attack; worth saying.
+- **Verdict: no defect found in #428.**
 
 Carried findings: nothing in the four commits touches the code behind them, so every 10-07 to 10-23 verdict stands without a re-run (A1/LG1-2 High; CS-2, CR-12/N4, N3, G9, G10, U1, B1, T1, empty-name screening Medium; B2, S3, PW1, AU1, PV1, SE1, AX1-AX3 Low to Low/Medium; four-eyes residual Low; others Low/Info).
 
