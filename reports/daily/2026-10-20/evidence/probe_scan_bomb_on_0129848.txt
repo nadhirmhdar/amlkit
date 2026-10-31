@@ -1,0 +1,6 @@
+baseline maxrss 63 MB
+ normal 800x600: file 1 KB -> (200, 16.4, '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender":null,"id', 'maxrss=211MB')
+ 9000x9000 (81 MP): file 97 KB -> (200, 27.3, '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender":null,"id', 'maxrss=1964MB')
+ 12000x12000 (144 MP, > warn, < error): file 164 KB -> (200, 52.6, '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender":null,"id', 'maxrss=4479MB')
+ 20000x20000 (400 MP, > error limit): file 428 KB -> (200, 0.0, '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender":null,"id', 'maxrss=4479MB')
+ 60 MB junk with PNG magic -> (200, 0.8, '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender":null,"id', 'maxrss=4479MB')
