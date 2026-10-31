@@ -351,7 +351,7 @@ def _csrf(client) -> str:
 
 
 def _register(client, org_name: str, name: str, email: str,
-              password: str = "a-strong-password-1"):
+              password: str = "A-strong-password-1"):
     import re as _re
     client.get("/register-organization")
     r = client.post("/register-organization", data={

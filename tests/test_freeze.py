@@ -656,7 +656,7 @@ def test_auto_create_freeze_on_pf_alert_confirmed():
     # Create entity with PF program
     conn.execute(
         "INSERT INTO datasets (key, title, is_mandatory, entity_count) VALUES (?, ?, ?, ?)",
-        ("test_dataset", "Test Dataset", 1, 1)
+        ("un_consolidated", "UN Security Council Consolidated List", 1, 1)
     )
     dataset_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -739,7 +739,7 @@ def test_auto_create_freeze_on_sanctions_alert_confirmed():
     # Create entity with sanctions topic (but no PF program)
     conn.execute(
         "INSERT INTO datasets (key, title, is_mandatory, entity_count) VALUES (?, ?, ?, ?)",
-        ("test_dataset", "Test Dataset", 1, 1)
+        ("un_consolidated", "UN Security Council Consolidated List", 1, 1)
     )
     dataset_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 

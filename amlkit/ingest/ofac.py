@@ -20,7 +20,7 @@ class OFACSDNAdapter:
         self.publisher = "US Office of Foreign Assets Control"
         self.source_url = URL
         self.licence = "Public Domain"
-        self.is_mandatory = True
+        self.is_mandatory = False
 
     def fetch(self) -> bytes:
         payload = fetch_with_retry(self.key, self.source_url, user_agent=USER_AGENT)

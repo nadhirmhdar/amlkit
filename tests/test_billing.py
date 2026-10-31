@@ -249,7 +249,7 @@ class TestBillingPage:
         from test_api import _add_operator, _login
         _add_operator(client, "bob", "bob@testfirm.ae", role="officer")
         client.post("/logout", data={"csrf_token": _csrf(client)})
-        _login(client, "bob@testfirm.ae", "a-strong-password-2")
+        _login(client, "bob@testfirm.ae", "A-strong-password-2")
         r = client.get("/billing", follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"] == "/dashboard"
 
@@ -494,7 +494,7 @@ class TestWebhook:
 class TestOperatorLimit:
     def _create(self, client, n):
         return client.post("/admin/operators", data={
-            "name": f"op{n}", "email": f"op{n}@testfirm.ae", "password": "a-strong-password-2",
+            "name": f"op{n}", "email": f"op{n}@testfirm.ae", "password": "A-strong-password-2",
             "role": "officer", "csrf_token": _csrf(client)}, follow_redirects=True)
 
     def _operators(self):
@@ -538,14 +538,14 @@ class TestOperatorLimit:
         _set_org(plan="starter", plan_status="active", current_period_end=_iso(20))
         self._create(client, 1)
         self._create(client, 2)
-        login = client.post("/api/v1/auth/login", json={"email": "alice@testfirm.ae", "password": "a-strong-password-1"})
+        login = client.post("/api/v1/auth/login", json={"email": "alice@testfirm.ae", "password": "A-strong-password-1"})
         assert login.status_code == 200, login.text
         token = login.json()["token"]
         from conftest import unlock_mobile_mfa  # p15: an MLRO's token starts MFA-locked
         unlock_mobile_mfa(client, token)
         h = {"Authorization": f"Bearer {token}"}
         r = client.post("/api/v1/admin/operators", headers=h, json={
-            "name": "x", "email": "x@testfirm.ae", "password": "a-strong-password-2"})
+            "name": "x", "email": "x@testfirm.ae", "password": "A-strong-password-2"})
         assert r.status_code == 402 and "/billing" in r.json()["detail"]
 
 
@@ -631,7 +631,7 @@ class TestGraceAndReadOnly:
             assert client.get(path).status_code == 200, path
         # and new operators are refused with the clear message
         r = client.post("/admin/operators", data={
-            "name": "late", "email": "late@testfirm.ae", "password": "a-strong-password-2",
+            "name": "late", "email": "late@testfirm.ae", "password": "A-strong-password-2",
             "role": "officer", "csrf_token": _csrf(client)}, follow_redirects=True)
         assert "read-only" in r.text and "/billing" in r.text
 

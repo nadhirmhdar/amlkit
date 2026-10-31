@@ -27,7 +27,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-PASSWORD = "a-strong-password-1"
+PASSWORD = "A-strong-password-1"
 
 
 def _csrf(client) -> str:
@@ -51,7 +51,7 @@ def _register_and_login(client, org_name: str, name: str, email: str, password: 
     return client
 
 
-def _add_operator(client, name: str, email: str, password: str = "a-strong-password-2", role: str = "officer"):
+def _add_operator(client, name: str, email: str, password: str = "A-strong-password-2", role: str = "officer"):
     return client.post("/admin/operators", data={
         "name": name, "email": email, "password": password, "role": role,
         "csrf_token": _csrf(client),

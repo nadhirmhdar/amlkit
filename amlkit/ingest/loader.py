@@ -62,30 +62,42 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
         # so their primary key (entity_id) stays stable. alerts.entity_id
         # references entities(id) ON DELETE CASCADE, so a delete-all strategy
         # would wipe every alert for this dataset on every daily refresh.
-        existing: dict[str, int] = {
-            row["source_id"]: int(row["id"])
-            for row in conn.execute(
-                "SELECT id, source_id FROM entities WHERE dataset_id=?", (ds_id,)
-            )
-        }
+        existing: dict[str, int] = {}
+        old_hashes: dict[str, str | None] = {}
+        for row in conn.execute(
+            "SELECT id, source_id, content_hash FROM entities WHERE dataset_id=?", (ds_id,)
+        ):
+            existing[row["source_id"]] = int(row["id"])
+            old_hashes[row["source_id"]] = row["content_hash"]
         incoming_source_ids: set[str] = set()
 
         for ent in entities:
             incoming_source_ids.add(ent.source_id)
             eid = existing.get(ent.source_id)
+            chash = _content_hash(ent)
 
             if eid is not None:
+                # content_changed_at only moves when the listing's substance
+                # (names, DOB, countries, programmes...) really changed. A row
+                # that predates hashing (NULL) is adopted as unchanged -- we
+                # cannot know it differed, and treating it as changed would
+                # re-alert every dismissed match once on first deploy.
+                prev = old_hashes.get(ent.source_id)
+                changed_at = now if (prev is not None and prev != chash) else None
                 # Entity still listed: update fields, keep its primary key so
                 # alert rows that reference it survive the refresh.
                 conn.execute(
                     """UPDATE entities SET
                        schema_type=?, caption=?, countries=?, birth_date=?,
-                       gender=?, topics=?, programs=?, listed_at=?, raw=?, last_seen=?
+                       gender=?, topics=?, programs=?, listed_at=?, raw=?, last_seen=?,
+                       content_hash=?,
+                       content_changed_at=COALESCE(?, content_changed_at)
                        WHERE id=?""",
                     (
                         ent.schema_type, ent.caption, _json(ent.countries),
                         ent.birth_date, ent.gender, _json(ent.topics),
                         _json(ent.programs), ent.listed_at, ent.raw_json(), now,
+                        chash, changed_at,
                         eid,
                     ),
                 )
@@ -99,8 +111,8 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
                     """INSERT INTO entities
                        (dataset_id, source_id, schema_type, caption, countries,
                         birth_date, gender, topics, programs, listed_at, raw,
-                        first_seen, last_seen)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        first_seen, last_seen, content_hash)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         ds_id,
                         ent.source_id,
@@ -115,6 +127,7 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
                         ent.raw_json(),
                         now,
                         now,
+                        chash,
                     ),
                 )
                 eid = cur.lastrowid
@@ -175,6 +188,29 @@ def load(conn: sqlite3.Connection, adapter: SourceAdapter, actor: str = "system"
     clear_dataset_error(conn, adapter.key)
 
     return LoadResult(adapter.key, len(entities), n_names, n_tokens, n_ids, now)
+
+
+def _content_hash(ent) -> str:
+    """Stable fingerprint of what a list entry says about a person/entity.
+
+    Used by screening to decide whether a previously dismissed match should be
+    re-raised: only a change to the listing itself (names, DOB, countries,
+    programmes, identifiers...) counts, not a refresh that re-publishes the same
+    record. Raw names are hashed, not canonical keys, so a matcher change
+    cannot masquerade as a list change.
+    """
+    import hashlib
+    import json
+
+    payload = json.dumps(
+        [
+            ent.schema_type, ent.caption, sorted(ent.countries), ent.birth_date,
+            ent.gender, sorted(ent.topics), sorted(ent.programs), ent.listed_at,
+            sorted(ent.all_names()), sorted(tuple(i) for i in ent.identifiers),
+        ],
+        ensure_ascii=False, default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _json(vals) -> str:
