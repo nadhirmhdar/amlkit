@@ -456,20 +456,32 @@ def api_setup_submit(body: SetupRequest, db: DB):
         raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
 
     now = utcnow()
-    cur = db.execute(
-        # email_verified_at=now: claiming a setup link already proves control
-        # of a channel an admin trusted, so there's no separate
-        # email-ownership gap left to close here, unlike public
-        # self-registration in api_register_organization (see
-        # auth.login()'s guard).
-        """INSERT INTO operators
-               (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
-           VALUES (?,?,?,?,?,1,?,?)""",
-        (row["org_id"], body.name.strip(), body.email.strip().lower(),
-         auth.hash_password(body.password), "mlro", now, now),
+    # Claim the token first, atomically (L-66): exactly one concurrent claimant
+    # gets rowcount == 1; the operator INSERT shares its transaction.
+    claim = db.execute(
+        "UPDATE setup_tokens SET used_at=? WHERE id=? AND used_at IS NULL",
+        (now, row["id"]),
     )
+    if claim.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="This setup link is invalid, expired, or already used.")
+    try:
+        cur = db.execute(
+            # email_verified_at=now: claiming a setup link already proves control
+            # of a channel an admin trusted, so there's no separate
+            # email-ownership gap left to close here, unlike public
+            # self-registration in api_register_organization (see
+            # auth.login()'s guard).
+            """INSERT INTO operators
+                   (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
+               VALUES (?,?,?,?,?,1,?,?)""",
+            (row["org_id"], body.name.strip(), body.email.strip().lower(),
+             auth.hash_password(body.password), "mlro", now, now),
+        )
+    except Exception:
+        db.rollback()
+        raise
     operator_id = cur.lastrowid
-    db.execute("UPDATE setup_tokens SET used_at=? WHERE id=?", (now, row["id"]))
     db.commit()
     from ..db import audit
 
