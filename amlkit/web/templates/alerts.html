@@ -15,6 +15,7 @@
   </p>
 </div>
 
+{% if unknown_filter %}<p class="muted small" role="status">Unknown filter ignored.</p>{% endif %}
 {% set cq = ("&category=" ~ category) if category else "" %}
 {% if category %}
 <p class="cat-filter-chip">Showing <strong>{{ category_label }}</strong> alerts only
@@ -64,7 +65,7 @@
     </div>
 
     {% for a in g.alerts %}
-    <div class="alert-card">
+    <div class="alert-card" id="alert-{{ a.id }}">
       <div class="alert-head">
         <h3>{{ name(a.caption) }}</h3>
         <div style="display:flex; gap:12px; align-items:center; flex-shrink:0;">
@@ -124,7 +125,7 @@
 
 {% else %}
   {% for a in alerts %}
-  <div class="alert-card">
+  <div class="alert-card" id="alert-{{ a.id }}">
     <div class="alert-head">
       <h3>{{ name(a.caption) }}</h3>
       <div style="display:flex; gap:12px; align-items:center; flex-shrink:0;">

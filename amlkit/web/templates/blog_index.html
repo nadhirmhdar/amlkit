@@ -2,11 +2,12 @@
 {% set blog_nav = 'guides' %}
 {% if active_topic %}
   {% set page_title = active_topic.name ~ " guides" %}
-  {% set page_url = "https://groaml.grovisor.ae/blog?topic=" ~ active_topic.slug %}
+  {# Topic and search views canonicalise to /blog and stay noindex,follow. #}
+  {% set page_url = public_base_url ~ "/blog" %}
   {% set page_desc = active_topic.blurb ~ " Practical guides for UAE DNFBPs from groAML by Grovisor." %}
 {% else %}
   {% set page_title = "UAE AML/CFT compliance guides" %}
-  {% set page_url = "https://groaml.grovisor.ae/blog" %}
+  {% set page_url = public_base_url ~ "/blog" %}
   {% set page_desc = "Practical, sourced guides to sanctions screening, CDD, goAML reporting and risk assessment for UAE DNFBPs, from the team behind groAML." %}
 {% endif %}
 {% block title %}{{ page_title }} — groAML Insights{% endblock %}
@@ -19,14 +20,14 @@
 <meta property="og:title" content="{{ page_title }} — groAML Insights">
 <meta property="og:description" content="{{ page_desc }}">
 <meta property="og:url" content="{{ page_url }}">
-<meta property="og:image" content="https://groaml.grovisor.ae/static/img/og-card.png">
+<meta property="og:image" content="{{ public_base_url }}/static/img/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="groAML by Grovisor: UAE AML/CFT compliance software for DNFBPs">
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{{ page_title }} — groAML Insights">
 <meta name="twitter:description" content="{{ page_desc }}">
-<meta name="twitter:image" content="https://groaml.grovisor.ae/static/img/og-card.png">
+<meta name="twitter:image" content="{{ public_base_url }}/static/img/og-card.png">
 {% endblock %}
 {% set ld = {
   "@context": "https://schema.org",
@@ -34,15 +35,15 @@
     {
       "@type": "BreadcrumbList",
       "itemListElement": [
-        { "@type": "ListItem", "position": 1, "name": "groAML", "item": "https://groaml.grovisor.ae/about" },
-        { "@type": "ListItem", "position": 2, "name": "Insights", "item": "https://groaml.grovisor.ae/blog" }
+        { "@type": "ListItem", "position": 1, "name": "groAML", "item": public_base_url ~ "/about" },
+        { "@type": "ListItem", "position": 2, "name": "Insights", "item": public_base_url ~ "/blog" }
       ]
     },
     {
       "@type": "Blog",
       "name": "groAML Insights",
       "description": page_desc,
-      "url": "https://groaml.grovisor.ae/blog",
+      "url": public_base_url ~ "/blog",
       "inLanguage": "en",
       "publisher": { "@type": "Organization", "name": "Grovisor Business Consultants FZE", "url": "https://grovisor.ae/" }
     }

@@ -246,17 +246,36 @@ def create_session(conn: sqlite3.Connection, operator_id: int, org_id: int, mfa_
     mfa_verified: Set to False for MLRO users awaiting MFA challenge (p15).
     """
     raw = _new_token()
-    _enforce_session_limit(conn, operator_id)
+    evicted = _enforce_session_limit(conn, operator_id)
     now = datetime.now(timezone.utc)
     now_str = utcnow()
     conn.execute(
-        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at, last_active, mfa_verified)
-           VALUES (?,?,?,?,?,?,?)""",
+        """INSERT INTO sessions (token_hash, operator_id, org_id, created_at, expires_at, last_active, mfa_verified, notice)
+           VALUES (?,?,?,?,?,?,?,?)""",
         (_token_hash(raw), operator_id, org_id, now_str,
-         (now + SESSION_LIFETIME).isoformat(timespec="seconds"), now_str, 1 if mfa_verified else 0),
+         (now + SESSION_LIFETIME).isoformat(timespec="seconds"), now_str, 1 if mfa_verified else 0,
+         SESSION_EVICTED_NOTICE if evicted else None),
     )
     conn.commit()
     return raw
+
+
+SESSION_EVICTED_NOTICE = ("You were signed in on another device; the oldest session was "
+                          "signed out.")
+
+
+def pop_session_notice(conn: sqlite3.Connection, raw_token: str | None) -> str | None:
+    """Return and clear the one-shot notice stored on this session (L-81)."""
+    if not raw_token:
+        return None
+    th = _token_hash(raw_token)
+    row = conn.execute("SELECT notice FROM sessions WHERE token_hash=? AND notice IS NOT NULL",
+                       (th,)).fetchone()
+    if row is None:
+        return None
+    conn.execute("UPDATE sessions SET notice=NULL WHERE token_hash=?", (th,))
+    conn.commit()
+    return row["notice"]
 
 
 def resolve_session(conn: sqlite3.Connection, raw_token: str | None) -> SessionInfo | None:
@@ -678,8 +697,11 @@ def consume_email_verify_token(conn: sqlite3.Connection, raw_token: str):
 
 
 
-def _enforce_session_limit(conn: sqlite3.Connection, operator_id: int) -> None:
-    """Revoke oldest sessions if operator has reached MAX_CONCURRENT_SESSIONS."""
+def _enforce_session_limit(conn: sqlite3.Connection, operator_id: int) -> bool:
+    """Revoke the oldest session if the operator has reached MAX_CONCURRENT_SESSIONS.
+
+    Returns True when a session was evicted, so create_session can leave a
+    notice on the new session (L-81)."""
     import os
     max_sessions = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "3"))
     
@@ -702,6 +724,8 @@ def _enforce_session_limit(conn: sqlite3.Connection, operator_id: int) -> None:
         if oldest:
             conn.execute("UPDATE sessions SET revoked_at=? WHERE id=?",
                         (utcnow(), oldest["id"]))
+            return True
+    return False
 
 
 # --------------------------------------------------------------------- csrf

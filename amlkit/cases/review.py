@@ -402,6 +402,14 @@ def confirm_disposition(
     if operator_id is not None and proposal["operator_id"] is not None:
         same_operator = operator_id == proposal["operator_id"]
     else:
+        # Legacy proposal written before alert_reviews.operator_id existed (or a
+        # caller without an id): fall back to comparing display names. Logged so
+        # we can see whether anything still depends on it (L-27); see
+        # scripts/check_legacy_proposals.py before removing.
+        logger.warning(
+            "four-eyes confirm on alert %s used the legacy name comparison "
+            "(proposal operator_id=%r, confirming operator_id=%r)",
+            alert_id, proposal["operator_id"], operator_id)
         same_operator = operator.strip() == (proposal["operator"] or "").strip()
     if same_operator:
         logger.warning(f"Same operator ({operator}) attempted to confirm own disposition; "

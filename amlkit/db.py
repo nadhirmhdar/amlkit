@@ -1111,6 +1111,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("organizations", "reporting_person_phone", "ALTER TABLE organizations ADD COLUMN reporting_person_phone TEXT"),
     # p15: MFA login enforcement — track whether MLRO session has passed MFA challenge
     ("sessions", "mfa_verified", "ALTER TABLE sessions ADD COLUMN mfa_verified INTEGER NOT NULL DEFAULT 1"),
+    # L-81: one-shot message shown on a session's first page (e.g. "the oldest session was signed out")
+    ("sessions", "notice", "ALTER TABLE sessions ADD COLUMN notice TEXT"),
     # p36: Enhanced due diligence — risk_level, Source of Wealth, Source of Funds
     ("customers", "risk_level",        "ALTER TABLE customers ADD COLUMN risk_level        TEXT"),
     ("customers", "source_of_wealth",  "ALTER TABLE customers ADD COLUMN source_of_wealth  TEXT"),
