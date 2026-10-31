@@ -26,7 +26,7 @@ def _csrf(client) -> str:
     return client.cookies.get("amlkit_csrf")
 
 
-def _register(client, org_name: str, name: str, email: str, password: str = "Password123"):
+def _register(client, org_name: str, name: str, email: str, password: str = "Password-123"):
     import re as regex
     client.get("/register-organization")
     r = client.post("/register-organization", data={

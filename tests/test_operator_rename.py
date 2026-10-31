@@ -104,14 +104,14 @@ class TestRefusals:
 
     def test_over_long_name_is_refused(self, client) -> None:
         _add_operator(client, "bob", "bob@testfirm.ae")
-        r = _rename(client, _operator("bob@testfirm.ae")["id"], "x" * 81)
-        assert "80 characters or fewer" in r.text
+        r = _rename(client, _operator("bob@testfirm.ae")["id"], "x" * 121)
+        assert "120 characters or fewer" in r.text
         assert _operator("bob@testfirm.ae")["name"] == "bob"
 
-    def test_exactly_80_characters_is_allowed(self, client) -> None:
+    def test_exactly_120_characters_is_allowed(self, client) -> None:
         _add_operator(client, "bob", "bob@testfirm.ae")
-        _rename(client, _operator("bob@testfirm.ae")["id"], "x" * 80)
-        assert _operator("bob@testfirm.ae")["name"] == "x" * 80
+        _rename(client, _operator("bob@testfirm.ae")["id"], "x" * 120)
+        assert _operator("bob@testfirm.ae")["name"] == "x" * 120
 
     def test_unknown_operator_id_is_refused(self, client) -> None:
         r = _rename(client, 999999, "Whoever")
@@ -126,7 +126,7 @@ class TestAccessControl:
 
         client.cookies.delete("amlkit_session")
         client.post("/login", data={
-            "email": "bob@testfirm.ae", "password": "a-strong-password-2",
+            "email": "bob@testfirm.ae", "password": "A-strong-password-2",
             "csrf_token": _csrf(client),
         })
         r = client.post(f"/admin/operators/{carol['id']}/rename", data={

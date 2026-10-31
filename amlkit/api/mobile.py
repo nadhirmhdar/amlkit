@@ -267,18 +267,20 @@ def api_register_organization(request: Request, body: RegisterOrgRequest, db: DB
         db.commit()
         raise HTTPException(status_code=403, detail="Registration requires a valid invite code.")
 
-    if len(body.password) < 10:
-        raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
-    if not auth.looks_like_email(body.email):
-        raise HTTPException(status_code=400, detail="Enter a valid email address.")
-    import re
+    from ..cases.operators import make_org_slug
 
-    slug = re.sub(r"[^a-z0-9]+", "-", body.org_name.strip().lower()).strip("-") or "org"
+    try:
+        auth.check_new_password(body.password)
+        clean_name, clean_email = auth.check_operator_identity(body.name, body.email)
+        org_name = auth.check_org_name(body.org_name)
+        slug = make_org_slug(db, org_name)
+    except ValueError as exc:  # PasswordComplexityError / IdentityError / duplicate org
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     now = utcnow()
     try:
         cur = db.execute(
             "INSERT INTO organizations (name, slug, status, created_at) VALUES (?,?,?,?)",
-            (body.org_name.strip(), slug, "active", now),
+            (org_name, slug, "active", now),
         )
     except sqlite3.IntegrityError as exc:
         raise HTTPException(
@@ -289,7 +291,7 @@ def api_register_organization(request: Request, body: RegisterOrgRequest, db: DB
         cur2 = db.execute(
             """INSERT INTO operators (org_id, name, email, password_hash, role, is_active, created_at)
                VALUES (?,?,?,?,?,1,?)""",
-            (org_id, body.name.strip(), body.email.strip().lower(),
+            (org_id, clean_name, clean_email,
              auth.hash_password(body.password), "mlro", now),
         )
     except sqlite3.IntegrityError as exc:
@@ -309,19 +311,19 @@ def api_register_organization(request: Request, body: RegisterOrgRequest, db: DB
     db.commit()
     from ..db import audit
 
-    email = body.email.strip().lower()
-    audit(db, body.name.strip(), "organization.register", "organization", org_id,
-          {"org_name": body.org_name.strip()}, org_id=org_id)
+    email = clean_email
+    audit(db, clean_name, "organization.register", "organization", org_id,
+          {"org_name": org_name}, org_id=org_id)
     db.commit()
 
     # Not activated yet -- see auth.login()'s email_verified_at guard. The
     # account exists and is fully privileged (MLRO) the moment this link is
     # clicked, so it must not be usable before then.
     raw_token = auth.create_email_verify_token(db, operator_id)
-    delivery = mail.send_verification_email(email, body.name.strip(), raw_token)
+    delivery = mail.send_verification_email(email, clean_name, raw_token)
     # Outcome, not just the attempt -- a provider failing every send is
     # otherwise invisible; see the matching note in app.py.
-    audit(db, body.name.strip(), "operator.verification_sent", "operator", operator_id,
+    audit(db, clean_name, "operator.verification_sent", "operator", operator_id,
           {"email": email, "delivery": delivery}, org_id=org_id)
     db.commit()
 
@@ -357,7 +359,8 @@ class VerifyEmailRequest(BaseModel):
 
 
 @router.post("/auth/verify-email")
-def api_verify_email(body: VerifyEmailRequest, db: DB):
+@limiter.limit("10/minute")  # IP ceiling, same pattern as /auth/login
+def api_verify_email(request: Request, body: VerifyEmailRequest, db: DB):
     operator = auth.consume_email_verify_token(db, body.token)
     if operator is None:
         raise HTTPException(
@@ -390,7 +393,8 @@ class ResendVerificationRequest(BaseModel):
 
 
 @router.post("/auth/resend-verification")
-def api_resend_verification(body: ResendVerificationRequest, db: DB):
+@limiter.limit("10/minute")  # IP ceiling, same pattern as /auth/login
+def api_resend_verification(request: Request, body: ResendVerificationRequest, db: DB):
     """Always returns the same generic message, whether or not the email
     belongs to a real, still-unverified account -- same anti-enumeration
     reasoning as auth.login()'s single error string. The actual resend (or
@@ -435,7 +439,8 @@ class SetupRequest(BaseModel):
 
 
 @router.get("/auth/setup")
-def api_setup_check(token: str, db: DB):
+@limiter.limit("10/minute")  # IP ceiling, same pattern as /auth/login
+def api_setup_check(request: Request, token: str, db: DB):
     from .app import _valid_setup_token
 
     row = _valid_setup_token(db, token)
@@ -452,8 +457,19 @@ def api_setup_submit(body: SetupRequest, db: DB):
     row = _valid_setup_token(db, body.token)
     if row is None:
         raise HTTPException(status_code=400, detail="This setup link is invalid, expired, or already used.")
-    if len(body.password) < 10:
-        raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
+    from ..cases.operators import operator_name_taken
+
+    try:
+        auth.check_new_password(body.password)
+        clean_name, clean_email = auth.check_operator_identity(body.name, body.email)
+    except ValueError as exc:  # PasswordComplexityError / IdentityError
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # A taken email/name is refused here, before anything is written, so the
+    # setup token stays unused and the admin can resend a corrected claim.
+    if db.execute("SELECT 1 FROM operators WHERE lower(email)=?", (clean_email,)).fetchone():
+        raise HTTPException(status_code=409, detail="An account with that email already exists.")
+    if operator_name_taken(db, row["org_id"], clean_name):
+        raise HTTPException(status_code=409, detail="An operator with that name already exists in this organisation.")
 
     now = utcnow()
     cur = db.execute(
@@ -465,7 +481,7 @@ def api_setup_submit(body: SetupRequest, db: DB):
         """INSERT INTO operators
                (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
            VALUES (?,?,?,?,?,1,?,?)""",
-        (row["org_id"], body.name.strip(), body.email.strip().lower(),
+        (row["org_id"], clean_name, clean_email,
          auth.hash_password(body.password), "mlro", now, now),
     )
     operator_id = cur.lastrowid
@@ -473,10 +489,10 @@ def api_setup_submit(body: SetupRequest, db: DB):
     db.commit()
     from ..db import audit
 
-    audit(db, body.name.strip(), "operator.setup_claimed", "operator", operator_id,
-          {"email": body.email.strip().lower()}, org_id=row["org_id"])
+    audit(db, clean_name, "operator.setup_claimed", "operator", operator_id,
+          {"email": clean_email}, org_id=row["org_id"])
     db.commit()
-    token, info = auth.login(db, body.email.strip().lower(), body.password)
+    token, info = auth.login(db, clean_email, body.password)
     return _login_json(db, token, info)
 
 
@@ -1457,8 +1473,10 @@ def api_admin_reset_password(operator_id: int, body: PasswordResetRequest, db: D
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Operator not found.")
-    if len(body.new_password) < 10:
-        raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
+    try:
+        auth.check_new_password(body.new_password)
+    except auth.PasswordComplexityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     auth.set_password(db, operator_id, body.new_password)
     from ..db import audit
 
@@ -1478,8 +1496,17 @@ class OperatorCreateRequest(BaseModel):
 @router.post("/admin/operators")
 def api_admin_create_operator(body: OperatorCreateRequest, db: DB, session: Session):
     _require_mlro(session)
-    if len(body.password) < 10:
-        raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
+    from ..cases.operators import operator_name_taken
+
+    try:
+        auth.check_new_password(body.password)
+        clean_name, clean_email = auth.check_operator_identity(body.name, body.email)
+    except ValueError as exc:  # PasswordComplexityError / IdentityError
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.role not in auth.OPERATOR_ROLES:
+        raise HTTPException(status_code=400, detail="Role must be officer or mlro.")
+    if operator_name_taken(db, session.org_id, clean_name):
+        raise HTTPException(status_code=400, detail="An operator with that name or email already exists.")
     try:
         now = utcnow()
         cur = db.execute(
@@ -1489,7 +1516,7 @@ def api_admin_create_operator(body: OperatorCreateRequest, db: DB, session: Sess
             """INSERT INTO operators
                    (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
                VALUES (?,?,?,?,?,1,?,?)""",
-            (session.org_id, body.name.strip(), body.email.strip().lower(),
+            (session.org_id, clean_name, clean_email,
              auth.hash_password(body.password), body.role, now, now),
         )
     except sqlite3.IntegrityError as exc:
@@ -1499,7 +1526,7 @@ def api_admin_create_operator(body: OperatorCreateRequest, db: DB, session: Sess
     from ..db import audit
 
     audit(db, session.operator_name, "operator.create", "operator", cur.lastrowid,
-          {"email": body.email.strip().lower(), "role": body.role}, org_id=session.org_id)
+          {"email": clean_email, "role": body.role}, org_id=session.org_id)
     db.commit()
     return {"operator_id": cur.lastrowid}
 
