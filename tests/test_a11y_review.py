@@ -172,8 +172,8 @@ def test_type_scale_is_five_steps_and_buttons_have_three_sizes():
     from pathlib import Path
 
     root = Path(__file__).resolve().parent.parent / "amlkit" / "web"
-    css = (root / "static" / "app.css").read_text()
-    templates = "".join(p.read_text() for p in (root / "templates").rglob("*.html"))
+    css = (root / "static" / "app.css").read_text(encoding="utf-8")
+    templates = "".join(p.read_text(encoding="utf-8") for p in (root / "templates").rglob("*.html"))
     for text in (css, templates):
         sizes = {float(m) for m in re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", text)}
         small_range = {z for z in sizes if 11 <= z <= 16}

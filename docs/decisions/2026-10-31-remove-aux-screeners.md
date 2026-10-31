@@ -1,0 +1,6 @@
+# 2026-10-31: Remove the auxiliary Google screeners (kg-screen, gdelt-bq)
+
+Removed `GET /customers/{id}/kg-screen`, `GET /customers/{id}/gdelt-bq`, `screening/knowledge_graph.py` and `screening/gdelt_bq.py` (closes L-91..L-94, owner decision 7a). The optional `AMLKIT_MEDIA_PIPELINE` path also lost its BigQuery GKG source and Knowledge Graph MID matching (`kg_match` is now always false; the DB columns are unchanged).
+Why: no template or JS linked them, they were inert in production (`GOOGLE_KG_API_KEY` / a BigQuery project were never set), and when configured they sent customer names to Google with no `audit_log` row. The KG URL was also built without encoding (`&`, `#`, `+` altered the query), and the BigQuery query was a multi-TB scan behind a CSRF-free GET.
+Kept: GDELT DOC adverse-media search (`screening/adverse_media.py`), `google-cloud-bigquery` (still used by `reporting/bigquery.py`), `GOOGLE_CLOUD_PROJECT` (used by `pii.py` and `ai/gemini.py`).
+To reinstate: use POST with CSRF and a rate limit, `httpx` `params=` (or BigQuery query parameters plus `maximum_bytes_billed`), return 503 when unconfigured, write an `audit_log` row on every call, and name Google as a processor on the privacy page.

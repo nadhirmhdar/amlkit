@@ -5,11 +5,9 @@ codebase's existing screening modules wherever one already exists, and three
 new adapter modules where none did:
 
   1. Data Acquisition
-       - BigQuery public dataset `gdelt-bq.gdeltv2.gkg`   -> screening/gdelt_bq.py (existing)
        - GDELT DOC 2.0 (global news, 65+ languages)        -> screening/adverse_media.py (existing)
        - targeted regional/UAE press search                -> screening/vertex_search.py (new)
   2. Entity Resolution
-       - Knowledge Graph Search API (disambiguation, MIDs) -> screening/knowledge_graph.py (existing)
        - Cloud Natural Language (entity salience/sentiment) -> screening/nl_entities.py (new)
   3. Autonomous AI Triage
        - Vertex AI Gemini (translation + predicate-offence  -> ai/gemini.py (existing module,
@@ -82,8 +80,6 @@ from .adverse_media import _name_evidence as _keyword_name_evidence
 from .adverse_media import (
     classify as keyword_classify,
 )
-from .gdelt_bq import GdeltBqScreener
-from .knowledge_graph import KnowledgeGraphScreener
 from .nl_entities import NaturalLanguageScreener
 from .vertex_search import VertexAiSearchScreener
 
@@ -140,7 +136,7 @@ class PipelineClients:
 
     Every field defaults to the real Google-calling client, constructed
     lazily (only when actually used, and only import-time-lazy inside each
-    client class -- see screening/gdelt_bq.py's `_make_bq_client` for the
+    client class -- see screening/vertex_search.py for the
     established pattern). Tests pass fakes for whichever stages they are
     exercising; unset fields fall back to the real thing, so a fake set only
     needs to cover the sources a test cares about as long as the others stay
@@ -149,9 +145,7 @@ class PipelineClients:
     """
 
     gdelt_client: MediaClient | None = None
-    gdelt_bq: GdeltBqScreener | None = None
     vertex_search: VertexAiSearchScreener | None = None
-    knowledge_graph: KnowledgeGraphScreener | None = None
     nl: NaturalLanguageScreener | None = None
     triage_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None
 
@@ -162,7 +156,7 @@ class PipelineArticleResult:
     title: str
     domain: str
     language: str
-    source: str  # gdelt_doc | gdelt_bq | vertex_search
+    source: str  # gdelt_doc | vertex_search
     published_at: str | None
     salience: float | None
     sentiment_score: float | None
@@ -249,7 +243,7 @@ def _acquire(
 ) -> tuple[list[_Candidate], dict[str, int], list[str]]:
     seen: set[str] = set()
     candidates: list[_Candidate] = []
-    sources_queried = {"gdelt_doc": 0, "gdelt_bq": 0, "vertex_search": 0}
+    sources_queried = {"gdelt_doc": 0, "vertex_search": 0}
     errors: list[str] = []
 
     def _add(article: Article, source: str, snippet: str = "") -> bool:
@@ -280,26 +274,6 @@ def _acquire(
             _add(art, "gdelt_doc")
             if len(candidates) >= MAX_ARTICLES:
                 break
-
-    # --- BigQuery GDELT GKG ---
-    if len(candidates) < MAX_ARTICLES:
-        bq = clients.gdelt_bq or GdeltBqScreener()
-        bq_result = bq.screen(name, window_days=max(1, window_months) * 30)
-        if bq_result.status == "unavailable":
-            errors.append("gdelt_bq: unavailable")
-        elif bq_result.status == "ok":
-            # GdeltBqResult.sample_headlines holds DocumentIdentifier values
-            # (article URLs), not headline text -- GKG's row shape has no
-            # separate headline field. See screening/gdelt_bq.py.
-            for url in bq_result.sample_headlines:
-                if len(candidates) >= MAX_ARTICLES:
-                    break
-                domain = ""
-                try:
-                    domain = urlsplit(url).netloc
-                except ValueError:
-                    pass
-                _add(Article(url=url, title="", domain=domain), "gdelt_bq")
 
     # --- Vertex AI Search (targeted regional/UAE press) ---
     if len(candidates) < MAX_ARTICLES and os.environ.get("AMLKIT_VAIS_ENABLED", "0") == "1":
@@ -339,14 +313,6 @@ def _resolve_entities(
     the keyword-classify() fallback's severity/terms so stage 3 can use them
     without re-deriving.
     """
-    kg = clients.knowledge_graph or KnowledgeGraphScreener()
-    kg_result = kg.screen(name)
-    kg_mids = (
-        {e.kg_id for e in kg_result.entities if e.kg_id}
-        if kg_result.status == "ok"
-        else set()
-    )
-
     nl_enabled = os.environ.get("AMLKIT_NL_ENABLED", "0") == "1"
     kept: list[_Candidate] = []
     meta: dict[str, dict[str, Any]] = {}
@@ -410,7 +376,7 @@ def _resolve_entities(
             "salience": best.salience,
             "sentiment_score": best.sentiment_score,
             "sentiment_magnitude": best.sentiment_magnitude,
-            "kg_match": bool(best.mid and best.mid in kg_mids),
+            "kg_match": False,
             "name_evidence": evidence,
             "fallback_severity": fallback_severity,
             "fallback_terms": fallback_terms,

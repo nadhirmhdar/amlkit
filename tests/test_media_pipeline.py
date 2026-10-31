@@ -24,8 +24,6 @@ from amlkit.screening.adverse_media import (
     SEVERITY_REGULATORY,
     SEVERITY_REPUTATIONAL,
 )
-from amlkit.screening.gdelt_bq import GdeltBqResult
-from amlkit.screening.knowledge_graph import KgEntity, KgResult
 from amlkit.screening.media_pipeline import (
     PipelineClients,
     TenantMismatchError,
@@ -63,16 +61,6 @@ class FakeGdeltDoc:
         return self.responses[min(idx, len(self.responses) - 1)]
 
 
-class FakeGdeltBq:
-    def __init__(self, result: GdeltBqResult | None = None) -> None:
-        self.result = result or GdeltBqResult(status="ok", sample_headlines=[])
-        self.calls = 0
-
-    def screen(self, name, window_days=90):
-        self.calls += 1
-        return self.result
-
-
 class FakeVais:
     def __init__(self, result: VaisResult | None = None) -> None:
         self.result = result or VaisResult(status="ok", articles=[])
@@ -80,14 +68,6 @@ class FakeVais:
 
     def search(self, query, *, max_results=10):
         self.calls += 1
-        return self.result
-
-
-class FakeKg:
-    def __init__(self, result: KgResult | None = None) -> None:
-        self.result = result or KgResult(status="unconfigured", entities=[])
-
-    def screen(self, name, types=None):
         return self.result
 
 
@@ -101,20 +81,10 @@ class FakeNl:
         return self.fn(text)
 
 
-def no_op_gdelt_bq() -> FakeGdeltBq:
-    return FakeGdeltBq(GdeltBqResult(status="unconfigured"))
-
-
-def no_op_kg() -> FakeKg:
-    return FakeKg(KgResult(status="unconfigured"))
-
-
 def base_clients(**overrides) -> PipelineClients:
     defaults = dict(
         gdelt_client=FakeGdeltDoc({"articles": []}),
-        gdelt_bq=no_op_gdelt_bq(),
         vertex_search=FakeVais(VaisResult(status="disabled")),
-        knowledge_graph=no_op_kg(),
     )
     defaults.update(overrides)
     return PipelineClients(**defaults)
@@ -152,40 +122,20 @@ class TestTenantIsolation:
 
 
 class TestAcquisitionDedup:
-    def test_same_article_from_two_sources_is_deduped(self, conn, org_id, customer_id):
-        # GDELT DOC returns an article with a "www." prefix and a trailing
-        # slash; the GKG (BigQuery) source returns the "same" article at a
-        # bare, no-www URL -- these must collapse to one candidate.
+    def test_same_article_twice_in_gdelt_is_deduped(self, conn, org_id, customer_id):
+        # A "www." + trailing-slash URL and the bare form must collapse to
+        # one candidate.
         gdelt = FakeGdeltDoc({
-            "articles": [article_payload(
-                "https://www.example.com/news/fraud-case/", "Fraudy McFraud fraud case"
-            )]
+            "articles": [
+                article_payload("https://www.example.com/news/fraud-case/", "Fraudy McFraud fraud case"),
+                article_payload("https://example.com/news/fraud-case", "Fraudy McFraud fraud case"),
+            ]
         })
-        bq = FakeGdeltBq(GdeltBqResult(
-            status="ok", sample_headlines=["https://example.com/news/fraud-case"],
-        ))
         result = run_pipeline(
             conn, org_id, customer_id, "tester",
-            clients=base_clients(gdelt_client=gdelt, gdelt_bq=bq),
+            clients=base_clients(gdelt_client=gdelt),
         )
-        assert result.sources_queried["gdelt_doc"] == 1
-        assert result.sources_queried["gdelt_bq"] == 0  # deduped away
         assert result.articles_considered == 1
-
-    def test_articles_from_multiple_sources_are_all_kept_when_distinct(self, conn, org_id, customer_id):
-        gdelt = FakeGdeltDoc({
-            "articles": [article_payload("https://gulfnews.com/a", "Fraudy McFraud fraud case")]
-        })
-        bq = FakeGdeltBq(GdeltBqResult(
-            status="ok", sample_headlines=["https://thenational.ae/b"],
-        ))
-        result = run_pipeline(
-            conn, org_id, customer_id, "tester",
-            clients=base_clients(gdelt_client=gdelt, gdelt_bq=bq),
-        )
-        assert result.sources_queried["gdelt_doc"] == 1
-        assert result.sources_queried["gdelt_bq"] == 1
-        assert result.articles_considered == 2
 
     def test_vertex_search_source_only_queried_when_enabled(self, conn, org_id, customer_id, monkeypatch):
         vais = FakeVais(VaisResult(status="ok", articles=[VaisArticle(url="https://x.ae/1", title="t")]))
@@ -299,43 +249,16 @@ class TestEntityResolutionNl:
         )
         assert result.articles_considered == 1
 
-    def test_kg_mid_match_is_recorded(self, conn, org_id, customer_id, monkeypatch):
-        monkeypatch.setenv("AMLKIT_NL_ENABLED", "1")
-        gdelt = FakeGdeltDoc({
-            "articles": [article_payload("https://x.ae/1", "Fraud case")]
-        })
-        kg = FakeKg(KgResult(
-            status="ok",
-            entities=[KgEntity(name="Fraudy McFraud", kg_id="/m/0abc123")],
-        ))
-        nl = FakeNl(lambda text: NlResult(
-            status="ok",
-            entities=[EntityMention(
-                name="Fraudy McFraud", type_="PERSON", salience=0.5, mid="/m/0abc123",
-            )],
-        ))
-        result = run_pipeline(
-            conn, org_id, customer_id, "tester",
-            clients=base_clients(gdelt_client=gdelt, nl=nl, knowledge_graph=kg),
-        )
-        assert result.articles[0].kg_match is True
-
-        row = conn.execute(
-            "SELECT kg_match FROM media_pipeline_articles WHERE run_id=?", (result.run_id,)
-        ).fetchone()
-        assert row["kg_match"] == 1
-
-    def test_kg_mismatch_is_recorded_false(self, conn, org_id, customer_id, monkeypatch):
+    def test_kg_match_is_always_false(self, conn, org_id, customer_id, monkeypatch):
         monkeypatch.setenv("AMLKIT_NL_ENABLED", "1")
         gdelt = FakeGdeltDoc({"articles": [article_payload("https://x.ae/1", "Fraud case")]})
-        kg = FakeKg(KgResult(status="ok", entities=[KgEntity(name="Fraudy McFraud", kg_id="/m/DIFFERENT")]))
         nl = FakeNl(lambda text: NlResult(
             status="ok",
             entities=[EntityMention(name="Fraudy McFraud", type_="PERSON", salience=0.5, mid="/m/0abc123")],
         ))
         result = run_pipeline(
             conn, org_id, customer_id, "tester",
-            clients=base_clients(gdelt_client=gdelt, nl=nl, knowledge_graph=kg),
+            clients=base_clients(gdelt_client=gdelt, nl=nl),
         )
         assert result.articles[0].kg_match is False
 

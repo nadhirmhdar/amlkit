@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Iterator
@@ -27,6 +28,49 @@ BIND_PORT = int(os.environ.get("AMLKIT_PORT", "8000"))
 TLS_CONFIGURED = bool(
     os.environ.get("AMLKIT_SSL_KEYFILE") and os.environ.get("AMLKIT_SSL_CERTFILE")
 )
+
+
+MAX_PAGE = 10_000
+MAX_OFFSET = 10_000_000
+
+
+def _to_int(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def clamp_page(value, *, max_page: int = MAX_PAGE) -> int:
+    """A 1-based page number from untrusted input: non-integer, negative or
+    zero -> 1; huge -> max_page. Never raises, so a hostile ?page= cannot
+    turn into an OverflowError/500 further down."""
+    n = _to_int(value)
+    return 1 if n is None else max(1, min(n, max_page))
+
+
+def clamp_offset(value, *, max_offset: int = MAX_OFFSET) -> int:
+    """A 0-based row offset from untrusted input: non-integer or negative -> 0;
+    huge -> max_offset (well inside SQLite's signed 64-bit INTEGER)."""
+    n = _to_int(value)
+    return 0 if n is None else max(0, min(n, max_offset))
+
+
+def bearer_ok(auth_header: str, secret: str) -> bool:
+    """Constant-time check of `Authorization: Bearer <secret>`. Compares bytes,
+    so a non-ASCII header (Starlette decodes headers as latin-1) is a plain
+    mismatch instead of a TypeError/500."""
+    if not secret:
+        return False
+    try:
+        return secrets.compare_digest(
+            (auth_header or "").encode("utf-8"), f"Bearer {secret}".encode("utf-8"))
+    except (UnicodeEncodeError, TypeError):
+        return False
 
 
 def is_network_exposed() -> bool:

@@ -76,7 +76,7 @@ from ..risk.model import validate_risk_inputs
 from ..screening.adverse_media import ATTRIBUTION as GDELT_ATTRIBUTION, DEFAULT_WINDOW_MONTHS
 from ..screening.pf import triage_category
 from .csv_utils import _escape_csv_formula
-from .deps import client_ip, get_db, require_role
+from .deps import clamp_offset, client_ip, get_db, require_role
 
 router = APIRouter(prefix="/api/v1")
 
@@ -563,7 +563,7 @@ def api_screen(request: Request, body: ScreenRequest, db: DB, session: Session):
         raise HTTPException(status_code=400, detail=f"Name exceeds {MAX_NAME_LENGTH} characters.")
     result = screen(
         db, name, org_id=session.org_id, trigger="adhoc",
-        threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
+        threshold=queries.org_alert_threshold_or_default(db, session.org_id),
         country=body.country.strip() or None,
         birth_date=body.birth_date.strip() or None,
         gender=body.gender.strip() or None,
@@ -646,7 +646,7 @@ def api_customer_create(body: CustomerCreateRequest, db: DB, session: Session):
             delivery_channel=body.delivery_channel, cash_level=body.cash_level,
             jurisdiction_tier=body.jurisdiction_tier, structure=body.structure,
             ubos=ubos, actor=session.operator_name,
-            threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
+            threshold=queries.org_alert_threshold_or_default(db, session.org_id),
             email=body.email.strip() or None,
             phone=body.phone.strip() or None,
             address_line1=body.address_line1.strip() or None,
@@ -976,7 +976,7 @@ def api_customer_add_ubo(customer_id: int, body: UboAddRequest, db: DB, session:
     result = screen(
         db, body.person_name.strip(), org_id=session.org_id, trigger="onboarding",
         customer_id=customer_id, ubo_id=ubo_id, actor=session.operator_name,
-        threshold=queries.org_alert_threshold(db, session.org_id) or DEFAULT_THRESHOLD,
+        threshold=queries.org_alert_threshold_or_default(db, session.org_id),
     )
     return {"ubo_id": ubo_id, "hits": [_hit_json(db, h) for h in result.hits],
             "unscreenable": result.unscreenable}
@@ -1265,7 +1265,7 @@ ALERTS_PAGE_MAX = 200
 
 
 @router.get("/alerts")
-def api_alerts(db: DB, session: Session, status: str = "open", limit: int = ALERTS_PAGE_MAX, offset: int = 0):
+def api_alerts(db: DB, session: Session, status: str = "open", limit: int = ALERTS_PAGE_MAX, offset: str = "0"):
     """The alert queue, in pages: category priority first (proliferation, terrorism,
     sanction, PEP, other), then highest score, then id.
 
@@ -1274,7 +1274,7 @@ def api_alerts(db: DB, session: Session, status: str = "open", limit: int = ALER
     is more: `truncated` is true when `offset + len(alerts) < total`. Without
     the parameters this behaves as before (the first 200)."""
     limit = max(1, min(int(limit), ALERTS_PAGE_MAX))
-    offset = max(0, int(offset))
+    offset = clamp_offset(offset)
     status_filter = None if status == "all" else status
     queue = queries.alert_queue(db, session.org_id, status=status_filter, limit=limit, offset=offset)
     for a in queue:
@@ -1519,8 +1519,10 @@ def api_admin_set_threshold(body: ThresholdRequest, db: DB, session: Session):
     if body.threshold is None:
         set_org_alert_threshold(db, session.org_id, None)
         return {"threshold": None}
-    if not (0.0 <= body.threshold <= 1.0):
-        raise HTTPException(status_code=400, detail="Threshold must be between 0.0 and 1.0.")
+    if not (queries.MIN_ALERT_THRESHOLD <= body.threshold <= 1.0):  # also rejects NaN
+        raise HTTPException(
+            status_code=400,
+            detail=f"Threshold must be between {queries.MIN_ALERT_THRESHOLD} and 1.0.")
     set_org_alert_threshold(db, session.org_id, body.threshold)
     from ..db import audit
 
