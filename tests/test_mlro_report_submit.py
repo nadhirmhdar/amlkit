@@ -63,6 +63,7 @@ def _create_report(client, headers):
         "reporting_entity_name": "Test Firm", "entity_reference": "TF-1",
         "reporter_name": "alice", "reporter_email": "alice@testfirm.ae",
         "first_name": "Report", "last_name": "Subject",
+        "reason_description": "Test narrative.",
     })
     assert r.status_code == 200, r.text
     return r.json()["report_id"]

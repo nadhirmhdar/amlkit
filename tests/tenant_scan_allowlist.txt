@@ -1,0 +1,12 @@
+# Allow-list for tests/test_tenant_config_scan.py (Issue #266).
+# Format:  <path>::<function or <module>>::<attr>   # one-line reason
+# An os.environ / os.getenv read, or session.<attr> use, in a tenant-scoped
+# package outside a function that takes org_id must be listed here.
+# Only deployment-wide infrastructure config belongs here, never per-tenant behaviour.
+amlkit/cases/review.py::env_single_operator_default::environ  # deployment default only; review.single_operator_mode gates it to single-org DBs (#258)
+amlkit/reporting/bigquery.py::<module>::environ  # GCP project/dataset for shared analytics export, deployment-wide infra
+amlkit/screening/media_pipeline.py::_acquire::environ  # feature flags/API creds for the shared GDELT/search pipeline
+amlkit/screening/media_pipeline.py::_resolve_entities::environ  # LLM/NL feature flag, deployment-wide
+amlkit/screening/media_pipeline.py::_triage::environ  # LLM triage feature flag, deployment-wide
+amlkit/screening/nl_entities.py::analyze::environ  # Google NL API credentials, deployment-wide
+amlkit/screening/vertex_search.py::search::environ  # Vertex AI Search project/engine config, deployment-wide

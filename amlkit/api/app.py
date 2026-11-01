@@ -56,7 +56,7 @@ from ..cases.manager import (
     run_adverse_media,
     run_due_adverse_media,
 )
-from ..datamodel import validate_required_name
+from ..datamodel import validate_ownership_pct, validate_required_name
 from ..cases.review import (
     REASON_CODES,
     ReviewError,
@@ -1954,19 +1954,18 @@ def customer_create(
             return back("/customers/new", err="Source of Funds is required for high-risk customers")
 
     ubos = []
+    ubo_running_total = 0.0
     for i, nm in enumerate(ubo_names):
         nm = (nm or "").strip()
         if not nm:
             continue
         pct_raw = ubo_pcts[i] if i < len(ubo_pcts) else ""
         try:
-            pct = float(pct_raw) if str(pct_raw).strip() else None
-        except ValueError:
-            pct = None
-
-        # Validate ownership percentage is in valid range
-        if pct is not None and not (0 <= pct <= 100):
-            return back("/customers/new", err=f"UBO ownership percentage must be between 0 and 100, got {pct}")
+            pct = validate_ownership_pct(pct_raw, ubo_running_total)
+        except ValueError as exc:
+            return back("/customers/new", err=f"UBO ownership for {nm}: {exc}")
+        if pct is not None:
+            ubo_running_total += pct
 
         ubos.append({
             "person_name": nm,
@@ -2443,31 +2442,17 @@ def customer_add_ubo(
         require_csrf(request, csrf_token)
     except PermissionError as exc:
         return back(f"/customers/{customer_id}", err=str(exc))
+    # Range / finite / combined-total rules live in one place
+    # (datamodel.validate_ownership_pct); add_ubo re-applies them atomically.
     try:
-        pct = float(ownership_pct) if ownership_pct.strip() else None
-    except ValueError:
-        pct = None
-
-    # Validate ownership percentage is in valid range
-    if pct is not None and not (0 <= pct <= 100):
-        return back(
-            f"/customers/{customer_id}",
-            err=f"UBO ownership percentage must be between 0 and 100, got {pct}"
-        )
-
-    # H-01: Validate total direct UBO ownership won't exceed 100%
-    if pct is not None:
         existing_total = db.execute(
             """SELECT COALESCE(SUM(ownership_pct), 0) FROM ubo_links
                WHERE customer_id=? AND org_id=? AND parent_ubo_id IS NULL""",
             (customer_id, session.org_id)
         ).fetchone()[0]
-        new_total = existing_total + pct
-        if round(new_total, 2) > 100:
-            return back(
-                f"/customers/{customer_id}",
-                err=f"Total UBO ownership would be {round(new_total, 2)}% (cannot exceed 100%)"
-            )
+        pct = validate_ownership_pct(ownership_pct, existing_total)
+    except ValueError as exc:
+        return back(f"/customers/{customer_id}", err=f"UBO ownership: {exc}")
 
     try:
         ubo_id = add_ubo(db, customer_id, org_id=session.org_id, person_name=person_name.strip(),

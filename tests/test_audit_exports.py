@@ -60,7 +60,8 @@ def _seed_report(org_id: int) -> int:
         (org_id, "C-EXP", "natural", "John Doe", "john|doe", "active", now, now, now))
     payload = {"report_type": "STR", "reporter_name": "Test Reporter",
                "reporter_email": "reporter@example.ae",
-               "first_name": "John", "last_name": "Doe"}
+               "first_name": "John", "last_name": "Doe",
+               "reason_description": "Test narrative."}
     cur = conn.execute(
         "INSERT INTO reports (org_id, customer_id, report_type, status, payload, created_at)"
         " VALUES (?,?,?,?,?,?)",

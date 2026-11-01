@@ -160,6 +160,35 @@ def validate_customer_type(customer_type: str) -> None:
         )
 
 
+def validate_ownership_pct(value, existing_total: float = 0.0) -> float | None:
+    """The single check for a beneficial owner's ownership percentage.
+
+    ``value`` is the new stake (None = no equity recorded, returned as None);
+    ``existing_total`` is the sum of the direct stakes already recorded for the
+    same customer. Rejects non-numeric, non-finite (NaN/inf), negative and >100
+    values, and a combined total above 100. Raises ValueError with a readable
+    message (callers map it to a 400/422 or a flash error, never a 500).
+    Returns the stake as a float.
+    """
+    import math
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, bool):
+        raise ValueError("ownership percentage must be a number")
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"ownership percentage must be a number, got {value!r}") from None
+    if not math.isfinite(pct):
+        raise ValueError("ownership percentage must be a finite number")
+    if not (0 <= pct <= 100):
+        raise ValueError(f"ownership percentage must be between 0 and 100, got {pct:g}")
+    total = round(float(existing_total or 0) + pct, 2)
+    if total > 100:
+        raise ValueError(f"Total UBO ownership would be {total:g}% (cannot exceed 100%)")
+    return pct
+
+
 def validate_required_name(field: str, value: str | None) -> None:
     """Reject a missing, blank or invisible-characters-only name.
 

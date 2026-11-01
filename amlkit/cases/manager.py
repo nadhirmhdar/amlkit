@@ -369,15 +369,12 @@ def onboard(
     # H-01: Validate UBO ownership sum cannot exceed 100%
     # All UBOs passed to onboard() are direct links (no parent_ubo_id)
     if ubos:
-        total_ownership = sum(
-            ubo.get("ownership_pct", 0) or 0
-            for ubo in ubos
-            if ubo.get("ownership_pct") is not None
-        )
-        if round(total_ownership, 2) > 100:
-            raise ValueError(
-                f"Total UBO ownership is {round(total_ownership, 2)}% (cannot exceed 100%)"
-            )
+        from ..datamodel import validate_ownership_pct
+        running = 0.0
+        for ubo in ubos:
+            pct = validate_ownership_pct(ubo.get("ownership_pct"), running)
+            if pct is not None:
+                running += pct
 
     validate_customer_type(customer_type)
     validate_required_name("full_name", full_name)
@@ -553,10 +550,8 @@ def add_ubo(
     """
     from ..datamodel import validate_required_name
     validate_required_name("person_name", person_name)
-    if ownership_pct is not None and not (0 <= ownership_pct <= 100):
-        raise ValueError(
-            f"ownership percentage must be between 0 and 100, got {ownership_pct}"
-        )
+    from ..datamodel import validate_ownership_pct
+    ownership_pct = validate_ownership_pct(ownership_pct)
     if is_nominee:
         is_ubo = False
     else:
@@ -586,11 +581,7 @@ def add_ubo(
                 " WHERE customer_id=? AND org_id=? AND parent_ubo_id IS NULL",
                 (customer_id, org_id),
             ).fetchone()[0]
-            new_total = round(existing + ownership_pct, 2)
-            if new_total > 100:
-                raise ValueError(
-                    f"Total UBO ownership would be {new_total}% (cannot exceed 100%)"
-                )
+            validate_ownership_pct(ownership_pct, existing)
 
         cur = conn.execute(
             """INSERT INTO ubo_links
@@ -634,7 +625,8 @@ def ownership_state(
         return "fully_transparent"
 
     rows = conn.execute(
-        "SELECT ownership_pct, control_type, is_ubo, is_nominee FROM ubo_links WHERE customer_id=? AND org_id=?",
+        "SELECT id, parent_ubo_id, canonical_key, ownership_pct, control_type, is_ubo, is_nominee"
+        " FROM ubo_links WHERE customer_id=? AND org_id=?",
         (customer_id, org_id),
     ).fetchall()
     if not rows:
@@ -647,12 +639,51 @@ def ownership_state(
     if not non_nominee or not any(r["is_ubo"] for r in non_nominee):
         return "ubo_undisclosed"
 
-    identified = sum(r["ownership_pct"] or 0 for r in non_nominee if r["is_ubo"])
+    identified = _identified_ownership(rows)
     if identified < 50:
         return "multi_layer_offshore"
     if identified < 75:
         return "single_layer_foreign"
     return "fully_transparent"
+
+
+def _identified_ownership(rows) -> float:
+    """Effective % of the customer held by identified beneficial owners.
+
+    A row with a parent is a stake in that parent (a corporate owner), not in
+    the customer, so its contribution is pct * parent's effective share / 100
+    and the parent itself is not counted again once it has children (#163/#253:
+    summing raw percentages across a chain double-counted corporate owners and
+    could exceed 100). The same owner recorded twice under the same parent is
+    counted once (highest stake). The result never exceeds 100.
+    """
+    by_id = {r["id"]: r for r in rows}
+
+    def pct(r) -> float:
+        v = r["ownership_pct"]
+        return float(v) if v is not None and v == v and v not in (float("inf"), float("-inf")) else 0.0
+
+    eff_cache: dict[int, float] = {}
+
+    def eff(r) -> float:
+        if r["id"] in eff_cache:
+            return eff_cache[r["id"]]
+        eff_cache[r["id"]] = 0.0  # cycle guard
+        parent = by_id.get(r["parent_ubo_id"]) if r["parent_ubo_id"] is not None else None
+        val = max(pct(r), 0.0)
+        if parent is not None:
+            val = val * eff(parent) / 100.0
+        eff_cache[r["id"]] = val
+        return val
+
+    parents_with_children = {r["parent_ubo_id"] for r in rows if r["parent_ubo_id"] is not None}
+    best: dict[tuple, float] = {}
+    for r in rows:
+        if r["is_nominee"] or not r["is_ubo"] or r["id"] in parents_with_children:
+            continue
+        key = (r["canonical_key"] or f"#{r['id']}", r["parent_ubo_id"])
+        best[key] = max(best.get(key, 0.0), eff(r))
+    return min(sum(best.values()), 100.0)
 
 
 # Issue #164: resolve_ubo_chain() removed - was dead code only called from tests.

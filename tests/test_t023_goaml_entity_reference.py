@@ -131,7 +131,8 @@ def test_mobile_export_contains_org_name_not_aml_ref(tmp_path, monkeypatch):
         "reporter_name": "Test Reporter",
         "reporter_email": "reporter@example.ae",
         "first_name": "John",
-        "last_name": "Doe"
+        "last_name": "Doe",
+        "reason_description": "Test narrative.",
     }
     conn.execute("""INSERT INTO customers 
                     (org_id, reference, customer_type, full_name, canonical_key, 

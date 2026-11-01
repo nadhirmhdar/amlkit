@@ -298,3 +298,5 @@ wrapt==2.4.1
     # via deprecated
 xlrd==2.0.2
     # via -r requirements.txt
+hypothesis==6.170.14
+sortedcontainers==2.4.0

@@ -253,7 +253,7 @@ def serialize_goaml_xml(report_data: dict) -> str:
 
     # Report Header
     ET.SubElement(root, "report_code").text = report_code
-    ET.SubElement(root, "entity_reference").text = report_data.get("entity_reference") or "AML-REF"
+    entity_ref_el = ET.SubElement(root, "entity_reference")  # text set below, after the entity name check
     ET.SubElement(root, "submission_code").text = "NEW"
     ET.SubElement(root, "submission_date").text = now_str
     ET.SubElement(root, "currency_code_local").text = "AED"
@@ -262,6 +262,7 @@ def serialize_goaml_xml(report_data: dict) -> str:
     rep_ent = ET.SubElement(root, "reporting_entity")
     entity_name = _require(report_data, "reporting_entity_name", "reporting entity name")
     ET.SubElement(rep_ent, "reporting_entity_name").text = entity_name
+    entity_ref_el.text = _require(report_data, "entity_reference", ENTITY_REFERENCE_LABEL)
     branch = report_data.get("reporting_entity_branch") or report_data.get("org_address") or ""
     if branch:
         ET.SubElement(rep_ent, "reporting_entity_branch").text = branch
@@ -289,6 +290,8 @@ def serialize_goaml_xml(report_data: dict) -> str:
         type_label = type_labels.get(obligation_type, "Sanctions")
 
         assets_frozen = report_data.get("assets_frozen") or []
+        identified_at = _require(report_data, "identified_at", "freeze identified-at time")
+        executed_at = _require(report_data, "executed_at", "freeze executed-at time")
         total_aed = sum(a.get("amount_aed", 0) for a in assets_frozen)
 
         freeze_desc = (
@@ -296,8 +299,8 @@ def serialize_goaml_xml(report_data: dict) -> str:
             f"Assets frozen: {len(assets_frozen)} item(s), "
             f"total value AED {total_aed:,.2f}. "
             f"Freeze obligation reference: #{report_data.get('freeze_obligation_id')}. "
-            f"Identified: {report_data.get('identified_at', 'N/A')}, "
-            f"Executed: {report_data.get('executed_at', 'N/A')}."
+            f"Identified: {identified_at}, "
+            f"Executed: {executed_at}."
         )
         if report_data.get("authority_ref"):
             freeze_desc += f" Authority reference: {report_data['authority_ref']}."
@@ -305,7 +308,8 @@ def serialize_goaml_xml(report_data: dict) -> str:
         ET.SubElement(narrative, "reason_description").text = freeze_desc
         ET.SubElement(narrative, "action_taken").text = "Asset freeze executed per UAE TFS obligations"
     else:
-        ET.SubElement(narrative, "reason_description").text = report_data.get("reason_description") or "Suspicious name match or transaction activity detected."
+        ET.SubElement(narrative, "reason_description").text = _require(
+            report_data, "reason_description", "reason for suspicion (narrative)")
         if report_data.get("action_taken"):
             ET.SubElement(narrative, "action_taken").text = report_data["action_taken"]
 
@@ -327,9 +331,10 @@ def serialize_goaml_xml(report_data: dict) -> str:
         # ID Document
         if report_data.get("id_number"):
             ident = ET.SubElement(person, "identification")
-            ET.SubElement(ident, "type").text = report_data.get("id_type") or "Passport"
+            ET.SubElement(ident, "type").text = _require(report_data, "id_type", "ID document type")
             ET.SubElement(ident, "number").text = report_data["id_number"]
-            ET.SubElement(ident, "issue_country").text = report_data.get("nationality") or "UAE"
+            if report_data.get("nationality"):
+                ET.SubElement(ident, "issue_country").text = report_data["nationality"]
     else:
         # The report form (and report_save in api/app.py) collects the legal
         # entity's name in the same "first_name" field used for a natural
@@ -339,8 +344,8 @@ def serialize_goaml_xml(report_data: dict) -> str:
         ET.SubElement(entity, "name").text = _require(report_data, "first_name", "subject entity name")
         if report_data.get("trade_licence"):
             ET.SubElement(entity, "incorporation_number").text = report_data["trade_licence"]
-        if report_data.get("nationality"):
-            ET.SubElement(entity, "incorporation_legal_form").text = report_data.get("sector") or "Private Company"
+        if report_data.get("sector"):
+            ET.SubElement(entity, "incorporation_legal_form").text = report_data["sector"]
 
     # Transaction / Activity Node
     has_txn = report_data.get("amount") or report_data.get("transaction_type")
@@ -352,8 +357,12 @@ def serialize_goaml_xml(report_data: dict) -> str:
             # Build detailed asset freeze description
             asset_details = []
             for i, asset in enumerate(assets_frozen, 1):
-                asset_type = asset.get("type", "unknown")
-                identifier = asset.get("identifier", "N/A")
+                asset_type = (asset.get("type") or "").strip()
+                identifier = (asset.get("identifier") or "").strip()
+                if not asset_type or not identifier:
+                    raise GoAMLValidationError(
+                        f"Cannot export CNMR: frozen asset {i} needs both a type and an identifier."
+                    )
                 amount = asset.get("amount_aed", 0)
                 asset_details.append(f"{i}. {asset_type}: {identifier} (AED {amount:,.2f})")
             asset_list = "; ".join(asset_details)
@@ -370,9 +379,10 @@ def serialize_goaml_xml(report_data: dict) -> str:
         # every other timestamp in this function, plus a random suffix so
         # concurrent filings can never collide even within one second.
         ET.SubElement(tx, "transactionnumber").text = f"TXN-{int(now.timestamp())}-{uuid.uuid4().hex[:8]}"
-        ET.SubElement(tx, "internal_ref_number").text = report_data.get("reference") or "TXN-REF-001"
+        ET.SubElement(tx, "internal_ref_number").text = (
+            (report_data.get("reference") or "").strip() or tx.find("transactionnumber").text)
         ET.SubElement(tx, "date_transaction").text = report_data.get("transaction_date") or now_str[:10]
-        ET.SubElement(tx, "transmode_code").text = report_data.get("transaction_type") or "Wire Transfer"
+        ET.SubElement(tx, "transmode_code").text = _require(report_data, "transaction_type", "transaction type")
         raw_amount = report_data.get("amount") or 0.0
         amount_units = report_data.get("amount_units")
         amount_nanos = report_data.get("amount_nanos")

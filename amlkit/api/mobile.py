@@ -592,9 +592,8 @@ class UboIn(BaseModel):
     @field_validator("ownership_pct")
     @classmethod
     def validate_ownership_pct(cls, v: float | None) -> float | None:
-        if v is not None and not (0 <= v <= 100):
-            raise ValueError(f"ownership_pct must be between 0 and 100, got {v}")
-        return v
+        from ..datamodel import validate_ownership_pct
+        return validate_ownership_pct(v)
 
 
 class CustomerCreateRequest(BaseModel):
@@ -1003,9 +1002,8 @@ class UboAddRequest(BaseModel):
     @field_validator("ownership_pct")
     @classmethod
     def validate_ownership_percentage(cls, v: float | None) -> float | None:
-        if v is not None and not (0 <= v <= 100):
-            raise ValueError(f"ownership_pct must be between 0 and 100, got {v}")
-        return v
+        from ..datamodel import validate_ownership_pct
+        return validate_ownership_pct(v)
 
 
 @router.post("/customers/{customer_id}/ubo")
