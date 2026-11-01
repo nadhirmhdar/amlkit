@@ -54,7 +54,6 @@
       <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
       <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
       <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
-      <a href="/changelog" class="{{ 'on' if nav=='changelog' }}">What's new{% if changelog_unseen %}<span class="whatsnew-dot" aria-hidden="true"></span><span class="visually-hidden"> (new updates)</span>{% endif %}</a>
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
         {% if applications_viewer %}<a href="/admin/applications" class="{{ 'on' if nav=='applications' }}">Quotation requests</a>{% endif %}
@@ -81,7 +80,7 @@
     </a>
     <div class="user-menu-wrap" id="user-menu-wrap">
       <button class="user-menu-btn" data-action="toggle-user-menu" aria-label="User menu" aria-expanded="false">
-        <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
+        <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>{% if changelog_unseen %}<span class="whatsnew-dot" aria-hidden="true"></span>{% endif %}
       </button>
       <div class="user-dropdown" role="menu">
         <div class="user-dropdown__header">
@@ -150,7 +149,7 @@
     </a>
     <div class="user-menu-wrap" id="desktop-user-menu-wrap">
       <button class="user-menu-btn" data-action="toggle-desktop-user-menu" aria-label="User menu" aria-expanded="false">
-        <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>
+        <span class="avatar--sm">{{ (session.operator_name or 'U')[0]|upper }}</span>{% if changelog_unseen %}<span class="whatsnew-dot" aria-hidden="true"></span>{% endif %}
       </button>
       <div class="user-dropdown" role="menu">
         <div class="user-dropdown__header">
@@ -160,6 +159,7 @@
             <span class="user-dropdown__role muted">{{ org_name }}</span>
           {% endif %}
         </div>
+        <a href="/changelog" class="user-dropdown__item" role="menuitem">What's new{% if changelog_unseen %}<span class="whatsnew-dot" aria-hidden="true"></span>{% endif %}</a>
         <a href="/audit" class="user-dropdown__item" role="menuitem">Audit Trails</a>
         <a href="/policies" class="user-dropdown__item" role="menuitem">Policies</a>
         {% if session.operator_role == 'mlro' %}
