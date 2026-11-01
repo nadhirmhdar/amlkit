@@ -28,6 +28,7 @@ review rather than the obvious first draft:
 from __future__ import annotations
 
 import hmac
+import logging
 import re
 import secrets
 import sqlite3
@@ -40,8 +41,10 @@ from typing import Any
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
-from .db import EMAIL_VERIFY_TOKEN_LIFETIME, UAEPASS_STATE_LIFETIME, audit, utcnow
+from .db import EMAIL_VERIFY_TOKEN_LIFETIME, UNLOCK_TOKEN_LIFETIME, UAEPASS_STATE_LIFETIME, audit, utcnow
 from .uaepass import EMAIL_LINK_MIN_ASSURANCE
+
+logger = logging.getLogger(__name__)
 
 _hasher = PasswordHasher()
 
@@ -535,6 +538,11 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
         conn.commit()
         _log_auth_event(conn, "login_failure", email,
                         {"reason": "bad_password", "failed_count": failed}, ip=ip)
+        if lock_sql and row["email_verified_at"] is not None:
+            # The transition into a lock (later attempts hit the "locked"
+            # branch above and never reach here): mail the owner a
+            # break-glass link, once per lock window (L-101).
+            _mail_unlock_link(conn, row)
         raise generic
 
     if row["email_verified_at"] is None:
@@ -617,6 +625,71 @@ def set_password(conn: sqlite3.Connection, operator_id: int, new_password: str) 
     conn.commit()
     revoke_sessions_for(conn, operator_id)
     revoke_trusted_devices_for(conn, operator_id)
+
+
+# ------------------------------------------------------------ self-unlock
+def _mail_unlock_link(conn: sqlite3.Connection, row) -> None:
+    """Issue and email a single-use unlock link; audit it (no token in the
+    audit). Never raises: a mail outage must not change the login outcome."""
+    try:
+        from . import mail
+
+        raw = create_unlock_token(conn, row["id"])
+        delivery = mail.send_unlock_email(row["email"], row["name"], raw)
+        audit(conn, row["name"], "operator.unlock_mailed", "operator", row["id"],
+              {"delivery": delivery}, org_id=row["org_id"])
+        conn.commit()
+    except Exception:  # noqa: BLE001
+        conn.rollback()
+        logger.exception("Could not issue the unlock link")
+
+
+def create_unlock_token(conn: sqlite3.Connection, operator_id: int) -> str:
+    """Issue a one-time unlock token (30 min); any earlier live one is voided."""
+    now = utcnow()
+    conn.execute(
+        "UPDATE unlock_tokens SET used_at=? WHERE operator_id=? AND used_at IS NULL",
+        (now, operator_id),
+    )
+    raw = _new_token()
+    expires_at = (datetime.now(timezone.utc) + UNLOCK_TOKEN_LIFETIME).isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT INTO unlock_tokens (operator_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)",
+        (operator_id, _token_hash(raw), now, expires_at),
+    )
+    conn.commit()
+    return raw
+
+
+def consume_unlock_token(conn: sqlite3.Connection, raw_token: str):
+    """Redeem an unlock token: clear the password lock (failed_login_count /
+    locked_until) and nothing else -- the MFA lock is untouched. Returns the
+    operator row (id, org_id, name) or None for an unknown, used, expired or
+    deactivated-operator token (callers show one generic page for all)."""
+    if not raw_token:
+        return None
+    row = conn.execute(
+        """SELECT t.id, t.used_at, t.expires_at, o.id AS operator_id, o.org_id, o.name, o.is_active
+           FROM unlock_tokens t JOIN operators o ON o.id = t.operator_id
+           WHERE t.token_hash=?""",
+        (_token_hash(raw_token),),
+    ).fetchone()
+    if row is None or row["used_at"] is not None or not row["is_active"]:
+        return None
+    if row["expires_at"] is None or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        return None
+    claim = conn.execute(
+        "UPDATE unlock_tokens SET used_at=? WHERE id=? AND used_at IS NULL", (utcnow(), row["id"])
+    )
+    if claim.rowcount != 1:
+        conn.rollback()
+        return None
+    conn.execute(
+        "UPDATE operators SET failed_login_count=0, locked_until=NULL WHERE id=?",
+        (row["operator_id"],),
+    )
+    conn.commit()
+    return {"id": row["operator_id"], "org_id": row["org_id"], "name": row["name"]}
 
 
 # ------------------------------------------------------- email verification

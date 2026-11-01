@@ -11,12 +11,12 @@
     </div>
 
     <div class="panel">
-      <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Verify your email</h2>
+      <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">{{ heading or 'Verify your email' }}</h2>
       <p>{{ err }}</p>
-      <p class="muted small">
+      {% if not heading %}<p class="muted small">
         Registered recently? Sign in with your email and password — you'll
         be offered a way to resend the link from there.
-      </p>
+      </p>{% endif %}
       <p class="text-center mt-4"><a href="/login">Back to sign in</a></p>
     </div>
   </div>
