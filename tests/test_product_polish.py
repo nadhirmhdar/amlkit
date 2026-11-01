@@ -142,3 +142,49 @@ class TestChangelog:
                             lambda: [{"title": "T", "items": ["<script>alert(1)</script>"]}])
         html = client.get("/changelog").text
         assert "<script>alert(1)</script>" not in html
+
+
+# ------------------------------------------------------------ p58 palette
+def _add_report(ref, org_name=None, rtype="STR"):
+    c = _db()
+    org = c.execute("SELECT id FROM organizations WHERE name=?",
+                    (org_name or "Polish Firm",)).fetchone()[0]
+    cur = c.execute("INSERT INTO reports (org_id, report_type, reference, status, payload,"
+                    " created_at) VALUES (?,?,?,?,?,?)",
+                    (org, rtype, ref, "draft", "{}", "2026-11-01T00:00:00+00:00"))
+    c.commit()
+    rid = cur.lastrowid
+    c.close()
+    return rid
+
+
+class TestPalette:
+    def test_reports_found_by_reference(self, client):
+        rid = _add_report("STR-2026-0042")
+        data = client.get("/search?q=STR-2026").json()
+        reports = [i for i in data["results"] if i["type"] == "report"]
+        assert [r["url"] for r in reports] == [f"/reports/{rid}"]
+        assert reports[0]["name"] == "STR-2026-0042"
+
+    def test_only_callers_org_rows_returned(self, client):
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+        _add_report("SHARED-REF-1")
+        _add_customer(client, "SHARED-C1", "Shared Name Person")
+        other = TestClient(app)
+        _register(other, "Other Firm", "oscar", "oscar@other.ae")
+        _add_report("SHARED-REF-2", org_name="Other Firm")
+        _add_customer(other, "SHARED-C2", "Shared Name Person")
+        mine = client.get("/search?q=SHARED").json()["results"]
+        assert {i["name"] for i in mine if i["type"] == "report"} == {"SHARED-REF-1"}
+        theirs = other.get("/search?q=SHARED").json()["results"]
+        assert {i["name"] for i in theirs if i["type"] == "report"} == {"SHARED-REF-2"}
+        assert [i["detail"] for i in mine if i["type"] == "customer"] == ["SHARED-C1"]
+
+    def test_report_search_is_literal_not_wildcard(self, client):
+        _add_report("AAA-1")
+        assert client.get("/search?q=%25").json()["results"] == []
+
+    def test_palette_script_served_with_pages_and_shortcuts(self, client):
+        js = client.get("/static/js/search-palette.js").text
+        assert "/changelog" in js and "ctrlKey" in js and "Escape" in js
