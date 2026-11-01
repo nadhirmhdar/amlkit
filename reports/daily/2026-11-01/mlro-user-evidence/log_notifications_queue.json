@@ -1,0 +1,187 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "onboard sanctions-match customer",
+  "status": "info",
+  "detail": "['Onboarded. MATCH FOUND - see alerts, freeze without delay and do not tip off.']"
+ },
+ {
+  "step": "MLRO unread count",
+  "status": "info",
+  "detail": "200 {\"count\":2}"
+ },
+ {
+  "step": "MLRO notifications page",
+  "status": "info",
+  "detail": "Notifications You are told here, and by email, the moment a screening finds a new match. Open one to go straight to the alert. Mark all as read New screening match: Hassan Rouhani Test \"Hassan Rouhani Test\" matched Hassan Rouhani Test (cia) at 1.00. 2026-11-01 01:42:48 Open New screening match: AHMED ABD AL-JALEEL AL-HASNAWI \"Ahmed Abd Al-Jaleel Al-Hasnawi\" matched AHMED ABD AL-JALEEL AL-HASNAWI (eocn) at 1.00. 2026-11-01 01:42:47 Open Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and reporting workflow bef"
+ },
+ {
+  "step": "MLRO notification links",
+  "status": "info",
+  "detail": "[]"
+ },
+ {
+  "step": "officer unread count",
+  "status": "info",
+  "detail": "200 {\"count\":0}"
+ },
+ {
+  "step": "officer notifications page",
+  "status": "info",
+  "detail": "Notifications You are told here, and by email, the moment a screening finds a new match. Open one to go straight to the alert. No notifications. Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and reporting workflow before use on real client files. Feedback Send Feedback Report bugs, suggest features, or share your experience. Your message Send Cancel Important Notice Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and reporting workflow before "
+ },
+ {
+  "step": "officer notification links",
+  "status": "info",
+  "detail": "[]"
+ },
+ {
+  "step": "notification ids",
+  "status": "info",
+  "detail": "['3', '1']"
+ },
+ {
+  "step": "mark one read",
+  "status": "info",
+  "detail": "303 /alerts?status=open#alert-2 []"
+ },
+ {
+  "step": "unread after one read",
+  "status": "info",
+  "detail": "{\"count\":1}"
+ },
+ {
+  "step": "mark all read",
+  "status": "info",
+  "detail": "['1 notification marked read.']"
+ },
+ {
+  "step": "unread after all",
+  "status": "info",
+  "detail": "{\"count\":0}"
+ },
+ {
+  "step": "other org marks our notification read",
+  "status": "info",
+  "detail": "303 /notifications"
+ },
+ {
+  "step": "dashboard queue summary",
+  "status": "info",
+  "detail": "ago Freeze Obligations 2 Customers on file 0 Customers due for periodic review 2 High-risk customers 0 Transaction alerts open Alerts by category 2 waiting for a decision one dot per alert or finding Open the queue (2) \u2192 Proliferation financing 0 Terrorism 0 Sanctions 1 alerts \u25be Ahmed Abd Al-Jaleel Al-Hasnawi UAE Local Terrorist List \u00b7 matched AHMED ABD AL-JALEEL AL-HASNAWI Unassigned \u00b7 opened under 1 h ago Match score 1.000 Open all Sanctions alerts in the queue \u2192 PEP 1 alerts \u25be Hassan Rouhani Test CIA World Leaders \u00b7 matched Hassan Rouhani Test Unassigned \u00b7 opened under 1 h ago Match score 1.000 Open all PEP alerts in the queue \u2192 Adverse media 0 TFS Freeze Obligations \u25bc Cabinet Resolution "
+ },
+ {
+  "step": "/alerts?status=open",
+  "status": "info",
+  "detail": "200 assign-forms=2"
+ },
+ {
+  "step": "/alerts?status=open&category=sanction",
+  "status": "info",
+  "detail": "200 assign-forms=1"
+ },
+ {
+  "step": "/alerts?status=open&category=pep",
+  "status": "info",
+  "detail": "200 assign-forms=1"
+ },
+ {
+  "step": "/alerts?status=open&category=proliferation",
+  "status": "info",
+  "detail": "200 assign-forms=0"
+ },
+ {
+  "step": "/alerts?status=open&category=bogus",
+  "status": "info",
+  "detail": "200 assign-forms=2"
+ },
+ {
+  "step": "/alerts?status=bogus",
+  "status": "info",
+  "detail": "200 assign-forms=2"
+ },
+ {
+  "step": "/alerts?status=all",
+  "status": "info",
+  "detail": "200 assign-forms=2"
+ },
+ {
+  "step": "/alerts?status=open&group_by=customer",
+  "status": "info",
+  "detail": "200 assign-forms=2"
+ },
+ {
+  "step": "/alerts?status=open&sort=age_desc",
+  "status": "info",
+  "detail": "200 assign-forms=2"
+ },
+ {
+  "step": "/alerts?status=open&sort=bogus",
+  "status": "info",
+  "detail": "200 assign-forms=2"
+ },
+ {
+  "step": "assign to Omar Officer",
+  "status": "info",
+  "detail": "['Assigned to Omar Officer.']"
+ },
+ {
+  "step": "alerts page shows assignee",
+  "status": "info",
+  "detail": "True"
+ },
+ {
+  "step": "clear assignment",
+  "status": "info",
+  "detail": "['Assignment cleared.']"
+ },
+ {
+  "step": "alert panel (side panel)",
+  "status": "info",
+  "detail": "200  AHMED ABD AL-JALEEL AL-HASNAWI Ahmed Abd Al-Jaleel Al-Hasnawi \u00b7 N-001 \u00d7 Dataset UAE Local Terrorist List Matched name AHMED ABD AL-JALEEL AL-HASNAWI Score 1.000 Category sanction Status Open Created "
+ },
+ {
+  "step": "other org alert panel",
+  "status": "info",
+  "detail": "404"
+ }
+]

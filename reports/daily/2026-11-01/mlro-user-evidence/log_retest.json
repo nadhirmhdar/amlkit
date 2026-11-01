@@ -1,0 +1,172 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "periodic review: short note",
+  "status": "info",
+  "detail": "(400, None, '{\"detail\":\"A review note of at least 10 characters is required.\"}')"
+ },
+ {
+  "step": "periodic review: bad outcome",
+  "status": "info",
+  "detail": "(400, None, '{\"detail\":\"Outcome must be one of: no_change, risk_changed, exit_relationship.\"}')"
+ },
+ {
+  "step": "periodic review: valid",
+  "status": "info",
+  "detail": "(303, '/customers/1', ['Periodic review recorded.'])"
+ },
+ {
+  "step": "next_review after review",
+  "status": "info",
+  "detail": "2029-10-16"
+ },
+ {
+  "step": "case file review history",
+  "status": "info",
+  "detail": "Periodic reviews 2026-11-01 Layla MLRO \u00b7 No change Reviewed documents and screening; nothing changed. UBO ownership & control diagram %3 cust_1 Fatima Khan NATURAL ENTITY no_ubos No Beneficial Owners Registered No alerts on this customer. Transaction monitoring Transactions at or above AED 55,000 are flagged automatically (cash as large cash, other methods as large value), along with structuring, "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-01 01:46:05 Layla MLRO review.completed \u00b7 customer #1 {'review_id': 1, 'outcome': 'no_change', 'previous_rating': 'low', 'rating': 'low', 'previous_next_review': "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-01 01:46:03 Layla MLRO organization.register \u00b7 organization #1 {'org_name': 'Grovisor Test DNFBP'} Independent review is required before dismissing a sanctions or"
+ },
+ {
+  "step": "officer completes a review",
+  "status": "info",
+  "detail": "303 /customers/1"
+ },
+ {
+  "step": "officer correct password after 9 failures",
+  "status": "info",
+  "detail": "200 None []"
+ },
+ {
+  "step": "admin shows unlock control",
+  "status": "info",
+  "detail": "True"
+ },
+ {
+  "step": "MLRO unlocks officer",
+  "status": "info",
+  "detail": "303 ['Sign-in and MFA locks cleared for Omar Officer.']"
+ },
+ {
+  "step": "officer logs in after unlock",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "officer tries to unlock MLRO",
+  "status": "info",
+  "detail": "403 '{\"error\":\"This action requires the mlro role; your account is officer.\"}'"
+ },
+ {
+  "step": "admin creates operator with weak password",
+  "status": "info",
+  "detail": "303 ['Password must be at least 10 characters long']"
+ },
+ {
+  "step": "admin creates operator, no uppercase",
+  "status": "info",
+  "detail": "303 ['Password must contain at least one uppercase letter']"
+ },
+ {
+  "step": "freeze obligations after confirming OFAC + UN hits",
+  "status": "info",
+  "detail": "Pending: 1 Executed: 0 Reported: 0 Resolved: 0 Status: All Pending Execution Executed (Pending Repor rows=['1']"
+ },
+ {
+  "step": "rescreen",
+  "status": "info",
+  "detail": "['Re-screened 4 name(s) across customers and related parties. 2 new alert(s) raised \u2014 check Alerts.'] alerts before=0 after=2"
+ },
+ {
+  "step": "onboard blank name",
+  "status": "info",
+  "detail": "400 None ['full_name is required. Enter the customer&#39;s name.']"
+ },
+ {
+  "step": "private page robots/headers",
+  "status": "info",
+  "detail": "robots=['noindex, nofollow'] xrobots=None csp=True xfo=DENY hsts=False nosniff=nosniff referrer=strict-origin-when-cross-origin"
+ },
+ {
+  "step": "/customers/1/kg-screen",
+  "status": "info",
+  "detail": "404"
+ },
+ {
+  "step": "/customers/1/gdelt-bq",
+  "status": "info",
+  "detail": "404"
+ },
+ {
+  "step": "oldest session after 4 logins",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "evicted page message",
+  "status": "info",
+  "detail": " Sign in \u2014 groAML by Grovisor Skip to content gr AML Compliance, simplified. A product by Grovisor Business Consultants FZE Sign in to your workspace Email Password Sign in Forgot your password? Conta"
+ },
+ {
+  "step": "password change to same password",
+  "status": "info",
+  "detail": "303 ['Invalid verification code. Please try again.']"
+ },
+ {
+  "step": "password change banner",
+  "status": "info",
+  "detail": "303 /login []"
+ },
+ {
+  "step": "session used for change still valid?",
+  "status": "info",
+  "detail": "303"
+ }
+]

@@ -1,0 +1,172 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "backup codes found on enrol page",
+  "status": "info",
+  "detail": "n=1 sample=['1793497269']"
+ },
+ {
+  "step": "password login (no code yet)",
+  "status": "info",
+  "detail": "303 /mfa/verify"
+ },
+ {
+  "step": "locked session GET /customers",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "locked session GET /dashboard",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "locked session GET /customers.csv",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "locked session GET /reports",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "locked session GET /admin",
+  "status": "info",
+  "detail": "303 /mfa/verify"
+ },
+ {
+  "step": "locked web session on mobile API path",
+  "status": "info",
+  "detail": "401"
+ },
+ {
+  "step": "6 wrong codes",
+  "status": "info",
+  "detail": "[(303, ['Invalid verification code. Please try again.']), (303, ['Invalid verification code. Please try again.']), (303, ['Invalid verification code. Please try again.']), (303, ['Invalid verification code. Please try again.']), (303, ['Too many failed codes. Two-factor sign-in is locked for 15 minutes; the attempts have been recorded in the audit trail.']), (303, ['Too many failed codes. Two-factor sign-in is locked for 15 minutes; the attempts have been recorded in the audit trail.'])]"
+ },
+ {
+  "step": "correct code while locked",
+  "status": "info",
+  "detail": "303 /mfa/verify ['Too many failed codes. Two-factor sign-in is locked for 15 minutes; the attempts have been recorded in the audit trail.']"
+ },
+ {
+  "step": "customers after correct code during lockout",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "fresh login with valid TOTP while account locked out",
+  "status": "info",
+  "detail": "303 /mfa/verify"
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-01 01:43:14 Layla MLRO mfa.locked \u00b7 operator #1 {'until': '2026-11-01T01:58:14+00:00', 'after_failures': 5} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-01 01:43:14 Layla MLRO mfa.failed \u00b7 operator #1 {'stage': 'verify', 'consecutive_failures': 5} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-01 01:43:12 Layla MLRO mfa.failed \u00b7 operator #1 {'stage': 'verify', 'consecutive_failures': 4} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-01 01:43:10 Layla MLRO mfa.failed \u00b7 operator #1 {'stage': 'verify', 'consecutive_failures': 3} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-01 01:43:07 Layla MLRO mfa.failed \u00b7 operator #1 {'stage': 'verify', 'consecutive_failures': 2} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-01 01:43:02 Layla MLRO mfa.failed \u00b7 operator #1 {'stage': 'verify', 'consecutive_failures': 1} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-01 01:42:44 Layla MLRO mfa.enrolled \u00b7 operator #1 "
+ },
+ {
+  "step": "mobile login during lockout",
+  "status": "info",
+  "detail": "200 {'token': 'c4vFn98ztUsl6jFwkB8mtnXPZ0yHMH9phMm3qhH8d5E', 'operator': {'operator_id': 1, 'org_id': 1, 'name': 'Layla MLRO', 'role': 'mlro', 'email': 'layla@mlro-"
+ },
+ {
+  "step": "mobile token before verify, GET customers",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "mobile verify with valid TOTP during web lockout",
+  "status": "info",
+  "detail": "429 {\"detail\":\"Too many failed codes. Two-factor sign-in is locked for 15 minutes.\"}"
+ },
+ {
+  "step": "mobile customers after verify attempt",
+  "status": "info",
+  "detail": "403"
+ },
+ {
+  "step": "operators lockout columns",
+  "status": "info",
+  "detail": "['locked_until']"
+ },
+ {
+  "step": "table mfa_failures",
+  "status": "info",
+  "detail": "n/a"
+ },
+ {
+  "step": "table operator_mfa",
+  "status": "info",
+  "detail": "n/a"
+ }
+]

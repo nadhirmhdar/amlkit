@@ -1,0 +1,167 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "anon /about",
+  "status": "info",
+  "detail": "200 ce=gzip ct=text/html; charset=utf-8 len=7555 vary=Accept-Encoding"
+ },
+ {
+  "step": "anon /blog",
+  "status": "info",
+  "detail": "200 ce=gzip ct=text/html; charset=utf-8 len=16399 vary=Accept-Encoding"
+ },
+ {
+  "step": "anon /privacy",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=10027 vary=None"
+ },
+ {
+  "step": "anon /login",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=9311 vary=None"
+ },
+ {
+  "step": "anon /register-organization",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=5306 vary=None"
+ },
+ {
+  "step": "anon /robots.txt",
+  "status": "info",
+  "detail": "200 ce=None ct=text/plain; charset=utf-8 len=325 vary=None"
+ },
+ {
+  "step": "anon /sitemap.xml",
+  "status": "info",
+  "detail": "200 ce=gzip ct=application/xml len=974 vary=Accept-Encoding"
+ },
+ {
+  "step": "anon /static/img/og-card.png",
+  "status": "info",
+  "detail": "200 ce=None ct=image/png len=68171 vary=None"
+ },
+ {
+  "step": "anon /about decodes and has csrf token in body?",
+  "status": "info",
+  "detail": "csrf_in_body=False FZE=True LLC=False"
+ },
+ {
+  "step": "anon /blog?q= reflects input?",
+  "status": "info",
+  "detail": "200 reflected=False ce=gzip"
+ },
+ {
+  "step": "MLRO(signed-in) /about",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=15950 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /blog",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=24801 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /dashboard",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=20293 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /customers",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=14132 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /customers/1",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=27924 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /customers.csv",
+  "status": "info",
+  "detail": "200 ce=None ct=text/csv; charset=utf-8 len=190 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /audit",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=19843 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /audit/export",
+  "status": "info",
+  "detail": "200 ce=None ct=text/csv; charset=utf-8 len=1681 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /customers/1/evidence",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=16614 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /customers/1/evidence.pdf",
+  "status": "info",
+  "detail": "200 ce=None ct=application/pdf len=28482 vary=None"
+ },
+ {
+  "step": "MLRO(signed-in) /alerts.csv",
+  "status": "info",
+  "detail": "200 ce=None ct=text/csv; charset=utf-8 len=102 vary=None"
+ },
+ {
+  "step": "CSV with Accept-Encoding gzip parses",
+  "status": "info",
+  "detail": "rows=2"
+ },
+ {
+  "step": "evidence pdf magic",
+  "status": "info",
+  "detail": "b'%PDF-'"
+ },
+ {
+  "step": "public /about with bogus session cookie",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=7555 vary=None"
+ },
+ {
+  "step": "reports page ce",
+  "status": "info",
+  "detail": "200 ce=None ct=text/html; charset=utf-8 len=13046 vary=None"
+ }
+]

@@ -1,0 +1,127 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "risk_assessments columns with 'review'",
+  "status": "info",
+  "detail": "['next_review']"
+ },
+ {
+  "step": "customers list before",
+  "status": "info",
+  "detail": "Review due R-002 Omar Test natural real_estate medium 0 2028-10-21 Evidence R-001 Fatima Khan natural other low 0 2029-10-16 Evidence Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Scree"
+ },
+ {
+  "step": "customers list with customer 1 overdue",
+  "status": "info",
+  "detail": "Review due R-002 Omar Test natural real_estate medium 0 2028-10-21 Evidence R-001 Fatima Khan natural other low 0 overdue Evidence Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Screening results are decision support, not lega"
+ },
+ {
+  "step": "dashboard KPI",
+  "status": "info",
+  "detail": "s refreshed within the 24-hour window \u00b7 oldest under 1 h ago Freeze Obligations 2 Customers on file 1 Customers due for periodic review 0 High-risk customers 0 Transaction alerts open Alerts by category Proliferation financing 0 Terrorism 0"
+ },
+ {
+  "step": "customers.csv review_overdue column",
+  "status": "info",
+  "detail": "[('reference', 'review_overdue'), ('R-002', 'False'), ('R-001', 'True')]"
+ },
+ {
+  "step": "customer page review wording",
+  "status": "info",
+  "detail": "ing official Nominee Add & screen Risk assessment low score 5 sector other +5 Ruleset 2025.12.2 \u00b7 assessed 2026-11-01 \u00b7 next review 2026-01-15 Overdue Outcome No change Risk changed (re-assess) Exit the relationship Review note (min. 10 characters) Complete periodic review Period"
+ },
+ {
+  "step": "POST actions available on the case file",
+  "status": "info",
+  "detail": "['/customers/1/adverse-media', '/customers/1/close', '/customers/1/notes', '/customers/1/periodic-review', '/customers/1/signatures', '/customers/1/transactions', '/customers/1/ubo']"
+ },
+ {
+  "step": "review/reassess-like actions",
+  "status": "info",
+  "detail": "['/customers/1/periodic-review']"
+ },
+ {
+  "step": "rescreen all (failure banner known as G9)",
+  "status": "info",
+  "detail": "['Re-screened 2 name(s) across customers and related parties.']"
+ },
+ {
+  "step": "customer 1 next_review after rescreen",
+  "status": "info",
+  "detail": "2026-01-15"
+ },
+ {
+  "step": "mobile re-assess risk",
+  "status": "info",
+  "detail": "200 next_review=2026-01-15"
+ },
+ {
+  "step": "customer 1 next_review after re-assess",
+  "status": "info",
+  "detail": "2026-01-15"
+ },
+ {
+  "step": "customers list after re-assess",
+  "status": "info",
+  "detail": "Review due R-002 Omar Test natural real_estate medium 0 2028-10-21 Evidence R-001 Fatima Khan natural other low 0 overdue Evidence Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must confirm. Screening results are decision support, not lega"
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-11-01 01:42:57 Layla MLRO risk.assess \u00b7 customer #1 {'rating': 'low', 'score': 5.0, 'ruleset': '2025.12.2', 'edd': False} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-11-01 01:42:53 Layla MLRO risk.assess \u00b7 customer #2 {'rating': 'medium', 'score': 25.0, 'ruleset': '2025.12.2', 'edd': False} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-11-01 01:42:51 Layla MLRO risk.assess \u00b7 customer #1 {'rating': 'low', 'score': 5.0, 'ruleset': '2025.12.2', 'edd': False} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-11-01 01:42:23 Layla MLRO organization.register \u00b7 organization #1 {'org_name': 'Grovisor Test DNFBP'} Independent review is required before dismissing a sanctions or proliferation match \u2014 a different operator must c"
+ }
+]

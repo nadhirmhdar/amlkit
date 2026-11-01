@@ -1,0 +1,107 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "tesseract installed",
+  "status": "info",
+  "detail": "None"
+ },
+ {
+  "step": "scan-passport: synthetic MRZ png",
+  "status": "info",
+  "detail": "200 application/json '{\"full_name\":null,\"name_arabic\":null,\"nationality\":null,\"birth_date\":null,\"expiry_date\":null,\"gender\":null,\"id_number\":null,\"id_type\":\"passport\",\"authenticity\":null,\"expiry_check\":{\"expired\":null,\"exp'"
+ },
+ {
+  "step": "scan-passport: blank png",
+  "status": "info",
+  "detail": "200 application/json '{\"full_name\":null,\"name_arabic\":null,\"nationality\":null,\"birth_date\":null,\"expiry_date\":null,\"gender\":null,\"id_number\":null,\"id_type\":\"passport\",\"authenticity\":null,\"expiry_check\":{\"expired\":null,\"exp'"
+ },
+ {
+  "step": "scan-passport: pdf",
+  "status": "info",
+  "detail": "200 application/json '{\"full_name\":null,\"name_arabic\":null,\"nationality\":null,\"birth_date\":null,\"expiry_date\":null,\"gender\":null,\"id_number\":null,\"id_type\":\"passport\",\"authenticity\":null,\"expiry_check\":{\"expired\":null,\"exp'"
+ },
+ {
+  "step": "scan-passport: html",
+  "status": "info",
+  "detail": "415 application/json '{\"detail\":\"File type not allowed or unrecognised. Allowed types: PDF, JPEG, PNG.\"}'"
+ },
+ {
+  "step": "scan-passport: text renamed .png",
+  "status": "info",
+  "detail": "415 application/json '{\"detail\":\"File type not allowed or unrecognised. Allowed types: PDF, JPEG, PNG.\"}'"
+ },
+ {
+  "step": "scan-passport: empty file",
+  "status": "info",
+  "detail": "415 application/json '{\"detail\":\"File type not allowed or unrecognised. Allowed types: PDF, JPEG, PNG.\"}'"
+ },
+ {
+  "step": "scan-passport: 25 MB png-ish",
+  "status": "info",
+  "detail": "413 application/json '{\"detail\":\"File is too large (maximum 10 MB).\"}'"
+ },
+ {
+  "step": "scan-trade-licence: synthetic MRZ png",
+  "status": "info",
+  "detail": "200 application/json '{\"full_name\":null,\"id_number\":null,\"legal_type\":null,\"issue_date\":null,\"expiry_date\":null,\"issuing_authority\":null,\"id_type\":\"trade_licence\",\"field_confidence\":{},\"expiry_check\":{\"expired\":null,\"expir'"
+ },
+ {
+  "step": "scan-trade-licence: blank png",
+  "status": "info",
+  "detail": "200 application/json '{\"full_name\":null,\"id_number\":null,\"legal_type\":null,\"issue_date\":null,\"expiry_date\":null,\"issuing_authority\":null,\"id_type\":\"trade_licence\",\"field_confidence\":{},\"expiry_check\":{\"expired\":null,\"expir'"
+ },
+ {
+  "step": "scan-trade-licence: pdf",
+  "status": "info",
+  "detail": "200 application/json '{\"full_name\":null,\"id_number\":null,\"legal_type\":null,\"issue_date\":null,\"expiry_date\":null,\"issuing_authority\":null,\"id_type\":\"trade_licence\",\"field_confidence\":{},\"expiry_check\":{\"expired\":null,\"expir'"
+ },
+ {
+  "step": "scan-trade-licence: html",
+  "status": "info",
+  "detail": "415 application/json '{\"detail\":\"File type not allowed or unrecognised. Allowed types: PDF, JPEG, PNG.\"}'"
+ },
+ {
+  "step": "scan-trade-licence: text renamed .png",
+  "status": "info",
+  "detail": "415 application/json '{\"detail\":\"File type not allowed or unrecognised. Allowed types: PDF, JPEG, PNG.\"}'"
+ },
+ {
+  "step": "scan-trade-licence: empty file",
+  "status": "info",
+  "detail": "415 application/json '{\"detail\":\"File type not allowed or unrecognised. Allowed types: PDF, JPEG, PNG.\"}'"
+ },
+ {
+  "step": "scan-trade-licence: 25 MB png-ish",
+  "status": "info",
+  "detail": "413 application/json '{\"detail\":\"File is too large (maximum 10 MB).\"}'"
+ },
+ {
+  "step": "scan-passport without a session",
+  "status": "info",
+  "detail": "401 None"
+ },
+ {
+  "step": "scan-passport without CSRF token",
+  "status": "info",
+  "detail": "403 '{\"detail\":\"Session expired or the form was submitted from a stale page. Reload and try again.\"}'"
+ }
+]

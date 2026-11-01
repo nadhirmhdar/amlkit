@@ -1,0 +1,52 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "14 wrong passwords on the officer account",
+  "status": "info",
+  "detail": "[(1, 200, 'Incorrect email or password.'), (2, 200, 'Incorrect email or password.'), (3, 200, 'Incorrect email or password.'), (4, 200, 'Incorrect email or password.'), (5, 200, 'Incorrect email or password.'), (6, 200, 'Incorrect email or password.'), (7, 200, 'Incorrect email or password.'), (8, 200, 'Incorrect email or password.'), (9, 200, 'Incorrect email or password.'), (10, 200, 'Incorrect email or password.'), (11, 200, 'Incorrect email or password.'), (12, 200, 'Incorrect email or password.'), (13, 200, 'Incorrect email or password.'), (14, 200, 'Incorrect email or password.')]"
+ },
+ {
+  "step": "correct password after wrongs",
+  "status": "info",
+  "detail": "200 None []"
+ }
+]

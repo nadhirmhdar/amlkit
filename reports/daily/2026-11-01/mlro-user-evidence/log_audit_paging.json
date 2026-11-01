@@ -1,0 +1,152 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "audit rows in DB",
+  "status": "info",
+  "detail": "98"
+ },
+ {
+  "step": "GET /audit",
+  "status": "info",
+  "detail": "200 rows~-1 nav=['/audit?page=2'] loc=None"
+ },
+ {
+  "step": "GET /audit?page=1",
+  "status": "info",
+  "detail": "200 rows~-1 nav=['/audit?page=2'] loc=None"
+ },
+ {
+  "step": "GET /audit?page=2",
+  "status": "info",
+  "detail": "200 rows~-1 nav=['/audit?page=1'] loc=None"
+ },
+ {
+  "step": "GET /audit?page=3",
+  "status": "info",
+  "detail": "200 rows~-1 nav=['/audit?page=2'] loc=None"
+ },
+ {
+  "step": "GET /audit?page=0",
+  "status": "info",
+  "detail": "200 rows~-1 nav=['/audit?page=2'] loc=None"
+ },
+ {
+  "step": "GET /audit?page=-1",
+  "status": "info",
+  "detail": "200 rows~-1 nav=['/audit?page=2'] loc=None"
+ },
+ {
+  "step": "GET /audit?page=abc",
+  "status": "info",
+  "detail": "200 rows~-1 nav=['/audit?page=2'] loc=None"
+ },
+ {
+  "step": "GET /audit?page=99999999999999999999",
+  "status": "info",
+  "detail": "200 rows~-1 nav=['/audit?page=9999'] loc=None"
+ },
+ {
+  "step": "page1 newest/oldest vs page2 newest",
+  "status": "info",
+  "detail": "['2026-11-01 01:43:07'] ['2026-11-01 01:43:01'] | ['2026-11-01 01:43:01']"
+ },
+ {
+  "step": "audit export rows (lines)",
+  "status": "info",
+  "detail": "200 lines=99"
+ },
+ {
+  "step": "officer login",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "officer GET /audit",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "officer GET /audit/export",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "officer GET /about",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "officer GET /privacy",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "officer GET /policies",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "anon GET /about",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "anon GET /privacy",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "anon GET /audit",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "privacy excerpt",
+  "status": "info",
+  "detail": "Privacy & Cookies Log out Privacy & Cookies How groAML uses cookies and data This page describes groAML's actual practices. There is nothing here that does not happen, and nothing that happens is left out. Cookies we set groAML sets the five cookies listed below, all strictly necessary for the site to function. None are used for advertising, analytics, or tracking across other sites, and none are shared with third parties. amlkit_session Keeps you signed in. HttpOnly (not readable by page script"
+ },
+ {
+  "step": "about excerpt",
+  "status": "info",
+  "detail": "About Privacy & Cookies Log out About groAML by Grovisor Sanctions screening and customer due diligence for UAE SMEs, at an SME price. Arabic-aware name matching, evidence-backed alerts, and CDD case management in a single UAE-focused workspace. What groAML covers Sanctions & PEP screening UAE Local Terrorist List, UN Consolidated, OFAC SDN, EU, UK sanctions, CIA World Leaders (PEP), and FATF high"
+ }
+]
