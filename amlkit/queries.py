@@ -1520,3 +1520,54 @@ def unread_notification_count(conn: sqlite3.Connection, org_id: int, operator_id
         "SELECT COUNT(*) FROM notifications WHERE org_id=? AND operator_id=? AND read_at IS NULL",
         (org_id, operator_id),
     ).fetchone()[0]
+
+
+def ops_org_figures(conn: sqlite3.Connection, org_id: int) -> dict[str, Any]:
+    """Tenant-scoped operational figures for /admin/ops (this org only).
+
+    Ages are hours, computed in SQL so they match the freeze overdue check
+    (`manager.check_unexecuted_freeze_obligations`, > 24 h pending).
+    """
+    def _hours(col: str) -> str:
+        return f"ROUND((julianday('now') - julianday(MIN({col}))) * 24, 1)"
+
+    fz = conn.execute(
+        f"""SELECT COUNT(*) AS n, MIN(identified_at) AS oldest_at,
+                   {_hours('identified_at')} AS oldest_hours,
+                   COALESCE(SUM(julianday('now') - julianday(identified_at) > 1.0), 0) AS overdue
+            FROM freeze_obligations
+            WHERE org_id = ? AND status = 'pending_execution'""",
+        (org_id,),
+    ).fetchone()
+    cnmr = conn.execute(
+        f"""SELECT COUNT(*) AS n, MIN(created_at) AS oldest_at,
+                   {_hours('created_at')} AS oldest_hours
+            FROM reports
+            WHERE org_id = ? AND report_type = 'FFR' AND status = 'draft'""",
+        (org_id,),
+    ).fetchone()
+    al = conn.execute(
+        f"""SELECT COUNT(*) AS n, MIN(created_at) AS oldest_at,
+                   {_hours('created_at')} AS oldest_hours
+            FROM alerts WHERE org_id = ? AND status = 'open'""",
+        (org_id,),
+    ).fetchone()
+
+    def _last(action: str) -> dict[str, Any] | None:
+        row = conn.execute(
+            "SELECT ts, actor FROM audit_log WHERE org_id = ? AND action = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (org_id, action),
+        ).fetchone()
+        return {"ts": row["ts"], "actor": row["actor"]} if row else None
+
+    return {
+        "freeze": {"pending": fz["n"], "overdue": int(fz["overdue"]),
+                   "oldest_at": fz["oldest_at"], "oldest_hours": fz["oldest_hours"]},
+        "cnmr_drafts": {"count": cnmr["n"], "oldest_at": cnmr["oldest_at"],
+                        "oldest_hours": cnmr["oldest_hours"]},
+        "open_alerts": {"count": al["n"], "oldest_at": al["oldest_at"],
+                        "oldest_hours": al["oldest_hours"]},
+        "last_refresh_requested": _last("dataset.refresh_requested"),
+        "last_screening_run": _last("screening.run"),
+    }

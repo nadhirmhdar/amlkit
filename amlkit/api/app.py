@@ -3583,6 +3583,24 @@ def compliance_health_view(request: Request, db: DB):
     })
 
 
+@app.get("/admin/ops", response_class=HTMLResponse)
+def ops_status_view(request: Request, db: DB):
+    """Operational status for the MLRO: data freshness, replica, queues, version."""
+    try:
+        session = require_session(request, db)
+        require_role(session, "mlro")
+    except PermissionError as exc:
+        if current_session(request, db) is None:
+            return RedirectResponse("/login", status_code=303)
+        return back("/", err=str(exc))
+    from .. import ops
+    return render(request, "admin/ops.html", {
+        "session": session,
+        "system": ops.system_status(db),
+        "org": queries.ops_org_figures(db, session.org_id),
+    })
+
+
 @app.post("/admin/threshold")
 def admin_set_threshold(
     request: Request, db: DB,
@@ -4221,7 +4239,11 @@ def system_refresh(request: Request):
     conn = None
     try:
         conn = connect(db_path())
+        import time as _time
+        _t0 = _time.perf_counter()
         result = run_sanctions_refresh(conn, actor="cloud-scheduler")
+        from .. import ops
+        ops.log_refresh_run(conn, result, _time.perf_counter() - _t0)
 
         # Check for staleness and notify MLROs if needed
         staleness_result = check_and_notify_staleness(conn)
@@ -4285,6 +4307,8 @@ def system_check_freeze_obligations(request: Request):
     try:
         conn = connect(db_path())
         result = run_freeze_obligation_check(conn)
+        from .. import ops
+        ops.log_freeze_check_run(result)
     except Exception as exc:
         log.exception("freeze obligation check failed")
         return JSONResponse({"status": "error", "error": str(exc)}, status_code=500)

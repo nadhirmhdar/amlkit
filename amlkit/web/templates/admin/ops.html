@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% set nav = 'admin' %}
+{% block title %}Ops status — groAML{% endblock %}
+{% block body %}
+
+{% macro age(h) -%}
+  {%- if h is none -%}—{%- elif h >= 48 -%}{{ (h / 24) | round(1) }} days{%- else -%}{{ h }} h{%- endif -%}
+{%- endmacro %}
+
+<div class="page-head">
+  <div class="eyebrow">Admin</div>
+  <h1>Ops status</h1>
+  <p class="sub">
+    Data freshness, replication and work queues. Build <span class="mono" id="ops-version">{{ system.version }}</span>.
+    <a href="/admin" class="ml-4" style="font-weight:600;">← Back to Admin</a>
+  </p>
+</div>
+
+<div class="mb-6" id="ops-datasets">
+  <div class="section-label">Sanctions and reference datasets
+    <a href="/admin/compliance" style="font-size:13px; font-weight:600; margin-left:12px;">Compliance health →</a>
+  </div>
+  <p class="muted small" style="margin-top:-6px">
+    {% if system.stale_count %}<strong>{{ system.stale_count }} dataset(s) past their refresh window.</strong>{% else %}All datasets are within their refresh window.{% endif %}
+    {% if system.last_refresh %}Last successful load {{ system.last_refresh.ts }} by <span class="mono">{{ system.last_refresh.actor }}</span>.{% else %}No successful load recorded yet.{% endif %}
+  </p>
+  <div class="grid-table">
+    <div class="list-head" style="grid-template-columns:1.6fr 110px 120px 110px 90px;">
+      <div>Dataset</div><div>Status</div><div>Age</div><div>Window</div><div class="right">Entities</div>
+    </div>
+    <div class="flat-list">
+      {% for ds in system.datasets %}
+      <div class="list-row" style="display:grid; grid-template-columns:1.6fr 110px 120px 110px 90px; align-items:center;">
+        <div class="primary" data-label="Dataset">{{ ds.title }}{% if ds.mandatory %}<span class="muted small ml-2">(mandatory)</span>{% endif %}</div>
+        <div data-label="Status">
+          {% if ds.breach %}<span class="tag high">BREACH</span>
+          {% elif ds.stale %}<span class="tag medium">STALE</span>
+          {% else %}<span class="tag low">OK</span>{% endif %}
+        </div>
+        <div class="mono small" data-label="Age">{% if ds.hours_since_refresh is none %}never{% else %}{{ age(ds.hours_since_refresh) }}{% endif %}</div>
+        <div class="mono small" data-label="Window">{{ ds.max_age_hours }} h</div>
+        <div class="right score" data-label="Entities">{{ '{:,}'.format(ds.entities or 0) }}</div>
+      </div>
+      {% else %}
+      <div class="list-row"><div class="muted">No datasets registered yet.</div></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="mb-6" id="ops-replica">
+  <div class="section-label">Replication</div>
+  <div class="flat-list">
+    <div class="list-row"><div class="primary">Replica configured</div><div>{{ 'Yes' if system.replica.configured else 'No' }}</div></div>
+    <div class="list-row"><div class="primary">Synchronous sync after critical writes</div><div>{{ 'On' if system.replica.sync_enabled else 'Off' }}</div></div>
+    <div class="list-row"><div class="primary">Last confirmed sync (this instance)</div>
+      <div>{% if system.replica.last_sync_at %}{{ system.replica.last_sync_at }} ({{ age(system.replica.last_sync_age_hours) }} ago, {{ system.replica.last_sync_reason or 'unspecified' }}){% else %}<span class="muted">none since this instance started</span>{% endif %}</div></div>
+    <div class="list-row"><div class="primary">Litestream position</div><div class="mono small">{{ system.replica.position }}</div></div>
+  </div>
+</div>
+
+<div class="mb-6" id="ops-queues">
+  <div class="section-label">Your organisation's queues</div>
+  <div class="flat-list">
+    <div class="list-row"><div class="primary">Open alerts</div>
+      <div><span class="score" id="ops-open-alerts">{{ org.open_alerts.count }}</span>
+        <span class="muted small ml-2">oldest {{ age(org.open_alerts.oldest_hours) }}</span></div></div>
+    <div class="list-row"><div class="primary">Freeze obligations pending execution</div>
+      <div><span class="score" id="ops-freeze-pending">{{ org.freeze.pending }}</span>
+        <span class="muted small ml-2">oldest {{ age(org.freeze.oldest_hours) }}</span>
+        {% if org.freeze.overdue %}<span class="tag high ml-2" id="ops-freeze-overdue">{{ org.freeze.overdue }} overdue (&gt; 24 h)</span>{% endif %}
+        <a href="/freeze-obligations" class="ml-4" style="font-weight:600;">Open →</a></div></div>
+    <div class="list-row"><div class="primary">Unfiled CNMR drafts</div>
+      <div><span class="score" id="ops-cnmr-drafts">{{ org.cnmr_drafts.count }}</span>
+        <span class="muted small ml-2">oldest {{ age(org.cnmr_drafts.oldest_hours) }}</span></div></div>
+  </div>
+</div>
+
+<div class="mb-6" id="ops-activity">
+  <div class="section-label">Recent activity (your organisation)</div>
+  <div class="flat-list">
+    <div class="list-row"><div class="primary">Last list refresh requested</div>
+      <div class="mono small">{% if org.last_refresh_requested %}{{ org.last_refresh_requested.ts }} by {{ org.last_refresh_requested.actor }}{% else %}<span class="muted">none recorded</span>{% endif %}</div></div>
+    <div class="list-row"><div class="primary">Last screening run</div>
+      <div class="mono small">{% if org.last_screening_run %}{{ org.last_screening_run.ts }} by {{ org.last_screening_run.actor }}{% else %}<span class="muted">none recorded</span>{% endif %}</div></div>
+  </div>
+</div>
+
+{% endblock %}
