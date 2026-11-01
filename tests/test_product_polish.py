@@ -188,3 +188,54 @@ class TestPalette:
     def test_palette_script_served_with_pages_and_shortcuts(self, client):
         js = client.get("/static/js/search-palette.js").text
         assert "/changelog" in js and "ctrlKey" in js and "Escape" in js
+
+
+# ------------------------------------------------------------ p87 billing bars
+class TestBillingUsage:
+    @pytest.fixture()
+    def billing(self, client, monkeypatch):
+        monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_123")
+        monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_x")
+        monkeypatch.setenv("STRIPE_PRICE_STARTER", "price_s")
+        return client
+
+    def test_stays_404_when_not_configured(self, client):
+        assert client.get("/billing").status_code == 404
+
+    def test_bars_and_limits_render(self, billing):
+        c = _db()
+        c.execute("UPDATE organizations SET plan='starter', plan_status='active'")
+        c.commit(); c.close()
+        for i in range(3):
+            _add_customer(billing, f"B-{i}", f"Bar Customer {i}")
+        html = billing.get("/billing").text
+        assert 'data-usage="customers"' in html and 'data-usage="operators"' in html
+        assert html.count('role="progressbar"') == 3
+        i = html.index('data-usage="customers"')
+        assert "3 / 200" in " ".join(html[i:i + 1200].split())
+        assert 'aria-valuemax="200"' in html[i:i + 1200]
+
+    def test_legacy_org_has_no_bar_but_shows_unlimited(self, billing):
+        html = billing.get("/billing").text
+        assert "unlimited" in html and 'role="progressbar"' not in html
+
+    def test_history_counts_from_timestamps(self, billing):
+        from datetime import datetime, timezone
+        from amlkit.billing import limits
+        _add_customer(billing, "H-1", "History One")
+        c = _db()
+        org = c.execute("SELECT id FROM organizations").fetchone()[0]
+        c.execute("UPDATE customers SET onboarded_at='2026-09-10T00:00:00+00:00'")
+        c.execute("UPDATE operators SET created_at='2026-06-02T00:00:00+00:00'")
+        c.commit()
+        h = limits.monthly_history(c, org, now=datetime(2026, 11, 1, tzinfo=timezone.utc))
+        c.close()
+        assert [x["month"] for x in h] == ["2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11"]
+        assert {x["month"]: x["customers"] for x in h}["2026-09"] == 1
+        assert {x["month"]: x["operators"] for x in h}["2026-06"] == 1
+        assert sum(x["customers"] for x in h) == 1
+
+    def test_history_table_rendered_and_org_scoped(self, billing):
+        html = billing.get("/billing").text
+        assert 'id="usage-history"' in html and "Last 6 months" in html
+        assert "AED" not in html.split('id="usage-history"')[1].split("</table>")[0]

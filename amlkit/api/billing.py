@@ -111,6 +111,7 @@ def billing_page(request: Request, db: DB):
         "current_plan": plans.get_plan(org["plan"]),
         "resources": [("Operators", "operators"), ("Customers", "customers"),
                       ("Client workspaces", "workspaces")],
+        "history": limits.monthly_history(db, session.org_id),
     }, db)
 
 

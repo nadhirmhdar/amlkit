@@ -44,17 +44,39 @@
       </p>
     {% endif %}
 
-    <div class="flat-list">
+    <div class="flat-list" id="usage-bars">
       {% for label, key in resources %}
-      <div class="list-row">
-        <div class="grow"><div class="primary">{{ label }}</div></div>
+      {% set used = state.usage[key] %}
+      {% set cap = state.limit(key) %}
+      {% set pct = ((used * 100 / cap) if cap else 0)|round|int %}
+      <div class="list-row" data-usage="{{ key }}">
+        <div class="grow">
+          <div class="primary">{{ label }}</div>
+          {% if cap is not none %}
+          <div class="usage-bar" role="progressbar" aria-label="{{ label }} used"
+               aria-valuemin="0" aria-valuemax="{{ cap }}" aria-valuenow="{{ used }}"
+               style="height:6px; margin-top:6px; background:var(--line, #e5e7eb); border-radius:3px; overflow:hidden;">
+            <div style="height:100%; width:{{ [pct, 100]|min }}%; background:{{ 'var(--danger)' if pct >= 100 else ('var(--warn)' if pct >= 80 else 'var(--teal, var(--accent))') }};"></div>
+          </div>
+          {% endif %}
+        </div>
         <div class="num">
-          {{ '{:,}'.format(state.usage[key]) }}
-          / {% if state.plan is none %}unlimited{% else %}{{ '{:,}'.format(state.limit(key)) }}{% endif %}
+          {{ '{:,}'.format(used) }}
+          / {% if cap is none %}unlimited{% else %}{{ '{:,}'.format(cap) }}{% endif %}
         </div>
       </div>
       {% endfor %}
     </div>
+
+    <h3 style="margin:20px 0 6px;">Last 6 months</h3>
+    <table class="data" id="usage-history" style="width:100%;">
+      <thead><tr><th>Month</th><th class="num">Customers onboarded</th><th class="num">Operators added</th></tr></thead>
+      <tbody>
+        {% for h in history|reverse %}
+        <tr><td>{{ h.label }}</td><td class="num">{{ h.customers }}</td><td class="num">{{ h.operators }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
 
     {% if has_customer %}
     <form method="post" action="/billing/portal" style="margin-top:16px;">
