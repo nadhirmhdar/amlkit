@@ -9,6 +9,29 @@
   var inflight = null;
   var requestSeq = 0;
 
+  // Fixed destinations, filtered locally. Pages only; nothing here is per-org data.
+  var ROUTES = [
+    { name: "Dashboard", url: "/dashboard" },
+    { name: "Screen a name", url: "/screen" },
+    { name: "Customers", url: "/customers" },
+    { name: "Onboard a customer", url: "/customers/new" },
+    { name: "Alerts", url: "/alerts" },
+    { name: "Reports", url: "/reports" },
+    { name: "Policies", url: "/policies" },
+    { name: "Audit trail", url: "/audit" },
+    { name: "Notifications", url: "/notifications" },
+    { name: "What's new", url: "/changelog" }
+  ];
+
+  function routeItems(q) {
+    var low = q.toLowerCase();
+    return ROUTES.filter(function (r) {
+      return !low || r.name.toLowerCase().indexOf(low) !== -1;
+    }).map(function (r) {
+      return { type: "page", name: r.name, detail: r.url, url: r.url };
+    });
+  }
+
   function createOverlay() {
     overlay = document.createElement("div");
     overlay.id = "search-palette-overlay";
@@ -23,7 +46,8 @@
 
     input = document.createElement("input");
     input.type = "text";
-    input.placeholder = "Search customers, alerts…";
+    input.placeholder = "Search customers, alerts, reports, pages…";
+    input.setAttribute("aria-label", "Search");
     input.style.cssText =
       "width:100%;padding:14px 18px;border:none;outline:none;" +
       "font-size:16px;background:transparent;color:var(--ink,#222);";
@@ -65,6 +89,7 @@
     });
 
     input.focus();
+    renderItems(routeItems(""), false);
   }
 
   function highlightItem(items) {
@@ -83,14 +108,50 @@
     list.appendChild(msg);
   }
 
+  function renderItems(items, truncated) {
+    if (!list) return;
+    list.innerHTML = "";
+    activeIndex = -1;
+    items.forEach(function (item) {
+      var row = document.createElement("div");
+      row.setAttribute("data-url", item.url);
+      row.setAttribute("role", "option");
+      row.style.cssText =
+        "padding:10px 18px;cursor:pointer;display:flex;align-items:center;gap:10px;";
+      row.innerHTML =
+        '<span style="font-size:11px;text-transform:uppercase;color:var(--ink-2,#888);min-width:60px;">' +
+        escapeHtml(item.type) + "</span>" +
+        '<span style="font-weight:600;">' + escapeHtml(item.name) + "</span>" +
+        '<span style="color:var(--ink-2,#888);font-size:13px;">' + escapeHtml(item.detail) + "</span>";
+      row.addEventListener("click", function () {
+        window.location.href = item.url;
+      });
+      row.addEventListener("mouseenter", function () {
+        if (!list) return;
+        var all = list.querySelectorAll("[data-url]");
+        for (var j = 0; j < all.length; j++) {
+          if (all[j] === row) activeIndex = j;
+          all[j].style.background = "";
+        }
+        row.style.background = "var(--row-hover,#f0f0f0)";
+      });
+      list.appendChild(row);
+    });
+    if (truncated) {
+      var note = document.createElement("div");
+      note.style.cssText = "padding:8px 18px;font-size:12px;color:var(--ink-2,#888);";
+      note.textContent = "Results may be incomplete — refine your search";
+      list.appendChild(note);
+    }
+  }
+
   function doSearch() {
     if (!input || !list) return;
     var q = input.value.trim();
     if (inflight) { inflight.abort(); inflight = null; }
     var seq = ++requestSeq;
     if (!q) {
-      list.innerHTML = "";
-      activeIndex = -1;
+      renderItems(routeItems(""), false);
       return;
     }
     var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -111,42 +172,13 @@
       })
       .then(function (data) {
         if (seq !== requestSeq || !list) return; // stale or palette closed
-        list.innerHTML = "";
-        activeIndex = -1;
-        if (!data.results || !data.results.length) {
+        var items = (data.results || []).concat(routeItems(q));
+        if (!items.length) {
+          list.innerHTML = "";
           showMessage("No results found");
           return;
         }
-        data.results.forEach(function (item) {
-          var row = document.createElement("div");
-          row.setAttribute("data-url", item.url);
-          row.style.cssText =
-            "padding:10px 18px;cursor:pointer;display:flex;align-items:center;gap:10px;";
-          row.innerHTML =
-            '<span style="font-size:11px;text-transform:uppercase;color:var(--ink-2,#888);min-width:60px;">' +
-            escapeHtml(item.type) + "</span>" +
-            '<span style="font-weight:600;">' + escapeHtml(item.name) + "</span>" +
-            '<span style="color:var(--ink-2,#888);font-size:13px;">' + escapeHtml(item.detail) + "</span>";
-          row.addEventListener("click", function () {
-            window.location.href = item.url;
-          });
-          row.addEventListener("mouseenter", function () {
-            if (!list) return;
-            var items = list.querySelectorAll("[data-url]");
-            for (var j = 0; j < items.length; j++) {
-              if (items[j] === row) activeIndex = j;
-              items[j].style.background = "";
-            }
-            row.style.background = "var(--row-hover,#f0f0f0)";
-          });
-          list.appendChild(row);
-        });
-        if (data.truncated) {
-          var note = document.createElement("div");
-          note.style.cssText = "padding:8px 18px;font-size:12px;color:var(--ink-2,#888);";
-          note.textContent = "Results may be incomplete — refine your search";
-          list.appendChild(note);
-        }
+        renderItems(items, !!data.truncated);
       })
       .catch(function (err) {
         if (err && err.name === "AbortError") return;

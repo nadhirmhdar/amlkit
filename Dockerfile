@@ -36,6 +36,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY amlkit ./amlkit
 COPY scripts ./scripts
+COPY docs/CHANGELOG.md ./docs/CHANGELOG.md
 COPY litestream.yml ./litestream.yml
 
 # Create data directory for database

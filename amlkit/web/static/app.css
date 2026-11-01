@@ -1540,3 +1540,10 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
   .adverse-list .list-row .grow { flex-basis: 100%; }
   .adverse-list .list-row .side.nowrap { white-space: normal; }
 }
+
+/* p52: unread marker on the "What's new" link */
+.whatsnew-dot {
+  display: inline-block; width: 7px; height: 7px; margin-left: 6px;
+  border-radius: 50%; background: var(--teal, var(--accent, currentColor));
+  vertical-align: middle;
+}

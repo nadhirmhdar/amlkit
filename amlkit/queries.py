@@ -718,6 +718,23 @@ def global_search(conn: sqlite3.Connection, org_id: int, query: str) -> dict[str
             })
             if len(results) >= GLOBAL_SEARCH_LIMIT:
                 break
+    # p58: reports, by reference (or exact numeric id). Same org scope as above.
+    if len(results) < GLOBAL_SEARCH_LIMIT:
+        rows = conn.execute(
+            "SELECT id, report_type, reference, status FROM reports"
+            " WHERE org_id = ? AND (reference LIKE ? ESCAPE '\\' COLLATE NOCASE OR id = ?)"
+            " ORDER BY id DESC LIMIT ?",
+            (org_id, f"%{_like_escape(query[:SEARCH_QUERY_MAX])}%",
+             int(query) if query.isdigit() else -1,
+             GLOBAL_SEARCH_LIMIT - len(results)),
+        ).fetchall()
+        for r in rows:
+            results.append({
+                "type": "report",
+                "name": r["reference"] or f"{r['report_type']} #{r['id']}",
+                "detail": f"{r['report_type']} — {r['status']}",
+                "url": f"/reports/{r['id']}",
+            })
     return {"results": results[:GLOBAL_SEARCH_LIMIT], "truncated": truncated}
 
 

@@ -52,6 +52,32 @@
   {% endif %}
 </div>
 
+{% if onboarding %}
+<section class="panel mb-6" aria-labelledby="onb-title" id="onboarding-checklist">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+    <div>
+      <h2 id="onb-title" style="margin:0;">Get started with groAML</h2>
+      <p class="muted small mt-0">{{ onboarding.done }} of {{ onboarding.total }} done. Each step ticks automatically.</p>
+    </div>
+    <form method="post" action="/dashboard/onboarding/dismiss">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn-outline">Dismiss</button>
+    </form>
+  </div>
+  <div class="flat-list">
+    {% for i in onboarding['items'] %}
+    <a href="{{ i.href }}" class="list-row" data-onb="{{ i.key }}" data-done="{{ 'yes' if i.done else 'no' }}" style="text-decoration:none; color:inherit;">
+      <span aria-hidden="true" style="width:20px;">{{ '&#10003;' if i.done else '&#9675;' }}</span>
+      <div class="grow">
+        <div class="onb-label" style="font-weight:600;">{{ i.label }}{% if i.done %}<span class="visually-hidden"> (done)</span>{% endif %}</div>
+        <div class="muted small">{{ i.hint }}</div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 <div class="dash-main">
 <div class="stat-strip">
   <div class="stat-strip__item"><span class="value">{{ d.counts.customers }}</span><span class="label">Customers on file</span></div>

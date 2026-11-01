@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% set nav = 'changelog' %}
+{% block title %}What's new — groAML{% endblock %}
+{% block body %}
+<div style="max-width:760px;">
+  <div class="page-head">
+    <div class="eyebrow">Product</div>
+    <h1>What's new in groAML</h1>
+    <p class="sub">Recent changes, newest first.</p>
+  </div>
+  {% for e in entries %}
+  <div class="panel mb-6">
+    <h2>{{ e.title }}</h2>
+    <ul>
+      {% for item in e['items'] %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% else %}
+  <p class="muted">Nothing to show yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

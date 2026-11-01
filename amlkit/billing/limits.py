@@ -78,6 +78,34 @@ def usage(conn: sqlite3.Connection, org_id: int) -> dict[str, int]:
     }
 
 
+def monthly_history(conn: sqlite3.Connection, org_id: int, months: int = 6,
+                    now: datetime | None = None) -> list[dict]:
+    """Customers onboarded and operators added per calendar month, oldest first,
+    for the last `months` months (the current month included). Counts come from
+    existing timestamps (customers.onboarded_at, operators.created_at); no cost
+    figures."""
+    now = now or datetime.now(timezone.utc)
+    keys: list[str] = []
+    y, m = now.year, now.month
+    for _ in range(months):
+        keys.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    keys.reverse()
+
+    def per_month(sql: str) -> dict[str, int]:
+        rows = conn.execute(sql, (org_id, keys[0] + "-01", )).fetchall()
+        return {r[0]: r[1] for r in rows}
+
+    cust = per_month("SELECT substr(onboarded_at,1,7), COUNT(*) FROM customers"
+                     " WHERE org_id=? AND onboarded_at >= ? GROUP BY 1")
+    ops = per_month("SELECT substr(created_at,1,7), COUNT(*) FROM operators"
+                    " WHERE org_id=? AND created_at >= ? GROUP BY 1")
+    return [{"month": k, "label": datetime(int(k[:4]), int(k[5:]), 1).strftime("%b %Y"),
+             "customers": cust.get(k, 0), "operators": ops.get(k, 0)} for k in keys]
+
+
 def org_state(conn: sqlite3.Connection, org_id: int, now: datetime | None = None) -> BillingState:
     now = now or datetime.now(timezone.utc)
     row = conn.execute(
