@@ -2006,7 +2006,7 @@ def _read_scan_upload(upload: UploadFile) -> bytes:
 
     content = read_capped(upload.file)
     try:
-        validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF})
+        validate_upload(content, allowed_mimes=IMAGE_MIMES | {PDF}, check_pdf_pages=True)
     except UploadRejected as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return content

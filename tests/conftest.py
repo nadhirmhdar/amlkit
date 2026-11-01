@@ -240,3 +240,40 @@ def real_image_bytes(fmt: str = "JPEG", size: tuple[int, int] = (16, 16)) -> byt
     buf = io.BytesIO()
     Image.new("RGB", size, "white").save(buf, fmt)
     return buf.getvalue()
+
+
+SEED_PASSWORD = "A-strong-password-1"
+
+
+@pytest.fixture()
+def seed_org(conn):
+    """Shared org + MLRO + one officer on the in-memory `conn` database.
+
+    Both operators are active and email-verified and share SEED_PASSWORD, which
+    satisfies `auth.check_new_password`. Returns a dict with `org_id`, `mlro`
+    and `officer` (each {id, name, email}) and `password`. New tests may use
+    this instead of a per-file helper; existing tests are unchanged.
+    """
+    from amlkit.auth import check_new_password, hash_password
+
+    check_new_password(SEED_PASSWORD)
+    now = utcnow()
+    org = conn.execute(
+        "INSERT INTO organizations (name, slug, status, created_at, goaml_entity_reference) VALUES (?,?,?,?,?)"
+        " RETURNING id",
+        ("Seed Firm", "seed-firm", "active", now, "SEED-ORG-001"),
+    ).fetchone()["id"]
+    pw_hash = hash_password(SEED_PASSWORD)
+    people = {}
+    for key, name, email in (
+        ("mlro", "Seed MLRO", "mlro@seed-firm.test"),
+        ("officer", "Seed Officer", "officer@seed-firm.test"),
+    ):
+        op_id = conn.execute(
+            "INSERT INTO operators (org_id, name, email, role, password_hash, is_active, email_verified_at, created_at)"
+            " VALUES (?,?,?,?,?,1,?,?) RETURNING id",
+            (org, name, email, key, pw_hash, now, now),
+        ).fetchone()["id"]
+        people[key] = {"id": op_id, "name": name, "email": email}
+    conn.commit()
+    return {"org_id": org, "password": SEED_PASSWORD, **people}
