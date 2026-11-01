@@ -344,6 +344,8 @@ def propose_disposition(
         )
         if cur.rowcount == 0:
             raise ReviewError(f"alert {alert_id} not found")
+        from ..match.engine import stamp_subject_hash
+        stamp_subject_hash(conn, alert_id, org_id)
         audit(conn, operator, "alert.propose", "alert", alert_id,
               {"status": status, "reason_code": reason_code,
                "awaiting_second_review": awaiting, "independent_review": independent},
@@ -448,6 +450,8 @@ def confirm_disposition(
         )
         if cur.rowcount == 0:
             raise ReviewError(f"alert {alert_id} not found")
+        from ..match.engine import stamp_subject_hash
+        stamp_subject_hash(conn, alert_id, org_id)
         audit(conn, operator, f"alert.{action}", "alert", alert_id,
               {"status": status, "reason_code": code,
                "proposed_by": proposal["operator"]}, org_id=org_id)

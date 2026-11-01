@@ -1069,6 +1069,12 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("screenings", "unscreenable",
      "ALTER TABLE screenings ADD COLUMN unscreenable INTEGER NOT NULL DEFAULT 0"),
     ("alerts", "reason_code", "ALTER TABLE alerts ADD COLUMN reason_code TEXT"),
+    # Why a re-screen raised this alert when an earlier decided alert already
+    # covered the same match: 'list_updated' | 'subject_changed' (NULL = first alert).
+    ("alerts", "reason", "ALTER TABLE alerts ADD COLUMN reason TEXT"),
+    # Hash of the customer's own identifiers at the moment of disposition; a
+    # later mismatch invalidates the decision (see match.engine.subject_hash).
+    ("alerts", "subject_hash", "ALTER TABLE alerts ADD COLUMN subject_hash TEXT"),
     # Retention anchor for ad-hoc screenings (customer_id NULL): there is no
     # customer row to carry a retention date. Set at insert (run date + 10y);
     # nothing in the purge path deletes on it. Customer-linked screenings stay
