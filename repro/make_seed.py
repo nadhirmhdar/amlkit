@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "fixtures" / "seed.db"
-PASSWORD = "a-strong-password-1"
+PASSWORD = "A-strong-password-1"  # satisfies the complexity rule added in #437 (and the older length rule)
 LISTED = "Mohammed Al Testlisted"
 
 
