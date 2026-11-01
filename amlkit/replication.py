@@ -27,9 +27,23 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# In-process record of the last confirmed `sync_replica` (surfaced on
+# /admin/ops). Per process: a fresh Cloud Run instance starts with None, which
+# the ops page shows as "no sync since this instance started".
+_state_lock = threading.Lock()
+_last_ok: dict | None = None
+
+
+def last_successful_sync() -> dict | None:
+    """{"at": ISO-8601 UTC, "reason": str} of the last confirmed sync, or None."""
+    with _state_lock:
+        return dict(_last_ok) if _last_ok else None
 
 # Must match `socket.path` in litestream.yml.
 DEFAULT_SOCKET = "/tmp/litestream.sock"
@@ -92,6 +106,10 @@ def sync_replica(timeout: int = 30, *, reason: str = "") -> bool:
             )
             return False
         log.info("replica sync (%s) ok: %s", reason, " ".join((proc.stdout or "").split()))
+        global _last_ok
+        with _state_lock:
+            _last_ok = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        "reason": reason}
         return True
     except Exception:  # best-effort: must never fail the request it follows
         log.exception("replica sync (%s) errored", reason)
