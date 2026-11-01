@@ -165,6 +165,61 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
         return FAILED
 
 
+def unlock_url(token: str) -> str:
+    return f"{app_base_url()}/unlock/{token}"
+
+
+def send_unlock_email(to_email: str, name: str, raw_token: str) -> str:
+    """Send (or console-log in dev mode) the break-glass unlock link sent when
+    repeated wrong passwords lock an account. Same outcomes as
+    send_verification_email; never raises."""
+    url = unlock_url(raw_token)
+
+    if not is_configured():
+        print(
+            "\n" + "=" * 72 +
+            f"\namlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- printing the\n"
+            f"account unlock link for {to_email} instead of emailing it.\n\n"
+            f"  {url}\n\n" +
+            "=" * 72 + "\n"
+        )
+        return NOT_CONFIGURED
+
+    host = os.environ["AMLKIT_SMTP_HOST"]
+    port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
+    user = os.environ.get("AMLKIT_SMTP_USER", "")
+    password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
+    from_addr = sender_address(user)
+    use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
+
+    msg = EmailMessage()
+    msg["Subject"] = "Your groAML account is temporarily locked"
+    msg["From"] = from_header(from_addr)
+    msg["To"] = to_email
+    msg.set_content(
+        f"Hi {name},\n\n"
+        "Too many incorrect passwords were entered for your groAML account, so sign-in "
+        "is locked for 15 minutes. If this was you, or you want to sign in now, use "
+        "this one-time link to unlock it:\n\n"
+        f"  {url}\n\n"
+        "The link expires in 30 minutes and works once. If you did not try to sign in, "
+        "you can ignore this email; your password has not changed.\n"
+    )
+
+    try:
+        with smtplib.SMTP(host, port, timeout=15) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if user:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+        return SENT
+    except (OSError, smtplib.SMTPException):
+        # No recipient or link in the log: the link unlocks the account.
+        logger.exception("Failed to send unlock email")
+        return FAILED
+
+
 def send_staleness_alert(to_emails: list[str], datasets: list[dict]) -> str:
     """Send email alert to admins when mandatory sanctions lists are stale.
 

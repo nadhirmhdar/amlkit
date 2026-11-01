@@ -256,6 +256,20 @@ CREATE TABLE IF NOT EXISTS email_verify_tokens (
 );
 CREATE INDEX IF NOT EXISTS ix_email_verify_operator ON email_verify_tokens(operator_id);
 
+-- unlock_tokens: break-glass self-unlock after a password lockout (L-101).
+-- Same shape as email_verify_tokens (hashed at rest, single-use via used_at)
+-- but a separate table so an unlock link can never be redeemed as a
+-- verification link or vice versa.
+CREATE TABLE IF NOT EXISTS unlock_tokens (
+    id          INTEGER PRIMARY KEY,
+    operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    token_hash  TEXT NOT NULL UNIQUE,
+    used_at     TEXT,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_unlock_tokens_operator ON unlock_tokens(operator_id);
+
 -- ---------------------------------------------------------------- customers
 CREATE TABLE IF NOT EXISTS customers (
     id             INTEGER PRIMARY KEY,
@@ -994,6 +1008,7 @@ SETUP_TOKEN_LIFETIME = timedelta(days=7)
 # minutes of registering, not forwarded around an org later, so there is
 # less reason to keep it live for a week. Resending issues a fresh one.
 EMAIL_VERIFY_TOKEN_LIFETIME = timedelta(days=3)
+UNLOCK_TOKEN_LIFETIME = timedelta(minutes=30)
 
 # UAE PASS's own authorization code expires in 10 minutes (UAE PASS's
 # documented behaviour); the `state` row this app issues to start that

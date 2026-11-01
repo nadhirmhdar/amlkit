@@ -1499,6 +1499,25 @@ def verify_email(request: Request, db: DB, token: str = ""):
     return resp
 
 
+@app.get("/unlock/{token}", response_class=HTMLResponse)
+@limiter.limit("10/minute")
+def self_unlock(request: Request, db: DB, token: str):
+    """Break-glass unlock (L-101): redeem the emailed single-use link. No
+    session. Clears the password lock only, never the MFA lock. Every failure
+    shows the same page so a token cannot be probed."""
+    operator = auth.consume_unlock_token(db, token)
+    if operator is None:
+        return render(request, "verify_email.html", {
+            "session": None, "valid": False, "heading": "Unlock your account",
+            "err": "This unlock link is invalid, expired, or already used.",
+        })
+    from ..db import audit
+    audit(db, operator["name"], "operator.self_unlock", "operator", operator["id"],
+          None, org_id=operator["org_id"])
+    db.commit()
+    return back("/login", msg="Your account is unlocked \u2014 sign in again.")
+
+
 @app.post("/resend-verification")
 @limiter.limit("10/minute")
 def resend_verification(
