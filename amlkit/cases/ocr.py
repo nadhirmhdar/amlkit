@@ -134,10 +134,6 @@ def _pdf_first_page_to_image_bytes(pdf_bytes: bytes, *, dpi: int = 300) -> bytes
             width_pt, height_pt = page.get_size()
             if not (0 < width_pt <= _PDF_MAX_PAGE_PT and 0 < height_pt <= _PDF_MAX_PAGE_PT):
                 raise ValueError(f"implausible PDF page size {width_pt}x{height_pt}pt")
-            from ..validation import max_image_pixels, pdf_render_pixels
-
-            if pdf_render_pixels(width_pt, height_pt, dpi) > max_image_pixels():
-                raise ValueError(f"PDF page {width_pt}x{height_pt}pt would exceed the pixel cap")
             scale = min(dpi / 72, _PDF_MAX_RENDER_PX / max(width_pt, height_pt))
             bitmap = page.render(scale=scale)
             try:

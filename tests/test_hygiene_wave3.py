@@ -147,8 +147,14 @@ def test_scan_route_returns_413_for_pdf_page_bomb(web) -> None:
     assert ok.status_code != 413
 
 
-def test_ocr_renderer_refuses_oversized_page_before_rendering() -> None:
+def test_ocr_renderer_still_bounds_a_bomb_that_bypasses_the_route() -> None:
+    """Defence in depth: cases.ocr scales an oversized page down (existing
+    behaviour), so even a caller that skips the route check cannot allocate
+    300 dpi worth of pixels."""
+    from PIL import Image
+
     from amlkit.cases import ocr
 
-    with pytest.raises(ValueError):
-        ocr._pdf_first_page_to_image_bytes(_pdf(3000, 3000))
+    png = ocr._pdf_first_page_to_image_bytes(_pdf(3000, 3000))
+    with Image.open(io.BytesIO(png)) as im:
+        assert max(im.size) <= ocr._PDF_MAX_RENDER_PX
