@@ -43,10 +43,12 @@ def main() -> int:
             disabled = True
             continue
         count = result["purged"]
-        if count:
+        if count or result.get("skipped"):
             label = "would purge" if args.dry_run else "purged"
             print(f"org {org['id']} ({org['name']}): {label} {count} record(s)")
         total += count
+        for sk in result.get("skipped", []):
+            print(f"  skipped {sk['reference']}: {', '.join(sk['reasons'])}")
 
     if disabled:
         print("Purge disabled: set AMLKIT_PURGE_ENABLED=true to enable (dry run is always allowed).")
