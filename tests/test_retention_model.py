@@ -235,7 +235,10 @@ class TestRecomputeRetention:
             "customer_id": cid, "report_type": "STR", "reporting_entity_name": "Test Firm",
             "entity_reference": "TF-1", "reporter_name": "alice",
             "reporter_email": "alice@testfirm.ae", "first_name": "Report",
-            "last_name": "Subject"}).json()["report_id"]
+            "last_name": "Subject",
+            # #447 removed the goAML placeholder narrative: finalising now
+            # refuses a report without a reason for suspicion.
+            "reason_description": "Test narrative."}).json()["report_id"]
         d = connect(str(db_file))
         d.execute("UPDATE customers SET retention_until=? WHERE id=?", (OLD, cid))
         d.commit()
