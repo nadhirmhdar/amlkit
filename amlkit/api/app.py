@@ -31,7 +31,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from .. import auth, notifications, onboarding, queries, uaepass
+from .. import auth, changelog, notifications, onboarding, queries, uaepass
 from ..datamodel import MAX_NAME_LENGTH
 from ..web import blog
 from .compress import SelectiveGZipMiddleware
@@ -353,6 +353,8 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     # Inject organization name for authenticated sessions
     if session:
         ctx.setdefault("org_name", session.org_name)
+        if db is not None:
+            ctx.setdefault("changelog_unseen", changelog.has_unseen(db, session.operator_id))
 
     # Use the cookie value if already present; otherwise mint one token that
     # goes into BOTH the form field AND the cookie on this same response.
@@ -1766,6 +1768,19 @@ def dashboard_onboarding_dismiss(request: Request, db: DB,
         return RedirectResponse("/login", status_code=303)
     onboarding.dismiss(db, session.org_id, session.operator_id)
     return RedirectResponse("/dashboard", status_code=303)
+
+
+# ------------------------------------------------------------------ changelog
+@app.get("/changelog", response_class=HTMLResponse)
+def changelog_page(request: Request, db: DB):
+    try:
+        session = require_session(request, db)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    changelog.mark_seen(db, session.org_id, session.operator_id)
+    return render(request, "changelog.html", {
+        "session": session, "entries": changelog.entries(), "changelog_unseen": False,
+    }, db)
 
 
 # --------------------------------------------------------------------- screen

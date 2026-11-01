@@ -101,3 +101,44 @@ class TestChecklist:
         aid = c.execute("SELECT id FROM operators WHERE name='alice'").fetchone()[0]
         assert onboarding.checklist(c, org, aid, "mlro") is not None
         c.close()
+
+
+# ------------------------------------------------------------ p52 changelog
+class TestChangelog:
+    def test_requires_session(self, client):
+        from fastapi.testclient import TestClient
+        from amlkit.api.app import app
+        r = TestClient(app).get("/changelog", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/login"
+
+    def test_renders_seeded_entries_newest_first(self, client):
+        html = client.get("/changelog").text
+        assert "What&#39;s new in groAML" in html or "What's new in groAML" in html
+        assert html.index("1 November 2026") < html.index("31 October 2026")
+        assert "amlkit" not in html.lower().split("<main")[-1]
+        import re
+        assert not re.search(r"\bL-\d+", html)
+
+    def test_dot_shows_until_seen_then_clears(self, client):
+        assert "whatsnew-dot" in client.get("/dashboard").text
+        client.get("/changelog")
+        assert "whatsnew-dot" not in client.get("/dashboard").text
+
+    def test_new_entry_brings_dot_back(self, client, monkeypatch):
+        client.get("/changelog")
+        from amlkit import changelog
+        monkeypatch.setattr(changelog, "latest", lambda: "2 November 2026")
+        assert "whatsnew-dot" in client.get("/dashboard").text
+
+    def test_parser_escapes_and_ignores_stray_lines(self):
+        from amlkit import changelog
+        out = changelog.parse("# T\nintro\n## A\n- <script>x</script>\n- two\n## B\n")
+        assert out == [{"title": "A", "items": ["<script>x</script>", "two"]},
+                       {"title": "B", "items": []}]
+
+    def test_markup_in_file_is_escaped(self, client, monkeypatch):
+        from amlkit import changelog
+        monkeypatch.setattr(changelog, "entries",
+                            lambda: [{"title": "T", "items": ["<script>alert(1)</script>"]}])
+        html = client.get("/changelog").text
+        assert "<script>alert(1)</script>" not in html

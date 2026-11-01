@@ -54,6 +54,7 @@
       <a href="/screen"    class="{{ 'on' if nav=='screen' }}">Screen a name</a>
       <a href="/customers" class="{{ 'on' if nav=='customers' }}">Customers</a>
       <a href="/reports"   class="{{ 'on' if nav=='reports' }}">Reports</a>
+      <a href="/changelog" class="{{ 'on' if nav=='changelog' }}">What's new{% if changelog_unseen %}<span class="whatsnew-dot" aria-hidden="true"></span><span class="visually-hidden"> (new updates)</span>{% endif %}</a>
       {% if session.super_admin %}
         <a href="/console" class="{{ 'on' if nav=='console' }}">Console</a>
         {% if applications_viewer %}<a href="/admin/applications" class="{{ 'on' if nav=='applications' }}">Quotation requests</a>{% endif %}
@@ -100,6 +101,7 @@
           <a href="/freeze-obligations" class="user-dropdown__item" role="menuitem">Freeze Obligations</a>
           <a href="/admin/rule-config" class="user-dropdown__item" role="menuitem">Transaction rules</a>
         {% endif %}
+        <a href="/changelog" class="user-dropdown__item" role="menuitem">What's new{% if changelog_unseen %}<span class="whatsnew-dot" aria-hidden="true"></span>{% endif %}</a>
         <a href="/about" class="user-dropdown__item" role="menuitem">About</a>
         <a href="/privacy" class="user-dropdown__item" role="menuitem">Privacy &amp; Cookies</a>
         <div class="user-dropdown__divider"></div>
