@@ -28,6 +28,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from ..billing.limits import check_limit
+from ..sanctions_scope import is_uae_freeze_list
 from ..db import audit, retry_on_lock, utcnow
 from ..match.engine import DEFAULT_THRESHOLD, ScreeningResult, screen
 from ..names.arabic import canonical_key
@@ -174,6 +175,12 @@ class OnboardingResult:
         for _, res in self.ubo_screenings:
             hits.extend(res.hits)
         return hits
+
+    @property
+    def freeze_required(self) -> bool:
+        """True when a sanctions hit is on a UN / UAE-local list (a UAE freeze
+        trigger). A hit on an OFAC/EU/UK list alone sets `blocked` but not this."""
+        return any(h.is_sanction and is_uae_freeze_list(h.dataset) for h in self.all_hits)
 
     @property
     def obligations(self) -> set[str]:

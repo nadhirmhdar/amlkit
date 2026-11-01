@@ -245,7 +245,9 @@ def test_sanctions_terrorism_and_proliferation_keep_the_freeze_note(api):
     rows = {a["id"]: a for a in queries.alert_queue(conn, org_id, status=None, limit=1000)}
     conn.close()
     sanction = next(a for a in rows.values() if a["category"] == "sanction")
-    assert "Freeze without delay" in sanction["obligation"] and "Do not tip off" in sanction["obligation"]
+    # L-102: the seeded list is not a UN / UAE-local list, so no freeze wording.
+    assert "Freeze without delay" not in sanction["obligation"]
+    assert "no UAE freeze obligation" in sanction["obligation"]
     assert "TERRORISM FINANCING" in rows[ids["tf"]]["obligation"]
     assert "Freeze without delay" in rows[ids["tf"]]["obligation"]
     assert "PROLIFERATION FINANCING" in rows[ids["pf"]]["obligation"]
@@ -259,7 +261,8 @@ def test_screening_hit_obligation_is_category_aware():
     pep = Hit(topics=["role.pep"], programs=[], **base)
     sanction = Hit(topics=["sanction"], programs=[], **base)
     assert "freeze" not in pep.obligation.lower()
-    assert "Freeze without delay" in sanction.obligation
+    assert "Freeze without delay" not in sanction.obligation  # dataset "d" is not a UAE freeze list
+    assert "Freeze without delay" in _hit(["sanction"], []).obligation  # UN list
 
 
 # ------------------------------------------------------------ review follow-ups
@@ -369,9 +372,9 @@ def test_offset_beyond_total_and_limit_zero_return_empty(api):
     conn.close()
 
 
-def _hit(topics, programs, entity_id=1):
+def _hit(topics, programs, entity_id=1, dataset="un_sc_sanctions"):
     from amlkit.match.engine import Hit
-    return Hit(entity_id=entity_id, dataset="d", caption="c", schema_type="Person",
+    return Hit(entity_id=entity_id, dataset=dataset, caption="c", schema_type="Person",
                score=0.9, matched_name="n", topics=topics, detail={}, programs=programs)
 
 
@@ -432,7 +435,8 @@ def test_multi_topic_entities_rank_and_word_by_the_stronger_category(api):
     page = queries.alert_queue(conn, org_id, status="open", limit=10)
     assert [a["id"] for a in page] == [pf_pep, sanc_pep, pep]
     assert [a["category"] for a in page] == ["proliferation", "sanction", "pep"]
-    assert all("Freeze without delay" in a["obligation"] for a in page[:2])
+    assert "Freeze without delay" in page[0]["obligation"]      # PF programme
+    assert "Freeze without delay" not in page[1]["obligation"]  # generic sanction on a non-UN list
     assert "freeze" not in page[2]["obligation"].lower()
     conn.close()
 
@@ -454,7 +458,7 @@ def test_screen_hit_json_category_agrees_with_obligation_and_queue(api, topics, 
     conn.commit()
     row = queries.alert_queue(conn, org_id, status="open", alert_id=aid)[0]
     eid = conn.execute("SELECT entity_id FROM alerts WHERE id=?", (aid,)).fetchone()["entity_id"]
-    hj = _hit_json(conn, _hit(topics, programs, entity_id=eid))
+    hj = _hit_json(conn, _hit(topics, programs, entity_id=eid, dataset="small_list"))
     assert hj["category"] == row["category"] == expected
     assert hj["obligation"] == row["obligation"]
     assert (hj["obligation"] == PEP_OBLIGATION) == (expected == "pep")

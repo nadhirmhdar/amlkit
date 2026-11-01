@@ -58,7 +58,8 @@ class Hit:
 
     @property
     def obligation(self) -> str:
-        return obligation_for_category(triage_category(self.topics, self.programs), self.categories)
+        return obligation_for_category(
+            triage_category(self.topics, self.programs), self.categories, self.dataset)
 
 
 @dataclass(slots=True)

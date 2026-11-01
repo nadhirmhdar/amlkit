@@ -645,7 +645,11 @@ def login_form(request: Request, db: DB):
     pending = auth.mfa_session_state(db, request.cookies.get(SESSION_COOKIE))
     if pending and pending["role"] == "mlro" and not pending["mfa_verified"]:
         return RedirectResponse(auth.mfa_challenge_path(db, pending["operator_id"]), status_code=303)
-    return render(request, "login.html", {"session": None})
+    ctx: dict = {"session": None}
+    evicted = auth.pop_evicted_notice(db, request.cookies.get(SESSION_COOKIE))
+    if evicted:
+        ctx["err"] = evicted
+    return render(request, "login.html", ctx)
 
 
 def _login_page_error(request: Request, message: str) -> HTMLResponse:
@@ -1982,11 +1986,13 @@ def customer_create(
     except sqlite3.IntegrityError:
         return back("/customers/new", err=f"Reference {reference!r} already exists.")
 
-    note = (
-        "Onboarded. MATCH FOUND - see alerts, freeze without delay and do not tip off."
-        if result.blocked else
-        f"Onboarded. Risk rating: {result.risk.rating}."
-    )
+    if result.blocked and result.freeze_required:
+        note = "Onboarded. MATCH FOUND on a UN / UAE-local sanctions list - see alerts, freeze without delay and do not tip off."
+    elif result.blocked:
+        note = ("Onboarded. MATCH FOUND on a non-UAE sanctions list - see alerts, apply "
+                "enhanced due diligence and consider an STR/SAR; no UAE freeze obligation arises.")
+    else:
+        note = f"Onboarded. Risk rating: {result.risk.rating}."
     if result.unscreenable:
         # Not a clear result: the name had no searchable tokens (e.g. non-Latin,
         # non-Arabic script). Say so rather than leave "no alerts" to be read
@@ -2367,7 +2373,7 @@ def customer_periodic_review(
     except LookupError:
         raise HTTPException(status_code=404, detail="Customer not found.")
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        return back(f"/customers/{customer_id}", err=str(exc))
     return back(f"/customers/{customer_id}", msg="Periodic review recorded.")
 
 

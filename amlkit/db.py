@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     -- trial_ends_at is a legacy org: unlimited, never write-blocked.
     billing_customer_id     TEXT,
     billing_subscription_id TEXT,
+    billing_last_event_created INTEGER,
     plan                    TEXT NOT NULL DEFAULT 'trial',
     plan_status             TEXT,     -- trialing|active|past_due|canceled|unpaid
     trial_ends_at           TEXT,
@@ -1190,6 +1191,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # untouched: plan 'trial' + NULL trial_ends_at = legacy/unlimited).
     ("organizations", "billing_customer_id",     "ALTER TABLE organizations ADD COLUMN billing_customer_id TEXT"),
     ("organizations", "billing_subscription_id", "ALTER TABLE organizations ADD COLUMN billing_subscription_id TEXT"),
+    # L-106: `created` of the newest customer.subscription.* event applied; older ones are ignored
+    ("organizations", "billing_last_event_created", "ALTER TABLE organizations ADD COLUMN billing_last_event_created INTEGER"),
     ("organizations", "plan",                    "ALTER TABLE organizations ADD COLUMN plan TEXT NOT NULL DEFAULT 'trial'"),
     ("organizations", "plan_status",             "ALTER TABLE organizations ADD COLUMN plan_status TEXT"),
     ("organizations", "trial_ends_at",           "ALTER TABLE organizations ADD COLUMN trial_ends_at TEXT"),
