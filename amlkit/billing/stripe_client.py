@@ -192,7 +192,8 @@ def verify_webhook_signature(payload: bytes, header: str | None, secret: str, *,
         raise SignatureError("no v1 signature in header")
     signed = f"{ts}.".encode() + payload
     expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
-    if not any(hmac.compare_digest(expected, c) for c in candidates):
+    if not any(hmac.compare_digest(expected.encode(), c.encode("utf-8", "replace"))
+               for c in candidates):
         raise SignatureError("signature mismatch")
     current = time.time() if now is None else now
     if abs(current - ts) > tolerance:

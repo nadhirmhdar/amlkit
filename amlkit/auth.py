@@ -264,6 +264,29 @@ SESSION_EVICTED_NOTICE = ("You were signed in on another device; the oldest sess
                           "signed out.")
 
 
+def session_limit_notice(limit: int) -> str:
+    return (f"You were signed out because this account reached its limit of "
+            f"{limit} sessions.")
+
+
+def pop_evicted_notice(conn: sqlite3.Connection, raw_token: str | None) -> str | None:
+    """One-shot notice left on a session that the session cap revoked (L-81).
+
+    Read by the login page for the evicted browser's next request; cleared on read.
+    """
+    if not raw_token:
+        return None
+    th = _token_hash(raw_token)
+    row = conn.execute(
+        "SELECT notice FROM sessions WHERE token_hash=? AND revoked_at IS NOT NULL"
+        " AND notice IS NOT NULL", (th,)).fetchone()
+    if row is None:
+        return None
+    conn.execute("UPDATE sessions SET notice=NULL WHERE token_hash=?", (th,))
+    conn.commit()
+    return row["notice"]
+
+
 def pop_session_notice(conn: sqlite3.Connection, raw_token: str | None) -> str | None:
     """Return and clear the one-shot notice stored on this session (L-81)."""
     if not raw_token:
@@ -722,13 +745,30 @@ def _enforce_session_limit(conn: sqlite3.Connection, operator_id: int) -> bool:
             (operator_id, now)
         ).fetchone()
         if oldest:
-            conn.execute("UPDATE sessions SET revoked_at=? WHERE id=?",
-                        (utcnow(), oldest["id"]))
+            # The evicted session keeps a notice of its own: its next request
+            # lands on /login, which shows it (L-81 residual).
+            conn.execute("UPDATE sessions SET revoked_at=?, notice=? WHERE id=?",
+                        (utcnow(), session_limit_notice(max_sessions), oldest["id"]))
             return True
     return False
 
 
 # --------------------------------------------------------------------- csrf
+def safe_equals(a: str | bytes | None, b: str | bytes | None) -> bool:
+    """Constant-time equality that never raises on non-ASCII or None input.
+
+    hmac.compare_digest raises TypeError for a str with non-ASCII characters;
+    comparing UTF-8 bytes makes such input a plain mismatch (L-100).
+    """
+    if a is None or b is None:
+        return False
+    if isinstance(a, str):
+        a = a.encode("utf-8", "replace")
+    if isinstance(b, str):
+        b = b.encode("utf-8", "replace")
+    return hmac.compare_digest(a, b)
+
+
 def new_csrf_token() -> str:
     return secrets.token_urlsafe(24)
 
@@ -741,7 +781,7 @@ def csrf_valid(cookie_value: str | None, form_value: str | None) -> bool:
     """
     if not cookie_value or not form_value:
         return False
-    return secrets.compare_digest(cookie_value, form_value)
+    return safe_equals(cookie_value, form_value)
 
 
 # --------------------------------------------------------------------- MFA/TOTP (p15)
@@ -812,7 +852,7 @@ def mfa_verify(conn, operator_id: int, code: str, *, confirmed_only: bool = Fals
     for step in (now_step - 1, now_step, now_step + 1):
         if step <= last:
             continue
-        if hmac.compare_digest(totp.generate_otp(step), code):
+        if safe_equals(totp.generate_otp(step), code):
             cur = conn.execute(
                 "UPDATE mfa_secrets SET last_step=? WHERE operator_id=?"
                 " AND (last_step IS NULL OR last_step < ?)",

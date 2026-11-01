@@ -171,13 +171,16 @@ class TestWeb:
         assert c.execute("SELECT COUNT(*) FROM audit_log WHERE action='review.completed'"
                          ).fetchone()[0] == 1
 
-    def test_short_note_is_400(self, client):
+    def test_short_note_returns_the_page_with_the_error(self, client):
+        # L-105: a validation error is shown on the customer page, not as raw JSON.
         cid = _web_customer()
-        assert _post_review(client, cid, note="short").status_code == 400
+        r = _post_review(client, cid, note="short")
+        assert r.status_code == 303 and r.headers["location"] == f"/customers/{cid}"
 
-    def test_bad_outcome_is_400(self, client):
+    def test_bad_outcome_returns_the_page_with_the_error(self, client):
         cid = _web_customer()
-        assert _post_review(client, cid, outcome="bogus").status_code == 400
+        r = _post_review(client, cid, outcome="bogus")
+        assert r.status_code == 303 and r.headers["location"] == f"/customers/{cid}"
 
     def test_missing_csrf_does_not_record(self, client):
         cid = _web_customer()

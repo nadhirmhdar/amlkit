@@ -576,7 +576,7 @@ def alert_queue(
                 "programs": programs,
                 "countries": json.loads(row["countries"] or "[]"),
                 "category": cat,
-                "obligation": obligation_for_category(cat, classify_programs(programs)),
+                "obligation": obligation_for_category(cat, classify_programs(programs), row["dataset"]),
                 "detail": json.loads(row["score_detail"] or "{}"),
                 "aliases": entity_names(conn, row["entity_id"]),
                 # Whose name actually matched -- the customer, or one of their

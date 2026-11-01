@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import quote as _urlquote
 
+from fastapi.responses import JSONResponse
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
@@ -861,7 +862,7 @@ def api_customer_periodic_review(
     except LookupError:
         raise HTTPException(status_code=404, detail="Customer not found.")
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        return JSONResponse({"error": str(exc)}, status_code=400)
     row = db.execute(
         "SELECT rating, next_review FROM risk_assessments"
         " WHERE customer_id=? AND org_id=? ORDER BY id DESC LIMIT 1",

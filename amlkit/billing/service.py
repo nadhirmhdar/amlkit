@@ -140,14 +140,26 @@ def _process(conn: sqlite3.Connection, event: dict[str, Any], config: StripeConf
                            customer=obj.get("customer"), subscription=obj.get("id"))
         if org_id is None:
             return None
-        held = conn.execute("SELECT billing_subscription_id FROM organizations WHERE id=?",
-                            (org_id,)).fetchone()["billing_subscription_id"]
+        org_row = conn.execute(
+            "SELECT billing_subscription_id, billing_last_event_created FROM organizations"
+            " WHERE id=?", (org_id,)).fetchone()
+        held = org_row["billing_subscription_id"]
+        # L-106: Stripe does not guarantee delivery order. A subscription event
+        # older than the newest one already applied is stored but not applied.
+        created = event.get("created")
+        created = created if isinstance(created, int) and not isinstance(created, bool) else None
+        last = org_row["billing_last_event_created"]
+        if created is not None and last is not None and created < last:
+            return org_id
         if etype != "customer.subscription.created" and held and obj.get("id") != held:
             return org_id  # a superseded subscription: must not overwrite the live one
         if etype.endswith("deleted"):
             obj = {**obj, "status": "canceled"}
         apply_subscription(conn, org_id, obj, config, event_type=etype,
                            event_created=event.get("created"))
+        if created is not None:
+            conn.execute("UPDATE organizations SET billing_last_event_created=? WHERE id=?",
+                         (created, org_id))
         return org_id
 
     if etype in ("invoice.payment_failed", "invoice.paid"):

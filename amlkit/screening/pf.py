@@ -19,6 +19,8 @@ offences with different reports.
 
 from __future__ import annotations
 
+from ..sanctions_scope import is_uae_freeze_list
+
 # UN Security Council non-proliferation regimes.
 #   1718 - DPRK: nuclear, ballistic missile and WMD programmes
 #   1737 - Iran: nuclear programme (superseded by 2231 but still carried)
@@ -84,7 +86,7 @@ def is_terrorism(programs: list[str] | None) -> bool:
     return "terrorism" in classify_programs(programs)
 
 
-def obligation_note(categories: set[str]) -> str:
+def obligation_note(categories: set[str], dataset: str | None = None) -> str:
     """Plain-language statement of what the match obliges, for the alert record.
 
     Written out rather than left implicit because the operator acting on the
@@ -103,10 +105,19 @@ def obligation_note(categories: set[str]) -> str:
             "notice; report to the supervisory authority and file via goAML. "
             "Do not tip off."
         )
+    if dataset and not is_uae_freeze_list(dataset):
+        # L-102: OFAC / EU / UK designations are not UAE freeze triggers (#433).
+        return NON_UAE_SANCTIONS_OBLIGATION
     return (
         "SANCTIONS match. Freeze without delay and without prior notice; report "
         "to the supervisory authority. Do not tip off."
     )
+
+
+NON_UAE_SANCTIONS_OBLIGATION = (
+    "Confirmed sanctions match on a non-UAE list - apply enhanced due "
+    "diligence and consider an STR/SAR; no UAE freeze obligation arises."
+)
 
 
 # A PEP hit is a risk-rating event, not a designation, so these notes must
@@ -145,15 +156,17 @@ def triage_category(topics: list[str] | None, programs: list[str] | None) -> str
     return "other"
 
 
-def obligation_for_category(category: str, categories: set[str]) -> str:
+def obligation_for_category(category: str, categories: set[str],
+                            dataset: str | None = None) -> str:
     """obligation_note() for the sanctions categories; non-freeze wording for
     PEP and for non-sanctions lists, which carry no freeze duty.
 
-    EU/UK-only sanctions hits are still category "sanction" and keep the freeze
-    wording: whether they should is a legal question, deliberately not decided here.
+    With `dataset` (a datasets.key), a generic sanctions hit on a non-UN /
+    non-UAE-local list gets the non-freeze wording (L-102); with no dataset the
+    freeze wording is kept, since a UN listing cannot be ruled out.
     """
     if category == "pep":
         return PEP_OBLIGATION
     if category == "other":
         return OTHER_OBLIGATION
-    return obligation_note(categories)
+    return obligation_note(categories, dataset)
