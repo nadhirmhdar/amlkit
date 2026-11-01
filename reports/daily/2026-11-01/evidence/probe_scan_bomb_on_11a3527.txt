@@ -1,0 +1,6 @@
+baseline maxrss 64 MB
+ normal 800x600: file 1 KB -> (200, 15.4, '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender":null,"id', 'maxrss=212MB')
+ 9000x9000 (81 MP): file 97 KB -> (413, 0.0, '{"detail":"Image dimensions are too large (maximum 25 megapixels)."}', 'maxrss=282MB')
+ 12000x12000 (144 MP, > warn, < error): file 164 KB -> (413, 0.0, '{"detail":"Image dimensions are too large (maximum 25 megapixels)."}', 'maxrss=343MB')
+ 20000x20000 (400 MP, > error limit): file 428 KB -> (413, 0.0, '{"detail":"Image dimensions are too large."}', 'maxrss=597MB')
+ 60 MB junk with PNG magic -> (413, 0.3, '{"detail":"File is too large (maximum 10 MB)."}', 'maxrss=597MB')

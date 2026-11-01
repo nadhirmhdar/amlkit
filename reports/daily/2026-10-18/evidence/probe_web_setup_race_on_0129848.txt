@@ -1,0 +1,5 @@
+== 1. race: 20 threads, one token, own connection each ==
+ outcomes: {'ok': 20} | operators created from one token: 20
+== 2. edge cases ==
+ existing email -> IntegrityError (route catches only ValueError)
+ invalid email + blank name + weak pw -> accepted; operator exists: True

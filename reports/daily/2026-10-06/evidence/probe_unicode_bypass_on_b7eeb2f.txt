@@ -1,0 +1,36 @@
+HIT            1.0 cand=1  baseline
+HIT            1.0 cand=1  [fixed #425] ZWSP
+HIT            1.0 cand=1  [fixed] soft hyphen
+HIT            1.0 cand=1  [fixed] BOM
+HIT            1.0 cand=1  [fixed] Arabic presentation forms
+MISS             0 cand=1  variation selector VS16 (Mn)
+MISS             0 cand=1  combining grapheme joiner U+034F (Mn)
+MISS             0 cand=1  C0 control BS (Cc)
+MISS             0 cand=1  DEL (Cc)
+MISS             0 cand=1  Braille blank U+2800 (So)
+HIT            1.0 cand=1  Hangul filler U+3164
+HIT            1.0 cand=1  Mongolian vowel sep U+180E
+MISS             0 cand=1  ideographic space inside token
+MISS             0 cand=1  private use U+E000 (Co)
+HIT            1.0 cand=1  combining dot above U+0307
+MISS             0 cand=1  Cyrillic consonant homoglyph (В)
+MISS             0 cand=1  Greek consonant homoglyph (Β)
+HIT            1.0 cand=1  Arabic ext-A mark U+08D3 inside
+HIT            1.0 cand=1  Arabic half-mark U+FE20 inside
+MISS             0 cand=1  Arabic Urdu yeh-barree
+MISS             0 cand=1  [S3] extra token
+MISS             0 cand=1  [S4] exact name + country mismatch (via kw)
+screen(): name has letters but no screenable tokens; flagged unscreenable
+UNSCREENABLE     0 cand=0  Cyrillic-only name
+screen(): name has letters but no screenable tokens; flagged unscreenable
+UNSCREENABLE     0 cand=0  Chinese-only name
+screen(): name has letters but no screenable tokens; flagged unscreenable
+UNSCREENABLE     0 cand=0  Persian letters only (پچژگ)
+== downstream handling of an UNSCREENABLE name ==
+screen(): name has letters but no screenable tokens; flagged unscreenable
+ onboard('Иван Петров') -> OnboardingResult {'customer_id': 1}
+ persisted screening row: {'hits': 0, 'candidates': 0, 'datasets_used': '[]'}
+screen(): name has letters but no screenable tokens; flagged unscreenable
+ persisted screen(): clear = False | alerts_created = 0 | summary: UNSCREENABLE  'Иван Петров' - no screenable name tokens; manual review required
+screen(): name has letters but no screenable tokens; flagged unscreenable
+ rescreen_all: {'screened': 1, 'alerts': 0}
