@@ -42,6 +42,7 @@ def test_report_submit_happy_path_mlro_submits_str(tmp_path, monkeypatch):
         "report_code": "STR",
         "submission_code": "SUBMIT-001",
         "reason": "Suspicious transaction pattern",
+        "reason_description": "Suspicious transaction pattern",
         "transactions": [{"amount": 50000, "currency": "AED"}],
         "entities": []
     }
@@ -111,6 +112,7 @@ def test_report_submit_already_submitted_returns_400(tmp_path, monkeypatch):
         "report_code": "STR",
         "submission_code": "SUBMIT-001",
         "reason": "Suspicious transaction pattern",
+        "reason_description": "Suspicious transaction pattern",
         "transactions": [{"amount": 50000, "currency": "AED"}]
     }
     conn.execute(
@@ -179,6 +181,7 @@ def test_report_submit_wrong_org_returns_403(tmp_path, monkeypatch):
         "report_code": "STR",
         "submission_code": "SUBMIT-001",
         "reason": "Suspicious transaction pattern",
+        "reason_description": "Suspicious transaction pattern",
         "transactions": [{"amount": 50000, "currency": "AED"}]
     }
     conn.execute(

@@ -26,6 +26,7 @@ def test_serialize_ffr_xml_structure():
             }
         ],
         "reporting_entity_name": "Test Firm",
+        "entity_reference": "TEST-REF-1",
         "reporter_name": "John Smith",
         "reporter_email": "john.smith@test.com",
         "first_name": "Sanctioned",
@@ -66,6 +67,7 @@ def test_serialize_ffr_requires_freeze_obligation_id():
         "report_type": "FFR",
         # Missing freeze_obligation_id
         "reporting_entity_name": "Test Firm",
+        "entity_reference": "TEST-REF-1",
         "reporter_name": "John Smith",
         "reporter_email": "john.smith@test.com",
     }
@@ -81,11 +83,14 @@ def test_serialize_ffr_includes_assets():
         "freeze_obligation_id": 1,
         "customer_id": 123,
         "obligation_type": "sanctions",
+        "identified_at": "2026-09-13T10:00:00Z",
+        "executed_at": "2026-09-13T11:30:00Z",
         "assets_frozen": [
             {"type": "bank_account", "identifier": "AE070331234567890123456", "amount_aed": 150000.50},
             {"type": "investment_account", "identifier": "INV-12345", "amount_aed": 500000.00}
         ],
         "reporting_entity_name": "Test Firm",
+        "entity_reference": "TEST-REF-1",
         "reporter_name": "John Smith",
         "reporter_email": "john.smith@test.com",
         "first_name": "Test",
@@ -114,6 +119,9 @@ def test_serialize_ffr_obligation_types():
             "obligation_type": obligation_type,
             "assets_frozen": [],
             "reporting_entity_name": "Test Firm",
+            "entity_reference": "TEST-REF-1",
+            "identified_at": "2026-09-13T10:00:00Z",
+            "executed_at": "2026-09-13T11:30:00Z",
             "reporter_name": "John Smith",
             "reporter_email": "john.smith@test.com",
             "first_name": "Test",

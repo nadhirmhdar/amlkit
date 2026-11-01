@@ -352,7 +352,9 @@ class TestFinaliseValidatesExport:
     COMPLETE = {"reporting_entity_name": "Test Firm", "entity_reference": "LIC-1",
                 "reporter_name": "Alice MLRO", "reporter_email": "alice@testfirm.ae",
                 "first_name": "Ahmed", "amount": "10", "transaction_type": "Wire",
-                "source_account": "1", "destination_account": "2"}
+                "source_account": "1", "destination_account": "2",
+                "reason_description": "Narrative.",
+                "identified_at": "2026-01-01T00:00:00Z", "executed_at": "2026-01-01T01:00:00Z"}
 
     def test_unsupported_report_type_refuses_finalise_with_a_grammatical_message(self, client) -> None:
         rid = _insert_report("CTR", {**self.COMPLETE, "report_type": "CTR"})
@@ -401,7 +403,8 @@ def _insert_report(report_type: str, payload: dict) -> int:
 # ----------------------------------------------- dry-run == exporter, keyed errors
 
 class TestDryRunAgreesWithExporter:
-    INCOMPLETE = {"reporting_entity_name": "X", "reporter_name": "A B",
+    INCOMPLETE = {"reporting_entity_name": "X", "entity_reference": "R-1",
+                  "reason_description": "Narrative.", "reporter_name": "A B",
                   "reporter_email": "a@b.ae", "first_name": "Ahmed",
                   "amount": "10", "transaction_type": "Wire"}
 
@@ -453,7 +456,8 @@ def _org_without_reference():
 class TestEntityReferenceIsKeyedNotTextMatched:
     GAP_FREE = {"reporting_entity_name": "X", "reporter_name": "A", "reporter_email": "a@b.ae",
                 "first_name": "F", "amount": "1", "transaction_type": "W",
-                "source_account": "1", "destination_account": "2"}
+                "source_account": "1", "destination_account": "2",
+                "reason_description": "Narrative."}
 
     def test_error_carries_structured_key_and_label(self, client) -> None:
         from amlkit.reporting.goaml import (
