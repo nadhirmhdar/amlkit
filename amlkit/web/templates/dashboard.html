@@ -69,8 +69,8 @@
     <a href="{{ i.href }}" class="list-row" data-onb="{{ i.key }}" data-done="{{ 'yes' if i.done else 'no' }}" style="text-decoration:none; color:inherit;">
       <span aria-hidden="true" style="width:20px;">{{ '&#10003;' if i.done else '&#9675;' }}</span>
       <div class="grow">
-        <div class="primary">{{ i.label }}{% if i.done %}<span class="visually-hidden"> (done)</span>{% endif %}</div>
-        <div class="side">{{ i.hint }}</div>
+        <div class="onb-label" style="font-weight:600;">{{ i.label }}{% if i.done %}<span class="visually-hidden"> (done)</span>{% endif %}</div>
+        <div class="muted small">{{ i.hint }}</div>
       </div>
     </a>
     {% endfor %}
