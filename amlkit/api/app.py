@@ -31,7 +31,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from .. import auth, notifications, queries, uaepass
+from .. import auth, notifications, onboarding, queries, uaepass
 from ..datamodel import MAX_NAME_LENGTH
 from ..web import blog
 from .compress import SelectiveGZipMiddleware
@@ -1751,7 +1751,21 @@ def dashboard(request: Request, db: DB):
     }
     if can_view_audit(session):
         ctx["recent_audit"] = queries.recent_audit(db, session.org_id)
+    ctx["onboarding"] = onboarding.checklist(
+        db, session.org_id, session.operator_id, session.operator_role)
     return render(request, "dashboard.html", ctx, db)
+
+
+@app.post("/dashboard/onboarding/dismiss")
+def dashboard_onboarding_dismiss(request: Request, db: DB,
+                                 csrf_token: Annotated[str, Form()] = ""):
+    try:
+        session = require_session(request, db)
+        require_csrf(request, csrf_token)
+    except PermissionError:
+        return RedirectResponse("/login", status_code=303)
+    onboarding.dismiss(db, session.org_id, session.operator_id)
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 # --------------------------------------------------------------------- screen

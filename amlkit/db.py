@@ -394,6 +394,10 @@ CREATE TABLE IF NOT EXISTS operators (
     -- from is_active: is_active is an admin's on/off switch for an operator
     -- that already proved their email once, this is that one-time proof.
     email_verified_at  TEXT,
+    -- p51: set when the operator dismisses the dashboard first-run checklist.
+    onboarding_dismissed_at TEXT,
+    -- p52: title of the newest /changelog entry this operator has seen.
+    changelog_seen     TEXT,
     created_at         TEXT NOT NULL,
     UNIQUE (org_id, name)
 );
@@ -1018,6 +1022,10 @@ UAEPASS_STATE_LIFETIME = timedelta(minutes=15)
 # This is a deliberate, stated tradeoff: a hand-edited database bypassing the
 # application is not caught by the schema alone.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("operators", "onboarding_dismissed_at",
+     "ALTER TABLE operators ADD COLUMN onboarding_dismissed_at TEXT"),
+    ("operators", "changelog_seen",
+     "ALTER TABLE operators ADD COLUMN changelog_seen TEXT"),
     # L-50: whether a UAE PASS result agreed with what the customer file already
     # held. match | mismatch | no_baseline (nothing stored to compare against);
     # NULL on rows recorded before the check existed.
