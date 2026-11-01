@@ -2582,8 +2582,9 @@ def upload_policy(
 
     Storage:
         - Uses storage.upload_policy() for backend-agnostic storage
-        - Local: data/policies/{org_id}/{filename}
-        - GCS: gs://{bucket}/policies/{org_id}/{filename}
+        - Local: data/policies/{org_id}/{unique stored name}
+        - GCS: gs://{bucket}/policies/{org_id}/{unique stored name}
+        - The client filename is kept in policy_documents.filename for display
 
     Versioning:
         - If title already exists, version = MAX(version) + 1

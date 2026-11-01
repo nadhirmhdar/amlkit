@@ -27,7 +27,8 @@ class TestPolicyStorage:
         assert stored_path is not None
         assert "policies" in stored_path
         assert str(org_id) in stored_path
-        assert filename in stored_path
+        assert filename not in stored_path
+        assert stored_path.endswith(".pdf")
 
         # Cleanup
         if os.path.exists(stored_path):
@@ -59,3 +60,16 @@ class TestPolicyStorage:
 
         # Cleanup
         os.remove(stored_path)
+
+
+    def test_same_named_policy_versions_do_not_overwrite(self) -> None:
+        """L-43 class: two uploads with one filename get distinct blobs."""
+        p1 = upload_policy(b"version one", 321, "policy.pdf")
+        p2 = upload_policy(b"version two", 321, "policy.pdf")
+        try:
+            assert p1 != p2
+            assert download_policy(p1) == b"version one"
+            assert download_policy(p2) == b"version two"
+        finally:
+            os.remove(p1)
+            os.remove(p2)
