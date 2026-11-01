@@ -260,12 +260,10 @@ class TestAlertDedup:
         n = conn.execute("SELECT COUNT(*) c FROM alerts WHERE org_id=?", (org_id,)).fetchone()["c"]
         assert n == 1
 
-    def test_new_alert_allowed_once_prior_is_dispositioned(self, conn, org_id, customer_id) -> None:
-        """Dedup suppresses open / pending_review duplicates and unchanged
-        dismissed (false_positive) matches. A *confirmed* match (true_positive)
-        must keep re-alerting after every list update rather than being
-        silently swallowed forever. (Dismissed matches: see
-        tests/test_screening_correctness.py::TestRealertDedupe.)"""
+    def test_confirmed_match_is_standing_record_until_list_changes(self, conn, org_id, customer_id) -> None:
+        """A confirmed match (true_positive) is the standing record: a re-screen
+        raises no second alert unless the list entry changed after the decision
+        (see tests/test_alert_lifecycle.py)."""
         first = screen(
             conn, "FOAD SALEHI", org_id=org_id, trigger="onboarding", customer_id=customer_id
         )
@@ -278,7 +276,14 @@ class TestAlertDedup:
         second = screen(
             conn, "FOAD SALEHI", org_id=org_id, trigger="list_update", customer_id=customer_id
         )
-        assert second.alerts_created == 1
+        assert second.alerts_created == 0
+
+        conn.execute("UPDATE entities SET content_changed_at='2999-01-01T00:00:00+00:00'")
+        conn.commit()
+        third = screen(
+            conn, "FOAD SALEHI", org_id=org_id, trigger="list_update", customer_id=customer_id
+        )
+        assert third.alerts_created == 1
 
     def test_rescreen_all_reports_only_genuinely_new_alerts(self, conn, org_id, customer_id) -> None:
         first = rescreen_all(conn, org_id)

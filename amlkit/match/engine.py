@@ -369,14 +369,16 @@ def _persist(
             # resolved accumulates a fresh duplicate on every refresh. The
             # screening row above is still recorded either way -- "checked
             # again, same known match" is still evidence the obligation was met.
-            if _already_covered(conn, org_id, h.entity_id, customer_id, ubo_id):
+            covered, why = _coverage(conn, org_id, h.entity_id, customer_id, ubo_id)
+            if covered:
                 continue
             conn.execute(
                 """INSERT INTO alerts
-                   (org_id, screening_id, entity_id, score, score_detail, matched_name, created_at)
-                   VALUES (?,?,?,?,?,?,?)""",
+                   (org_id, screening_id, entity_id, score, score_detail, matched_name,
+                    created_at, reason)
+                   VALUES (?,?,?,?,?,?,?,?)""",
                 (org_id, sid, h.entity_id, h.score, json.dumps(h.detail, ensure_ascii=False),
-                 h.matched_name, now),
+                 h.matched_name, now, why),
             )
             alerts_created += 1
         audit(
@@ -398,39 +400,96 @@ def _persist(
     return sid, alerts_created
 
 
-def _already_covered(
+def subject_hash(conn: sqlite3.Connection, org_id: int, customer_id: int | None) -> str | None:
+    """Fingerprint of the customer's own identifiers (CS-21).
+
+    Stored on an alert when it is dispositioned so that a later change to the
+    name, date of birth, nationality or ID number -- the facts the earlier
+    judgement rested on -- invalidates that decision on the next re-screen.
+    None for ad-hoc screenings or an unknown customer.
+    """
+    if customer_id is None:
+        return None
+    row = conn.execute(
+        "SELECT full_name, name_arabic, birth_date, nationality, id_number"
+        " FROM customers WHERE id = ? AND org_id = ?",
+        (customer_id, org_id),
+    ).fetchone()
+    if row is None:
+        return None
+    import hashlib
+    parts = [(row[k] or "").strip().casefold() for k in
+             ("full_name", "name_arabic", "birth_date", "nationality", "id_number")]
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def stamp_subject_hash(conn: sqlite3.Connection, alert_id: int, org_id: int) -> None:
+    """Record the customer's current identifier hash on a just-dispositioned alert."""
+    row = conn.execute(
+        "SELECT s.customer_id, s.ubo_id FROM alerts a JOIN screenings s ON s.id = a.screening_id"
+        " WHERE a.id = ? AND a.org_id = ?",
+        (alert_id, org_id),
+    ).fetchone()
+    if row is None or row["ubo_id"] is not None:
+        return  # UBO matches are not covered by the customer's identifiers
+    h = subject_hash(conn, org_id, row["customer_id"])
+    if h:
+        conn.execute("UPDATE alerts SET subject_hash = ? WHERE id = ? AND org_id = ?",
+                     (h, alert_id, org_id))
+
+
+def _coverage(
     conn: sqlite3.Connection, org_id: int, entity_id: int,
     customer_id: int | None, ubo_id: int | None,
-) -> bool:
-    """True when a hit should NOT raise a new alert.
+) -> tuple[bool, str | None]:
+    """(covered, reason). covered=True means a hit should NOT raise a new alert.
 
     - `open` and `pending_review`: the match is already in the queue / in the
       four-eyes workflow; a duplicate would let a second operator dismiss it
       independently and split the evidence trail.
-    - `false_positive`: dismissed by an operator, so stay quiet -- unless the
-      list entry's content changed after the decision (new DOB, alias,
-      programme...), when the earlier judgement may no longer hold.
-    - `true_positive` / `escalated`: keep re-alerting (a confirmed match must
-      keep surfacing after every list update).
+    - `false_positive`, `true_positive`, `escalated`: a decided alert is the
+      standing record of the match. A re-screen records its screening row but
+      raises nothing new -- unless the decision may no longer hold, in which
+      case a new alert is raised with reason 'list_updated' (the list entry's
+      content changed after the decision) or 'subject_changed' (the customer's
+      own identifiers changed after the decision). The freeze obligation of a
+      confirmed match is untouched either way.
     """
     rows = conn.execute(
-        """SELECT a.status, COALESCE(a.dispositioned_at, a.created_at) AS decided_at
+        """SELECT a.status, a.subject_hash,
+                  COALESCE(a.dispositioned_at, a.created_at) AS decided_at
            FROM alerts a JOIN screenings s ON s.id = a.screening_id
            WHERE a.org_id = ? AND a.entity_id = ?
-             AND a.status IN ('open', 'pending_review', 'false_positive')
-             AND s.customer_id IS ? AND s.ubo_id IS ?""",
+             AND a.status IN ('open', 'pending_review', 'false_positive',
+                              'true_positive', 'escalated')
+             AND s.customer_id IS ? AND s.ubo_id IS ?
+           ORDER BY decided_at, a.id""",
         (org_id, entity_id, customer_id, ubo_id),
     ).fetchall()
     if not rows:
-        return False
+        return False, None
     if any(r["status"] in ("open", "pending_review") for r in rows):
-        return True
-    last_decision = max(r["decided_at"] for r in rows)
+        return True, None
+    latest = rows[-1]
     changed_at = conn.execute(
         "SELECT content_changed_at FROM entities WHERE id = ?", (entity_id,)
     ).fetchone()
     changed_at = changed_at["content_changed_at"] if changed_at else None
-    return not (changed_at and changed_at > last_decision)
+    if changed_at and changed_at > latest["decided_at"]:
+        return False, "list_updated"
+    # Rows without a stored hash (decided before this existed) adopt as unchanged.
+    if latest["subject_hash"] and ubo_id is None:
+        current = subject_hash(conn, org_id, customer_id)
+        if current and current != latest["subject_hash"]:
+            return False, "subject_changed"
+    return True, None
+
+
+def _already_covered(
+    conn: sqlite3.Connection, org_id: int, entity_id: int,
+    customer_id: int | None, ubo_id: int | None,
+) -> bool:
+    return _coverage(conn, org_id, entity_id, customer_id, ubo_id)[0]
 
 
 def rescreen_all(

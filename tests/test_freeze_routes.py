@@ -311,7 +311,8 @@ def test_freeze_list_view_renders(client):
     r = client.get("/freeze-obligations")
     assert r.status_code == 200
     assert "TFS Freeze Obligations" in r.text
-    assert "Cabinet Resolution 134/2025" in r.text
+    assert "134/2025" not in r.text
+    assert "must be executed immediately" in r.text
 
 
 def test_freeze_detail_view_renders(client):

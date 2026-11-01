@@ -240,9 +240,9 @@ def send_freeze_obligation_alert(
 ) -> str:
     """Send MLRO email alert for new TFS freeze obligation.
 
-    Cabinet Resolution 134/2025 places personal liability on senior management
-    for TFS compliance failures. This alert ensures immediate notification when
-    a freeze obligation is identified.
+    TFS compliance failures carry personal liability for senior management.
+    This alert ensures immediate notification when a freeze obligation is
+    identified.
 
     Subject: "[URGENT] TFS Freeze Obligation - {customer_reference}"
     Body includes:
@@ -310,9 +310,8 @@ def send_freeze_obligation_alert(
             "- Execute asset freeze without delay\n"
             "- Document all frozen assets\n"
             "- File a CNMR (Confirmed Name Match Report) on goAML within 5 business days\n\n"
-            "Cabinet Resolution 134/2025 places personal liability on senior management\n"
-            "for TFS compliance failures. Asset freezes must be executed immediately upon\n"
-            "identification per UAE law.\n\n"
+            "TFS compliance failures carry personal liability for senior management.\n"
+            "Asset freezes must be executed immediately upon identification.\n\n"
             f"View freeze obligation: {detail_url}\n"
         )
     except (ValueError, TypeError, UnicodeError):

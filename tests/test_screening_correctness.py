@@ -284,11 +284,13 @@ class TestRealertDedupe:
         # ...and the new open alert is itself deduped on the next run
         assert rescreen_all(conn, org)["alerts"] == 0
 
-    def test_true_positive_keeps_realerting(self, seeded):
+    def test_true_positive_is_the_standing_record(self, seeded):
+        # L-103: superseded the old "keep re-alerting" behaviour; see
+        # tests/test_alert_lifecycle.py for the list_updated re-alert.
         from amlkit.match.engine import rescreen_all
         conn, org = seeded
         conn.execute("UPDATE alerts SET status='true_positive' WHERE id=1")
-        assert rescreen_all(conn, org)["alerts"] == 1
+        assert rescreen_all(conn, org)["alerts"] == 0
 
     def test_open_still_deduped(self, seeded):
         from amlkit.match.engine import rescreen_all

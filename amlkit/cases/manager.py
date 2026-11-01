@@ -2182,6 +2182,17 @@ def resolve_freeze_obligation(
 
     status = row["status"]
 
+    # A linked CNMR still in draft means the report to the regulator has been
+    # started but not made; closing the obligation now would orphan it.
+    linked = conn.execute(
+        """SELECT r.status FROM freeze_obligations f
+           JOIN reports r ON r.id = f.report_id AND r.org_id = f.org_id
+           WHERE f.id = ? AND f.org_id = ?""",
+        (freeze_obligation_id, org_id),
+    ).fetchone()
+    if linked is not None and linked["status"] == "draft":
+        raise ValueError("File or discard the draft CNMR first")
+
     # Allow resolving as false_positive without execution
     if resolution_reason != "false_positive" and row["executed_at"] is None:
         raise ValueError(
