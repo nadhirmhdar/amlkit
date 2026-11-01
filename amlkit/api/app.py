@@ -4585,6 +4585,10 @@ def report_submit(request: Request, db: DB, report_id: int, csrf_token: Annotate
         # A finalised CNMR is what moves its freeze to 'reported'.
         from ..cases.freeze import mark_freeze_reported
         mark_freeze_reported(db, report_id, session.org_id, session.operator_name, now)
+        if rep["customer_id"]:
+            from ..cases.manager import recompute_retention
+            recompute_retention(db, session.org_id, rep["customer_id"],
+                                trigger="report.finalized", actor=session.operator_name)
 
     from ..replication import sync_replica
     sync_replica(timeout=10, reason="report finalized")

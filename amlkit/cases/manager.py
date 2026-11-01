@@ -136,6 +136,111 @@ def retention_from(start: date) -> str:
         return start.replace(year=start.year + RETENTION_YEARS, day=28).isoformat()
 
 
+def _parse_day(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def recompute_retention(
+    conn: sqlite3.Connection, org_id: int, customer_id: int, *,
+    trigger: str = "recompute", actor: str = "system",
+) -> str | None:
+    """Apply the latest-of retention model to one customer; only ever extends.
+
+    retention_until = max(relationship end, last transaction date, last
+    finalised report date) + RETENTION_YEARS. The relationship end is the
+    customer's exit_date once closed; an open relationship contributes no
+    anchor of its own (its date is set at onboarding). A stored date that is
+    already later is left alone, so this never shortens. Writes one
+    `retention.extended` audit row (customer id, old and new date; no PII) when
+    it changes something. Does not commit; call it inside the caller's
+    transaction. Returns the new date, or None when nothing changed.
+    """
+    row = conn.execute(
+        "SELECT status, exit_date, retention_until FROM customers"
+        " WHERE id=? AND org_id=?", (customer_id, org_id)).fetchone()
+    if row is None:
+        return None
+    anchors: list[date] = []
+    if row["status"] == "closed":
+        d = _parse_day(row["exit_date"])
+        if d:
+            anchors.append(d)
+    txn = conn.execute(
+        "SELECT max(occurred_at) FROM transactions WHERE customer_id=? AND org_id=?",
+        (customer_id, org_id)).fetchone()[0]
+    rep = conn.execute(
+        "SELECT max(submitted_at) FROM reports"
+        " WHERE customer_id=? AND org_id=? AND status='submitted'",
+        (customer_id, org_id)).fetchone()[0]
+    anchors += [d for d in (_parse_day(txn), _parse_day(rep)) if d]
+    if not anchors:
+        return None
+    target = retention_from(max(anchors))
+    current = row["retention_until"]
+    if current and current[:10] >= target:
+        return None
+    conn.execute(
+        "UPDATE customers SET retention_until=?, updated_at=? WHERE id=? AND org_id=?",
+        (target, utcnow(), customer_id, org_id))
+    audit(conn, actor, "retention.extended", "customer", customer_id,
+          {"customer_id": customer_id, "from": current, "to": target,
+           "retention_years": RETENTION_YEARS, "trigger": trigger},
+          org_id=org_id)
+    return target
+
+
+def extend_closed_retention(
+    conn: sqlite3.Connection, *, apply: bool = False, org_id: int | None = None,
+    actor: str = "system",
+) -> dict[int, list[dict[str, Any]]]:
+    """Recompute retention_until for closed customers as closure date +
+    RETENTION_YEARS (#79); only ever extends, so a second run changes nothing.
+
+    Closure date: the latest `customer.close` audit row for the customer (in
+    its own org), else the customer's exit_date, else today (conservative: the
+    longest possible window). Dry-run unless apply=True. One `retention.extended`
+    audit row per changed customer, scoped to its org, with no PII. Returns
+    {org_id: [{"id", "reference", "from", "to"}]}. Rows with a NULL
+    retention_until are skipped (the #96 backfill owns those).
+    """
+    sql = ("SELECT id, org_id, reference, exit_date, retention_until FROM customers"
+           " WHERE status='closed' AND org_id IS NOT NULL"
+           " AND retention_until IS NOT NULL")
+    args: tuple = ()
+    if org_id is not None:
+        sql += " AND org_id=?"
+        args = (org_id,)
+    changes: dict[int, list[dict[str, Any]]] = {}
+    for r in conn.execute(sql + " ORDER BY org_id, id", args).fetchall():
+        closed_ts = conn.execute(
+            "SELECT max(ts) FROM audit_log WHERE org_id=? AND action='customer.close'"
+            " AND object_type='customer' AND object_id=?",
+            (r["org_id"], str(r["id"]))).fetchone()[0]
+        base = _parse_day(closed_ts) or _parse_day(r["exit_date"]) or utc_today()
+        target = retention_from(base)
+        if r["retention_until"][:10] >= target:
+            continue
+        changes.setdefault(r["org_id"], []).append(
+            {"id": r["id"], "reference": r["reference"],
+             "from": r["retention_until"], "to": target})
+        if apply:
+            with conn:
+                conn.execute(
+                    "UPDATE customers SET retention_until=? WHERE id=? AND org_id=?",
+                    (target, r["id"], r["org_id"]))
+                audit(conn, actor, "retention.extended", "customer", r["id"],
+                      {"customer_id": r["id"], "from": r["retention_until"],
+                       "to": target, "retention_years": RETENTION_YEARS,
+                       "trigger": "extend_retention_script"},
+                      org_id=r["org_id"])
+    return changes
+
+
 @dataclass(slots=True)
 class OnboardingResult:
     customer_id: int
@@ -589,7 +694,11 @@ def close_relationship(
         audit(conn, actor, "customer.close", "customer", customer_id,
               {"exit_date": exit_date.isoformat(), "exit_reason": reason,
                "note": note or None, "retention_until": until}, org_id=org_id)
-    return until
+        # Latest-of model: a later transaction or finalised report keeps the
+        # date past exit_date + RETENTION_YEARS.
+        extended = recompute_retention(conn, org_id, customer_id,
+                                       trigger="customer.close", actor=actor)
+    return extended or until
 
 
 def reactivate_customer(
@@ -619,6 +728,36 @@ def reactivate_customer(
               {"reason": reason, "retention_until": new_retention,
                "previous_exit_date": row["exit_date"],
                "previous_exit_reason": row["exit_reason"]}, org_id=org_id)
+
+
+def _purge_blockers(conn: sqlite3.Connection, org_id: int, customer_id: int) -> list[str]:
+    """Reasons a customer must not be purged yet (empty list = may be purged).
+
+    * unresolved_freeze: a freeze_obligations row whose status is not 'resolved'
+      (targeted financial sanctions evidence, #140);
+    * unfinalised_report: a report for the customer that is not 'submitted';
+    * open_alert: a screening alert or transaction alert still open or awaiting
+      second review.
+    """
+    reasons: list[str] = []
+    if conn.execute(
+        "SELECT 1 FROM freeze_obligations WHERE customer_id=? AND org_id=?"
+        " AND status != 'resolved' LIMIT 1", (customer_id, org_id)).fetchone():
+        reasons.append("unresolved_freeze")
+    if conn.execute(
+        "SELECT 1 FROM reports WHERE customer_id=? AND org_id=?"
+        " AND status != 'submitted' LIMIT 1", (customer_id, org_id)).fetchone():
+        reasons.append("unfinalised_report")
+    open_alert = conn.execute(
+        "SELECT 1 FROM alerts a JOIN screenings s ON s.id=a.screening_id"
+        " WHERE s.customer_id=? AND a.org_id=? AND a.status IN ('open','pending_review')"
+        " LIMIT 1", (customer_id, org_id)).fetchone() or conn.execute(
+        "SELECT 1 FROM transaction_alerts WHERE customer_id=? AND org_id=?"
+        " AND status IN ('open','pending_review') LIMIT 1",
+        (customer_id, org_id)).fetchone()
+    if open_alert:
+        reasons.append("open_alert")
+    return reasons
 
 
 def purge_expired(
@@ -653,9 +792,23 @@ def purge_expired(
     # RETENTION_YEARS policy window, whatever retention_until says.
     rows = [r for r in rows if not _inside_policy_window(r["exit_date"], now)]
 
+    # Purge guards: never delete a customer who still has open work. Each
+    # skipped customer is reported with its reasons (dry run included).
+    eligible = []
+    skipped: list[dict[str, Any]] = []
+    for r in rows:
+        reasons = _purge_blockers(conn, org_id, r["id"])
+        if reasons:
+            skipped.append({"customer_id": r["id"], "reference": r["reference"],
+                            "reasons": reasons})
+        else:
+            eligible.append(r)
+    rows = eligible
+
     details = [{"customer_id": r["id"], "reference": r["reference"]} for r in rows]
     if dry_run:
-        return {"purged": len(details), "details": details, "dry_run": True}
+        return {"purged": len(details), "details": details, "skipped": skipped,
+                "dry_run": True}
 
     # P0: Gate real deletion behind env flag - dry run bypasses this
     if os.getenv("AMLKIT_PURGE_ENABLED") != "true":
@@ -664,24 +817,12 @@ def purge_expired(
             "purge_expired called but AMLKIT_PURGE_ENABLED is not set to 'true' - "
             "purge disabled. Set AMLKIT_PURGE_ENABLED=true to enable."
         )
-        return {"purged": 0, "details": [], "disabled": True}
+        return {"purged": 0, "details": [], "skipped": skipped, "disabled": True}
 
     purged_count = 0
     for row in rows:
         cid = row["id"]
         ref = row["reference"]
-
-        active_freeze = conn.execute(
-            "SELECT COUNT(*) FROM freeze_obligations"
-            " WHERE customer_id=? AND org_id=? AND status != 'resolved'",
-            (cid, org_id),
-        ).fetchone()[0]
-        if active_freeze:
-            with conn:
-                audit(conn, actor, "retention.purge_skipped_frozen", "customer", cid,
-                      {"reference": ref, "active_freeze_count": active_freeze},
-                      org_id=org_id)
-            continue
 
         # Try to delete documents first. If any fail, skip this customer
         # entirely so it retries on the next purge run. An orphaned GCS object
@@ -736,7 +877,13 @@ def purge_expired(
 
         purged_count += 1
 
-    return {"purged": purged_count, "details": details}
+    if skipped:
+        with conn:
+            for sk in skipped:
+                audit(conn, actor, "retention.purge_skipped", "customer", sk["customer_id"],
+                      {"reference": sk["reference"], "reasons": sk["reasons"]},
+                      org_id=org_id)
+    return {"purged": purged_count, "details": details, "skipped": skipped}
 
 
 def due_for_review(conn: sqlite3.Connection, org_id: int) -> list[dict[str, Any]]:
@@ -851,6 +998,8 @@ def record_transaction(
         audit(conn, actor, "transaction.record", "customer", customer_id,
               {"transaction_id": transaction_id, "amount_aed": amount_aed, "method": method},
               org_id=org_id)
+        recompute_retention(conn, org_id, customer_id,
+                            trigger="transaction.record", actor=actor)
 
         triggered = evaluate_transaction(
             conn, org_id=org_id, customer_id=customer_id, transaction_id=transaction_id,
