@@ -65,6 +65,10 @@ Problem found, for each condition:
 - **None exists:** create one, with NO date in the title:
     gh issue create --repo nadhirmhdar/amlkit --title "Health: <condition name>" --label health-check --body "<what failed, run IDs, first seen <date>, recommended action — under 400 words>"
 
+### 1e. Legacy four-eyes proposals (L-27)
+
+Run `python scripts/check_legacy_proposals.py` (from #442) against the repo's database and put the count it prints ("Pending proposals with operator_id IS NULL: N") in the run log. Exit code 1 means N > 0. Report the count only; do not open an issue for it. When it reports 0 on consecutive runs, say so once so the name-comparison fallback in `cases/review.py` can be deleted.
+
 ---
 
 ## Phase 2 — Issue triage
