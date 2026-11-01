@@ -1,0 +1,108 @@
+id,title,severity,first_seen,roles,repro_script,proposal_file,status,fixed_by_pr
+L-1,four-eyes bypass via rename (review.py confirm name compare × operators.py:232-281),HIGH,2026-10-04,"code-reviewer CR-1, red-team F4, mlro-user F1",,four-eyes-operator-id.md,FIXED,426
+L-2,"Arabic presentation forms / zero-width chars give canonical_key='', a silent clear (names/arabic.py:59)",HIGH,2026-10-04,red-team F1,,screening-name-matching.md,FIXED,425
+L-3,one extra name token or an attribute mismatch drops an exact name below 0.85 (scorer.py),MEDIUM,2026-10-04,red-team F2,,,CARRY,
+L-4,"goAML entity reference: /admin renders it blank, the next save writes NULL, and the STR builder hard-codes GROVISOR-LIC-2026",MEDIUM,2026-10-04,"mlro-user F3, skeptic",2026-10-04-lead__goaml_entity_ref_wipe.py,goaml-entity-reference.md,FIXED,424
+L-5,FATF fallback (Feb 2025 data) recorded as a fresh load; FATF absent from heartbeat.py,MEDIUM,2026-10-04,compliance CS-1,,,CARRY,
+L-6,"rescreen_all skips owners under 25%, nominees and directors on list updates (engine.py:420-424)",MEDIUM,2026-10-04,red-team F3,2026-10-31-lead__checks_2026_10_31.py,,FIXED,436
+L-7,"STR can be finalised without the required account, then can never be exported or edited",MEDIUM,2026-10-04,mlro-user F2,,,FIXED,424
+L-8,/admin/org-profile has no CSRF check,LOW,2026-10-04,"red-team F5, skeptic",,org-profile-csrf.md,FIXED,424
+L-9,dismissed false positives and pending_review alerts re-alert on every refresh (dedupe is status='open' only),LOW-MED,2026-10-04,"compliance CS-3, skeptic missed-2",2026-10-31-lead__checks_2026_10_31.py,rescreen-banner-and-realert.md,FIXED,436
+L-10,freeze wording / auto-freeze on EU/UK-only hits,MEDIUM (legal),2026-10-04,compliance CS-2,,,CARRY,
+L-11,"freeze-clock start, overdue-freeze check unscheduled on Cloud Run, AED 55k threshold configurable to 1M, UBO tiers (PR #410 items)",MEDIUM,2026-10-04,compliance,,,CARRY,
+L-12,"KYT: out-of-order structuring, amount_aed unchecked for AED, id(conn) cache, NaN/inf 500s, NaN threshold",LOW,2026-10-04,"red-team F6–F8, F12, F14",2026-10-22-lead__checks_2026_10_22.py,kyt-hardening.md;small-fixes.md,FIXED,437;439;441;442
+L-13,weak password on reset gives HTTP 500 (app.py:3414-3417),LOW,2026-10-04,red-team F11,2026-10-22-lead__checks_2026_10_22.py,small-fixes.md,FIXED,437;439;441;442
+L-14,rename accepts case-variant / homoglyph duplicates,LOW,2026-10-04,"mlro-user F4, red-team F10",2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-15,goAML XML layout differs from 5.0 STR,MEDIUM?,2026-10-04,mlro-user F5,,,CARRY,
+L-16,wires/cheques never aggregate,none,2026-10-04,red-team F9,,,REFUTED,
+L-17,sync_replica in the finally: of a failing refresh,LOW,2026-10-04,code-reviewer CR-2,,,REFUTED,
+L-18,"category priority lost past one page (queries.py:540 SQL score+LIMIT, :568-572 per-page sort): web /alerts, mobile /api/v1/alerts, dashboard",MEDIUM-HIGH,2026-10-05,"compliance CS-8, mlro G2 (duplicates)",,alert-queue-category-order.md,FIXED,421
+L-19,"PEP alert gets the ""SANCTIONS match. Freeze without delay"" note (queries.py:557, pf.py:87-117)",MEDIUM,2026-10-05,mlro G1 (same mechanism as compliance CS-2 / L-10),2026-10-05-lead__checks_2026_10_05.py,pep-obligation-note.md,FIXED,421
+L-20,"FATF live parser drops unmapped names: Kuwait, Bolivia, Nepal, PNG, BVI (fatf.py:207-235, 324-333)",MEDIUM,2026-10-05,compliance CS-6,,fatf-unmapped-names.md,CARRY,
+L-21,"huge offset/page gives OverflowError 500 (mobile.py:1192, app.py:2958,3019)",LOW,2026-10-05,red-team N1; skeptic widened it,2026-10-22-lead__checks_2026_10_22.py,paging-offset-and-zero-threshold.md,FIXED,437;439;441;442
+L-22,"threshold 0.0 stored, used as 0.85 (x or DEFAULT_THRESHOLD at 6 sites)",LOW,2026-10-05,red-team N2,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-23,"PR #417 glass announces ""No match."" on a weak single-token name",MEDIUM (unmerged),2026-10-05,code-reviewer CR-4,,,CARRY,
+L-24,"PR #418 policy: archive _MIGRATIONS (46/72 not in SCHEMA), 7-year audit claim, origin/main, branch auto-deletion would hit routine/*",LOW-MED (unmerged),2026-10-05,code-reviewer CR-6 to CR-8,,,FIXED,418;420
+L-25,"PR #416 blog: ""five years"" retention vs 8-year register, AED 55k framing, secondary-source figures","LOW-MED (unmerged, legal)",2026-10-05,"compliance CS-9 to CS-11, code-reviewer CR-10",,,FIXED,
+L-26,domestic_pep +30 label on an Iranian PEP; tier override; UBO banner wording (G3–G5),LOW,2026-10-05,mlro,,,CARRY,
+L-27,#426 falls back to a name comparison for proposals staged before deploy (operator_id IS NULL),LOW,2026-10-06,lead (new),2026-10-22-lead__checks_2026_10_22.py,rescreen-banner-and-realert.md;2026-10-07-new-findings.md,FIXED,437;439;441;442
+L-28,"unscreenable not persisted or acted on at onboarding, UBO add or rescreen (engine.py:292; consumers only screen.html:76, mobile.py:537)",MEDIUM-HIGH,2026-10-06,"red-team N4, code-reviewer CR-12 (duplicates)",2026-10-31-lead__checks_2026_10_31.py,2026-10-06-new-findings.md,FIXED,436
+L-29,"invisible or non-letter characters still give a MISS: VS16, U+034F, C0/DEL, U+2800, ideographic space, U+E000 (names/arabic.py clean_name_text strips...",MEDIUM,2026-10-06,red-team N3 (High),2026-10-31-lead__checks_2026_10_31.py,,FIXED,436
+L-30,"""Re-screen all"" always shows ""Re-screening failed: 'customers'"" (app.py:3712 vs engine.py:461)",MEDIUM,2026-10-06,mlro G9 (high),2026-10-31-lead__checks_2026_10_31.py,rescreen-banner-and-realert.md,FIXED,436
+L-31,"freeze 24h clock starts at disposition, not detection/designation (manager.py:1758, :2017-2025)",MEDIUM,2026-10-06,"compliance CS-13 (H), code-reviewer CR-16",,,CARRY,
+L-32,no 5-business-day CNMR/PNMR due date or overdue check,MEDIUM,2026-10-06,"compliance CS-15, mlro G8",,,CARRY,
+L-33,"no PNMR report type (goaml.py:62), while reports.html:12 lists PNMRs",LOW-MED,2026-10-06,compliance CS-14,,,CARRY,
+L-34,"CR/LF in a customer reference stops the org's hourly freeze email (mail.py:284, outside the try)",LOW-MED,2026-10-06,red-team N5,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-35,"goAML finalise accepts XML-illegal characters, giving an export that is not well-formed",LOW-MED,2026-10-06,red-team N6,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-36,non-ASCII bearer gives 500 instead of 401 on 4 /system/* routes,LOW,2026-10-06,"red-team N7, code-reviewer CR-14",2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-37,#421 ranks every alert in Python before paging,LOW,2026-10-06,code-reviewer CR-13,,,CARRY,
+L-38,"freeze obligation, 24h clock, ""Execute asset freeze"" email and CNMR route for hits on non-UAE lists (review.py:163, mail.py:292-296, app.py:1542)",MEDIUM-HIGH,2026-10-07,compliance CS-2 (H),2026-10-18-lead__checks_2026_10_18.py,freeze-list-scope-and-totp-replay.md,FIXED,433
+L-39,OFAC is_mandatory = True (ingest/ofac.py:23),LOW,2026-10-07,compliance CS-19,,,CARRY,
+L-40,"TOTP code replayable (auth.py:686-687, valid_window=1, no last step)",LOW,2026-10-07,red-team M2,2026-10-22-lead__checks_2026_10_22.py,,FIXED,433
+L-41,"KYT rule page: unlinked (H1), large-cash threshold raisable to 1,000,000 with no warning (H2), junk/blank country list (H3), audit lacks old values...",LOW,2026-10-07,mlro H1 to H6,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-42,#404 test reads CSS/templates without encoding (tests/test_a11y_review.py:175-176),LOW,2026-10-07,code-reviewer CR-18,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-43,"same-name upload overwrites the earlier document blob (storage.py:66-67, :101-106; only caller mobile.py:1117). U2 crashes share the root cause",MEDIUM,2026-10-10,red-team U1/U2,2026-10-20-lead__checks_2026_10_20.py,upload-overwrite-and-deadlines.md,FIXED,432
+L-44,deadline API: PATCH ignores due_date/recurrence/description; update and delete unaudited; no role gate; free-text date breaks is_overdue...,LOW,2026-10-10,"mlro E1/E2, skeptic",2026-10-22-lead__checks_2026_10_22.py,upload-overwrite-and-deadlines.md,FIXED,437;439;441;442
+L-45,newline in a customer name drops the UBO diagram silently,LOW,2026-10-10,mlro E3,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-46,"lockout persists: failed_login_count is not reset when the lock expires, so one wrong password re-locks for 15 min. The lock message gives the expiry...",HIGH,2026-10-11,"red-team A1, skeptic",2026-10-21-lead__checks_2026_10_21.py,login-lockout-and-password-rules.md,FIXED,435
+L-47,"password rule: admin reset with a weak 10+ char password gives HTTP 500 (OP1 = F11), and admin create accepts aaaaaaaaaa (OP2) (app.py:3475-3478,...",LOW,2026-10-11,"mlro OP1/OP2, skeptic",2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-48,"(new, owed 10-04 lead) any org's MLRO can trigger /admin/refresh, which re-screens every org under that MLRO's name, so Org B's audit shows Org A's...",LOW,2026-10-11,lead,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-49,(owed 10-04 lead) email enumeration,INFO,2026-10-11,lead,,,CARRY,
+L-50,"(C1) UAE PASS customer verification is not tied to the customer's identity. There is no name, nationality or ID comparison and no duplicate-IDN...",MEDIUM-LOW,2026-10-12,"red-team C1, skeptic",2026-10-22-lead__checks_2026_10_22.py,2026-10-12-new-findings.md,FIXED,437;439;441;442
+L-51,(TA1) a transaction alert can be closed as false positive with a blank note; stored disposition=NULL (manager.py:822-846),LOW,2026-10-12,"mlro TA1, skeptic",2026-10-22-lead__checks_2026_10_22.py,transaction-alert-disposition-note.md,FIXED,437;439;441;442
+L-52,"(P1) the policy form and upload_policy accept DOCX (policies.html:42-43, manager.py:2347), but the route's validate_file_mime (app.py:3848-3850)...",LOW-MEDIUM,2026-10-13,"mlro P1, skeptic",2026-10-20-lead__checks_2026_10_20.py,policy-upload-docx.md,FIXED,432
+L-53,"a blank full_name is onboarded and screens clear, not unscreenable (datamodel.py:163-165, manager.py:258, engine.py:291)",MEDIUM,2026-10-14,"mlro C1, skeptic",2026-10-31-lead__checks_2026_10_31.py,blank-name-and-sector-validation.md,FIXED,436
+L-54,"an unknown sector is accepted and scores the default 5 points; validate_risk_inputs has no sector entry (risk/model.py:85-91, 169-170)",LOW,2026-10-14,"mlro C2, skeptic",2026-10-31-lead__checks_2026_10_31.py,,FIXED,436
+L-55,"one mobile PATCH downgrades a customer from high to low with no reason, no prior values and no second review",LOW-MEDIUM,2026-10-14,"mlro C3, skeptic",2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-56,"a 2,000-character search returns unrelated customers",LOW,2026-10-14,mlro C4,2026-10-22-lead__checks_2026_10_22.py,customer-search-canonical-substring.md,FIXED,437;439;441;442
+L-57,"all non-Latin org names get the slug org, so a second Arabic-named firm is refused with ""similar name already exists"" (cases/operators.py:38,...",LOW-MEDIUM,2026-10-15,"red-team R1, skeptic",2026-10-22-lead__checks_2026_10_22.py,2026-10-15-new-findings.md,FIXED,437;439;441;442
+L-58,"org self-registration checks password length only (operators.py:32), web and mobile",LOW (one family with L-47),2026-10-15,"red-team R2, skeptic",2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-59,"blank operator name; 5,000-character and NUL org names accepted",INFO,2026-10-15,red-team R3,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-60,only the MLRO is notified of a new match; officers are not,INFO,2026-10-15,mlro NT1,,,CARRY,
+L-61,"""Open one to go straight to the alert"" lands on the customer's alerts section",INFO,2026-10-15,mlro NT2,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-62,unknown alert-queue filters are ignored without a message,INFO,2026-10-15,mlro NT3,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-63,/feedback has no length cap or rate limit (app.py:2942-2978),LOW,2026-10-16,"red-team F6 (10-16), skeptic",2026-10-20-lead__checks_2026_10_20.py,2026-10-16-new-findings.md,FIXED,432
+L-64,"scan endpoints accept any file type and size (app.py:1898-1905, 1935-1942; no validate_file_mime)",LOW,2026-10-16,"mlro S2 (10-16), skeptic",2026-10-20-lead__checks_2026_10_20.py,2026-10-16-scan-upload-validation.md,FIXED,432
+L-65,"an unreadable scan shows ""Scan complete (... fields extracted ...)"" (app.js:358-362)",LOW,2026-10-16,"mlro S1 (10-16), skeptic",2026-10-20-lead__checks_2026_10_20.py,,FIXED,432
+L-66,"setup token claimable concurrently; N operators (MLRO) per token, mobile mobile.py:448-472 and web cases/operators.py:111-140",LOW-MEDIUM,2026-10-17,red-team T1,2026-10-18-lead__checks_2026_10_18.py,2026-10-17-new-findings.md;2026-10-18-new-findings.md,FIXED,433
+L-67,"mobile /auth/setup: duplicate email → 500 (token unused), no email format check, no complexity, blank name",LOW,2026-10-17,red-team T2,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-68,"no rate limit on verify-email, resend-verification, GET /auth/setup",INFO,2026-10-17,red-team T3,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-69,one MFA backup code usable twice concurrently (auth.py:839-859),LOW,2026-10-17,skeptic (missed-by-team #1),2026-10-18-lead__checks_2026_10_18.py,2026-10-17-backup-code-and-periodic-review.md,FIXED,433
+L-70,no web action completes a periodic CDD review; only mobile POST /customers/{id}/risk (mobile.py:772),MEDIUM,2026-10-17,mlro PR1,2026-10-19-lead__checks_2026_10_19.py,,FIXED,438
+L-71,case file shows due date with no overdue marker (customer.html:142),INFO,2026-10-17,mlro PR3,2026-10-19-lead__checks_2026_10_19.py,,FIXED,437;439;441;442
+L-72,"completing a review leaves no reviewer/outcome/note, only risk.assess",LOW-MEDIUM,2026-10-17,mlro PR2,2026-10-19-lead__checks_2026_10_19.py,,FIXED,438
+L-73,"an unrelated re-assessment clears an overdue periodic review (risk/model.py:196, cases/manager.py:817-818, 1337)",MEDIUM,2026-10-18,"lead (owed from 10-17, L-70 part 2)",2026-10-19-lead__checks_2026_10_19.py,2026-10-18-token-consume-and-review-clock.md,FIXED,438
+L-74,five wrong TOTP codes lock an MLRO out of web+mobile for 15 min; no admin unlock route,LOW-MEDIUM,2026-10-18,mlro M1,2026-10-21-lead__checks_2026_10_21.py,,FIXED,435
+L-75,/admin for MFA-locked session redirects to /,INFO,2026-10-18,mlro M2,2026-10-22-lead__checks_2026_10_22.py,2026-10-19-screen-cap-and-password-change.md,FIXED,437;439;441;442
+L-76,email-verify token redeemable concurrently (auth.py:558-569),LOW,2026-10-18,lead (owed),2026-10-18-lead__checks_2026_10_18.py,,FIXED,433
+L-77,UAE PASS state consumable concurrently (auth.py:985-1015),INFO,2026-10-18,lead (owed),2026-10-18-lead__checks_2026_10_18.py,,FIXED,433
+L-78,"ad-hoc screening: no name-length cap on web or mobile; mobile has no rate limit either (mobile.py:505-537, app.py:1679-1710)",LOW,2026-10-19,red-team S3,2026-10-20-lead__checks_2026_10_20.py,2026-10-19-screen-cap-and-password-change.md,FIXED,432
+L-79,"password change: banner says ""All other sessions have been signed out"", but the current session is revoked too (app.py:838, :4577)",LOW,2026-10-19,mlro PW1,2026-10-22-lead__checks_2026_10_22.py,2026-10-19-screen-cap-and-password-change.md,FIXED,437;439;441;442
+L-80,password change accepts the current password as the new one,INFO,2026-10-19,mlro PW2,2026-10-22-lead__checks_2026_10_22.py,2026-10-19-screen-cap-and-password-change.md,FIXED,437;439;441;442
+L-81,"a 4th session silently evicts the oldest (auth.py:587-602, cap 3, mobile tokens counted)",LOW,2026-10-19,mlro SS1,2026-10-22-lead__checks_2026_10_22.py,2026-10-19-screen-cap-and-password-change.md,CARRY,
+L-82,"scan uploads: no byte cap, no pixel cap, no rate limit. The web passport route also skips the MIME check (app.py:1878-1909, mobile.py:676-705; no...",MEDIUM,2026-10-20,red-team B1,2026-10-20-lead__checks_2026_10_20.py,2026-10-20-upload-image-guard-and-audit-paging.md,FIXED,432
+L-83,"/audit (and /feedback) page is unbounded: a huge value gives a 500, and negative values are accepted (app.py:3048-3062, :2982)",LOW,2026-10-20,mlro AU1+AU2; skeptic (10-07),2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-84,officer gets a bare 403 on /audit/export but a redirect on /audit,INFO,2026-10-20,mlro AU3,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-85,"privacy page says ""three cookies"" but omits amlkit_trusted_device and amlkit_uaepass_state (privacy.html:19; auth.py:61,65; set at app.py:664,914)",LOW,2026-10-20,mlro PV1,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-86,the lock message reveals that an email exists and names the retry time. The login() docstring promises the opposite (auth.py:347-351 vs :380-383),LOW,2026-10-21,mlro LG2,2026-10-21-lead__checks_2026_10_21.py,2026-10-21-lockout-message-and-empty-password.md,FIXED,435
+L-87,"an empty password gives a raw 422 JSON (app.py:608, required Form())",INFO,2026-10-21,mlro LG3,2026-10-21-lead__checks_2026_10_21.py,,FIXED,435
+L-88,"signed-in pages: customer name in <title> (customer.html:5), canonical/og:url now present (base.html:9,16), no robots noindex, robots.txt Allow: /...",LOW,2026-10-22,"mlro SE1, compliance CS-17, code-reviewer CR-19, skeptic",2026-10-22-lead__checks_2026_10_22.py,2026-10-22-seo-private-pages-and-canonical-host.md,FIXED,437;439;441;442
+L-89,canonical/og host hard-coded to production for every environment,INFO,2026-10-22,skeptic,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-90,/blog?topic= vs ?q= canonical inconsistency,INFO,2026-10-22,mlro SE2,2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-91,"both routes unlinked from any template/JS (app.py:2103,2123)",INFO,2026-10-23,"mlro AX1, skeptic",2026-10-23-lead__checks_2026_10_23.py,,FIXED,440
+L-92,unconfigured screeners answer 200 with empty results,LOW,2026-10-23,"mlro AX2, skeptic",2026-10-23-lead__checks_2026_10_23.py,,FIXED,440
+L-93,kg-screen/gdelt-bq send the customer's full name to Google (KG API / BigQuery) via unthrottled GETs with no audit row,LOW (latent),2026-10-23,"mlro AX3, skeptic",2026-10-23-lead__checks_2026_10_23.py,2026-10-23-aux-screeners.md,FIXED,440
+L-94,"(new, lead) KG request URL built by f-string with the raw name (knowledge_graph.py:54): &/# inject or truncate params",LOW (latent),2026-10-23,lead,2026-10-23-lead__checks_2026_10_23.py,,FIXED,440
+L-95,"a freeze obligation from a true-positive alert can be resolved false_positive by one MLRO, unexecuted, with empty authority_ref and notes; the alert...",MEDIUM,2026-10-31,"mlro FZ1, skeptic",2026-10-31-lead__checks_2026_10_31.py,2026-10-31-freeze-resolution.md,FIXED,433
+L-96,authority_clearance accepted with an empty authority_ref,LOW,2026-10-31,"mlro FZ2, skeptic",2026-10-31-lead__checks_2026_10_31.py,,FIXED,433
+L-97,"resolve is check-then-act: two concurrent resolves both succeed, the second overwrites resolved_by/authority_ref, and 2 audit rows are written...",LOW,2026-10-31,skeptic (reading),2026-10-31-lead__checks_2026_10_31.py,,FIXED,433
+L-98,no Referrer-Policy / Permissions-Policy header,INFO,2026-10-31,"red-team H1, skeptic",,,FIXED,442
+L-99,"(10-24, never consolidated) CR-21 weak nofollow assert; CR-22 twitter:card=summary; CS-18 needs a regression test that anonymous gzip pages carry no...",INFO,2026-10-31,"code-reviewer, compliance",2026-10-22-lead__checks_2026_10_22.py,,FIXED,437;439;441;442
+L-100,"compare_digest(str,str) raises TypeError on non-ASCII input: auth.py:815 mfa_verify (regression from #433), auth.py:744 csrf_valid (every form POST),...","LOW (×3, one fix)",2026-11-01,"code-reviewer CR-24/25/26, skeptic",,2026-11-01-compare-digest-bytes.md,OPEN,
+L-101,"8 wrong guesses lock any account for 15 min. The unlock route needs a second MLRO, so it does nothing for a single-MLRO firm",MEDIUM,2026-11-01,"red-team A1, mlro LG1, skeptic",,,OPEN,
+L-102,"the ""freeze without delay"" wording appears for every sanctions hit, including OFAC/EU/UK, which #433 no longer freezes (screening/pf.py:106-109,...",LOW-MEDIUM,2026-11-01,compliance CS-19,,,CARRY,
+L-103,re-screen after a confirmed true positive raises one new open alert for the same match (G10 residual),LOW,2026-11-01,"mlro G10, skeptic",,,CARRY,
+L-104,"a freeze can be resolved delisted while its CNMR is still a draft, and the draft can then no longer be filed",LOW,2026-11-01,mlro FZ4,,,CARRY,
+L-105,"periodic-review validation error returns a raw JSON 400 (PR4); an officer can complete a review (PR5, policy)",LOW / INFO,2026-11-01,mlro,,,CARRY,
+L-106,"Stripe events are applied in arrival order, ignoring created",LOW (latent),2026-11-01,code-reviewer CR-27,,,CARRY,
+L-107,false-positive suppression ignores changes to the customer's own identifiers (CS-21); the freeze email cites Res 134/2025 for senior-management...,LOW,2026-11-01,compliance,,,CARRY,

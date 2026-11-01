@@ -111,8 +111,13 @@ def validate_upload(
     allowed_mimes,
     max_bytes: int | None = None,
     max_pixels: int | None = None,
+    check_pdf_pages: bool = False,
 ) -> str:
     """Check size, magic-byte type and (for images) pixel count; return the MIME.
+
+    With `check_pdf_pages` (scan routes, whose PDFs are rasterised for OCR) a
+    PDF is also refused when any of its first PDF_MAX_PAGES pages would render
+    to more than the pixel cap at OCR_RENDER_DPI.
 
     Raises UploadTooLarge (413) for bytes/pixels and UploadTypeNotAllowed (415)
     for type, both ValueError subclasses with user-safe messages. Image
@@ -145,7 +150,53 @@ def validate_upload(
                 f"Image dimensions are too large (maximum {pixel_cap / 1_000_000:g} megapixels)."
             )
 
+    if check_pdf_pages and detected == PDF:
+        pixel_cap = max_pixels if max_pixels is not None else max_image_pixels()
+        check_pdf_render_size(data, max_pixels=pixel_cap)
+
     return detected
+
+
+# PDF scans are rasterised at this DPI for OCR (cases.ocr); only the first
+# PDF_MAX_PAGES pages are ever looked at.
+OCR_RENDER_DPI = 300
+PDF_MAX_PAGES = 5
+
+
+def pdf_render_pixels(width_pt: float, height_pt: float, dpi: int = OCR_RENDER_DPI) -> int:
+    """Pixel count of a page of the given size (points) rendered at `dpi`."""
+    return round(width_pt * dpi / 72) * round(height_pt * dpi / 72)
+
+
+def check_pdf_render_size(data: bytes, *, max_pixels: int | None = None) -> None:
+    """Refuse (413) a PDF whose first pages would render to too many pixels.
+
+    Reads only the page sizes (no rendering), so a few-hundred-byte PDF that
+    declares a huge MediaBox is rejected before OCR ever allocates a bitmap.
+    An unparseable PDF is left alone here: the OCR path already treats it as
+    unreadable.
+    """
+    import pypdfium2 as pdfium
+
+    cap = max_pixels if max_pixels is not None else max_image_pixels()
+    try:
+        pdf = pdfium.PdfDocument(data)
+    except Exception:
+        return
+    try:
+        for index in range(min(len(pdf), PDF_MAX_PAGES)):
+            page = pdf[index]
+            try:
+                width_pt, height_pt = page.get_size()
+            finally:
+                page.close()
+            if not (width_pt > 0 and height_pt > 0) or pdf_render_pixels(width_pt, height_pt) > cap:
+                raise UploadTooLarge(
+                    f"PDF page {index + 1} is too large to scan "
+                    f"(maximum {cap / 1_000_000:g} megapixels at {OCR_RENDER_DPI} dpi)."
+                )
+    finally:
+        pdf.close()
 
 
 def validate_file_mime(content: bytes, filename: str) -> str:

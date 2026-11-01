@@ -144,10 +144,13 @@ POLICIES_DIR = DB_PATH.parent / "policies"
 def upload_policy(content: bytes, org_id: int, filename: str) -> str:
     """Store policy document content and return stored_path.
 
-    Policies are org-wide (no customer_id). Stored at:
-        - Local: data/policies/{org_id}/{filename}
-        - GCS: gs://{bucket}/policies/{org_id}/{filename}
+    Policies are org-wide (no customer_id). `filename` is the client's name
+    (validated, then replaced by a unique stored name, as for customer
+    documents); keep it in the `policy_documents` row for display. Stored at:
+        - Local: data/policies/{org_id}/{stored_name}
+        - GCS: gs://{bucket}/policies/{org_id}/{stored_name}
     """
+    filename = stored_name(filename)
     if _GCS_BUCKET:
         return _upload_policy_gcs(content, org_id, filename)
     return _upload_policy_local(content, org_id, filename)
