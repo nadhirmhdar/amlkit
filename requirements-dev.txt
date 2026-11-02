@@ -1,0 +1,5 @@
+# Test-only dependencies. NOT installed in the production image (the Dockerfile
+# installs requirements.txt alone); CI and local test runs install this file.
+-r requirements.txt
+pytest>=9.1
+hypothesis>=6.100

@@ -1505,18 +1505,43 @@ def verify_email(request: Request, db: DB, token: str = ""):
     return resp
 
 
+_UNLOCK_INVALID = "This unlock link is invalid, expired, or already used."
+
+
+def _unlock_invalid_page(request: Request, db):
+    return render(request, "verify_email.html", {
+        "session": None, "valid": False, "heading": "Unlock your account",
+        "err": _UNLOCK_INVALID,
+    })
+
+
 @app.get("/unlock/{token}", response_class=HTMLResponse)
-@limiter.limit("10/minute")
-def self_unlock(request: Request, db: DB, token: str):
-    """Break-glass unlock (L-101): redeem the emailed single-use link. No
-    session. Clears the password lock only, never the MFA lock. Every failure
-    shows the same page so a token cannot be probed."""
+# scope="unlock": one per-IP bucket for GET+POST; slowapi otherwise keys on the
+# request path, which carries the token, so rotating tokens would dodge the limit.
+@limiter.shared_limit("10/minute", scope="unlock")
+def self_unlock_confirm(request: Request, db: DB, token: str):
+    """Break-glass unlock (L-101), step 1 (CR-30): show a confirmation page. The
+    GET changes nothing and does not consume the token, so a mail scanner or
+    link prefetcher cannot burn or use it; the button POSTs. Every failure
+    shows the same generic page so a token cannot be probed."""
+    if not auth.unlock_token_is_live(db, token):
+        return _unlock_invalid_page(request, db)
+    return render(request, "unlock_confirm.html", {"session": None, "token": token})
+
+
+@app.post("/unlock/{token}")
+@limiter.shared_limit("10/minute", scope="unlock")
+def self_unlock(request: Request, db: DB, token: str,
+                csrf_token: Annotated[str, Form()] = ""):
+    """Break-glass unlock, step 2: redeem the emailed single-use link. No
+    session. Clears the password lock only, never the MFA lock."""
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back(f"/unlock/{token}", err=str(exc))
     operator = auth.consume_unlock_token(db, token)
     if operator is None:
-        return render(request, "verify_email.html", {
-            "session": None, "valid": False, "heading": "Unlock your account",
-            "err": "This unlock link is invalid, expired, or already used.",
-        })
+        return _unlock_invalid_page(request, db)
     from ..db import audit
     audit(db, operator["name"], "operator.self_unlock", "operator", operator["id"],
           None, org_id=operator["org_id"])
@@ -3356,9 +3381,11 @@ def console_view(request: Request, db: DB):
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
 
+    from .. import ops
     data = queries.console_overview(db)
     return render(request, "console.html", {
         "session": session,
+        "replica": ops.system_status(db, raw_replica=True)["replica"],
         **data,
     })
 

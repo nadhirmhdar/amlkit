@@ -5,7 +5,9 @@ only way out was a second MLRO (`POST /admin/operators/{id}/unlock`), so a
 single-MLRO firm could be kept out by an anonymous attacker.
 
 After: the login that trips the lock mails the operator's verified address one
-single-use link (30 min); `GET /unlock/{token}` clears the password lock only.
+single-use link (30 min). CR-30: `GET /unlock/{token}` only renders a confirmation
+page (token untouched); the CSRF-protected `POST /unlock/{token}` clears the
+password lock only.
 
 Lead repro A1r (repro/2026-11-01-lead__checks_2026_11_01.py), expected output
 after this change -- the owner recovers via the link:
@@ -193,36 +195,76 @@ def _http_db():
     return dbm.connect(os.environ["AMLKIT_DB"])
 
 
-def test_route_unlocks_audits_and_redirects(client, sent):
+def _csrf_of(anon, token):
+    page = anon.get(f"/unlock/{token}")
+    assert page.status_code == 200
+    return page, anon.cookies.get("amlkit_csrf")
+
+
+def _locked_alice(client, sent):
     d = _http_db()
     op = d.execute("SELECT id, org_id FROM operators WHERE email='alice@testfirm.ae'").fetchone()
     for _ in range(auth.MAX_FAILED_LOGINS):
         _guess(d, "alice@testfirm.ae")
     assert _state(d, op["id"])[1] is not None
+    return d, op
+
+
+def test_get_shows_confirmation_and_changes_nothing(client, sent):
+    d, op = _locked_alice(client, sent)
     anon = TestClient(client.app)
-    r = anon.get(f"/unlock/{sent[0][2]}", follow_redirects=False)
+    before = _state(d, op["id"])
+    for _ in range(3):  # a scanner can GET as often as it likes
+        page, _csrf = _csrf_of(anon, sent[0][2])
+        assert "Unlock my account" in page.text and 'method="post"' in page.text
+    assert _state(d, op["id"]) == before and before[1] is not None
+    assert d.execute("SELECT used_at FROM unlock_tokens WHERE operator_id=?",
+                     (op["id"],)).fetchone()[0] is None
+    assert d.execute("SELECT count(*) FROM audit_log WHERE action='operator.self_unlock'").fetchone()[0] == 0
+
+
+def test_post_unlocks_audits_and_redirects(client, sent):
+    d, op = _locked_alice(client, sent)
+    anon = TestClient(client.app)
+    _page, csrf = _csrf_of(anon, sent[0][2])
+    r = anon.post(f"/unlock/{sent[0][2]}", data={"csrf_token": csrf}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/login"
     assert "unlocked" in anon.get("/login").text
     assert _state(d, op["id"]) == (0, None)
     ev = d.execute("SELECT org_id FROM audit_log WHERE action='operator.self_unlock'").fetchall()
     assert [e[0] for e in ev] == [op["org_id"]]
-    # Replay and garbage show the same generic page, 200, no unlock.
+    # Replay and garbage show the same generic page, 200, no unlock (GET and POST).
     for tok in (sent[0][2], "garbage"):
         g = anon.get(f"/unlock/{tok}")
         assert g.status_code == 200 and "invalid, expired, or already used" in g.text
+        assert "Unlock my account" not in g.text
+        p = anon.post(f"/unlock/{tok}", data={"csrf_token": anon.cookies.get("amlkit_csrf")})
+        assert p.status_code == 200 and "invalid, expired, or already used" in p.text
 
 
-def test_login_post_is_throttled_per_ip(client):
-    """Per-IP ceiling on /login (10/minute): the 11th attempt from one IP is 429,
-    even when every attempt names a different account."""
+def test_post_without_csrf_is_refused_and_token_survives(client, sent):
+    d, op = _locked_alice(client, sent)
     anon = TestClient(client.app)
-    anon.get("/login")
-    csrf = anon.cookies.get("amlkit_csrf")
+    _csrf_of(anon, sent[0][2])
+    r = anon.post(f"/unlock/{sent[0][2]}", data={"csrf_token": "forged"}, follow_redirects=False)
+    assert r.status_code == 303
+    r2 = anon.post(f"/unlock/{sent[0][2]}", data={}, follow_redirects=False)
+    assert r2.status_code in (303, 422)
+    assert _state(d, op["id"])[1] is not None  # still locked
+    assert auth.unlock_token_is_live(d, sent[0][2])
+
+
+def test_unlock_routes_throttled_per_ip(client, sent):
+    """10/minute per IP across GET and POST together, even when every request
+    carries a different token (slowapi would otherwise bucket per path)."""
+    anon = TestClient(client.app)
+    anon.get("/login")  # warm-up request, as in the /login throttling test
     client.app.state.limiter.enabled = True
     try:
-        codes = [anon.post("/login", data={"email": f"x{i}@nowhere.test", "password": "nope-nope-1",
-                                           "csrf_token": csrf}).status_code for i in range(12)]
+        codes = [anon.get(f"/unlock/garbage{i}").status_code for i in range(6)]
+        codes += [anon.post(f"/unlock/garbage{i}", data={"csrf_token": "x"},
+                            follow_redirects=False).status_code for i in range(6, 12)]
     finally:
         client.app.state.limiter.enabled = False
-    assert codes[:10] == [200] * 10
-    assert codes[10] == 429
+    assert 429 not in codes[:10]
+    assert codes[10:] == [429, 429]

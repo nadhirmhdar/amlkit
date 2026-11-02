@@ -1,4 +1,5 @@
-"""Cyrillic / Greek -> Latin homoglyph folding for name screening.
+"""Cyrillic / Greek -> Latin homoglyph folding for name screening and
+operator-name comparison keys.
 
 A name such as "BILAL ALI AL-ВAFI" (Cyrillic capital Ve in place of the
 Latin B) is visually identical to the listed name but is a different string, so
@@ -32,6 +33,11 @@ _CONFUSABLES: dict[str, str] = {
     # Greek lower case
     "α": "a", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p",
     "τ": "t", "υ": "u", "χ": "x",
+    # Lower-case look-alikes used by auth.operator_name_lookalike_key, which
+    # casefolds before folding (operator duplicate / reserved-name checks).
+    "в": "b", "н": "h", "к": "k", "м": "m", "т": "t",
+    "β": "b", "η": "n", "μ": "u", "γ": "y",
+    "ı": "i",  # dotless i: NFKC does not touch it
 }
 
 

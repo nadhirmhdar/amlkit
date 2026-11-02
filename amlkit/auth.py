@@ -165,23 +165,62 @@ ORG_NAME_MAX = 200
 EMAIL_MAX = 254
 
 
+# Zero-width and bidi-control characters: invisible, so two names differing only
+# by one of them read identically on screen and in the audit trail (O1).
+_INVISIBLE_CHARS = frozenset(
+    ["\u200b", "\u200c", "\u200d", "\ufeff", "\u2060", "\u00ad"]
+    + [chr(c) for c in range(0x202A, 0x202F)]
+    + [chr(c) for c in range(0x2066, 0x206A)]
+)
+
+
+def strip_invisible(value: str) -> str:
+    return "".join(c for c in value if c not in _INVISIBLE_CHARS)
+
+
 def normalise_name_key(value: str) -> str:
-    """Comparison key for duplicate-name checks: NFKC, casefolded, whitespace collapsed."""
-    return " ".join(unicodedata.normalize("NFKC", value or "").casefold().split())
+    """Comparison key for duplicate-name checks: NFKC, invisible characters
+    removed, casefolded, whitespace collapsed."""
+    v = strip_invisible(unicodedata.normalize("NFKC", value or ""))
+    return " ".join(v.casefold().split())
+
+
+# Actor names the application writes into audit_log itself (db.audit callers).
+# An operator may not take one, or the trail could not tell them from the app.
+RESERVED_ACTOR_NAMES = frozenset({
+    "system", "scheduler", "cloud-scheduler", "stripe", "system:scheduled-refresh",
+})
+
+
+def operator_name_lookalike_key(value: str) -> str:
+    """Key under which look-alike operator names collide (confusables folded)."""
+    from .names.confusables import fold_confusables
+    return fold_confusables(normalise_name_key(value))
+
+
+def is_reserved_operator_name(value: str) -> bool:
+    key = operator_name_lookalike_key(value)
+    return key in RESERVED_ACTOR_NAMES or key.startswith("system:")
 
 
 def check_operator_identity(name: str, email: str | None = None) -> tuple[str, str | None]:
     """Validate and clean an operator's name (and email when given).
 
     Returns (clean_name, clean_email). Raises IdentityError with a readable
-    message: blank name, name over OPERATOR_NAME_MAX, NUL/control characters,
-    or a malformed email.
+    message: blank name (including a name that is only zero-width/bidi
+    characters), name over OPERATOR_NAME_MAX, NUL/control characters, a
+    reserved audit-actor name such as "system" (also in look-alike form), or a
+    malformed email. The name is NFKC-normalised and stripped of zero-width and
+    bidi-control characters (O1).
     """
-    clean_name = " ".join((name or "").split()) if not _has_control_chars(name or "") else None
+    raw = unicodedata.normalize("NFKC", name or "")
+    clean_name = " ".join(strip_invisible(raw).split()) if not _has_control_chars(raw) else None
     if clean_name is None:
         raise IdentityError("Name must not contain control characters.")
     if not clean_name:
         raise IdentityError("Enter a name.")
+    if is_reserved_operator_name(clean_name):
+        raise IdentityError("That name is reserved. Choose another.")
     if len(clean_name) > OPERATOR_NAME_MAX:
         raise IdentityError(f"Name must be {OPERATOR_NAME_MAX} characters or fewer.")
     clean_email = None
@@ -659,6 +698,24 @@ def create_unlock_token(conn: sqlite3.Connection, operator_id: int) -> str:
     )
     conn.commit()
     return raw
+
+
+def unlock_token_is_live(conn: sqlite3.Connection, raw_token: str) -> bool:
+    """Read-only check that an unlock token could be redeemed right now. Changes
+    no state, so a mail scanner or link prefetcher that GETs the emailed link
+    cannot burn it."""
+    if not raw_token:
+        return False
+    row = conn.execute(
+        """SELECT t.used_at, t.expires_at, o.is_active
+           FROM unlock_tokens t JOIN operators o ON o.id = t.operator_id
+           WHERE t.token_hash=?""",
+        (_token_hash(raw_token),),
+    ).fetchone()
+    if row is None or row["used_at"] is not None or not row["is_active"]:
+        return False
+    return bool(row["expires_at"]) and \
+        datetime.fromisoformat(row["expires_at"]) >= datetime.now(timezone.utc)
 
 
 def consume_unlock_token(conn: sqlite3.Connection, raw_token: str):

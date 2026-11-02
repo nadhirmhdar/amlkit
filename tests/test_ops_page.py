@@ -206,3 +206,48 @@ class TestLogLines:
         out = json.loads(StructuredFormatter().format(rec))
         assert out["overdue_count"] == 1 and out["org_count"] == 2
         assert out["message"].startswith(ops.FREEZE_CHECK_MESSAGE)
+
+
+class TestReplicaDerivedState:
+    RAW = "SENTINEL-RAW-LITESTREAM-POSITION"
+
+    @pytest.fixture(autouse=True)
+    def _raw(self, monkeypatch):
+        from amlkit import ops
+        monkeypatch.setattr(ops, "_litestream_position", lambda: self.RAW)
+
+    def test_mlro_sees_derived_state_not_raw_string(self, client, monkeypatch):
+        from amlkit import replication
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", "gcs://x/y")
+        monkeypatch.setattr(replication, "_last_ok", {"at": _iso(0.5), "reason": "t"})
+        html = client.get("/admin/ops").text
+        assert self.RAW not in html
+        assert _field(html, "ops-replica-state") == "ok"
+        assert "last confirmed sync 30 min ago" in html
+
+    def test_lagging(self, client, monkeypatch):
+        from amlkit import replication
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", "gcs://x/y")
+        monkeypatch.setattr(replication, "_last_ok", {"at": _iso(30), "reason": "t"})
+        assert _field(client.get("/admin/ops").text, "ops-replica-state") == "lagging"
+
+    def test_unknown_without_sync(self, client, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", "gcs://x/y")
+        html = client.get("/admin/ops").text
+        assert _field(html, "ops-replica-state") == "unknown"
+        assert self.RAW not in html
+
+    def test_system_status_hides_raw_by_default(self, client):
+        from amlkit import ops
+        conn = _db()
+        assert "position" not in ops.system_status(conn)["replica"]
+        assert ops.system_status(conn, raw_replica=True)["replica"]["position"] == self.RAW
+
+    def test_super_admin_console_shows_raw_string(self, client):
+        conn = _db()
+        conn.execute("UPDATE operators SET super_admin=1")
+        conn.commit()
+        conn.close()
+        html = client.get("/console").text
+        assert self.RAW in html
+        assert 'id="console-replica-state"' in html

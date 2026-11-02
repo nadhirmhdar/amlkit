@@ -52,7 +52,7 @@ jobs:
       # actually renders an SVG via dot.pipe(), which needs it on PATH.
       # ubuntu-latest doesn't ship it by default.
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest tests -q
         # Hermetic: the suite builds its own in-memory watchlist and needs no

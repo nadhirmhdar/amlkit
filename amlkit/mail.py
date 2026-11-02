@@ -200,7 +200,7 @@ def send_unlock_email(to_email: str, name: str, raw_token: str) -> str:
         f"Hi {name},\n\n"
         "Too many incorrect passwords were entered for your groAML account, so sign-in "
         "is locked for 15 minutes. If this was you, or you want to sign in now, use "
-        "this one-time link to unlock it:\n\n"
+        "this one-time link to open the unlock page and confirm:\n\n"
         f"  {url}\n\n"
         "The link expires in 30 minutes and works once. If you did not try to sign in, "
         "you can ignore this email; your password has not changed.\n"
