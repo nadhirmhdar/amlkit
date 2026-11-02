@@ -493,6 +493,13 @@
     verified attributes it returns. The OCR scan remains the fallback for
     customers without UAE PASS.
   </p>
+  {% for a in identity_reuse_alerts %}
+  <div class="small mb-4" role="alert" data-identity-reuse style="color:#b91c1c; font-weight:600;">
+    Identity reuse: this UAE PASS identity has also been verified for another customer
+    (<a href="/customers/{{ a.other_customer_id }}">{{ a.other_reference or ('#' ~ a.other_customer_id) }}{% if a.other_name %} &ndash; {{ a.other_name }}{% endif %}</a>).
+    A review alert is open. Nothing was copied onto this customer record.
+  </div>
+  {% endfor %}
   {% if uaepass_verifications %}
     <div class="flat-list mb-4">
       {% for v in uaepass_verifications %}

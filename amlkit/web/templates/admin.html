@@ -87,6 +87,7 @@
         <form method="post" action="/admin/operators/{{ op.id }}/unlock" class="d-inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <span class="tag high">{{ 'MFA locked' if op.mfa_locked else 'Sign-in locked' }}</span>
+          {% if op.login_locked and not mail_configured %}<span class="tag other" data-unlock-mail-undeliverable title="Outbound email is not configured, so no unlock link can be sent to this operator">unlock mail not deliverable</span>{% endif %}
           <button class="small" type="submit"
                   data-confirm="Clear the sign-in and MFA locks for {{ op.name }}?">
             Unlock

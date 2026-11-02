@@ -259,7 +259,7 @@ def test_case_file_shows_overdue_marker_only_when_review_is_due(client):
 
 
 # ------------------------------------------------------------------ L-27
-def test_legacy_name_fallback_logs_a_warning_and_script_counts_it(caplog):
+def test_legacy_proposal_is_counted_and_has_no_name_fallback(caplog):
     from amlkit.cases.review import confirm_disposition, propose_disposition
     from tests.test_issue_167_foureyes_double_disposition import _create_test_db
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -270,8 +270,9 @@ def test_legacy_name_fallback_logs_a_warning_and_script_counts_it(caplog):
                         reason_code="different_dob", operator="Legacy Operator")
     assert [r["alert_id"] for r in count_legacy_pending(conn)] == [alert_id]
     with caplog.at_level(logging.WARNING, logger="amlkit.cases.review"):
-        confirm_disposition(conn, alert_id, org_id=org_id, operator="Someone Else", agree=True)
-    assert "legacy name comparison" in caplog.text
+        confirm_disposition(conn, alert_id, org_id=org_id, operator="Someone Else",
+                            operator_id=2, agree=True)
+    assert "legacy name comparison" not in caplog.text
     assert count_legacy_pending(conn) == []  # no longer pending
 
 

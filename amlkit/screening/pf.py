@@ -91,7 +91,14 @@ def obligation_note(categories: set[str], dataset: str | None = None) -> str:
 
     Written out rather than left implicit because the operator acting on the
     alert may not be the person who knows the difference between these regimes.
+
+    The dataset check comes first (CS-23): an entry from a non-UN / non-UAE-local
+    dataset, whatever its category, is never a UAE freeze trigger, so it gets the
+    EDD / consider-STR wording and never "freeze".
     """
+    if dataset and not is_uae_freeze_list(dataset):
+        # L-102: OFAC / EU / UK designations are not UAE freeze triggers (#433).
+        return NON_UAE_SANCTIONS_OBLIGATION
     if "proliferation" in categories:
         return (
             "PROLIFERATION FINANCING match. Standalone offence under Federal "
@@ -105,9 +112,6 @@ def obligation_note(categories: set[str], dataset: str | None = None) -> str:
             "notice; report to the supervisory authority and file via goAML. "
             "Do not tip off."
         )
-    if dataset and not is_uae_freeze_list(dataset):
-        # L-102: OFAC / EU / UK designations are not UAE freeze triggers (#433).
-        return NON_UAE_SANCTIONS_OBLIGATION
     return (
         "SANCTIONS match. Freeze without delay and without prior notice; report "
         "to the supervisory authority. Do not tip off."
@@ -165,6 +169,9 @@ def obligation_for_category(category: str, categories: set[str],
     non-UAE-local list gets the non-freeze wording (L-102); with no dataset the
     freeze wording is kept, since a UN listing cannot be ruled out.
     """
+    if dataset and not is_uae_freeze_list(dataset) and category in (
+            "proliferation", "terrorism", "sanction"):
+        return NON_UAE_SANCTIONS_OBLIGATION
     if category == "pep":
         return PEP_OBLIGATION
     if category == "other":

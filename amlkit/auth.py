@@ -90,6 +90,14 @@ class AuthError(RuntimeError):
     """
 
 
+class AuthLockedMailUndeliverable(AuthError):
+    """The login that tripped the 8-failure lock could not be sent its unlock
+    link because outbound mail is not configured (UL1). Deliberately specific:
+    without this a locked-out single-MLRO firm has no way to know to ask for
+    help. Only raised on the locking attempt itself, for an account whose
+    email is verified."""
+
+
 class PasswordComplexityError(ValueError):
     """Raised when a password does not meet complexity requirements."""
 
@@ -165,23 +173,62 @@ ORG_NAME_MAX = 200
 EMAIL_MAX = 254
 
 
+# Zero-width and bidi-control characters: invisible, so two names differing only
+# by one of them read identically on screen and in the audit trail (O1).
+_INVISIBLE_CHARS = frozenset(
+    ["\u200b", "\u200c", "\u200d", "\ufeff", "\u2060", "\u00ad"]
+    + [chr(c) for c in range(0x202A, 0x202F)]
+    + [chr(c) for c in range(0x2066, 0x206A)]
+)
+
+
+def strip_invisible(value: str) -> str:
+    return "".join(c for c in value if c not in _INVISIBLE_CHARS)
+
+
 def normalise_name_key(value: str) -> str:
-    """Comparison key for duplicate-name checks: NFKC, casefolded, whitespace collapsed."""
-    return " ".join(unicodedata.normalize("NFKC", value or "").casefold().split())
+    """Comparison key for duplicate-name checks: NFKC, invisible characters
+    removed, casefolded, whitespace collapsed."""
+    v = strip_invisible(unicodedata.normalize("NFKC", value or ""))
+    return " ".join(v.casefold().split())
+
+
+# Actor names the application writes into audit_log itself (db.audit callers).
+# An operator may not take one, or the trail could not tell them from the app.
+RESERVED_ACTOR_NAMES = frozenset({
+    "system", "scheduler", "cloud-scheduler", "stripe", "system:scheduled-refresh",
+})
+
+
+def operator_name_lookalike_key(value: str) -> str:
+    """Key under which look-alike operator names collide (confusables folded)."""
+    from .names.confusables import fold_confusables
+    return fold_confusables(normalise_name_key(value))
+
+
+def is_reserved_operator_name(value: str) -> bool:
+    key = operator_name_lookalike_key(value)
+    return key in RESERVED_ACTOR_NAMES or key.startswith("system:")
 
 
 def check_operator_identity(name: str, email: str | None = None) -> tuple[str, str | None]:
     """Validate and clean an operator's name (and email when given).
 
     Returns (clean_name, clean_email). Raises IdentityError with a readable
-    message: blank name, name over OPERATOR_NAME_MAX, NUL/control characters,
-    or a malformed email.
+    message: blank name (including a name that is only zero-width/bidi
+    characters), name over OPERATOR_NAME_MAX, NUL/control characters, a
+    reserved audit-actor name such as "system" (also in look-alike form), or a
+    malformed email. The name is NFKC-normalised and stripped of zero-width and
+    bidi-control characters (O1).
     """
-    clean_name = " ".join((name or "").split()) if not _has_control_chars(name or "") else None
+    raw = unicodedata.normalize("NFKC", name or "")
+    clean_name = " ".join(strip_invisible(raw).split()) if not _has_control_chars(raw) else None
     if clean_name is None:
         raise IdentityError("Name must not contain control characters.")
     if not clean_name:
         raise IdentityError("Enter a name.")
+    if is_reserved_operator_name(clean_name):
+        raise IdentityError("That name is reserved. Choose another.")
     if len(clean_name) > OPERATOR_NAME_MAX:
         raise IdentityError(f"Name must be {OPERATOR_NAME_MAX} characters or fewer.")
     clean_email = None
@@ -542,7 +589,10 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
             # The transition into a lock (later attempts hit the "locked"
             # branch above and never reach here): mail the owner a
             # break-glass link, once per lock window (L-101).
-            _mail_unlock_link(conn, row)
+            from . import mail as _mail
+
+            if _mail_unlock_link(conn, row) == _mail.NOT_CONFIGURED:
+                raise AuthLockedMailUndeliverable(UNLOCK_MAIL_UNDELIVERABLE_MESSAGE)
         raise generic
 
     if row["email_verified_at"] is None:
@@ -578,6 +628,14 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
         disclaimer_acknowledged=bool(row["disclaimer_acknowledged_at"]),
     )
     return token, info
+
+
+def operator_login_locked(conn: sqlite3.Connection, operator_id: int) -> bool:
+    """True while the operator's password lock (locked_until) is in the future."""
+    row = conn.execute("SELECT locked_until FROM operators WHERE id=?", (operator_id,)).fetchone()
+    if row is None or not row["locked_until"]:
+        return False
+    return datetime.fromisoformat(row["locked_until"]) > datetime.now(timezone.utc)
 
 
 def login_via_uaepass(conn: sqlite3.Connection, operator_row, *, ip: str | None = None) -> tuple[str, SessionInfo]:
@@ -628,9 +686,17 @@ def set_password(conn: sqlite3.Connection, operator_id: int, new_password: str) 
 
 
 # ------------------------------------------------------------ self-unlock
-def _mail_unlock_link(conn: sqlite3.Connection, row) -> None:
+UNLOCK_MAIL_UNDELIVERABLE_MESSAGE = (
+    "Too many failed sign-in attempts. The account is locked and the unlock email "
+    "could not be sent because email delivery is not configured. Contact your other "
+    "MLRO to unlock the account."
+)
+
+
+def _mail_unlock_link(conn: sqlite3.Connection, row) -> str | None:
     """Issue and email a single-use unlock link; audit it (no token in the
-    audit). Never raises: a mail outage must not change the login outcome."""
+    audit). Never raises: a mail outage must not change the login outcome.
+    Returns the mail delivery outcome (None if issuing failed)."""
     try:
         from . import mail
 
@@ -639,9 +705,11 @@ def _mail_unlock_link(conn: sqlite3.Connection, row) -> None:
         audit(conn, row["name"], "operator.unlock_mailed", "operator", row["id"],
               {"delivery": delivery}, org_id=row["org_id"])
         conn.commit()
+        return delivery
     except Exception:  # noqa: BLE001
         conn.rollback()
         logger.exception("Could not issue the unlock link")
+        return None
 
 
 def create_unlock_token(conn: sqlite3.Connection, operator_id: int) -> str:
@@ -659,6 +727,24 @@ def create_unlock_token(conn: sqlite3.Connection, operator_id: int) -> str:
     )
     conn.commit()
     return raw
+
+
+def unlock_token_is_live(conn: sqlite3.Connection, raw_token: str) -> bool:
+    """Read-only check that an unlock token could be redeemed right now. Changes
+    no state, so a mail scanner or link prefetcher that GETs the emailed link
+    cannot burn it."""
+    if not raw_token:
+        return False
+    row = conn.execute(
+        """SELECT t.used_at, t.expires_at, o.is_active
+           FROM unlock_tokens t JOIN operators o ON o.id = t.operator_id
+           WHERE t.token_hash=?""",
+        (_token_hash(raw_token),),
+    ).fetchone()
+    if row is None or row["used_at"] is not None or not row["is_active"]:
+        return False
+    return bool(row["expires_at"]) and \
+        datetime.fromisoformat(row["expires_at"]) >= datetime.now(timezone.utc)
 
 
 def consume_unlock_token(conn: sqlite3.Connection, raw_token: str):

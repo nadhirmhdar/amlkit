@@ -233,7 +233,7 @@ class TestBulkDismiss:
         # A second operator (not Alice) must confirm before it actually clears.
         confirm_disposition(
             conn, seed["alert_ids"][0], org_id=seed["org_id"],
-            operator="Bob", agree=True,
+            operator="Bob", operator_id=2, agree=True,
         )
         row = conn.execute(
             "SELECT status FROM alerts WHERE id=?", (seed["alert_ids"][0],)

@@ -32,6 +32,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, changelog, notifications, onboarding, queries, uaepass
+from .. import mail as _mail
 from ..datamodel import MAX_NAME_LENGTH
 from ..web import blog
 from .compress import SelectiveGZipMiddleware
@@ -803,6 +804,15 @@ def uaepass_operator_callback(request: Request, db: DB, code: str = "", state: s
                 "Ask an admin to link your account, then try again.",
         ))
 
+    if auth.operator_login_locked(db, operator["id"]):
+        # Password lock (8 failures) also blocks SSO; same text password
+        # login gives for a locked account. The MFA lock is a separate matter.
+        from ..db import audit
+        audit(db, operator["name"], "operator.sso_refused_locked", "operator", operator["id"],
+              {"method": "uaepass"}, org_id=operator["org_id"])
+        db.commit()
+        return _clear_uaepass_state_cookie(back("/login", err="Incorrect email or password."))
+
     token, info = auth.login_via_uaepass(db, operator, ip=client_ip(request))
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
     # Same MFA-lock + redirect-target logic as password login_submit() above
@@ -1505,18 +1515,43 @@ def verify_email(request: Request, db: DB, token: str = ""):
     return resp
 
 
+_UNLOCK_INVALID = "This unlock link is invalid, expired, or already used."
+
+
+def _unlock_invalid_page(request: Request, db):
+    return render(request, "verify_email.html", {
+        "session": None, "valid": False, "heading": "Unlock your account",
+        "err": _UNLOCK_INVALID,
+    })
+
+
 @app.get("/unlock/{token}", response_class=HTMLResponse)
-@limiter.limit("10/minute")
-def self_unlock(request: Request, db: DB, token: str):
-    """Break-glass unlock (L-101): redeem the emailed single-use link. No
-    session. Clears the password lock only, never the MFA lock. Every failure
-    shows the same page so a token cannot be probed."""
+# scope="unlock": one per-IP bucket for GET+POST; slowapi otherwise keys on the
+# request path, which carries the token, so rotating tokens would dodge the limit.
+@limiter.shared_limit("10/minute", scope="unlock")
+def self_unlock_confirm(request: Request, db: DB, token: str):
+    """Break-glass unlock (L-101), step 1 (CR-30): show a confirmation page. The
+    GET changes nothing and does not consume the token, so a mail scanner or
+    link prefetcher cannot burn or use it; the button POSTs. Every failure
+    shows the same generic page so a token cannot be probed."""
+    if not auth.unlock_token_is_live(db, token):
+        return _unlock_invalid_page(request, db)
+    return render(request, "unlock_confirm.html", {"session": None, "token": token})
+
+
+@app.post("/unlock/{token}")
+@limiter.shared_limit("10/minute", scope="unlock")
+def self_unlock(request: Request, db: DB, token: str,
+                csrf_token: Annotated[str, Form()] = ""):
+    """Break-glass unlock, step 2: redeem the emailed single-use link. No
+    session. Clears the password lock only, never the MFA lock."""
+    try:
+        require_csrf(request, csrf_token)
+    except PermissionError as exc:
+        return back(f"/unlock/{token}", err=str(exc))
     operator = auth.consume_unlock_token(db, token)
     if operator is None:
-        return render(request, "verify_email.html", {
-            "session": None, "valid": False, "heading": "Unlock your account",
-            "err": "This unlock link is invalid, expired, or already used.",
-        })
+        return _unlock_invalid_page(request, db)
     from ..db import audit
     audit(db, operator["name"], "operator.self_unlock", "operator", operator["id"],
           None, org_id=operator["org_id"])
@@ -2278,6 +2313,19 @@ def uaepass_customer_callback(
         " WHERE customer_id=? AND org_id=? ORDER BY id DESC LIMIT 1",
         (customer_id, session.org_id),
     ).fetchone()
+    reused = db.execute(
+        "SELECT 1 FROM identity_reuse_alerts WHERE org_id=? AND customer_id=? AND status='open'",
+        (session.org_id, customer_id),
+    ).fetchone()
+    if reused is not None:
+        extra = (f" It also does NOT match this customer file: {latest['match_detail']}."
+                 if latest is not None and latest["match_status"] == "mismatch" else "")
+        return _clear_uaepass_state_cookie(back(
+            f"/customers/{customer_id}",
+            err=("UAE PASS result recorded, but this identity was already verified for another "
+                 "customer. A review alert is open and nothing was copied onto this record."
+                 + extra),
+        ))
     if latest is not None and latest["match_status"] == "mismatch":
         return _clear_uaepass_state_cookie(back(
             f"/customers/{customer_id}",
@@ -3356,9 +3404,11 @@ def console_view(request: Request, db: DB):
             return RedirectResponse("/login", status_code=303)
         return back("/", err=str(exc))
 
+    from .. import ops
     data = queries.console_overview(db)
     return render(request, "console.html", {
         "session": session,
+        "replica": ops.system_status(db, raw_replica=True)["replica"],
         **data,
     })
 
@@ -3497,6 +3547,7 @@ def admin_view(request: Request, db: DB):
     return render(request, "admin.html", {
         "session": session, "org": dict(org),
         "operators": queries.operators(db, session.org_id),
+        "mail_configured": _mail.is_configured(),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
         "single_operator_setting": queries.org_single_operator_setting(db, session.org_id),

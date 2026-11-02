@@ -22,6 +22,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from .confusables import fold_mixed_script_tokens
+
 # --------------------------------------------------------------------------
 # Arabic script normalisation
 # --------------------------------------------------------------------------
@@ -53,6 +55,8 @@ _ARABIC_LETTER_MAP = {
     # Persian/Urdu forms that appear in UAE data via expat populations
     "ک": "ك",  # keheh           -> kaf
     "ی": "ي",  # farsi ya        -> ya
+    "ے": "ي",  # yeh barree (Urdu) -> ya
+    "ۓ": "ي",  # yeh barree + hamza -> ya
     "ھ": "ه",  # heh doachashmee -> heh
 }
 
@@ -82,7 +86,8 @@ def clean_name_text(text: str) -> str:
     if not text:
         return ""
     text = unicodedata.normalize("NFKC", text)
-    return "".join(_name_char(ch) for ch in text)
+    text = "".join(_name_char(ch) for ch in text)
+    return fold_mixed_script_tokens(text)
 
 
 # Characters that are invisible (or render as blank space) but are not Cf.
@@ -525,4 +530,8 @@ def blocking_keys(name: str) -> set[str]:
     for t in toks:
         if len(t) >= 4:
             keys.add(t[:4])
+    # A separator inside one token ("BI<U+3000>LAL") splits it in two; also
+    # key on each adjacent concatenation so the unsplit listed token is found.
+    for a, b in zip(toks, toks[1:]):
+        keys.add(a + b)
     return {k for k in keys if k}

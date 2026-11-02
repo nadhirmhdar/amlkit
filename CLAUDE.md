@@ -7,7 +7,8 @@ UAE AML/CFT compliance toolkit — sanctions screening, customer due diligence, 
 ## Commands
 
 ```bash
-# Run tests (always use the venv Python)
+# Run tests (always use the venv Python; test-only deps pytest/hypothesis are in requirements-dev.txt, never in the image)
+.venv/Scripts/pip.exe install -r requirements-dev.txt  # once
 cd C:/Users/nizam/bedrock-project/amlkit && .venv/Scripts/python.exe -m pytest tests/ -x -q
 
 # Run a single test file
@@ -75,7 +76,7 @@ amlkit/
 - **UBO structure limits**: `cases.manager.add_ubo` refuses (ValueError -> web flash / mobile 422) an owner that is the customer itself (normalised name or Arabic canonical form), a `parent_ubo_id` outside the same customer/org, a parent chain that loops, a chain deeper than `MAX_UBO_DEPTH` (10), and more than `MAX_UBOS_PER_CUSTOMER` (200) rows per customer. `_identified_ownership` is iterative, so data already deeper than that (direct SQL) still evaluates.
 - **CSRF**: Synchronizer token pattern — cookie + hidden form field, validated on every POST.
 - **MFA (TOTP)**: Mandatory for MLROs only. Every path that mints a session (password login, verify-email auto-login, setup-token claim, UAE PASS SSO, mobile) calls `auth.mfa_lock_session()` right after `create_session()`, which locks an MLRO's session until `/mfa/verify` (or `/mfa/setup` if not enrolled). Backup codes, a 5-miss/15-min lockout, and a 30-day "remember this device" cookie (`amlkit_trusted_device`) are supported. Other roles are not challenged.
-- **Self-unlock (break-glass)**: the login that trips the 8-wrong-password lock emails the operator's verified address one single-use link (`unlock_tokens`, 30 min, audit `operator.unlock_mailed`); `GET /unlock/{token}` (10/minute per IP, no session) clears `failed_login_count`/`locked_until` only (never the MFA lock) and audits `operator.self_unlock`, so a single-MLRO firm is not stuck behind the second-MLRO `/admin/operators/{id}/unlock`. `/login` keeps its 10/minute per-IP and 3/minute per-account limits.
+- **Self-unlock (break-glass)**: the login that trips the 8-wrong-password lock emails the operator's verified address one single-use link (`unlock_tokens`, 30 min, audit `operator.unlock_mailed`); `GET /unlock/{token}` only renders a confirmation page (read-only, never consumes the token, so link scanners cannot burn it); the CSRF-protected `POST /unlock/{token}` (both 10/minute per IP, no session) redeems it, clears `failed_login_count`/`locked_until` only (never the MFA lock) and audits `operator.self_unlock`, so a single-MLRO firm is not stuck behind the second-MLRO `/admin/operators/{id}/unlock`. `/login` keeps its 10/minute per-IP and 3/minute per-account limits.
 
 ## Database
 

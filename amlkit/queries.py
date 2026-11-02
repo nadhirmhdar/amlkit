@@ -845,6 +845,7 @@ def customer(conn: sqlite3.Connection, customer_id: int, org_id: int) -> dict[st
         ),
         "signatures": signatures_for_customer(conn, customer_id, org_id),
         "uaepass_verifications": uaepass_verifications_for_customer(conn, customer_id, org_id),
+        "identity_reuse_alerts": identity_reuse_alerts_for_customer(conn, customer_id, org_id),
         "adverse_media": adverse_media_for_customer(conn, customer_id, org_id),
         "adverse_media_runs": adverse_media_runs(conn, customer_id, org_id),
         "documents": documents_for_customer(conn, customer_id, org_id),
@@ -962,6 +963,24 @@ def uaepass_verifications_for_customer(
         "SELECT * FROM uaepass_verifications WHERE customer_id=? AND org_id=?"
         " ORDER BY verified_at DESC",
         (customer_id, org_id))]
+
+
+def identity_reuse_alerts_for_customer(
+    conn: sqlite3.Connection, customer_id: int, org_id: int
+) -> list[dict[str, Any]]:
+    """Open identity-reuse alerts raised when this customer's UAE PASS
+    identity was already verified against another customer of the same org."""
+    out = []
+    for r in conn.execute(
+        "SELECT a.id, a.other_customer_id, a.status, a.created_at, a.detail,"
+        " c.reference AS other_reference, c.full_name AS other_name"
+        " FROM identity_reuse_alerts a"
+        " LEFT JOIN customers c ON c.id = a.other_customer_id AND c.org_id = a.org_id"
+        " WHERE a.customer_id=? AND a.org_id=? AND a.status='open' ORDER BY a.id DESC",
+        (customer_id, org_id),
+    ):
+        out.append(dict(r))
+    return out
 
 
 def audit_trail(

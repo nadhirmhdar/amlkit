@@ -1398,6 +1398,17 @@ def record_uaepass_verification(
                 match_status = "mismatch"
         match_detail = "; ".join(reasons) or None
 
+        # The same UAE PASS identity already verified against a DIFFERENT
+        # customer in this org (org-scoped: another firm's use is invisible).
+        idn_reused_by = None
+        if idn_digits:
+            idn_reused_by = conn.execute(
+                "SELECT customer_id FROM uaepass_verifications WHERE org_id=?"
+                " AND customer_id<>? AND REPLACE(REPLACE(idn,'-',''),' ','')=?"
+                " ORDER BY id LIMIT 1",
+                (org_id, customer_id, idn_digits),
+            ).fetchone()
+
         cur = conn.execute(
             """INSERT INTO uaepass_verifications
                (org_id, customer_id, uaepass_uuid, idn, fullname_en, fullname_ar,
@@ -1421,10 +1432,31 @@ def record_uaepass_verification(
                "raw": profile.raw},
               org_id=org_id)
 
+        if idn_reused_by is not None:
+            other_id = idn_reused_by["customer_id"]
+            already = conn.execute(
+                "SELECT 1 FROM identity_reuse_alerts WHERE org_id=? AND customer_id=?"
+                " AND other_customer_id=? AND status='open'",
+                (org_id, customer_id, other_id),
+            ).fetchone()
+            if already is None:
+                detail = {"other_customer_id": other_id, "verification_id": verification_id,
+                          "note": "the same UAE PASS identity was verified for another customer"}
+                cur2 = conn.execute(
+                    "INSERT INTO identity_reuse_alerts (org_id, customer_id, other_customer_id,"
+                    " verification_id, reason, status, detail, created_at)"
+                    " VALUES (?,?,?,?,?,?,?,?)",
+                    (org_id, customer_id, other_id, verification_id, "identity_reuse", "open",
+                     json.dumps(detail), now),
+                )
+                audit(conn, actor, "customer.identity_reuse_alert", "customer", customer_id,
+                      {"alert_id": cur2.lastrowid, "other_customer_id": other_id,
+                       "verification_id": verification_id}, org_id=org_id)
+
         # A mismatch means UAE PASS may be describing a different person than
         # this file: keep the evidence row, but do not pour its attributes into
-        # the customer record.
-        if match_status == "mismatch":
+        # the customer record. The same goes for a reused identity.
+        if match_status == "mismatch" or idn_reused_by is not None:
             return verification_id
 
         # Best-effort, non-destructive backfill -- see docstring above.
