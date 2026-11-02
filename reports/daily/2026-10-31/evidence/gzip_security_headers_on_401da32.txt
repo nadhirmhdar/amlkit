@@ -1,0 +1,4 @@
+/about 200 enc= gzip | missing: ['strict-transport-security', 'referrer-policy', 'permissions-policy']
+/blog 200 enc= gzip | missing: ['strict-transport-security', 'referrer-policy', 'permissions-policy']
+/sitemap.xml 200 enc= gzip | missing: ['strict-transport-security', 'referrer-policy', 'permissions-policy']
+/login 200 enc= None | missing: ['strict-transport-security', 'referrer-policy', 'permissions-policy']

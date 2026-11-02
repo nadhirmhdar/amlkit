@@ -1,0 +1,12 @@
+/tmp/claude-0/-home-user-amlkit/e617beec-4f0b-5ae7-94d4-35e414e8435f/scratchpad/venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+== 1. limiter headroom on unauthenticated mobile routes ==
+ 120 x /api/v1/auth/verify-email -> [400, 429]
+ 120 x /api/v1/auth/resend-verification -> [200, 429]
+ 120 x GET /auth/setup bad token -> [400, 429]
+== 2. setup claim edge cases ==
+ existing email -> 409 {"detail":"An account with that email already exists."} | token still unused: 1
+ invalid email string -> 400 | operator created: False
+ weak pw + blank name -> 400 | created: False
+== 3. double-claim race on one setup token (20 threads) ==
+ status codes: [200, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400] | operators created from one token: 1
