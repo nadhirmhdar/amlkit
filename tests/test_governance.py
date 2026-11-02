@@ -259,7 +259,7 @@ class TestDeadlineApi:
 def test_ubo_diagram_survives_awkward_names(conn, org_id, name):  # noqa: F811
     from amlkit.cases.diagram import generate_ubo_diagram
 
-    cid = manager.onboard(conn, org_id=org_id, reference="D-1", full_name=name,
+    cid = manager.onboard(conn, org_id=org_id, reference="D-1", full_name="Parent " + name,
                           customer_type="legal").customer_id
     manager.add_ubo(conn, cid, org_id=org_id, person_name=name, ownership_pct=60.0)
     manager.add_ubo(conn, cid, org_id=org_id, person_name="Second\nOwner", ownership_pct=None,

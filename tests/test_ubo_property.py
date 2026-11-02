@@ -195,3 +195,68 @@ def test_mobile_add_ubo_total_and_range_are_422_not_500(api):
         r = client.post(f"/api/v1/customers/{cid}/ubo", headers=headers,
                         json={"person_name": "Owner B", "ownership_pct": pct})
         assert r.status_code == code, (pct, r.status_code, r.text)
+
+
+# ------------------------------------------- iterative vs original recursive
+def _recursive_identified_ownership(rows) -> float:
+    """Copy of the pre-U4 recursive implementation, kept only as a test oracle."""
+    by_id = {r["id"]: r for r in rows}
+
+    def pct(r) -> float:
+        v = r["ownership_pct"]
+        return float(v) if v is not None and v == v and v not in (float("inf"), float("-inf")) else 0.0
+
+    eff_cache: dict[int, float] = {}
+
+    def eff(r) -> float:
+        if r["id"] in eff_cache:
+            return eff_cache[r["id"]]
+        eff_cache[r["id"]] = 0.0  # cycle guard
+        parent = by_id.get(r["parent_ubo_id"]) if r["parent_ubo_id"] is not None else None
+        val = max(pct(r), 0.0)
+        if parent is not None:
+            val = val * eff(parent) / 100.0
+        eff_cache[r["id"]] = val
+        return val
+
+    parents_with_children = {r["parent_ubo_id"] for r in rows if r["parent_ubo_id"] is not None}
+    best: dict[tuple, float] = {}
+    for r in rows:
+        if r["is_nominee"] or not r["is_ubo"] or r["id"] in parents_with_children:
+            continue
+        key = (r["canonical_key"] or f"#{r['id']}", r["parent_ubo_id"])
+        best[key] = max(best.get(key, 0.0), eff(r))
+    return min(sum(best.values()), 100.0)
+
+
+@st.composite
+def _dag_rows(draw):
+    n = draw(st.integers(1, 50))
+    rows = []
+    for i in range(1, n + 1):
+        parent = draw(st.one_of(st.none(), st.integers(1, i - 1))) if i > 1 else None
+        rows.append({
+            "id": i, "parent_ubo_id": parent,
+            "canonical_key": draw(st.sampled_from(["ali", "sara", "omar", "", None])),
+            "ownership_pct": draw(st.one_of(st.none(), st.floats(0, 100, allow_nan=False),
+                                            st.just(float("nan")))),
+            "is_ubo": draw(st.booleans()), "is_nominee": draw(st.booleans()),
+            "control_type": "ownership",
+        })
+    order = draw(st.permutations(rows))  # row order must not matter
+    return list(order)
+
+
+@settings(max_examples=300, deadline=None)
+@given(rows=_dag_rows())
+def test_iterative_matches_recursive_on_random_dags(rows):
+    assert _identified_ownership(rows) == _recursive_identified_ownership(rows)
+
+
+def test_iterative_survives_deep_chain_and_matches_on_cycles():
+    deep = [{"id": i, "parent_ubo_id": i - 1 if i > 1 else None, "canonical_key": f"k{i}",
+             "ownership_pct": 100, "is_ubo": True, "is_nominee": False} for i in range(1, 5001)]
+    assert _identified_ownership(deep) == 100.0
+    cyc = [{"id": i, "parent_ubo_id": (i % 3) + 1, "canonical_key": f"k{i}", "ownership_pct": 50,
+            "is_ubo": True, "is_nominee": False} for i in range(1, 4)]
+    assert _identified_ownership(cyc) == _recursive_identified_ownership(cyc)
