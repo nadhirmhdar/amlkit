@@ -281,7 +281,7 @@ class TestNoRegression:
 class TestUnscreenableFallback:
     def test_letters_with_no_tokens_is_flagged_not_clear(self, conn, org_id) -> None:
         # Lone Arabic-block marks / unmapped letters canonicalise to ''.
-        name = "ے"  # Arabic yeh barree: not in the transliteration table
+        name = "ە"  # Arabic ae (U+06D5): not in the transliteration table
         assert canonical_key(name) == ""
         res = screen(conn, name, org_id=org_id, persist=False)
         assert res.unscreenable
@@ -294,7 +294,7 @@ class TestUnscreenableFallback:
         assert res.candidates == 0
 
     def test_persisted_unscreenable_records_no_datasets(self, conn, org_id) -> None:
-        res = screen(conn, "ے", org_id=org_id, persist=True)
+        res = screen(conn, "ە", org_id=org_id, persist=True)
         assert res.unscreenable
         row = conn.execute(
             "SELECT candidates, datasets_used FROM screenings WHERE id=?", (res.screening_id,)
