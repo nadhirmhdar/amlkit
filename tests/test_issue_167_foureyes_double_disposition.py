@@ -92,6 +92,7 @@ def test_cannot_confirm_already_dispositioned_alert():
         conn, alert_id,
         org_id=org_id,
         operator="bob",
+        operator_id=2,
         agree=True
     )
     assert outcome2.status == "false_positive"
@@ -131,6 +132,7 @@ def test_cannot_propose_disposition_on_already_dispositioned_alert():
         conn, alert_id,
         org_id=org_id,
         operator="bob",
+        operator_id=2,
         agree=True
     )
 

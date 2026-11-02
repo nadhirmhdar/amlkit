@@ -90,6 +90,14 @@ class AuthError(RuntimeError):
     """
 
 
+class AuthLockedMailUndeliverable(AuthError):
+    """The login that tripped the 8-failure lock could not be sent its unlock
+    link because outbound mail is not configured (UL1). Deliberately specific:
+    without this a locked-out single-MLRO firm has no way to know to ask for
+    help. Only raised on the locking attempt itself, for an account whose
+    email is verified."""
+
+
 class PasswordComplexityError(ValueError):
     """Raised when a password does not meet complexity requirements."""
 
@@ -581,7 +589,10 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
             # The transition into a lock (later attempts hit the "locked"
             # branch above and never reach here): mail the owner a
             # break-glass link, once per lock window (L-101).
-            _mail_unlock_link(conn, row)
+            from . import mail as _mail
+
+            if _mail_unlock_link(conn, row) == _mail.NOT_CONFIGURED:
+                raise AuthLockedMailUndeliverable(UNLOCK_MAIL_UNDELIVERABLE_MESSAGE)
         raise generic
 
     if row["email_verified_at"] is None:
@@ -617,6 +628,14 @@ def login(conn: sqlite3.Connection, email: str, password: str, *, ip: str | None
         disclaimer_acknowledged=bool(row["disclaimer_acknowledged_at"]),
     )
     return token, info
+
+
+def operator_login_locked(conn: sqlite3.Connection, operator_id: int) -> bool:
+    """True while the operator's password lock (locked_until) is in the future."""
+    row = conn.execute("SELECT locked_until FROM operators WHERE id=?", (operator_id,)).fetchone()
+    if row is None or not row["locked_until"]:
+        return False
+    return datetime.fromisoformat(row["locked_until"]) > datetime.now(timezone.utc)
 
 
 def login_via_uaepass(conn: sqlite3.Connection, operator_row, *, ip: str | None = None) -> tuple[str, SessionInfo]:
@@ -667,9 +686,17 @@ def set_password(conn: sqlite3.Connection, operator_id: int, new_password: str) 
 
 
 # ------------------------------------------------------------ self-unlock
-def _mail_unlock_link(conn: sqlite3.Connection, row) -> None:
+UNLOCK_MAIL_UNDELIVERABLE_MESSAGE = (
+    "Too many failed sign-in attempts. The account is locked and the unlock email "
+    "could not be sent because email delivery is not configured. Contact your other "
+    "MLRO to unlock the account."
+)
+
+
+def _mail_unlock_link(conn: sqlite3.Connection, row) -> str | None:
     """Issue and email a single-use unlock link; audit it (no token in the
-    audit). Never raises: a mail outage must not change the login outcome."""
+    audit). Never raises: a mail outage must not change the login outcome.
+    Returns the mail delivery outcome (None if issuing failed)."""
     try:
         from . import mail
 
@@ -678,9 +705,11 @@ def _mail_unlock_link(conn: sqlite3.Connection, row) -> None:
         audit(conn, row["name"], "operator.unlock_mailed", "operator", row["id"],
               {"delivery": delivery}, org_id=row["org_id"])
         conn.commit()
+        return delivery
     except Exception:  # noqa: BLE001
         conn.rollback()
         logger.exception("Could not issue the unlock link")
+        return None
 
 
 def create_unlock_token(conn: sqlite3.Connection, operator_id: int) -> str:

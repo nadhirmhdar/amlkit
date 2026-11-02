@@ -974,6 +974,25 @@ CREATE TABLE IF NOT EXISTS uaepass_verifications (
 CREATE INDEX IF NOT EXISTS ix_uaepass_verif_org  ON uaepass_verifications(org_id);
 CREATE INDEX IF NOT EXISTS ix_uaepass_verif_cust ON uaepass_verifications(customer_id);
 
+-- One UAE PASS identity (Emirates ID) verified against two different customers
+-- in the same organisation. Kept apart from `alerts`, which structurally needs a
+-- screening and a list entity (same reasoning as transaction_alerts and
+-- adverse_media above). `reason` is always 'identity_reuse'; `detail` is JSON and
+-- names the other customer id, never the Emirates ID itself.
+CREATE TABLE IF NOT EXISTS identity_reuse_alerts (
+    id                INTEGER PRIMARY KEY,
+    org_id            INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    customer_id       INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    other_customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    verification_id   INTEGER REFERENCES uaepass_verifications(id) ON DELETE SET NULL,
+    reason            TEXT NOT NULL DEFAULT 'identity_reuse',
+    status            TEXT NOT NULL DEFAULT 'open',
+    detail            TEXT NOT NULL,
+    created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_idreuse_org  ON identity_reuse_alerts(org_id);
+CREATE INDEX IF NOT EXISTS ix_idreuse_cust ON identity_reuse_alerts(customer_id);
+
 -- Stripe webhook inbox. stripe_event_id UNIQUE makes handling idempotent: a
 -- replayed event is recognised by its id and not processed twice. payload is
 -- the verified event JSON; org_id is NULL when the event could not be

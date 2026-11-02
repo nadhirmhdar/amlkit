@@ -380,7 +380,8 @@ def confirm_disposition(
     between propose and confirm (an MLRO renaming themselves on /admin, #409)
     without the underlying operator row changing, which used to defeat this
     check (finding F1, 2026-10-04 mlro-user/red-team reports). Falls back to
-    the name comparison when either side predates the operator_id column.
+    a name comparison. A legacy proposal with NULL operator_id counts as
+    proposed-by-unknown (see scripts/backfill_proposal_operator.py).
     """
     if not (operator or "").strip():
         raise ReviewError("an operator identity is required to confirm a disposition")
@@ -401,18 +402,16 @@ def confirm_disposition(
     if current["status"] != PENDING:
         raise ReviewError(f"alert {alert_id} is not awaiting review (status={current['status']})")
 
-    if operator_id is not None and proposal["operator_id"] is not None:
-        same_operator = operator_id == proposal["operator_id"]
-    else:
-        # Legacy proposal written before alert_reviews.operator_id existed (or a
-        # caller without an id): fall back to comparing display names. Logged so
-        # we can see whether anything still depends on it (L-27); see
-        # scripts/check_legacy_proposals.py before removing.
-        logger.warning(
-            "four-eyes confirm on alert %s used the legacy name comparison "
-            "(proposal operator_id=%r, confirming operator_id=%r)",
-            alert_id, proposal["operator_id"], operator_id)
-        same_operator = operator.strip() == (proposal["operator"] or "").strip()
+    # Identity is the operator id, never the display name (a rename defeated the
+    # old name comparison, N8/CR-1b). A proposal with NULL operator_id is
+    # proposed-by-unknown: the proposer cannot be inferred, so any confirming
+    # operator that supplies an id may confirm. A confirming call without an id
+    # can never be shown to differ from the proposer, so it is refused.
+    if operator_id is None:
+        raise ReviewError("an operator id is required to confirm a disposition")
+    same_operator = (
+        proposal["operator_id"] is not None and operator_id == proposal["operator_id"]
+    )
     if same_operator:
         logger.warning(f"Same operator ({operator}) attempted to confirm own disposition; "
                       "ask your MLRO to add an independent operator or enable single-operator mode")
