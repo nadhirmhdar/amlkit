@@ -26,7 +26,10 @@ cd C:/Users/nizam/bedrock-project/amlkit && .venv/Scripts/python.exe -m pytest t
 ```
 amlkit/
   api/
-    app.py          Routes (thin — auth + render, no business logic)
+    app.py          App construction, middleware, limiter wiring, lifespan, include_router calls (wiring only, <=600 lines)
+    helpers.py      Shared by routers: render(), flash/back(), CSRF cookie, templates, public_base_url
+    routers/        One APIRouter per domain (auth, customers, alerts, reports, admin, system, ...);
+                    routes are thin — auth + render, no business logic; each file <=900 lines
     mobile.py       Mobile API (REST, bearer-token auth)
     deps.py         Request-scoped DB, session, CSRF
   auth.py           Session management, password hashing, CSRF

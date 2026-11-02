@@ -156,7 +156,7 @@ def admin_rule_config_post(
         from fastapi.responses import JSONResponse
         return JSONResponse({"error": str(exc)}, status_code=403)
 
-    from ...screening.kyt import save_rule_config
+    from ...screening.kyt import save_rule_config, get_rule_config
 
     from ...screening.kyt import LARGE_CASH_THRESHOLD_AED
 
