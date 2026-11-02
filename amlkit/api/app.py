@@ -32,6 +32,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .. import auth, changelog, notifications, onboarding, queries, uaepass
+from .. import mail as _mail
 from ..datamodel import MAX_NAME_LENGTH
 from ..web import blog
 from .compress import SelectiveGZipMiddleware
@@ -802,6 +803,15 @@ def uaepass_operator_callback(request: Request, db: DB, code: str = "", state: s
             err="No groAML account is linked to this UAE PASS identity yet. "
                 "Ask an admin to link your account, then try again.",
         ))
+
+    if auth.operator_login_locked(db, operator["id"]):
+        # Password lock (8 failures) also blocks SSO; same text password
+        # login gives for a locked account. The MFA lock is a separate matter.
+        from ..db import audit
+        audit(db, operator["name"], "operator.sso_refused_locked", "operator", operator["id"],
+              {"method": "uaepass"}, org_id=operator["org_id"])
+        db.commit()
+        return _clear_uaepass_state_cookie(back("/login", err="Incorrect email or password."))
 
     token, info = auth.login_via_uaepass(db, operator, ip=client_ip(request))
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"
@@ -2278,6 +2288,19 @@ def uaepass_customer_callback(
         " WHERE customer_id=? AND org_id=? ORDER BY id DESC LIMIT 1",
         (customer_id, session.org_id),
     ).fetchone()
+    reused = db.execute(
+        "SELECT 1 FROM identity_reuse_alerts WHERE org_id=? AND customer_id=? AND status='open'",
+        (session.org_id, customer_id),
+    ).fetchone()
+    if reused is not None:
+        extra = (f" It also does NOT match this customer file: {latest['match_detail']}."
+                 if latest is not None and latest["match_status"] == "mismatch" else "")
+        return _clear_uaepass_state_cookie(back(
+            f"/customers/{customer_id}",
+            err=("UAE PASS result recorded, but this identity was already verified for another "
+                 "customer. A review alert is open and nothing was copied onto this record."
+                 + extra),
+        ))
     if latest is not None and latest["match_status"] == "mismatch":
         return _clear_uaepass_state_cookie(back(
             f"/customers/{customer_id}",
@@ -3497,6 +3520,7 @@ def admin_view(request: Request, db: DB):
     return render(request, "admin.html", {
         "session": session, "org": dict(org),
         "operators": queries.operators(db, session.org_id),
+        "mail_configured": _mail.is_configured(),
         "threshold": queries.org_alert_threshold(db, session.org_id),
         "default_threshold": DEFAULT_THRESHOLD,
         "single_operator_setting": queries.org_single_operator_setting(db, session.org_id),

@@ -5,8 +5,8 @@ An MLRO could propose a sanctions dismissal, rename themselves on /admin
 four-eyes control the self-confirm check exists to enforce.
 
 The fix anchors the check on alert_reviews.operator_id (additive column) when
-both the proposal and the confirm call carry one, falling back to the old
-name comparison only for rows/callers that predate it.
+both the proposal and the confirm call carry one (the name fallback for
+legacy rows was removed in N8 / CR-1b).
 """
 from __future__ import annotations
 
@@ -54,10 +54,11 @@ def test_different_operator_id_confirms_even_if_old_name_happens_to_match():
     assert outcome.status == "false_positive"
 
 
-def test_legacy_rows_without_operator_id_fall_back_to_name_comparison():
-    """A proposal recorded before this migration (or by a caller that still
-    omits operator_id) has no id to compare -- the pre-fix name check still
-    guards it rather than silently waving every such row through."""
+def test_legacy_rows_without_operator_id_have_no_name_fallback():
+    """N8 / CR-1b: a proposal with NULL operator_id is proposed-by-unknown. The
+    display name is never compared (a renamed officer confirmed their own
+    proposal that way); any confirmer that supplies an operator id may confirm,
+    and a confirmer without an id is refused."""
     conn, org_id, alert_id = _create_test_db()
 
     propose_disposition(
@@ -65,14 +66,13 @@ def test_legacy_rows_without_operator_id_fall_back_to_name_comparison():
         reason_code="different_dob", operator="Legacy Operator",
     )
 
-    with pytest.raises(ReviewError, match="independent review requires a different operator"):
+    with pytest.raises(ReviewError, match="operator id is required"):
         confirm_disposition(
-            conn, alert_id, org_id=org_id, operator="Legacy Operator", agree=True,
+            conn, alert_id, org_id=org_id, operator="Someone Else", agree=True,
         )
 
-    # A genuinely different name still confirms, same as before this fix.
     outcome = confirm_disposition(
-        conn, alert_id, org_id=org_id, operator="Someone Else", agree=True,
+        conn, alert_id, org_id=org_id, operator="Legacy Operator", operator_id=7, agree=True,
     )
     assert outcome.status == "false_positive"
 

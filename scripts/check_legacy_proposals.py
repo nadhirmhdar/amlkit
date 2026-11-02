@@ -1,10 +1,10 @@
 """Report pending four-eyes proposals that still rely on the name-comparison fallback (L-27).
 
-`cases.review.confirm_disposition` compares operator ids, but falls back to
-comparing display names when the staged proposal has `operator_id IS NULL`
-(rows written before that column existed). Run this against the production
-database copy; when it reports 0, the fallback in `cases/review.py` can be
-deleted.
+`cases.review.confirm_disposition` compares operator ids only. A staged
+proposal with `operator_id IS NULL` (rows written before that column existed)
+is treated as proposed-by-unknown, so its proposer is not excluded from
+confirming. Run this to list them, and `scripts/backfill_proposal_operator.py`
+to fill the ids the audit trail identifies unambiguously.
 
     python scripts/check_legacy_proposals.py
 
