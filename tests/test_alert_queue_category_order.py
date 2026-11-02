@@ -248,10 +248,13 @@ def test_sanctions_terrorism_and_proliferation_keep_the_freeze_note(api):
     # L-102: the seeded list is not a UN / UAE-local list, so no freeze wording.
     assert "Freeze without delay" not in sanction["obligation"]
     assert "no UAE freeze obligation" in sanction["obligation"]
-    assert "TERRORISM FINANCING" in rows[ids["tf"]]["obligation"]
-    assert "Freeze without delay" in rows[ids["tf"]]["obligation"]
-    assert "PROLIFERATION FINANCING" in rows[ids["pf"]]["obligation"]
-    assert "Freeze without delay" in rows[ids["pf"]]["obligation"]
+    # CS-23: the dataset check precedes the category, so TF / PF entries on a
+    # non-UN / non-UAE-local list also get EDD / consider-STR wording, never
+    # "freeze" (the UN / UAE-local freeze wording is pinned in
+    # tests/test_obligation_wording.py).
+    for key in ("tf", "pf"):
+        assert "Freeze without delay" not in rows[ids[key]]["obligation"]
+        assert "no UAE freeze obligation" in rows[ids[key]]["obligation"]
 
 
 def test_screening_hit_obligation_is_category_aware():
@@ -426,7 +429,7 @@ def test_hit_obligation_for_terrorism_and_other():
 
 def test_multi_topic_entities_rank_and_word_by_the_stronger_category(api):
     """sanction+PEP ranks as sanction; PEP + a PF programme ranks as
-    proliferation; both get freeze text. A plain PEP ranks below them."""
+    proliferation; neither gets freeze text on this non-UN list. A plain PEP ranks below them."""
     conn, org_id, ds = _small_org()
     pep = _insert_alert(conn, ds, org_id, 1, "Plain PEP", ["role.pep.national"], [], 0.99)
     sanc_pep = _insert_alert(conn, ds, org_id, 2, "Sanction+PEP", ["role.pep", "sanction"], [], 0.50)
@@ -435,7 +438,8 @@ def test_multi_topic_entities_rank_and_word_by_the_stronger_category(api):
     page = queries.alert_queue(conn, org_id, status="open", limit=10)
     assert [a["id"] for a in page] == [pf_pep, sanc_pep, pep]
     assert [a["category"] for a in page] == ["proliferation", "sanction", "pep"]
-    assert "Freeze without delay" in page[0]["obligation"]      # PF programme
+    assert "Freeze without delay" not in page[0]["obligation"]  # PF programme, but a non-UN list (CS-23)
+    assert "no UAE freeze obligation" in page[0]["obligation"]
     assert "Freeze without delay" not in page[1]["obligation"]  # generic sanction on a non-UN list
     assert "freeze" not in page[2]["obligation"].lower()
     conn.close()

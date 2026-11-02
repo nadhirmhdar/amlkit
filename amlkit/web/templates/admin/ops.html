@@ -55,7 +55,9 @@
     <div class="list-row"><div class="primary">Synchronous sync after critical writes</div><div>{{ 'On' if system.replica.sync_enabled else 'Off' }}</div></div>
     <div class="list-row"><div class="primary">Last confirmed sync (this instance)</div>
       <div>{% if system.replica.last_sync_at %}{{ system.replica.last_sync_at }} ({{ age(system.replica.last_sync_age_hours) }} ago, {{ system.replica.last_sync_reason or 'unspecified' }}){% else %}<span class="muted">none since this instance started</span>{% endif %}</div></div>
-    <div class="list-row"><div class="primary">Litestream position</div><div class="mono small">{{ system.replica.position }}</div></div>
+    <div class="list-row"><div class="primary">Replica state</div>
+      <div id="ops-replica-state">{{ system.replica.state }}</div>
+      <div class="muted small ml-2">{% if system.replica.age_minutes is none %}no confirmed sync yet{% else %}last confirmed sync {{ system.replica.age_minutes }} min ago{% endif %}</div></div>
   </div>
 </div>
 

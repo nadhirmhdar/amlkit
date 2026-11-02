@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Unlock your account — groAML{% endblock %}
+{% block public_header %}{% endblock %}
+{% block public_footer %}{% endblock %}
+{% block body %}
+
+<div style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
+  <div style="width:400px;">
+    <div style="text-align:center; margin-bottom:36px;">
+      <div class="wm wm--accent" role="img" aria-label="groAML" style="font-size:30px;"><span aria-hidden="true">gr<span class="nd"></span>AML</span></div>
+    </div>
+
+    <div class="panel">
+      <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Unlock your account</h2>
+      <p>Confirm that you want to lift the temporary sign-in lock on your groAML account. This link works once.</p>
+      <form method="post" action="/unlock/{{ token }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn" id="unlock-confirm">Unlock my account</button>
+      </form>
+      <p class="text-center mt-4"><a href="/login">Back to sign in</a></p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

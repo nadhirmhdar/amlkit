@@ -113,6 +113,26 @@ def replica_status() -> dict[str, Any]:
     }
 
 
+# A confirmed sync older than this is reported as "lagging". Syncs happen after
+# critical writes (refresh, report finalise, freeze), not on a timer, so this is
+# deliberately generous.
+REPLICA_LAG_MINUTES = 24 * 60
+
+
+def replica_state(replica: dict[str, Any]) -> dict[str, Any]:
+    """Derived replica health for tenant MLROs: ok / lagging / unknown, plus the
+    age in minutes of the last confirmed sync. Never exposes litestream's raw text."""
+    age_h = replica.get("last_sync_age_hours")
+    age_min = None if age_h is None else max(0, int(round(age_h * 60)))
+    if not replica.get("configured") or age_min is None:
+        state = "unknown"
+    elif age_min > REPLICA_LAG_MINUTES:
+        state = "lagging"
+    else:
+        state = "ok"
+    return {"state": state, "age_minutes": age_min}
+
+
 def last_shared_refresh(conn: sqlite3.Connection) -> dict[str, Any] | None:
     """Latest successful dataset load and who ran it. Shared reference data
     (audit rows with org_id NULL); when an operator triggered the refresh the
@@ -124,17 +144,23 @@ def last_shared_refresh(conn: sqlite3.Connection) -> dict[str, Any] | None:
     return {"ts": row["ts"], "actor": row["actor"]} if row else None
 
 
-def system_status(conn: sqlite3.Connection) -> dict[str, Any]:
+def system_status(conn: sqlite3.Connection, *, raw_replica: bool = False) -> dict[str, Any]:
+    """`raw_replica=True` (super-admin /console only) keeps litestream's raw
+    status string; tenant callers get only the derived `replica.state`."""
     from .ingest.loader import staleness_report
 
     datasets = staleness_report(conn)
     for ds in datasets:
         h = ds["hours_since_refresh"]
         ds["stale"] = h is None or h > ds["max_age_hours"]
+    replica = replica_status()
+    replica.update(replica_state(replica))
+    if not raw_replica:
+        replica.pop("position", None)
     return {
         "version": app_version(),
         "datasets": datasets,
         "stale_count": sum(1 for d in datasets if d["stale"]),
         "last_refresh": last_shared_refresh(conn),
-        "replica": replica_status(),
+        "replica": replica,
     }
