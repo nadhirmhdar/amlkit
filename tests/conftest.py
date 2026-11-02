@@ -33,7 +33,7 @@ def _invite_code_and_limiter_reset(monkeypatch):
     """Every test gets AMLKIT_REGISTRATION_INVITE_CODE set, purge enabled for test assertions, and a fresh rate-limiter."""
     monkeypatch.setenv("AMLKIT_REGISTRATION_INVITE_CODE", INVITE_CODE)
     monkeypatch.setenv("AMLKIT_PURGE_ENABLED", "true")
-    from amlkit.api.app import limiter
+    from amlkit.api.limits import limiter
     limiter.reset()
     yield
     limiter.reset()

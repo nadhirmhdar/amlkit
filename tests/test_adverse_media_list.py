@@ -103,7 +103,7 @@ def test_a_non_http_article_url_is_not_made_a_link(mlro):
 
 
 def test_list_is_capped_and_says_so(mlro, monkeypatch):
-    import amlkit.api.app as appmod
+    import amlkit.api.routers.screening as appmod
     monkeypatch.setattr(appmod, "ADVERSE_LIST_CAP", 2)
     for n in ("A", "B", "C"):
         _add_finding(_org_id(), f"Firm {n}")

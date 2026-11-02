@@ -1322,7 +1322,9 @@ class TestCookieSecurity:
         import re
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / "amlkit" / "api" / "app.py").read_text(encoding="utf-8")
+        api_dir = Path(__file__).resolve().parent.parent / "amlkit" / "api"
+        src = "\n".join(f.read_text(encoding="utf-8")
+                        for f in [api_dir / "app.py", api_dir / "helpers.py", *sorted((api_dir / "routers").glob("*.py"))])
         matches = re.findall(r"set_cookie\(\s*SESSION_COOKIE", src)
 
         assert len(matches) == 5, \

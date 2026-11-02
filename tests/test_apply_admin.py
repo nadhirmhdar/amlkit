@@ -137,7 +137,7 @@ def test_scheduled_refresh_runs_the_purge(app_client, monkeypatch):
     # The endpoint itself needs the scheduler secret; here we only check that
     # the module is importable from the route (wiring), via its source.
     import inspect
-    import amlkit.api.app as appmod
+    import amlkit.api.routers.system as appmod
     assert "purge_expired" in inspect.getsource(appmod.system_refresh)
 
 

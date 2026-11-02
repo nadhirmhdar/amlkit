@@ -233,13 +233,18 @@ class TestCsrf:
     def test_only_bearer_routes_lack_csrf(self) -> None:
         """Every state-changing app.py route validates CSRF except the
         bearer-token /system/* routes."""
-        src = (Path(__file__).resolve().parent.parent / "amlkit" / "api" / "app.py").read_text(encoding="utf-8")
-        parts = re.split(r"\n(?=@app\.(?:post|put|delete|patch)\()", src)
+        api_dir = Path(__file__).resolve().parent.parent / "amlkit" / "api"
         missing = []
-        for p in parts[1:]:
-            body = re.split(r"\n(?=@app\.)", p)[0]
-            if "require_csrf" not in body and "csrf_valid" not in body:
-                missing.append(p.split("\n")[0])
+        checked = 0
+        for f in sorted((api_dir / "routers").glob("*.py")):
+            src = f.read_text(encoding="utf-8")
+            parts = re.split(r"\n(?=@router\.(?:post|put|delete|patch)\()", src)
+            for p in parts[1:]:
+                checked += 1
+                body = re.split(r"\n(?=@router\.)", p)[0]
+                if "require_csrf" not in body and "csrf_valid" not in body:
+                    missing.append(p.split("\n")[0])
+        assert checked > 50  # guard against the scan silently matching nothing
         unexpected = [m for m in missing if "/system/" not in m]
         assert "/logout" not in "".join(missing)
         assert "/admin/org-profile" not in "".join(missing)

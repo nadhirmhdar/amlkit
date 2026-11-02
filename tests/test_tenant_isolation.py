@@ -199,23 +199,26 @@ class TestStaticQueryInspection:
         )
 
     def test_app_routes_all_tenant_sql_includes_org_id(self):
-        from amlkit.api import app as app_module
-        source = inspect.getsource(app_module)
-        sql_strings = _extract_sql_strings(source)
+        # api/app.py was split into helpers.py + routers/*.py (WP-18): scan them all.
+        api_dir = Path(__file__).resolve().parent.parent / "amlkit" / "api"
+        files = [api_dir / "app.py", api_dir / "helpers.py", *sorted((api_dir / "routers").glob("*.py"))]
+        assert len(files) > 5
 
         violations = []
-        for lineno, sql in sql_strings:
-            if "CREATE TABLE" in sql.upper() or "CREATE INDEX" in sql.upper():
-                continue
-            tables = _mentions_tenant_table(sql)
-            if tables and not _has_org_id_filter(sql) and not _is_safe_exception(sql):
-                violations.append(
-                    f"  line {lineno}: touches {tables} without org_id filter:\n"
-                    f"    {sql[:120].strip()}"
-                )
+        for f in files:
+            sql_strings = _extract_sql_strings(f.read_text(encoding="utf-8"))
+            for lineno, sql in sql_strings:
+                if "CREATE TABLE" in sql.upper() or "CREATE INDEX" in sql.upper():
+                    continue
+                tables = _mentions_tenant_table(sql)
+                if tables and not _has_org_id_filter(sql) and not _is_safe_exception(sql):
+                    violations.append(
+                        f"  {f.name} line {lineno}: touches {tables} without org_id filter:\n"
+                        f"    {sql[:120].strip()}"
+                    )
 
         assert not violations, (
-            f"api/app.py has {len(violations)} SQL statement(s) touching "
+            f"api/ (app, helpers, routers) has {len(violations)} SQL statement(s) touching "
             f"tenant tables without org_id:\n" + "\n".join(violations)
         )
 

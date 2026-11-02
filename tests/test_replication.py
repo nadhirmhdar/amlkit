@@ -153,12 +153,13 @@ def test_system_refresh_syncs_the_replica(tmp_path, monkeypatch, recorded):
     monkeypatch.setenv("AMLKIT_DB", str(tmp_path / "test.db"))
     monkeypatch.setenv("SCHEDULER_SECRET", "s3cret")
     from amlkit.api import app as app_module
+    from amlkit.api.routers import system as system_routes
     from fastapi.testclient import TestClient
 
-    monkeypatch.setattr(app_module, "run_sanctions_refresh", lambda conn, actor: {
+    monkeypatch.setattr(system_routes, "run_sanctions_refresh", lambda conn, actor: {
         "mandatory_failures": [], "failures": [], "rescreen_failures": [],
     })
-    monkeypatch.setattr(app_module, "check_and_notify_staleness", lambda conn: {})
+    monkeypatch.setattr(system_routes, "check_and_notify_staleness", lambda conn: {})
     r = TestClient(app_module.app).post("/system/refresh", headers={"Authorization": "Bearer s3cret"})
     assert r.status_code == 200, r.text
     assert recorded == ["sanctions refresh"]
