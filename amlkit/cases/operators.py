@@ -21,12 +21,13 @@ def operator_name_taken(
     conn: sqlite3.Connection, org_id: int, name: str, exclude_id: int | None = None
 ) -> bool:
     """True when another operator in the org has this name, ignoring case,
-    width/compatibility forms (NFKC) and whitespace runs. The UNIQUE (org_id,
+    width/compatibility forms (NFKC), whitespace runs, zero-width/bidi
+    characters and Latin/Cyrillic/Greek look-alike letters (O1). The UNIQUE (org_id,
     name) constraint only catches byte-identical names, so "Bob" and "bob"
     would otherwise coexist and read as one person in the audit trail."""
-    key = auth.normalise_name_key(name)
+    key = auth.operator_name_lookalike_key(name)
     for row in conn.execute("SELECT id, name FROM operators WHERE org_id=?", (org_id,)):
-        if row["id"] != exclude_id and auth.normalise_name_key(row["name"]) == key:
+        if row["id"] != exclude_id and auth.operator_name_lookalike_key(row["name"]) == key:
             return True
     return False
 

@@ -260,7 +260,10 @@ class TestScreening:
     def test_latin_query_finds_listed_person(self, client) -> None:
         r = client.post("/screen", data={"name": LISTED, "csrf_token": _csrf(client)})
         assert "match(es)" in r.text
-        assert "TERRORISM FINANCING" in r.text
+        # CS-23: the seeded "test_list" is not a UN / UAE-local list, so even a
+        # terrorism-programme entry gets EDD / consider-STR wording, not freeze.
+        assert "no UAE freeze obligation" in r.text
+        assert "Freeze without delay" not in r.text
 
     def test_arabic_query_finds_latin_record(self, client) -> None:
         """The differentiator, exercised through the interface."""
