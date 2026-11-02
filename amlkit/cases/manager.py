@@ -525,6 +525,82 @@ def onboard(
     )
 
 
+MAX_UBO_DEPTH = 10  # longest ownership chain (customer -> owner levels) add_ubo accepts
+MAX_UBOS_PER_CUSTOMER = 200  # most ubo_links rows one customer may hold
+
+
+def _check_ubo_structure(
+    conn: sqlite3.Connection,
+    customer_id: int,
+    org_id: int,
+    person_name: str,
+    name_arabic: str | None,
+    parent_ubo_id: int | None,
+) -> None:
+    """Refuse owner structures that cannot be a real ownership chain (U4, UBO1)."""
+    cust = conn.execute(
+        "SELECT full_name, name_arabic FROM customers WHERE id=? AND org_id=?",
+        (customer_id, org_id),
+    ).fetchone()
+    own_forms = set()
+    for nm in (cust["full_name"], cust["name_arabic"]):
+        if nm and nm.strip():
+            own_forms.add(" ".join(nm.casefold().split()))
+            ck = canonical_key(nm)
+            if ck:
+                own_forms.add("ck:" + ck)
+    for nm in (person_name, name_arabic):
+        if nm and nm.strip():
+            forms = {" ".join(nm.casefold().split())}
+            ck = canonical_key(nm)
+            if ck:
+                forms.add("ck:" + ck)
+            if forms & own_forms:
+                raise ValueError(
+                    "A customer cannot be recorded as its own beneficial owner."
+                    " Record the natural persons or other entities that own or control it."
+                )
+
+    n_rows = conn.execute(
+        "SELECT COUNT(*) FROM ubo_links WHERE customer_id=? AND org_id=?",
+        (customer_id, org_id),
+    ).fetchone()[0]
+    if n_rows >= MAX_UBOS_PER_CUSTOMER:
+        raise ValueError(
+            f"A customer can have at most {MAX_UBOS_PER_CUSTOMER} owner records."
+        )
+
+    if parent_ubo_id is None:
+        return
+    parent = conn.execute(
+        "SELECT id, parent_ubo_id FROM ubo_links WHERE id=? AND customer_id=? AND org_id=?",
+        (parent_ubo_id, customer_id, org_id),
+    ).fetchone()
+    if parent is None:
+        raise ValueError(
+            f"parent_ubo_id {parent_ubo_id} does not belong to customer {customer_id}"
+        )
+    depth = 2  # the new row sits one level below its parent; the parent is level 1 at least
+    seen = {parent["id"]}
+    nxt = parent["parent_ubo_id"]
+    while nxt is not None:
+        if nxt in seen:
+            raise ValueError("That parent would create a circular ownership chain.")
+        seen.add(nxt)
+        depth += 1
+        if depth > MAX_UBO_DEPTH:
+            break
+        row = conn.execute(
+            "SELECT parent_ubo_id FROM ubo_links WHERE id=? AND customer_id=? AND org_id=?",
+            (nxt, customer_id, org_id),
+        ).fetchone()
+        nxt = row["parent_ubo_id"] if row is not None else None
+    if depth > MAX_UBO_DEPTH:
+        raise ValueError(
+            f"Ownership chains can be at most {MAX_UBO_DEPTH} levels deep."
+        )
+
+
 def add_ubo(
     conn: sqlite3.Connection,
     customer_id: int,
@@ -565,15 +641,9 @@ def add_ubo(
         if owned is None:
             raise ValueError(f"customer {customer_id} not found")
 
-        if parent_ubo_id is not None:
-            parent = conn.execute(
-                "SELECT id FROM ubo_links WHERE id=? AND customer_id=? AND org_id=?",
-                (parent_ubo_id, customer_id, org_id),
-            ).fetchone()
-            if parent is None:
-                raise ValueError(
-                    f"parent_ubo_id {parent_ubo_id} not found for customer {customer_id}"
-                )
+        _check_ubo_structure(
+            conn, customer_id, org_id, person_name, name_arabic, parent_ubo_id
+        )
 
         if ownership_pct is not None and parent_ubo_id is None:
             existing = conn.execute(
@@ -666,15 +736,35 @@ def _identified_ownership(rows) -> float:
     eff_cache: dict[int, float] = {}
 
     def eff(r) -> float:
-        if r["id"] in eff_cache:
-            return eff_cache[r["id"]]
-        eff_cache[r["id"]] = 0.0  # cycle guard
-        parent = by_id.get(r["parent_ubo_id"]) if r["parent_ubo_id"] is not None else None
-        val = max(pct(r), 0.0)
-        if parent is not None:
-            val = val * eff(parent) / 100.0
-        eff_cache[r["id"]] = val
-        return val
+        # Iterative (U4): walk up parent_ubo_id collecting the uncached path, then
+        # fold the stakes back down.  A node met again on the current path is a
+        # cycle and contributes 0.0 (same result as the former recursive guard).
+        path = []
+        on_path: set[int] = set()
+        base: float | None = None
+        cur = r
+        while True:
+            cid = cur["id"]
+            if cid in eff_cache:
+                base = eff_cache[cid]
+                break
+            if cid in on_path:
+                base = 0.0
+                break
+            on_path.add(cid)
+            path.append(cur)
+            pid = cur["parent_ubo_id"]
+            parent = by_id.get(pid) if pid is not None else None
+            if parent is None:
+                break
+            cur = parent
+        for node in reversed(path):
+            val = max(pct(node), 0.0)
+            if base is not None:
+                val = val * base / 100.0
+            eff_cache[node["id"]] = val
+            base = val
+        return eff_cache[r["id"]]
 
     parents_with_children = {r["parent_ubo_id"] for r in rows if r["parent_ubo_id"] is not None}
     best: dict[tuple, float] = {}
