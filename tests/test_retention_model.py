@@ -209,7 +209,8 @@ class TestRecomputeRetention:
         assert _ret(conn, cid) == OLD
 
     def test_report_finalise_routes_call_recompute(self) -> None:
-        from amlkit.api import app as web, mobile
+        from amlkit.api.routers import reports as web
+        from amlkit.api import mobile
         assert "recompute_retention" in inspect.getsource(web.report_submit)
         assert "recompute_retention" in inspect.getsource(mobile.api_report_submit)
 

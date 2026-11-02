@@ -41,7 +41,7 @@ def test_ownership_label_is_spelled_out(client) -> None:
 
 
 def test_code_list_handles_odd_stored_values() -> None:
-    from amlkit.api.app import _code_list
+    from amlkit.api.routers.customers import _code_list
     assert _code_list('["AE", "GB"]') == "AE, GB"
     assert _code_list(["AE", " ", "GB"]) == "AE, GB"
     assert _code_list("[]") == "" and _code_list(None) == "" and _code_list("") == ""

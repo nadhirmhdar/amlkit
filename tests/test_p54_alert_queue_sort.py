@@ -198,7 +198,8 @@ def test_web_route_accepts_sort_parameter():
     import inspect
 
     # Get the alerts route function
-    for route in web_app.app.routes:
+    from amlkit.api.routers import alerts as alerts_router
+    for route in alerts_router.router.routes:  # routes live in routers/ since WP-18
         if hasattr(route, 'path') and route.path == "/alerts" and hasattr(route, 'endpoint'):
             sig = inspect.signature(route.endpoint)
             params = sig.parameters

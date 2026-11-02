@@ -35,9 +35,8 @@ def _not_found() -> HTMLResponse:
 
 
 def _app():
-    # Imported lazily: app.py includes this router, so a top-level import
-    # would be circular.
-    from . import app as app_module
+    # Imported lazily; render()/back() live in helpers.py since the WP-18 router split.
+    from . import helpers as app_module
     return app_module
 
 

@@ -1,0 +1,107 @@
+{
+ "GET /api/v1/auth/setup": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "GET /auth/uaepass/callback": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "GET /auth/uaepass/start": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "GET /customers/{customer_id}/uaepass/callback": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "GET /customers/{customer_id}/uaepass/start": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "GET /unlock/{token}": [
+  "10 per 1 minute|rate_limit_key_func|unlock|False|True"
+ ],
+ "GET /verify-email": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /admin/refresh": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /admin/rescreen": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /admin/rule-config": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /api/ai/draft-narrative": [
+  "5 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /api/v1/auth/login": [
+  "10 per 1 minute|rate_limit_key_func||False|True",
+  "3 per 1 minute|login_rate_limit_key||False|True"
+ ],
+ "POST /api/v1/auth/mfa/verify": [
+  "5 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /api/v1/auth/register-organization": [
+  "5 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /api/v1/auth/resend-verification": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /api/v1/auth/verify-email": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /api/v1/customers/scan-emirates-id": [
+  "10 per 1 minute|operator_rate_limit_key||False|True"
+ ],
+ "POST /api/v1/customers/scan-passport": [
+  "10 per 1 minute|operator_rate_limit_key||False|True"
+ ],
+ "POST /api/v1/screen": [
+  "10 per 1 minute|operator_rate_limit_key||False|True"
+ ],
+ "POST /apply": [
+  "30 per 1 day|rate_limit_key_func||False|True",
+  "5 per 1 hour|rate_limit_key_func||False|True"
+ ],
+ "POST /billing/checkout": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /billing/portal": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /billing/webhook": [
+  "120 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /customers/scan-passport": [
+  "10 per 1 minute|operator_rate_limit_key||False|True"
+ ],
+ "POST /customers/scan-trade-licence": [
+  "10 per 1 minute|operator_rate_limit_key||False|True"
+ ],
+ "POST /feedback": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /login": [
+  "10 per 1 minute|rate_limit_key_func||False|True",
+  "3 per 1 minute|login_rate_limit_key||False|True"
+ ],
+ "POST /mfa/setup": [
+  "5 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /mfa/verify": [
+  "5 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /policies/upload": [
+  "10 per 1 hour|rate_limit_key_func||False|True"
+ ],
+ "POST /register-organization": [
+  "5 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /resend-verification": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /screen": [
+  "10 per 1 minute|rate_limit_key_func||False|True"
+ ],
+ "POST /unlock/{token}": [
+  "10 per 1 minute|rate_limit_key_func|unlock|False|True"
+ ]
+}

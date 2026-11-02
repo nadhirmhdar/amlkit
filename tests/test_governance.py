@@ -302,7 +302,7 @@ class TestKytRulePage:
         assert row["detail_json"]["new"]["large_cash_threshold_aed"] == 60000.0
 
     def test_alert_detail_amounts_have_no_trailing_float(self, web):
-        from amlkit.api.app import _fmt_amount
+        from amlkit.api.helpers import _fmt_amount
         assert _fmt_amount(55000.0) == "55,000"
         assert _fmt_amount(1234.5) == "1,234.50"
         assert _fmt_amount("x") == "x"

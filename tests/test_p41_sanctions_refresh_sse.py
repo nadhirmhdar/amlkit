@@ -5,7 +5,8 @@ import json
 def test_sse_endpoint_exists():
     """The /admin/refresh-stream endpoint should exist and return text/event-stream."""
     from amlkit.api.app import app
-    routes = {r.path for r in app.routes if hasattr(r, 'path')}
+    from tests.test_app_layout import _registered  # include_router() hides routes from app.routes
+    routes = {path for _m, path, _e in _registered()}
     assert "/admin/refresh-stream" in routes
 
 

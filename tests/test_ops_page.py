@@ -178,7 +178,7 @@ class TestLogLines:
         assert fields["org_count"] == body["orgs_checked"] >= 2
 
     def test_refresh_logs_counts_and_duration(self, seeded, scheduler, caplog, monkeypatch):
-        import amlkit.api.app as appmod
+        import amlkit.api.routers.system as appmod
 
         monkeypatch.setattr(appmod, "run_sanctions_refresh", lambda conn, actor, org_id=None: {
             "loaded": ["x"], "failures": [], "mandatory_failures": [],

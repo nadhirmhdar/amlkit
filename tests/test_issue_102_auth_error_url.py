@@ -58,7 +58,7 @@ def client_and_db(tmp_path, monkeypatch):
 
 def test_back_function_does_not_expose_errors_in_url():
     """The back() redirect helper should not append error messages to URL."""
-    from amlkit.api.app import back
+    from amlkit.api.helpers import back
 
     # Test back() with error message
     resp = back("/dashboard", err="Access denied: MLRO role required")

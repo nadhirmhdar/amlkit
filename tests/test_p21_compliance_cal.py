@@ -7,7 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 def test_routes_registered():
     """Smoke test: verify routes are registered."""
     from amlkit.api.app import app
-    routes = [r.path for r in app.routes if hasattr(r, 'path')]
+    from tests.test_app_layout import _registered  # include_router() hides routes from app.routes
+    routes = [path for _m, path, _e in _registered()]
     assert "/compliance/calendar" in routes
     assert "/compliance/deadlines" in routes
 

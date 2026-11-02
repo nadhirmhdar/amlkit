@@ -22,7 +22,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from amlkit.api.app import _valid_setup_token, app  # noqa: E402
+from amlkit.api.app import app
+from amlkit.api.routers.auth import _valid_setup_token  # noqa: E402
 from amlkit.db import connect, utcnow  # noqa: E402
 
 

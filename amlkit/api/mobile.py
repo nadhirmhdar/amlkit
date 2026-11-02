@@ -446,7 +446,7 @@ class SetupRequest(BaseModel):
 @router.get("/auth/setup")
 @limiter.limit("10/minute")  # IP ceiling, same pattern as /auth/login
 def api_setup_check(request: Request, token: str, db: DB):
-    from .app import _valid_setup_token
+    from .routers.auth import _valid_setup_token
 
     row = _valid_setup_token(db, token)
     if row is None:
@@ -457,7 +457,7 @@ def api_setup_check(request: Request, token: str, db: DB):
 
 @router.post("/auth/setup")
 def api_setup_submit(body: SetupRequest, db: DB):
-    from .app import _valid_setup_token
+    from .routers.auth import _valid_setup_token
 
     row = _valid_setup_token(db, body.token)
     if row is None:
@@ -1670,7 +1670,7 @@ def api_admin_deactivate_operator(operator_id: int, db: DB, session: Session):
 @router.post("/admin/refresh")
 def api_admin_refresh(db: DB, session: Session):
     _require_mlro(session)
-    from .app import run_sanctions_refresh
+    from ..cases.scheduler import run_sanctions_refresh
 
     result = run_sanctions_refresh(db, actor=session.operator_name, org_id=session.org_id)
     if result["failures"]:
