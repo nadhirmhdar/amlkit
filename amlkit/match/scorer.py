@@ -21,7 +21,7 @@ from typing import Any
 
 from rapidfuzz.distance import JaroWinkler
 
-from ..names.arabic import canonical_tokens
+from ..names.arabic import canonical_token, canonical_tokens, tokenize
 
 # --- feature weights (OpenSanctions logic-v2) ------------------------------
 W_IDENTIFIER_MATCH = 0.95   # exact LEI/BIC/passport/tax hit
@@ -41,6 +41,17 @@ FUZZY_CUTOFF = 0.82
 # with precision (how much of the listed name the query accounts for). See the
 # calibration note in `name_score`.
 PRECISION_FLOOR = 0.60
+
+# Token containment: when every token of a listed name (two or more) is present
+# in the query, extra query tokens ("Mohammed Ali Hassan" vs listed "Mohammed
+# Ali") are an added patronymic/surname, not evidence of a different person.
+# Each extra token costs CONTAINMENT_EXTRA_PENALTY, capped at
+# CONTAINMENT_MAX_PENALTY, and the result never reaches 1.0 (reserved for exact
+# canonical equality). It only ever raises a score.
+CONTAINMENT_MIN_LISTED_TOKENS = 2
+CONTAINMENT_EXTRA_PENALTY = 0.03
+CONTAINMENT_MAX_PENALTY = 0.09
+CONTAINMENT_CEILING = 0.97
 
 # Default alert threshold. Tuned in tests/test_matching.py against a golden set
 # plus a false-positive suite; changing it should mean re-running those.
@@ -73,6 +84,36 @@ def token_similarity(a: str, b: str) -> float:
     return JaroWinkler.similarity(a, b)
 
 
+MAX_SPLIT_FRAGMENT = 3
+
+
+def _merge_split(raw: list[str], other: list[str]) -> list[str] | None:
+    """Canonical tokens of `raw` with a split token re-joined, or None.
+
+    Two adjacent raw tokens are joined only when one is a short fragment
+    (<= MAX_SPLIT_FRAGMENT letters) and the joined word canonicalises to a
+    token `other` already holds. Short-fragment-only keeps two genuine
+    given-name tokens from being fused into a spurious match.
+    """
+    other_set = set(other)
+    res: list[str] = []
+    changed = False
+    i = 0
+    while i < len(raw):
+        if i + 1 < len(raw) and min(len(raw[i]), len(raw[i + 1])) <= MAX_SPLIT_FRAGMENT:
+            joined = canonical_token(raw[i] + raw[i + 1])
+            if joined and joined in other_set:
+                res.append(joined)
+                i += 2
+                changed = True
+                continue
+        c = canonical_token(raw[i])
+        if c:
+            res.append(c)
+        i += 1
+    return res if changed else None
+
+
 def name_score(query: str, candidate: str) -> tuple[float, dict[str, Any]]:
     """Compare two full names. Returns (score, detail).
 
@@ -89,6 +130,23 @@ def name_score(query: str, candidate: str) -> tuple[float, dict[str, Any]]:
     if not qt or not ct:
         return 0.0, {"reason": "empty after canonicalisation"}
 
+    if sorted(qt) == sorted(ct):
+        return 1.0, {"exact_canonical": True, "tokens": len(qt)}
+
+    best = _score_tokens(qt, ct)
+    # A separator (e.g. U+3000) inside one token splits it in two ("BI LAL").
+    # Try the repaired readings, exact joined-token equality only, keep the best.
+    qraw, craw = tokenize(query)[0], tokenize(candidate)[0]
+    for q2, c2 in ((_merge_split(qraw, ct), ct), (qt, _merge_split(craw, qt))):
+        if q2 is None or c2 is None:
+            continue
+        alt = _score_tokens(q2, c2)
+        if alt[0] > best[0]:
+            best = (alt[0], {**alt[1], "split_token_repaired": True})
+    return best
+
+
+def _score_tokens(qt: list[str], ct: list[str]) -> tuple[float, dict[str, Any]]:
     if sorted(qt) == sorted(ct):
         return 1.0, {"exact_canonical": True, "tokens": len(qt)}
 
@@ -128,6 +186,19 @@ def name_score(query: str, candidate: str) -> tuple[float, dict[str, Any]]:
     # Changing this constant requires re-running tests/test_matching.py.
     score = recall * (PRECISION_FLOOR + (1 - PRECISION_FLOOR) * precision)
 
+    # Token containment: every listed token is matched and the query only adds
+    # tokens. Bounded, and only ever raises the score.
+    contained = None
+    extra = len(qt) - len(used)
+    if len(ct) >= CONTAINMENT_MIN_LISTED_TOKENS and len(used) == len(ct) and extra > 0 and pairs:
+        mean_sim = sum(p[2] for p in pairs) / len(pairs)
+        penalty = min(CONTAINMENT_MAX_PENALTY, CONTAINMENT_EXTRA_PENALTY * extra)
+        contained = min(CONTAINMENT_CEILING, mean_sim * (1 - penalty))
+        if contained > score:
+            score = contained
+        else:
+            contained = None
+
     detail = {
         "recall": round(recall, 3),
         "precision": round(precision, 3),
@@ -135,6 +206,8 @@ def name_score(query: str, candidate: str) -> tuple[float, dict[str, Any]]:
         "candidate_tokens": ct,
         "matched_pairs": pairs,
     }
+    if contained is not None:
+        detail["token_containment"] = round(contained, 3)
     # A single-token query is weak evidence whatever it scores. Surfaced so the
     # UI can warn the user rather than silently swallowing the ambiguity.
     if len(qt) < 2:
