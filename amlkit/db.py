@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     billing_subscription_id TEXT,
     billing_last_event_created INTEGER,
     plan                    TEXT NOT NULL DEFAULT 'trial',
-    plan_status             TEXT,     -- trialing|active|past_due|canceled|unpaid
+    plan_status             TEXT,     -- pending_payment (plan 'none')|trialing|active|past_due|canceled|unpaid
     trial_ends_at           TEXT,
     current_period_end      TEXT
 );

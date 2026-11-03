@@ -190,7 +190,7 @@ class TestPagesRender:
         assert r.status_code == 200
         assert "groAML" in r.text
 
-    @pytest.mark.parametrize("path", ["/", "/dashboard", "/screen", "/alerts", "/customers", "/admin"])
+    @pytest.mark.parametrize("path", ["/dashboard", "/screen", "/alerts", "/customers", "/admin"])
     def test_page_redirects_when_not_authenticated(self, client, path: str) -> None:
         client.cookies.delete("amlkit_session")
         r = client.get(path, follow_redirects=False)
@@ -225,9 +225,12 @@ class TestAuth:
 
     def test_logout_ends_the_session(self, client) -> None:
         client.post("/logout", data={"csrf_token": _csrf(client)})
-        r = client.get("/", follow_redirects=False)
+        r = client.get("/dashboard", follow_redirects=False)
         assert r.status_code == 303
         assert r.headers["location"] == "/login"
+        # WP-26: "/" is the public landing page once signed out.
+        root = client.get("/", follow_redirects=False)
+        assert root.status_code == 200 and "Onboard a customer" not in root.text
 
     def test_duplicate_email_registration_is_a_clean_error(self, client) -> None:
         """Same underlying bug as test_mobile_api.py's version: registering a

@@ -38,7 +38,13 @@
           <a href="/apply">request a quotation</a> to get started.
         </p>
       {% else %}
-        <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Register your firm</h2>
+        <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">{% if needs_invite is defined and not needs_invite %}Start your free trial{% else %}Register your firm{% endif %}</h2>
+        {% if needs_invite is defined and not needs_invite %}
+        <p class="muted small mt-0">
+          After you verify your email we ask for payment details; your 14-day free trial starts
+          once they are added.
+        </p>
+        {% endif %}
         <p class="muted small mt-0">
           Creates a new, fully isolated workspace — your firm's screening data is
           never visible to any other organization using this deployment — and its
@@ -46,10 +52,12 @@
         </p>
         <form method="post" action="/register-organization">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          {% if needs_invite is not defined or needs_invite %}
           <div class="field">
             <label for="reg-invite-code">Invite code</label>
             <input type="text" name="invite_code" id="reg-invite-code" autocomplete="off" required>
           </div>
+          {% endif %}
           <div class="field">
             <label for="reg-org-name">Firm name</label>
             <input type="text" name="org_name" id="reg-org-name" autofocus required>

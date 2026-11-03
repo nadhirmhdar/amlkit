@@ -1,52 +1,59 @@
 {% extends "base.html" %}
 {% set nav = 'pricing' %}
+{% set og_title = 'groAML pricing' %}{% set og_description = 'Starter, Professional and Consultant plans for UAE DNFBPs. 14-day free trial.' %}
 {% block title %}Pricing | groAML by Grovisor{% endblock %}
+{% block meta_description %}<meta name="description" content="groAML plans for UAE DNFBPs: Starter, Professional and Consultant. 14-day free trial that starts when you add payment details.">{% endblock %}
 {% block body %}
-
-<div style="max-width:860px;">
+<main id="main-content" tabindex="-1">
+<div class="pub-wrap" style="padding-top:32px;">
   <div class="page-head">
     <div class="eyebrow">Pricing</div>
-    <h1>Simple plans for UAE <span style="font-weight:500; color:var(--ink-2);">AML/CFT compliance</span></h1>
+    <h1>Plans for UAE <span style="font-weight:500; color:var(--ink-2);">AML/CFT compliance</span></h1>
     <p class="sub">
-      Every plan starts with a {{ trial_days }}-day free trial. Choose the plan that fits
-      how you work; you can change or cancel at any time from the billing page.
+      {% if self_serve %}
+      Every plan includes a {{ trial_days }}-day free trial, which starts when you add payment details.
+      You can change or cancel from the billing page.
+      {% else %}
+      Tell us about your firm and we will recommend a plan and set up your workspace.
+      {% endif %}
     </p>
   </div>
 
-  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;" class="mb-6">
+  <div class="pub-grid pub-grid--3 mb-6">
     {% for c in cards %}
-    <div class="panel" style="display:flex; flex-direction:column;">
-      <h2 style="margin-bottom:4px;">{{ c.plan.name }}</h2>
-      <div class="muted small" style="min-height:40px;">{{ c.plan.audience }}</div>
-      <div style="font-size:22px; font-weight:700; margin:14px 0;">
-        {% if c.price %}{{ c.price }}{% else %}Contact us{% endif %}
-      </div>
-      <ul style="padding-left:18px; margin:0 0 14px; font-size:14px; line-height:1.6; color:var(--ink-2);">
+    <section class="pub-card" style="display:flex; flex-direction:column;" aria-labelledby="plan-{{ c.plan.key }}">
+      <h2 id="plan-{{ c.plan.key }}" style="font-size:20px;text-transform:none;margin:0 0 4px;">{{ c.plan.name }}</h2>
+      <p style="min-height:40px;">{{ c.plan.audience }}</p>
+      <div class="pub-price">{% if c.price %}{{ c.price }}{% else %}Contact us{% endif %}</div>
+      <ul>
         <li>{{ c.plan.max_workspaces }} workspace{{ 's' if c.plan.max_workspaces != 1 }}</li>
         <li>Up to {{ c.plan.max_operators }} operators</li>
         <li>Up to {{ '{:,}'.format(c.plan.max_customers) }} customers</li>
         {% for f in c.plan.features %}<li>{{ f }}</li>{% endfor %}
       </ul>
-      <div style="margin-top:auto;">
-        <a class="btn" href="/register-organization">Start {{ trial_days }}-day trial</a>
+      <div style="margin-top:auto;padding-top:16px;">
+        {% if self_serve %}
+          <a class="btn pub-btn-primary" href="/register-organization">Start free trial</a>
+        {% else %}
+          <a class="btn pub-btn-primary" href="/apply">Request access</a>
+        {% endif %}
       </div>
-    </div>
+    </section>
     {% endfor %}
   </div>
 
-  <div class="panel mb-6">
+  {% if self_serve %}
+  <p class="pub-note">The {{ trial_days }}-day free trial starts when you add payment details.</p>
+  {% endif %}
+  <div class="pub-card mb-6">
     <h3>Need something different?</h3>
-    <p class="muted small mt-0">
-      Larger teams, several client firms beyond the Consultant plan, or specific
-      requirements: request a custom quotation and the Grovisor team will get back to you.
-    </p>
-    <a class="btn-outline" href="/apply">Request a quotation</a>
+    <p>Larger teams, several client firms beyond the Consultant plan, or specific requirements: request a custom quotation and the Grovisor team will get back to you.</p>
+    <p style="margin-top:12px;"><a class="btn-outline" href="/apply">Request a quotation</a></p>
   </div>
 
-  <p class="muted small">
-    groAML is provided by Grovisor Business Consultants FZE. Payments are processed by
-    Stripe; groAML never sees or stores your card details.
+  <p class="pub-note">
+    groAML is provided by Grovisor Business Consultants FZE.{% if self_serve %} Payments are processed by Stripe; groAML never sees or stores your card details.{% endif %}
   </p>
 </div>
-
+</main>
 {% endblock %}

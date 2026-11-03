@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% set nav = 'home' %}
+{% set og_title = 'groAML by Grovisor: AML/CFT compliance software for UAE DNFBPs' %}{% set og_description = 'Screening, CDD, risk assessment and goAML reporting in one workspace for UAE DNFBPs.' %}
+{% block title %}groAML by Grovisor | AML/CFT compliance software for UAE DNFBPs{% endblock %}
+{% block meta_description %}<meta name="description" content="Sanctions and PEP screening, customer due diligence, risk assessment and goAML reporting in one workspace for UAE DNFBPs: auditors, accountants, real-estate brokers, dealers in precious metals and stones, corporate service providers and lawyers.">{% endblock %}
+{% block body %}
+<main id="main-content" tabindex="-1">
+
+<section class="pub-hero" aria-labelledby="hero-title">
+  <div class="pub-wrap">
+    <div class="eyebrow">For UAE DNFBPs</div>
+    <h1 id="hero-title">AML/CFT compliance for UAE firms, <em>in one workspace</em></h1>
+    <p class="lead">
+      groAML brings sanctions and PEP screening, customer due diligence, risk assessment and goAML
+      reporting together, with Arabic-aware name matching and a full audit trail. Built for auditors,
+      accountants, real-estate brokers, dealers in precious metals and stones, corporate service
+      providers and law firms.
+    </p>
+    <div class="pub-cta-row">
+      {% if self_serve %}
+        <a class="btn pub-btn-primary" href="/register-organization">Start free trial</a>
+      {% else %}
+        <a class="btn pub-btn-primary" href="/apply">Request access</a>
+      {% endif %}
+      <a class="btn-outline" href="/pricing">See pricing</a>
+    </div>
+    <p class="pub-note">
+      {% if self_serve %}{{ trial_days }}-day free trial. It starts when you add payment details.
+      {% else %}Tell us about your firm and we will set up your workspace.{% endif %}
+    </p>
+  </div>
+</section>
+
+<section class="pub-section" id="product" aria-labelledby="features-title">
+  <div class="pub-wrap">
+    <h2 id="features-title">What groAML covers</h2>
+    <p class="sub">The day-to-day AML/CFT work of a small or mid-sized regulated firm, in one place.</p>
+    <div class="pub-grid pub-grid--2">
+      <article class="pub-card">
+        <h3>Sanctions and PEP screening</h3>
+        <p>Screen individuals and entities against the UAE Local Terrorist List, UN, OFAC, EU and UK sanctions lists and politically exposed person data. Arabic-aware matching handles transliteration variants and both Latin and Arabic script.</p>
+      </article>
+      <article class="pub-card">
+        <h3>CDD and KYC</h3>
+        <p>One case file per customer with beneficial ownership, supporting documents and evidence. Verify identity with UAE PASS and capture details from Emirates ID and passport scans.</p>
+      </article>
+      <article class="pub-card">
+        <h3>Risk assessment and periodic review</h3>
+        <p>A configurable risk model scores each customer, and a review clock keeps track of when the next periodic review is due. Transaction and adverse media checks feed back into the file.</p>
+      </article>
+      <article class="pub-card">
+        <h3>goAML reporting and freeze obligations</h3>
+        <p>Prepare STR/SAR reports from the case file and export goAML 5.0 XML. Confirmed sanctions matches create freeze obligations that are tracked until they are executed.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="pub-section" aria-labelledby="how-title" style="padding-top:0;">
+  <div class="pub-wrap">
+    <h2 id="how-title">How it works</h2>
+    <ol class="pub-steps">
+      <li><strong>Onboard</strong>Create the customer, add owners and documents, and verify identity.</li>
+      <li><strong>Screen</strong>Check names against sanctions and PEP lists, then work through any alerts.</li>
+      <li><strong>Assess</strong>Score the customer, record the rationale and set the review date.</li>
+      <li><strong>Report</strong>Escalate to the MLRO, file through goAML and keep the evidence on record.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="pub-section pub-trust" aria-labelledby="trust-title">
+  <div class="pub-wrap">
+    <h2 id="trust-title">Built to keep your records separate and traceable</h2>
+    <div class="pub-grid pub-grid--3" style="margin-top:20px;">
+      <div class="pub-card"><h3>Separate workspace per firm</h3><p>Every query is scoped to your organisation, so one firm's customers and screenings are never visible to another.</p></div>
+      <div class="pub-card"><h3>Append-only audit trail</h3><p>Actions are recorded in an audit log that the database prevents from being edited or deleted.</p></div>
+      <div class="pub-card"><h3>MFA for MLROs</h3><p>MLRO accounts must complete two-factor authentication, with backup codes and lockout on repeated failures.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="pub-final" aria-labelledby="final-title">
+  <div class="pub-wrap">
+    <h2 id="final-title">Ready to see groAML on your own files?</h2>
+    <div class="pub-cta-row">
+      {% if self_serve %}
+        <a class="btn pub-btn-primary" href="/register-organization">Start free trial</a>
+      {% else %}
+        <a class="btn pub-btn-primary" href="/apply">Request access</a>
+      {% endif %}
+      <a class="btn-outline" href="/aml-law">Read the AML law overview</a>
+    </div>
+    <p class="pub-note">
+      {% if self_serve %}{{ trial_days }}-day free trial, starting when you add payment details.{% else %}We reply to every request by email.{% endif %}
+    </p>
+  </div>
+</section>
+
+</main>
+{% endblock %}

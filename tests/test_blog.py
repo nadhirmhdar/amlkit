@@ -173,7 +173,7 @@ def test_robots_txt_points_at_sitemap(client) -> None:
     assert "Sitemap: https://groaml.grovisor.ae/sitemap.xml" in r.text
 
 
-def test_sitemap_lists_public_pages_but_not_the_authenticated_home(client) -> None:
+def test_sitemap_lists_public_pages_including_the_landing_page(client) -> None:
     r = client.get("/sitemap.xml")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/xml")
@@ -181,25 +181,25 @@ def test_sitemap_lists_public_pages_but_not_the_authenticated_home(client) -> No
     assert "<loc>https://groaml.grovisor.ae/blog</loc>" in r.text
     for post in blog.all_posts():
         assert f"<loc>https://groaml.grovisor.ae/blog/{post.slug}</loc>" in r.text
-    # "/" requires login and would just redirect a crawler -- it must not be listed.
-    assert "<loc>https://groaml.grovisor.ae/</loc>" not in r.text
+    # WP-26: "/" is the public landing page for anonymous visitors, so it is listed.
+    assert "<loc>https://groaml.grovisor.ae/</loc>" in r.text
 
 
 def test_public_header_and_footer_appear_on_content_pages_not_auth_flows(client) -> None:
     for path in ("/about", "/privacy"):
         html = client.get(path).text
-        assert '<header class="no-print"' in html, path
+        assert '<header class="pub-nav no-print"' in html, path
         assert "Grovisor Business Consultants FZE. groAML" in html, path
 
-    # Blog pages carry their own header (search, topics) and footer.
+    # WP-26: blog pages use the same shared public nav and footer.
     for path in ("/blog", "/blog/uae-sanctions-screening-24-hour-rule"):
         html = client.get(path).text
-        assert '<header class="bl-top no-print"' in html, path
+        assert '<header class="pub-nav no-print"' in html, path
         assert "Grovisor Business Consultants FZE. groAML" in html, path
 
     for path in ("/login", "/register-organization", "/setup"):
         html = client.get(path).text
-        assert '<header class="no-print"' not in html, path
+        assert '<header class="pub-nav no-print"' not in html, path
         assert "Grovisor Business Consultants FZE. groAML" not in html, path
 
 
@@ -251,10 +251,12 @@ def test_secret_bearing_pages_are_not_gzipped(client) -> None:
 
 
 def test_public_pages_do_not_link_to_the_redirecting_root(client) -> None:
-    """"/" 303-redirects signed-out visitors to /login; public pages should link /about instead."""
+    """WP-26: "/" is now the public landing page for signed-out visitors, so the
+    shared nav's brand links to it (it used to 303 to /login)."""
+    assert client.get("/", follow_redirects=False).status_code == 200
     for path in ("/about", "/privacy", "/apply"):
         html_ = client.get(path).text
-        assert 'href="/"' not in html_, path
+        assert 'href="/"' in html_, path
         assert 'href="/about"' in html_, path
     # (the UAE PASS link's rel="nofollow" is asserted precisely in test_web_hygiene.py)
 

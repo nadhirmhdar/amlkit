@@ -12,6 +12,9 @@ Rules:
     billing therefore cannot break an existing firm.
   * A subscribed org gets its tier's limits. An org on a dated trial
     (plan 'trial' with trial_ends_at set) gets the Starter limits.
+  * pending_payment: an org created through self-serve sign-up (Stripe mode)
+    cannot create operators or customers until Checkout completes; it is not
+    a legacy org. Reads are untouched.
   * past_due / unpaid / canceled: writes keep working for GRACE_DAYS after
     current_period_end, then creation is refused with a message pointing to
     /billing. A canceled org is likewise refused after the grace window.
@@ -26,11 +29,12 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from . import stripe_client
+from . import PENDING_STATUS, stripe_client
 from .plans import GRACE_DAYS, PLANS, Plan
 
 RESOURCES = ("operators", "customers", "workspaces")
 BLOCKED_STATUSES = ("past_due", "unpaid", "canceled")
+PENDING_MESSAGE = "Add payment details on /billing to start your 14-day trial"
 
 
 class BillingLimitError(ValueError):
@@ -47,6 +51,7 @@ class BillingState:
     write_blocked: bool
     grace_ends_at: str | None
     usage: dict[str, int]
+    pending_payment: bool = False   # self-serve org that has not added payment details
 
     def limit(self, resource: str) -> int | None:
         return None if self.plan is None else self.plan.limit(resource)
@@ -117,6 +122,10 @@ def org_state(conn: sqlite3.Connection, org_id: int, now: datetime | None = None
         return BillingState("trial", None, None, True, False, None, use)
     plan_key = row["plan"] or "trial"
     status = row["plan_status"]
+    if status == PENDING_STATUS:
+        # Self-serve sign-up, no payment details yet: not a legacy org. Reads
+        # work; creation is refused in check_limit.
+        return BillingState(plan_key, status, None, False, False, None, use, pending_payment=True)
     trial_end = _parse(row["trial_ends_at"])
 
     if plan_key == "trial":
@@ -151,6 +160,8 @@ def check_limit(conn: sqlite3.Connection, org_id: int, resource: str,
     st = org_state(conn, org_id, now)
     if st.legacy:
         return
+    if st.pending_payment:
+        raise BillingLimitError(PENDING_MESSAGE)
     if st.write_blocked:
         raise BillingLimitError(
             "This workspace is read-only because the subscription is "

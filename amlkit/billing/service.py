@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..db import audit, utcnow
+from . import PENDING_STATUS
+from .plans import PLANS
 from .stripe_client import StripeConfig
 
 ACTOR = "stripe"
@@ -129,6 +131,15 @@ def _process(conn: sqlite3.Connection, event: dict[str, Any], config: StripeConf
             " billing_subscription_id=COALESCE(?, billing_subscription_id) WHERE id=?",
             (obj.get("customer"), obj.get("subscription"), org_id),
         )
+        cur = conn.execute("SELECT plan_status FROM organizations WHERE id=?", (org_id,)).fetchone()
+        tier = meta.get("tier")
+        if cur["plan_status"] == PENDING_STATUS and obj.get("subscription") and tier in PLANS:
+            # Payment details are in: leave pending_payment now rather than
+            # waiting for customer.subscription.created (which then refines it).
+            conn.execute("UPDATE organizations SET plan=?, plan_status='trialing' WHERE id=?",
+                         (tier, org_id))
+            audit(conn, ACTOR, "billing.pending_cleared", "organization", org_id,
+                  {"tier": tier}, org_id=org_id)
         audit(conn, ACTOR, "billing.checkout_completed", "organization", org_id,
               {"customer": obj.get("customer"), "subscription": obj.get("subscription")},
               org_id=org_id)

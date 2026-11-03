@@ -130,8 +130,8 @@ def test_anonymous_public_pages_carry_no_csrf_token_in_body(anon):
         assert "csrf_token" not in r.text, path
     # Not compressed, but must not embed a token for anonymous visitors either.
     assert "csrf_token" not in anon.get("/privacy").text
-    root = anon.get("/", follow_redirects=False)
-    assert root.status_code == 303 and "csrf_token" not in root.text
+    root = anon.get("/", follow_redirects=False)  # WP-26: public landing page, no redirect
+    assert root.status_code == 200 and "csrf_token" not in root.text
 
 
 def test_uaepass_link_is_nofollow_when_enabled_and_absent_otherwise(anon, monkeypatch):

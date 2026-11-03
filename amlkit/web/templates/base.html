@@ -11,16 +11,16 @@
 {% block og %}
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="groAML by Grovisor">
-<meta property="og:title" content="groAML by Grovisor">
-<meta property="og:description" content="Sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs.">
+<meta property="og:title" content="{{ og_title or 'groAML by Grovisor' }}">
+<meta property="og:description" content="{{ og_description or 'Sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs.' }}">
 <meta property="og:url" content="{{ public_base_url }}{{ request.url.path }}">
 <meta property="og:image" content="{{ public_base_url }}/static/img/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="groAML by Grovisor: UAE AML/CFT compliance software for DNFBPs">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="groAML by Grovisor">
-<meta name="twitter:description" content="Sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs.">
+<meta name="twitter:title" content="{{ og_title or 'groAML by Grovisor' }}">
+<meta name="twitter:description" content="{{ og_description or 'Sanctions &amp; PEP screening, Arabic-aware name matching, and CDD case management for UAE DNFBPs.' }}">
 <meta name="twitter:image" content="{{ public_base_url }}/static/img/og-card.png">
 {% endblock %}
 <link rel="preload" href="/static/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -192,6 +192,12 @@
         <a href="{{ dataset_banner.link }}">View compliance dashboard</a>
       </div>
     {% endif %}
+    {% if pending_payment and request.url.path != '/billing' %}
+      <div class="banner warning pending-pay" role="status">
+        <strong>Add payment details to start your 14-day trial.</strong>
+        {% if session.operator_role == 'mlro' %}<a href="/billing">Go to billing</a>{% else %}Ask your MLRO to complete billing.{% endif %}
+      </div>
+    {% endif %}
     {% if mfa_banner %}
       <div class="banner warning">
         <strong>{{ mfa_banner.message }}</strong>
@@ -203,21 +209,7 @@
   {# Public pages only (about/privacy/blog) land here unauthenticated and
      otherwise have no way back to the app or across to grovisor.ae -- the
      sign-in page overrides this block to keep its own bare layout. #}
-  {% block public_header %}
-  <header class="no-print" style="max-width:860px;margin:0 auto;padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-    {# Signed-out visitors: "/" 303-redirects to /login, so link the product page instead. #}
-    <a href="{{ '/' if session else '/about' }}" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
-      <img src="/static/img/grovisor-logo.png" alt="" style="height:26px;">
-      <span class="wm wm--accent" role="img" aria-label="groAML"><span aria-hidden="true">gr<span class="nd"></span>AML</span></span>
-    </a>
-    <nav aria-label="Site" style="display:flex;gap:18px;font-size:14px;">
-      <a href="/about">About</a>
-      {% if billing_enabled %}<a href="/pricing">Pricing</a>{% endif %}
-      <a href="/blog">Blog</a>
-      <a href="https://grovisor.ae" target="_blank" rel="noopener">grovisor.ae</a>
-    </nav>
-  </header>
-  {% endblock %}
+  {% block public_header %}{% include "_public_nav.html" %}{% endblock %}
   {# Overridable: the sign-in page shows these inside its own layout. #}
   {% block flash %}
   {% if security_warning %}
@@ -300,16 +292,7 @@
   </div>{# /content-col #}
 </div>
 {% else %}
-  {% block public_footer %}
-  <footer class="no-print" style="max-width:860px;margin:40px auto 0;padding:24px 24px;border-top:1px solid var(--line, #e5e7eb);font-size:13px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;">
-    <span>&copy; 2026 Grovisor Business Consultants FZE. groAML by Grovisor.</span>
-    <span style="display:flex;gap:16px;">
-      <a href="/about">About</a>
-      <a href="/privacy">Privacy</a>
-      <a href="/blog">Blog</a>
-    </span>
-  </footer>
-  {% endblock %}
+  {% block public_footer %}{% include "_public_footer.html" %}{% endblock %}
 </div>
 {% endif %}
 

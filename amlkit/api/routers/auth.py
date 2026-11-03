@@ -14,6 +14,7 @@ from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ... import auth, uaepass
+from ...billing import self_serve_enabled
 from ..limits import limiter, login_rate_limit_key
 from ..deps import (
     CSRF_COOKIE,
@@ -298,9 +299,12 @@ def setup_submit(
 
 @router.get("/register-organization", response_class=HTMLResponse)
 def register_org_form(request: Request, db: DB):
+    self_serve = self_serve_enabled()
     invite_configured = bool(os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip())
+    # Stripe mode: open sign-up (trial starts at Checkout). Otherwise invite-gated.
     return render(request, "register_organization.html", {
-        "session": None, "registration_open": invite_configured,
+        "session": None, "registration_open": self_serve or invite_configured,
+        "needs_invite": not self_serve,
     })
 
 @router.post("/register-organization")
@@ -319,24 +323,32 @@ def register_org_submit(
     except PermissionError as exc:
         return render(request, "register_organization.html", {
             "session": None, "registration_open": True, "err": str(exc),
+            "needs_invite": not self_serve_enabled(),
         })
 
+    self_serve = self_serve_enabled()
     expected = os.environ.get("AMLKIT_REGISTRATION_INVITE_CODE", "").strip()
-    if not expected or not secrets.compare_digest(invite_code.strip().encode(), expected.encode()):
+    # The invite code is honoured only when self-serve (Stripe) is off.
+    if not self_serve and (not expected or not secrets.compare_digest(invite_code.strip().encode(), expected.encode())):
         auth._log_auth_event(db, "register_denied", email.strip().lower(),
                              {"reason": "invalid_invite_code", "via": "web"})
         db.commit()
         return render(request, "register_organization.html", {
-            "session": None, "registration_open": bool(expected), "err": "Invalid invite code.",
+            "session": None, "registration_open": bool(expected), "needs_invite": True,
+            "err": "Invalid invite code.",
         })
 
     from ...cases.operators import register_organization
     from ... import mail
 
     try:
-        result = register_organization(db, org_name, name, email, password)
+        result = register_organization(db, org_name, name, email, password,
+                                      pending_payment=self_serve)
     except ValueError as exc:
-        return render(request, "register_organization.html", {"session": None, "err": str(exc)})
+        return render(request, "register_organization.html", {
+            "session": None, "err": str(exc), "registration_open": True,
+            "needs_invite": not self_serve,
+        })
 
     ctx = {
         "session": None,
@@ -353,6 +365,11 @@ def register_org_submit(
         )
         ctx["err"] = "Verification email could not be sent."
     return render(request, "register_organization.html", ctx)
+
+def operator_org_pending(db, org_id: int) -> bool:
+    row = db.execute("SELECT plan_status FROM organizations WHERE id=?", (org_id,)).fetchone()
+    return bool(row) and row["plan_status"] == "pending_payment"
+
 
 @router.get("/verify-email", response_class=HTMLResponse)
 @limiter.limit("10/minute")
@@ -384,6 +401,9 @@ def verify_email(request: Request, db: DB, token: str = ""):
         db, session_token, operator["id"], operator["role"],
         trusted_device_token=request.cookies.get(auth.TRUSTED_DEVICE_COOKIE),
     )
+    if target is None and operator_org_pending(db, operator["org_id"]):
+        # Self-serve sign-up: the next step is payment details, not the home page.
+        target = "/billing?msg=" + quote("Email verified. Add payment details to start your 14-day trial.")
     resp = RedirectResponse(target or "/?msg=" + quote("Email verified. Welcome to groAML."),
                             status_code=303)
     _behind_proxy = os.environ.get("AMLKIT_BEHIND_PROXY") == "1"

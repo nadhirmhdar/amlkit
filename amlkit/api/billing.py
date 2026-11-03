@@ -1,7 +1,8 @@
-"""Billing routes (Stripe). Every route 404s unless STRIPE_SECRET_KEY is set.
+"""Billing routes (Stripe). Every /billing* route 404s unless STRIPE_SECRET_KEY is set.
 
 Session-gated and CSRF-protected, except /billing/webhook (authenticated by
-Stripe's signature instead) and the public /pricing page.
+Stripe's signature instead). The public /pricing page is always on and lives in
+routers/public.py.
 """
 
 from __future__ import annotations
@@ -72,23 +73,20 @@ def _org(db: sqlite3.Connection, org_id: int) -> sqlite3.Row:
     return db.execute("SELECT * FROM organizations WHERE id=?", (org_id,)).fetchone()
 
 
-def _plan_cards(config: stripe_client.StripeConfig) -> list[dict]:
+def plan_cards(config: stripe_client.StripeConfig | None) -> list[dict]:
+    """Tier cards for /pricing and /billing. `config` is None when Stripe is
+    not configured (public /pricing still renders; nothing is purchasable)."""
     return [
         {"plan": plans.PLANS[t], "price": plans.display_price(t),
-         "offered": config.price_for(t) is not None}
+         "offered": config is not None and config.price_for(t) is not None}
         for t in plans.TIERS
     ]
 
 
-# ------------------------------------------------------------------- public
-@router.get("/pricing", response_class=HTMLResponse)
-def pricing(request: Request, db: DB):
-    config = stripe_client.load_config()
-    if config is None:
-        return _not_found()
-    return _app().render(request, "pricing.html", {
-        "cards": _plan_cards(config), "trial_days": plans.TRIAL_DAYS,
-    }, db)
+_plan_cards = plan_cards
+
+
+# /pricing is public and always on: it lives in routers/public.py.
 
 
 # ------------------------------------------------------------------ account

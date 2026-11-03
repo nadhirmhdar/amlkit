@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% set nav = 'aml-law' %}
+{% set og_title = 'UAE AML/CFT obligations for DNFBPs | groAML' %}{% set og_description = 'Who is obliged, the core AML/CFT duties and how groAML supports each. General information, not legal advice.' %}
+{% block title %}UAE AML/CFT law for DNFBPs | groAML{% endblock %}
+{% block meta_description %}<meta name="description" content="Who is obliged under the UAE AML/CFT framework and the core duties of a DNFBP: customer due diligence, sanctions screening, suspicious transaction reporting through goAML, record-keeping and targeted financial sanctions, and how groAML supports each.">{% endblock %}
+{% block body %}
+<main id="main-content" tabindex="-1">
+<div class="pub-wrap" style="padding-top:32px;">
+  <div class="page-head">
+    <div class="eyebrow">AML law</div>
+    <h1>UAE AML/CFT obligations for DNFBPs</h1>
+    <p class="sub">An overview of who is covered, the duties that apply, and where groAML fits. General information, not legal advice.</p>
+  </div>
+
+  <section class="pub-prose pub-section" style="padding-top:0;" aria-labelledby="who">
+    <h2 id="who">Who is obliged</h2>
+    <p>The UAE AML/CFT framework applies to financial institutions and to designated non-financial businesses and professions (DNFBPs). DNFBPs include real-estate brokers and agents, dealers in precious metals and stones, auditors and accountants, lawyers and notaries, and corporate service providers. Your sector supervisor sets out how the framework applies to your activity.</p>
+  </section>
+
+  <section class="pub-section" style="padding-top:0;" aria-labelledby="duties">
+    <h2 id="duties">Core duties and how groAML supports them</h2>
+    <div style="overflow-x:auto;">
+    <table class="pub-table">
+      <thead><tr><th scope="col">Duty</th><th scope="col">What it involves</th><th scope="col">In groAML</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Customer due diligence</th><td>Identify and verify customers and beneficial owners, understand the relationship, and keep the information current.</td><td>Customer case file, ownership diagrams, UAE PASS verification, Emirates ID and passport scanning, periodic review tracking.</td></tr>
+        <tr><th scope="row">Sanctions screening</th><td>Screen customers and related parties against sanctions and terrorist lists and review potential matches.</td><td>Screening against UAE, UN, OFAC, EU and UK lists, PEP data, alert review with a second-reviewer workflow.</td></tr>
+        <tr><th scope="row">Suspicious transaction reporting</th><td>Report suspicious transactions and activity to the UAE Financial Intelligence Unit through goAML.</td><td>STR/SAR builder and goAML 5.0 XML export from the case file.</td></tr>
+        <tr><th scope="row">Record-keeping</th><td>Keep customer, transaction and report records so they can be produced when asked.</td><td>Append-only audit trail, stored documents and evidence packs, retention dates set per customer.</td></tr>
+        <tr><th scope="row">Targeted financial sanctions</th><td>Act on listed persons and entities, including freezing, and report what was done.</td><td>Freeze obligations created from confirmed matches and tracked until executed, with reminders to the MLRO.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="pub-prose pub-section" style="padding-top:0;" aria-labelledby="instruments">
+    <h2 id="instruments">Instruments to read</h2>
+    <p>Firms commonly work from these instruments. Check the current text and your supervisor's guidance for the requirements that apply to you.</p>
+    <ul>
+      <li>Federal Decree-Law No. 10 of 2025</li>
+      <li>Cabinet Resolution No. 134 of 2025</li>
+      <li>Cabinet Decision No. 109 of 2023</li>
+      <li>Cabinet Resolution No. 74 of 2020</li>
+    </ul>
+    <p class="pub-note">This page is general information, not legal advice.</p>
+  </section>
+
+  <section class="pub-final" style="border-radius:var(--radius);margin-bottom:24px;" aria-labelledby="law-cta">
+    <h2 id="law-cta">See how the workflow fits your firm</h2>
+    <div class="pub-cta-row">
+      {% if self_serve %}<a class="btn pub-btn-primary" href="/register-organization">Start free trial</a>
+      {% else %}<a class="btn pub-btn-primary" href="/apply">Request access</a>{% endif %}
+      <a class="btn-outline" href="/blog">Read our guides</a>
+    </div>
+  </section>
+</div>
+</main>
+{% endblock %}
