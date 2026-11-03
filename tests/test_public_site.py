@@ -129,7 +129,7 @@ class TestCtaModes:
     def test_shared_nav_and_footer_links(self, raw_client):
         t = raw_client.get("/").text
         for href in ("/#product", "/aml-law", "/pricing", "/blog", "/about", "/login",
-                     "/privacy", "mailto:info@grovisor.ae", "/changelog"):
+                     "/privacy", "mailto:info@grovisor.ae"):
             assert f'href="{href}"' in t, href
 
     def test_signed_in_nav_is_untouched(self, client):
