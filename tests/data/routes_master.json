@@ -581,6 +581,10 @@
  ],
  [
   "GET",
+  "/aml-law"
+ ],
+ [
+  "GET",
   "/privacy"
  ],
  [

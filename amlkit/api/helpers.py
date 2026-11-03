@@ -135,6 +135,15 @@ def render(request: Request, name: str, ctx: dict, db: sqlite3.Connection | None
     # Same gating for the Billing nav link and the /pricing links.
     from ..billing import stripe_client as _stripe
     ctx.setdefault("billing_enabled", _stripe.load_config() is not None)
+    # Public CTA / sign-up mode (see billing.self_serve_enabled): one switch for
+    # the nav button, landing, pricing and the registration form.
+    ctx.setdefault("self_serve", ctx["billing_enabled"])
+    ctx.setdefault("trial_days", 14)
+    ctx.setdefault("pending_payment", False)
+    if session and db is not None and ctx["billing_enabled"]:
+        _pp = db.execute("SELECT plan_status FROM organizations WHERE id=?",
+                         (session.org_id,)).fetchone()
+        ctx["pending_payment"] = bool(_pp) and _pp["plan_status"] == "pending_payment"
     # single_operator_mode requires db + org_id; only set if both available
     if db and session:
         ctx.setdefault("single_operator", single_operator_mode(db, session.org_id))

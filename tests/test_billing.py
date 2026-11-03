@@ -144,7 +144,7 @@ def _audit_actions(prefix="billing.") -> list[str]:
 
 # ====================================================================== inert
 class TestInertWhenUnconfigured:
-    @pytest.mark.parametrize("path", ["/pricing", "/billing", "/billing/success", "/billing/cancel"])
+    @pytest.mark.parametrize("path", ["/billing", "/billing/success", "/billing/cancel"])
     def test_get_routes_404(self, client, path):
         assert client.get(path).status_code == 404
 
@@ -153,9 +153,11 @@ class TestInertWhenUnconfigured:
         r = client.post(path, data={"csrf_token": _csrf(client), "tier": "starter"})
         assert r.status_code == 404
 
-    def test_no_nav_link_or_sitemap_entry(self, client):
+    def test_no_billing_nav_link_but_pricing_stays_public(self, client):
+        # WP-26: /pricing is always public (and in the sitemap); only /billing* is inert.
         assert 'href="/billing"' not in client.get("/dashboard").text
-        assert "/pricing" not in client.get("/sitemap.xml").text
+        assert client.get("/pricing").status_code == 200
+        assert "/pricing" in client.get("/sitemap.xml").text
 
     def test_check_limit_is_a_noop(self, client):
         from amlkit.billing.limits import check_limit

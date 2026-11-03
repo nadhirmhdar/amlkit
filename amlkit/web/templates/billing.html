@@ -10,6 +10,14 @@
     <p class="sub">Your groAML subscription for {{ org.name }}.</p>
   </div>
 
+  {% if state.pending_payment %}
+  <div class="banner warning" role="status" id="pending-payment-banner">
+    <strong>Add payment details to start your {{ trial_days }}-day trial.</strong>
+    Your workspace is set up and your records are available. Adding operators or customers is
+    paused until you choose a plan and add payment details below; the {{ trial_days }}-day free
+    trial starts then.
+  </div>
+  {% endif %}
   {% if state.write_blocked %}
   <div class="banner err" role="alert">
     <strong>This workspace is read-only.</strong>
@@ -27,7 +35,10 @@
 
   <div class="panel mb-6">
     <h2>Current plan</h2>
-    {% if state.legacy %}
+    {% if state.pending_payment %}
+      <p style="margin:0 0 6px;"><strong>No plan yet</strong> <span class="tag high">pending payment</span></p>
+      <p class="muted small mt-0">Choose a plan below. Your {{ trial_days }}-day free trial starts when payment details are added.</p>
+    {% elif state.legacy %}
       <p style="margin:0 0 6px;"><strong>Founding access</strong></p>
       <p class="muted small mt-0">
         This organisation is on the original groAML access without plan limits. Choose a plan below
@@ -44,6 +55,7 @@
       </p>
     {% endif %}
 
+    {% if not state.pending_payment %}
     <div class="flat-list" id="usage-bars">
       {% for label, key in resources %}
       {% set used = state.usage[key] %}
@@ -78,6 +90,8 @@
       </tbody>
     </table>
 
+    {% endif %}
+
     {% if has_customer %}
     <form method="post" action="/billing/portal" style="margin-top:16px;">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -103,7 +117,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="tier" value="{{ c.plan.key }}">
         <button type="submit" {{ 'disabled' if not c.offered }}>
-          {% if has_customer %}Subscribe{% else %}Start {{ trial_days }}-day trial{% endif %}
+          {% if has_customer %}Subscribe{% else %}Start {{ trial_days }}-day free trial{% endif %}
         </button>
       </form>
     </div>

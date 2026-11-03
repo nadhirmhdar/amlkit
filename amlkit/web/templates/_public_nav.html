@@ -1,0 +1,29 @@
+{# Shared header for the public site (landing, /about, /aml-law, /pricing, /blog,
+   /privacy, /apply). The signed-in shell has its own nav and does not use this.
+   `nav` (set by the including page) marks the current link. #}
+<a class="pub-skip" href="#{{ skip_target or 'main-content' }}">Skip to content</a>
+<header class="pub-nav no-print">
+  <div class="pub-nav__in">
+    <a class="pub-brand" href="/" aria-label="groAML by Grovisor, home">
+      <img src="/static/img/grovisor-logo.png" alt="">
+      <span class="wm wm--accent" aria-hidden="true">gr<span class="nd"></span>AML</span>
+    </a>
+    <nav aria-label="Site" style="display:contents;">
+      <ul class="pub-nav__links">
+        <li><a href="/#product" {% if nav == 'home' %}aria-current="page"{% endif %}>Product</a></li>
+        <li><a href="/aml-law" {% if nav == 'aml-law' %}aria-current="page"{% endif %}>AML law</a></li>
+        <li><a href="/pricing" {% if nav == 'pricing' %}aria-current="page"{% endif %}>Pricing</a></li>
+        <li><a href="/blog" {% if nav == 'blog' %}aria-current="page"{% endif %}>Insights</a></li>
+        <li><a href="/about" {% if nav == 'about' %}aria-current="page"{% endif %}>About</a></li>
+        <li><a href="/login">Sign in</a></li>
+      </ul>
+    </nav>
+    <div class="pub-nav__cta">
+      {% if self_serve %}
+        <a class="btn" href="/register-organization">Start free trial</a>
+      {% else %}
+        <a class="btn" href="/apply">Request access</a>
+      {% endif %}
+    </div>
+  </div>
+</header>

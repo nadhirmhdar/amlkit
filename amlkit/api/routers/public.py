@@ -135,13 +135,16 @@ def apply_thanks(request: Request, db: DB):
 # ------------------------------------------------------------------ home
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request, db: DB):
-    """The first screen after sign-in -- an orientation page, not the
+    """Signed in: the first screen after sign-in -- an orientation page, not the
     dashboard. A new or occasional operator needs "what do I do" before
     "what's outstanding"; the dashboard (queue/stale-list detail) is one
-    click away via the nav or the alerts bar below, not buried."""
+    click away via the nav or the alerts bar below, not buried.
+    Anonymous visitors get the public landing page (no tenant data read)."""
     try:
         session = require_session(request, db)
     except PermissionError:
+        if current_session(request, db) is None:
+            return render(request, "landing.html", {"session": None, "nav": "home"}, db)
         return RedirectResponse("/login", status_code=303)
 
     first_name = (session.operator_name or "").split()
@@ -153,6 +156,24 @@ def home(request: Request, db: DB):
         "session": session,
         "d": d,
         "first_name": first_name,
+    }, db)
+
+# ------------------------------------------------- public marketing pages
+# Same per-IP limit as GET /apply: the app-wide default (100/minute). No
+# tenant data is read by any of these.
+@router.get("/aml-law", response_class=HTMLResponse)
+def aml_law_view(request: Request, db: DB):
+    return render(request, "aml_law.html", {"session": current_session(request, db)}, db)
+
+@router.get("/pricing", response_class=HTMLResponse)
+def pricing(request: Request, db: DB):
+    """Always public. Prices come from STRIPE_DISPLAY_PRICE_<TIER> ("Contact us"
+    when blank); the CTA follows billing.self_serve_enabled()."""
+    from ...billing import plans, stripe_client
+    from ..billing import plan_cards
+    return render(request, "pricing.html", {
+        "session": current_session(request, db),
+        "cards": plan_cards(stripe_client.load_config()), "trial_days": plans.TRIAL_DAYS,
     }, db)
 
 # ------------------------------------------------------------------ changelog
@@ -228,8 +249,7 @@ def robots_txt():
 
 @router.get("/sitemap.xml", response_class=Response)
 def sitemap_xml():
-    from ...billing import stripe_client as _stripe
-    urls = ["/about", "/privacy", "/apply"] + (["/pricing"] if _stripe.load_config() else []) + ["/blog"] + [f"/blog/{p.slug}" for p in blog.all_posts()]
+    urls = ["/", "/aml-law", "/pricing", "/about", "/privacy", "/apply", "/blog"] + [f"/blog/{p.slug}" for p in blog.all_posts()]
     lastmods = {"/blog": blog.all_posts()[0].updated if blog.all_posts() else None}
     for p in blog.all_posts():
         lastmods[f"/blog/{p.slug}"] = p.updated

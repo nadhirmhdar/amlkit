@@ -64,8 +64,14 @@ def register_organization(
     operator_name: str,
     email: str,
     password: str,
+    pending_payment: bool = False,
 ) -> dict[str, Any]:
     """Register a new organization with its first MLRO operator.
+
+    pending_payment=True (self-serve sign-up in Stripe mode) creates the org as
+    plan 'none' / plan_status 'pending_payment': creation of operators and
+    customers is refused until Checkout (billing.limits). Default keeps the
+    legacy, unlimited behaviour.
 
     Raises:
         ValueError: Invalid input (password too short, bad email, etc.)
@@ -87,6 +93,10 @@ def register_organization(
     except sqlite3.IntegrityError as exc:
         raise ValueError("An organization with a similar name already exists.") from exc
     org_id = cur.lastrowid
+    if pending_payment:
+        from ..billing import PENDING_PLAN, PENDING_STATUS
+        conn.execute("UPDATE organizations SET plan=?, plan_status=? WHERE id=?",
+                     (PENDING_PLAN, PENDING_STATUS, org_id))
 
     # Create operator (MLRO role)
     try:
@@ -105,7 +115,7 @@ def register_organization(
 
     # Audit organization creation
     audit(conn, clean_name, "organization.register", "organization", org_id,
-          {"org_name": org_name}, org_id=org_id)
+          {"org_name": org_name, "pending_payment": pending_payment}, org_id=org_id)
     conn.commit()
 
     # Create email verification token and send email
