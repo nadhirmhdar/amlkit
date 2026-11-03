@@ -50,7 +50,7 @@ Three different methods, three groups, same result. I accept it as a pure move.
 2. **The UBO self-owner guard is exact-match and the legal-suffix problem is general.** Beyond UBO1b, the same suffix variation (LLC, L.L.C., FZE, Ltd, PJSC) probably affects duplicate-customer detection and the "same owner recorded twice" rule. Nobody has tried it.
 3. **H1 has now been argued for three days with no one running a header check.**
 4. **Legacy-proposal cleanup is a deployment step, not code.** CR-33 and N8b depend on two scripts being run on production. Nobody owns that step; it belongs on the release checklist.
-5. **Three days after the first fix wave the daily output has shifted from findings to verification.** Today's new defects are all Low. The loop is now catching regressions in its own tooling (route enumeration, stale scripts), which is a healthy sign and also the right place to spend attention next.
+5. **Two days after the first fix wave the daily output has shifted from findings to verification.** Today's new defects are all Low. The loop is now catching regressions in its own tooling (route enumeration, stale scripts), which is a healthy sign and also the right place to spend attention next.
 
 ## BLOCKED / not checked
 - **Needs infrastructure knowledge (BLOCKED):** whether the legacy-proposal scripts have been run in production; whether production SMTP is configured (CR-34, UL1); front-end login rate limiting; bucket versioning; whether Stripe is configured; whether any real operator has a linked UAE PASS identity.
