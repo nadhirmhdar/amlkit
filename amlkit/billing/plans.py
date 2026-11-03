@@ -79,7 +79,7 @@ def get_plan(key: str | None) -> Plan | None:
 
 
 def display_price(tier: str) -> str:
-    """Price string shown on /pricing, e.g. "AED 499 / month". Empty when the
+    """Price string shown on /pricing, e.g. "AED 499 / year". Empty when the
     deployer has not set STRIPE_DISPLAY_PRICE_<TIER> (the page then says
     "Contact us" rather than inventing a figure)."""
     return os.environ.get(f"STRIPE_DISPLAY_PRICE_{tier.upper()}", "").strip()
