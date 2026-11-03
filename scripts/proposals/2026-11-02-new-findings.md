@@ -1,0 +1,4 @@
+# HELD proposal 2026-11-02 (U4) -- not applied, no application code edited
+## U4 ownership_state() recurses once per ownership level (amlkit/cases/manager.py, `_identified_ownership.eff`, added by #447)
+A legal customer with a ~1,100-deep chain of corporate owners (each recorded with parent_ubo_id = previous, 100% stake) makes `ownership_state()` raise RecursionError, so `reassess_risk`, `reassess_transaction_risk`, `reassess_adverse_media` and mobile `POST /customers/{id}/risk` fail (500) for that customer, and the customer page renders ~1.9 MB.
+Fix (any of): (1) make `eff()` iterative (walk parent_ubo_id with a visited-set; memoise); (2) refuse `add_ubo` when the resulting chain depth exceeds a sane cap (e.g. 10 levels) with a ValueError that the routes map to 400/422; (3) cap UBO rows per customer. Option 1 + 2 together removes both the crash and the page bloat.
