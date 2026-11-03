@@ -65,12 +65,20 @@ JSONB = {"transactions": {"direction": "in", "method": "cash", "amount": 70000, 
          "risk-factors": {"sector": "other"}, "reset-password": {"new_password": "pwned-password-123"},
          "signatures": {"purpose": "cdd", "statement": "pwned", "signer_name": "pwned"}}
 
+def _flat(rs, prefix=""):
+    """Unwrap FastAPI's lazy _IncludedRouter wrappers (routers added via include_router) into (path, route)."""
+    for r in rs:
+        orig = getattr(r, "original_router", None)
+        if orig is not None:
+            yield from _flat(orig.routes, prefix + (getattr(r.include_context, "prefix", "") or ""))
+        elif getattr(r, "path", None) is not None:
+            yield prefix + r.path, r
+
 def routes():
     seen = set()
-    for r in app.routes:
-        p = getattr(r, "path", None)
+    for p, r in _flat(app.routes):
         if p and "{" in p and not p.startswith("/blog") and not p.startswith("/console"):
-            for m in (r.methods or []):
+            for m in (getattr(r, 'methods', None) or []):
                 if m in ("GET", "POST", "PATCH", "DELETE"): seen.add((m, p))
     mob = (ROOT / "amlkit/api/mobile.py").read_text(encoding="utf-8-sig")
     for m, p in re.findall(r'@router\.(get|post|patch|delete)\("([^"]*\{[^"]*)"', mob):

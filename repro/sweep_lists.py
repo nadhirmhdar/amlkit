@@ -9,8 +9,7 @@ from sweep import *  # noqa
 
 def paths():
     out = set()
-    for r in app.routes:
-        p = getattr(r, "path", None)
+    for p, r in sweep._flat(app.routes):
         if p and "{" not in p and "GET" in (getattr(r, "methods", None) or []):
             out.add(p)
     mob = (ROOT / "amlkit/api/mobile.py").read_text(encoding="utf-8-sig")
