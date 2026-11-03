@@ -1,0 +1,162 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "upload passport.pdf (44 B, passport)",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "upload page.html (25 B, passport)",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "upload pic.svg (71 B, passport)",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "upload run.exe (4 B, passport)",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "upload ../../etc/evil.pdf (44 B, passport)",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "upload fake.pdf (17 B, passport)",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "upload empty.pdf (0 B, passport)",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "upload big.pdf (27263020 B, passport)",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "upload ok.pdf (44 B, not_a_doc_type)",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "list documents",
+  "status": "info",
+  "detail": "403 {\"detail\":\"mfa_required\"}"
+ },
+ {
+  "step": "other org list documents",
+  "status": "info",
+  "detail": "404 {\"detail\":\"Customer not found.\"}"
+ },
+ {
+  "step": "other org download document",
+  "status": "info",
+  "detail": "422 len=152 '{\"detail\":[{\"type\":\"int_parsing\",\"loc\":[\"path\",\"doc_id\"],\"ms'"
+ },
+ {
+  "step": "other org upload to this customer",
+  "status": "info",
+  "detail": "404 {\"detail\":\"Customer not found.\"}"
+ },
+ {
+  "step": "note ('Reviewed source ', 49 chars)",
+  "status": "info",
+  "detail": "303 ['Note added.'] raw_tag_in_page=False"
+ },
+ {
+  "step": "note ('<img src=x onerr', 28 chars)",
+  "status": "info",
+  "detail": "303 ['Note added.'] raw_tag_in_page=False"
+ },
+ {
+  "step": "note ('xxxxxxxxxxxxxxxx', 20000 chars)",
+  "status": "info",
+  "detail": "303 ['Note added.'] raw_tag_in_page=False"
+ },
+ {
+  "step": "transaction alert ids",
+  "status": "info",
+  "detail": "[1, 2, 3, 4, 5, 6]"
+ },
+ {
+  "step": "transaction alert 1 -> false_positive note=''",
+  "status": "info",
+  "detail": "303 ['Closing an alert as a false positive needs a note of at least 10 characters explaining why.']"
+ },
+ {
+  "step": "transaction alert 2 -> true_positive note='Cash from sanctioned'",
+  "status": "info",
+  "detail": "303 ['Transaction alert dispositioned.']"
+ },
+ {
+  "step": "transaction alert -> invalid status",
+  "status": "info",
+  "detail": "['invalid disposition status: &#39;bogus&#39;']"
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-11-03 01:44:01 Layla MLRO transaction_alert.disposition \u00b7 transaction_alert #2 {'status': 'true_positive', 'note': 'Cash from sanctioned-country counterparty; escalating to STR.'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-11-03 01:44:01 Layla MLRO transaction_alert.raise \u00b7 customer #1 {'transaction_id': 3, 'alert_id': 6, 'rule': 'high_risk_country', 'severity': 'medium'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-11-03 01:44:01 Layla MLRO transaction_alert.raise \u00b7 customer #1 {'transaction_id': 3, 'alert_id': 5, 'rule': 'large_cash', 'severity': 'high'} "
+ },
+ {
+  "step": "audit row",
+  "status": "info",
+  "detail": "2026-11-03 01:44:01 Layla MLRO transaction_alert.raise \u00b7 customer #1 {'transaction_id': 2, 'alert_id': 4, 'rule': 'high_risk_country', 'severity': 'medium'} "
+ }
+]
