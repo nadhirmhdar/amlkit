@@ -53,7 +53,7 @@ def stripe_on(monkeypatch):
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", WHSEC)
     for t in ("STARTER", "PROFESSIONAL", "CONSULTANT"):
         monkeypatch.setenv(f"STRIPE_PRICE_{t}", f"price_{t.lower()}_1")
-    monkeypatch.setenv("STRIPE_DISPLAY_PRICE_STARTER", "AED 111 / month")
+    monkeypatch.setenv("STRIPE_DISPLAY_PRICE_STARTER", "AED 111 / year")
 
 
 def _self_serve_signup(c, org="Fresh Firm", email="owner@fresh.ae"):
@@ -170,7 +170,7 @@ class TestPricingAlwaysPublic:
     def test_with_stripe_shows_prices_and_trial_wording(self, raw_client, stripe_on):
         r = raw_client.get("/pricing")
         assert r.status_code == 200
-        assert "AED 111 / month" in r.text and r.text.count("Contact us") == 2
+        assert "AED 111 / year" in r.text and r.text.count("Contact us") == 2
         assert "14-day free trial" in r.text and "starts when you add payment details" in r.text
 
     def test_sitemap_lists_the_public_pages_in_both_modes(self, raw_client, monkeypatch):

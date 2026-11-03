@@ -40,9 +40,9 @@ def stripe_env(monkeypatch):
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", WHSEC)
     for tier, pid in PRICES.items():
         monkeypatch.setenv(f"STRIPE_PRICE_{tier.upper()}", pid)
-    monkeypatch.setenv("STRIPE_DISPLAY_PRICE_STARTER", "AED 111 / month")
-    monkeypatch.setenv("STRIPE_DISPLAY_PRICE_PROFESSIONAL", "AED 222 / month")
-    monkeypatch.setenv("STRIPE_DISPLAY_PRICE_CONSULTANT", "AED 333 / month")
+    monkeypatch.setenv("STRIPE_DISPLAY_PRICE_STARTER", "AED 111 / year")
+    monkeypatch.setenv("STRIPE_DISPLAY_PRICE_PROFESSIONAL", "AED 222 / year")
+    monkeypatch.setenv("STRIPE_DISPLAY_PRICE_CONSULTANT", "AED 333 / year")
     monkeypatch.setenv("AMLKIT_BILLING_PUBLIC_URL", "https://groaml.example")
 
 
@@ -207,7 +207,7 @@ class TestPricing:
         assert r.status_code == 200
         for name in ("Starter", "Professional", "Consultant"):
             assert name in r.text
-        assert "AED 111 / month" in r.text and "AED 333 / month" in r.text
+        assert "AED 111 / year" in r.text and "AED 333 / year" in r.text
         assert "/register-organization" in r.text and "/apply" in r.text
         assert "Grovisor Business Consultants FZE" not in r.text or "groAML" in r.text
         assert "/pricing" in client.get("/sitemap.xml").text

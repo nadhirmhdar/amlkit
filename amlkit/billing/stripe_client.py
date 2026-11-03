@@ -106,6 +106,7 @@ def _request(config: StripeConfig, method: str, path: str,
             r = client.request(
                 method, API_BASE + path, headers=headers,
                 data=dict(_flatten(params)) if params and method != "GET" else None,
+                params=_flatten(params) if params and method == "GET" else None,
             )
     except httpx.HTTPError as exc:
         raise StripeError(f"Stripe request failed: {exc.__class__.__name__}") from exc
