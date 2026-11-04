@@ -75,6 +75,10 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Fetch and parse every source
+        env:
+          # EU FSF token (optional source). Without it every CI run reports
+          # "EU FSF token not configured" and EU coverage is never verified.
+          AMLKIT_EU_FSF_TOKEN: ${{ secrets.EU_FSF_TOKEN }}
         run: |
           python - <<'PY'
           import sys
@@ -249,6 +253,8 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Run connectivity heartbeat
+        env:
+          AMLKIT_EU_FSF_TOKEN: ${{ secrets.EU_FSF_TOKEN }}
         run: python scripts/heartbeat.py
 
   # Back-to-back merges each start a run, and test time varies, so an older
