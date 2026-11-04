@@ -1,0 +1,117 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "anon /",
+  "status": "info",
+  "detail": "200 loc=None robots=[] title=['groAML by Grovisor | AML/CFT compliance software for UAE DNFBPs']"
+ },
+ {
+  "step": "anon /pricing",
+  "status": "info",
+  "detail": "200 loc=None robots=[] title=['Pricing | groAML by Grovisor']"
+ },
+ {
+  "step": "anon /aml-law",
+  "status": "info",
+  "detail": "200 loc=None robots=[] title=['UAE AML/CFT law for DNFBPs | groAML']"
+ },
+ {
+  "step": "anon /about",
+  "status": "info",
+  "detail": "200 loc=None robots=[] title=['About groAML | UAE AML/CFT Software by Grovisor']"
+ },
+ {
+  "step": "anon /blog",
+  "status": "info",
+  "detail": "200 loc=None robots=[] title=['UAE AML/CFT compliance guides \u2014 groAML Insights']"
+ },
+ {
+  "step": "anon /apply",
+  "status": "info",
+  "detail": "200 loc=None robots=[] title=['Request a quotation \u2014 groAML by Grovisor']"
+ },
+ {
+  "step": "anon /register-organization",
+  "status": "info",
+  "detail": "200 loc=None robots=['noindex, nofollow'] title=['Register an organization \u2014 groAML']"
+ },
+ {
+  "step": "anon /login",
+  "status": "info",
+  "detail": "200 loc=None robots=['noindex, nofollow'] title=['Sign in \u2014 groAML by Grovisor']"
+ },
+ {
+  "step": "anon /billing",
+  "status": "info",
+  "detail": "404 loc=None robots=[] title=[]"
+ },
+ {
+  "step": "register page mentions invite/payment/trial",
+  "status": "info",
+  "detail": "{'invite': True, 'payment': False, 'trial': False, 'card': False, 'stripe': False}"
+ },
+ {
+  "step": "register without invite code",
+  "status": "info",
+  "detail": "200 loc=None ['Invalid invite code.']"
+ },
+ {
+  "step": "MLRO /",
+  "status": "info",
+  "detail": "200 loc=None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies "
+ },
+ {
+  "step": "MLRO /pricing",
+  "status": "info",
+  "detail": "200 loc=None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies "
+ },
+ {
+  "step": "MLRO /aml-law",
+  "status": "info",
+  "detail": "200 loc=None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies "
+ },
+ {
+  "step": "MLRO /billing",
+  "status": "info",
+  "detail": "404 loc=None d"
+ }
+]
