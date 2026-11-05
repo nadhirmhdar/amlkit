@@ -1,0 +1,137 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "alerts",
+  "status": "info",
+  "detail": "[(1, 'open', None), (2, 'open', None), (3, 'open', None)]"
+ },
+ {
+  "step": "alert datasets",
+  "status": "info",
+  "detail": "{1: 'cia', 2: 'ae_local_terrorists', 3: 'un_consolidated'}"
+ },
+ {
+  "step": "bulk-dismiss PEP customer with reason 'confirmed_match'",
+  "status": "info",
+  "detail": "['Dismissed 1 alert(s).'] -> [(1, 'false_positive', 'confirmed_match'), (2, 'open', None), (3, 'open', None)]"
+ },
+ {
+  "step": "bulk-dismiss with bogus reason",
+  "status": "info",
+  "detail": "['Dismissed 0 alert(s).']"
+ },
+ {
+  "step": "bulk-dismiss unknown customer",
+  "status": "info",
+  "detail": "['Dismissed 0 alert(s).']"
+ },
+ {
+  "step": "bulk-dismiss customer whose alert is a confirmed true positive",
+  "status": "info",
+  "detail": "['Dismissed 0 alert(s).'] -> [(1, 'false_positive', 'confirmed_match'), (2, 'open', None), (3, 'true_positive', 'confirmed_match')]"
+ },
+ {
+  "step": "officer bulk-dismisses sanctions customer",
+  "status": "info",
+  "detail": "['Dismissed 0 alert(s). 1 sanctions/PF match(es) staged for independent review - a second operator must confirm.'] -> [(1, 'false_positive', 'confirmed_match'), (2, 'pending_review', 'name_coincidence'), (3, 'true_positive', 'confirmed_match')]"
+ },
+ {
+  "step": "pending",
+  "status": "info",
+  "detail": "[(2, 'pending_review', 'name_coincidence')]"
+ },
+ {
+  "step": "same officer confirms the dismissal they staged",
+  "status": "info",
+  "detail": "303 ['independent review requires a different operator than the one who proposed the disposition. Ask your MLRO to add a second compliance officer.']"
+ },
+ {
+  "step": "MLRO confirms it",
+  "status": "info",
+  "detail": "303 ['Independent review completed.'] -> [(1, 'false_positive', 'confirmed_match'), (2, 'false_positive', 'name_coincidence'), (3, 'true_positive', 'confirmed_match')]"
+ },
+ {
+  "step": "other org bulk-dismisses customer 1",
+  "status": "info",
+  "detail": "['Dismissed 0 alert(s).'] -> [(1, 'false_positive', 'confirmed_match'), (2, 'false_positive', 'name_coincidence'), (3, 'true_positive', 'confirmed_match')]"
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-05 01:41:15 Layla MLRO alert.confirm \u00b7 alert #2 {'status': 'false_positive', 'reason_code': 'name_coincidence', 'proposed_by': 'Omar Officer'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-05 01:41:15 Omar Officer alert.bulk_dismiss \u00b7 alert #2 {'reason_code': 'name_coincidence', 'customer_id': 2, 'awaiting_second_review': True} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-05 01:41:15 Omar Officer alert.propose \u00b7 alert #2 {'status': 'false_positive', 'reason_code': 'name_coincidence', 'awaiting_second_review': True, 'independent_review': 'pending'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-05 01:41:15 Layla MLRO freeze.identified \u00b7 freeze_obligation #1 {'customer_id': 3, 'alert_id': 3, 'obligation_type': 'sanctions', 'risk_category': 'critical'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-05 01:41:15 Layla MLRO alert.propose \u00b7 alert #3 {'status': 'true_positive', 'reason_code': 'confirmed_match', 'awaiting_second_review': False, 'independent_review': 'not_required'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-05 01:41:15 Layla MLRO alert.bulk_dismiss \u00b7 alert #1 {'reason_code': 'confirmed_match', 'customer_id': 1, 'awaiting_second_review': False} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-05 01:41:15 Layla MLRO alert.propose \u00b7 alert #1 {'status': 'false_positive', 'reason_code': 'confirmed_match', 'awaiting_second_review': False, 'independent_review': 'not_required'} "
+ },
+ {
+  "step": "audit",
+  "status": "info",
+  "detail": "2026-11-05 01:41:15 Layla MLRO screening.run \u00b7 screening #3 {'query': 'Mohammed Ali Hassan Al-Rashid', 'trigger': 'onboarding', 'candidates': 2, 'hits': 1, 'alerts_created': 1, 'datasets_used': ['ae_l"
+ }
+]
