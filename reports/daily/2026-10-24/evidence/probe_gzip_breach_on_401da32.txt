@@ -1,0 +1,32 @@
+== 1. anonymous: gzip? secrets in body? ==
+ /about                                       (200, 'gzip', 'Accept-Encoding', [])
+ /blog                                        (200, 'gzip', 'Accept-Encoding', [])
+ /blog?q=REFLECT_ME_123                       (200, 'gzip', 'Accept-Encoding', [])
+ /blog/uae-goaml-str-sar-filing-guide         (200, 'gzip', 'Accept-Encoding', [])
+ /robots.txt                                  (200, '-', '-', [])
+ /sitemap.xml                                 (200, 'gzip', 'Accept-Encoding', [])
+ /static/img/og-card.png                      (200, '-', '-', [])
+ /privacy                                     (200, '-', '-', ['session'])
+ /apply                                       (200, '-', '-', ['csrf_input'])
+ /login                                       (200, '-', '-', ['csrf_input'])
+ /register-organization                       (200, '-', '-', ['csrf_input'])
+ /blog?q reflected in body: True
+== 2. path confusion to get a private/secret page compressed ==
+ /blog/../login                     (200, '-', '-', ['csrf_input'])
+ /blog/%2e%2e/login                 (404, '-', '-', [])
+ /about/                            (307, '-', '-', [])
+ /About                             (404, '-', '-', [])
+ //about                            (303, '-', '-', [])
+ /static/../login                   (200, '-', '-', ['csrf_input'])
+ /static/%2e%2e/login               (404, '-', '-', [])
+ /blog/x/../../apply                (200, '-', '-', ['csrf_input'])
+ /login;/about                      (404, '-', '-', [])
+ /apply?next=/blog                  (200, '-', '-', ['csrf_input'])
+ /blog%2f..%2flogin                 (404, '-', '-', [])
+== 3. signed-in cookie => not compressed ==
+ cookie amlkit_session=abc                         (200, '-', '-', [])
+ cookie x=1; amlkit_session=abc                    (200, '-', '-', [])
+ cookie AMLKIT_SESSION=abc                         (200, 'gzip', 'Accept-Encoding', [])
+== 4. range / HEAD / other methods ==
+ HEAD /about -> 405 None
+ POST /about -> 405 None
