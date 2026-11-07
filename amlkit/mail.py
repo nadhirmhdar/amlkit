@@ -165,6 +165,53 @@ def send_verification_email(to_email: str, name: str, token: str) -> str:
         return FAILED
 
 
+def send_existing_account_notice(to_email: str, name: str) -> str:
+    """Tell the owner of an address that someone tried to register with it.
+    Sent instead of creating anything when open sign-up is used with an email
+    that already has an account (L-115). Contains no link and no token.
+    Same outcomes as send_verification_email; never raises."""
+    if not is_configured():
+        print(
+            "\n" + "=" * 72 +
+            "\namlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- an existing-account\n"
+            "sign-up notice was not emailed.\n" +
+            "=" * 72 + "\n"
+        )
+        return NOT_CONFIGURED
+
+    host = os.environ["AMLKIT_SMTP_HOST"]
+    port = int(os.environ.get("AMLKIT_SMTP_PORT", "587"))
+    user = os.environ.get("AMLKIT_SMTP_USER", "")
+    password = os.environ.get("AMLKIT_SMTP_PASSWORD", "")
+    from_addr = sender_address(user)
+    use_tls = os.environ.get("AMLKIT_SMTP_USE_TLS", "1") != "0"
+
+    msg = EmailMessage()
+    msg["Subject"] = "Someone tried to register a groAML account with your email"
+    msg["From"] = from_header(from_addr)
+    msg["To"] = to_email
+    msg.set_content(
+        f"Hi {name},\n\n"
+        "Someone tried to register a new groAML account using this email address, "
+        "which already has an account. Nothing was created or changed.\n\n"
+        f"If it was you, sign in at {app_base_url()}/login, or reset your password "
+        "from there if you have forgotten it.\n\n"
+        "If it was not you, you can ignore this email.\n"
+    )
+
+    try:
+        with smtplib.SMTP(host, port, timeout=15) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if user:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+        return SENT
+    except (OSError, smtplib.SMTPException):
+        logger.exception("Failed to send existing-account notice")
+        return FAILED
+
+
 def unlock_url(token: str) -> str:
     return f"{app_base_url()}/unlock/{token}"
 

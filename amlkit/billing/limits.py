@@ -149,6 +149,20 @@ def org_state(conn: sqlite3.Connection, org_id: int, now: datetime | None = None
     return BillingState(plan_key, status, plan, False, blocked, grace_iso, use)
 
 
+def check_scan_allowed(conn: sqlite3.Connection, org_id: int) -> None:
+    """Refuse the OCR document-scan routes while an org is pending_payment.
+
+    Scans are compute-heavy and cost real CPU, so an organisation that signed
+    up through open self-serve sign-up and has not added payment details does
+    not get them (SS2 / L-116). Everything else stays as check_limit has it:
+    no-op when billing is off, legacy and subscribed orgs untouched, reads and
+    ad-hoc /screen and /feedback unaffected."""
+    if stripe_client.load_config() is None:
+        return
+    if org_state(conn, org_id).pending_payment:
+        raise BillingLimitError(PENDING_MESSAGE)
+
+
 def check_limit(conn: sqlite3.Connection, org_id: int, resource: str,
                 now: datetime | None = None) -> None:
     """Refuse the creation of one more `resource` if the org's plan or payment

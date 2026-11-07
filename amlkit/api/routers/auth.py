@@ -350,20 +350,15 @@ def register_org_submit(
             "needs_invite": not self_serve,
         })
 
-    ctx = {
-        "session": None,
-        "pending_email": result["email"],
-        "msg": f"Account created. Check {result['email']} for a verification link before signing in.",
-    }
-    if result["delivery"] == mail.NOT_CONFIGURED:
+    ctx = {"session": None, "pending_email": result["email"]}
+    if result["delivery"] == mail.NOT_CONFIGURED and not self_serve:
+        # Never in open sign-up: showing the link to whoever typed the address
+        # would skip the ownership check and differ from the existing-email page.
         ctx["dev_verify_url"] = mail.verify_url(result["verification_token"])
     elif result["delivery"] == mail.FAILED:
-        ctx["msg"] = (
-            f"Account created, but the verification email to {result['email']} "
-            "could not be sent. The mail service is not responding — ask your "
-            "administrator to check it, then use the resend link below."
-        )
-        ctx["err"] = "Verification email could not be sent."
+        ctx["send_failed"] = True
+        ctx["err"] = ("We could not send the verification email right now. Use Resend in a "
+                      "few minutes or contact info@grovisor.ae.")
     return render(request, "register_organization.html", ctx)
 
 def operator_org_pending(db, org_id: int) -> bool:

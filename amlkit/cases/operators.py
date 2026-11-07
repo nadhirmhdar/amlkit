@@ -32,7 +32,8 @@ def operator_name_taken(
     return False
 
 
-def make_org_slug(conn: sqlite3.Connection, org_name: str) -> str:
+def make_org_slug(conn: sqlite3.Connection, org_name: str,
+                  allow_duplicate_name: bool = False) -> str:
     """Return a unique slug for a new organisation, or raise ValueError.
 
     A display name that matches an existing organisation (case/NFKC-folded) is
@@ -40,22 +41,52 @@ def make_org_slug(conn: sqlite3.Connection, org_name: str) -> str:
     refused as "similar name"). A name with nothing slug-able in it (Arabic,
     CJK, ...) gets "org-" plus a short random suffix so distinct firms never
     collide on the UNIQUE slug.
+
+    allow_duplicate_name=True (open self-serve sign-up) never refuses on a
+    name collision, because that refusal would tell an anonymous visitor which
+    firms already use the service (L-115). organizations.name is not UNIQUE;
+    only the slug is, so a colliding slug gets a random suffix.
     """
     key = auth.normalise_name_key(org_name)
-    for row in conn.execute("SELECT name FROM organizations"):
-        if auth.normalise_name_key(row["name"]) == key:
-            raise ValueError("An organization with a similar name already exists.")
+    if not allow_duplicate_name:
+        for row in conn.execute("SELECT name FROM organizations"):
+            if auth.normalise_name_key(row["name"]) == key:
+                raise ValueError("An organization with a similar name already exists.")
     # NFKD + ASCII fold keeps accented Latin names readable ("Societe" for "Société").
     ascii_name = unicodedata.normalize("NFKD", org_name).encode("ascii", "ignore").decode()
     base = re.sub(r"[^a-z0-9]+", "-", ascii_name.strip().lower()).strip("-")
     if base:
         if conn.execute("SELECT 1 FROM organizations WHERE slug=?", (base,)).fetchone():
-            raise ValueError("An organization with a similar name already exists.")
+            if not allow_duplicate_name:
+                raise ValueError("An organization with a similar name already exists.")
+            while True:
+                slug = f"{base}-{secrets.token_hex(3)}"
+                if not conn.execute("SELECT 1 FROM organizations WHERE slug=?", (slug,)).fetchone():
+                    return slug
         return base
     while True:
         slug = f"org-{secrets.token_hex(3)}"
         if not conn.execute("SELECT 1 FROM organizations WHERE slug=?", (slug,)).fetchone():
             return slug
+
+
+def _existing_operator(conn: sqlite3.Connection, email: str):
+    return conn.execute(
+        "SELECT id, org_id, name FROM operators WHERE lower(email)=?", (email.lower(),)
+    ).fetchone()
+
+
+def _notify_existing_account(conn: sqlite3.Connection, existing, email: str) -> dict[str, Any]:
+    """Open sign-up used an email that already has an account: create nothing,
+    tell the address's owner instead. The caller renders the same page as for
+    a new sign-up, so `delivery` is reported as SENT whatever the mail outcome
+    (a mail failure is logged and audited, never shown to the visitor)."""
+    delivery = mail.send_existing_account_notice(email, existing["name"])
+    audit(conn, "anonymous", "operator.signup_existing_email", "operator", existing["id"],
+          {"delivery": delivery}, org_id=existing["org_id"])
+    conn.commit()
+    return {"org_id": None, "operator_id": None, "email": email,
+            "verification_token": None, "delivery": mail.SENT, "existing": True}
 
 
 def register_organization(
@@ -81,7 +112,13 @@ def register_organization(
     auth.check_new_password(password)
     clean_name, clean_email = auth.check_operator_identity(operator_name, email)
     org_name = auth.check_org_name(org_name)
-    slug = make_org_slug(conn, org_name)
+    if pending_payment:
+        # Open sign-up must answer the same whether or not the email or firm
+        # name is already in use (L-115): never reveal either.
+        existing = _existing_operator(conn, clean_email)
+        if existing is not None:
+            return _notify_existing_account(conn, existing, clean_email)
+    slug = make_org_slug(conn, org_name, allow_duplicate_name=pending_payment)
     now = utcnow()
 
     # Create organization
@@ -109,6 +146,10 @@ def register_organization(
         # operators.email is UNIQUE across the whole app, not just this org
         # Roll back the organization insert too
         conn.rollback()
+        if pending_payment:  # lost a race with another sign-up for this email
+            existing = _existing_operator(conn, clean_email)
+            if existing is not None:
+                return _notify_existing_account(conn, existing, clean_email)
         raise ValueError("An account with that email already exists. Try signing in instead.")
     operator_id = cur2.lastrowid
     conn.commit()
@@ -133,6 +174,7 @@ def register_organization(
         "email": clean_email,
         "verification_token": raw_token,
         "delivery": delivery,
+        "existing": False,
     }
 
 
