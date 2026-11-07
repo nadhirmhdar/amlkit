@@ -133,7 +133,8 @@ def test_new_post_listed_on_blog_index(client, slug) -> None:
 def test_new_post_has_no_inline_script(client, slug) -> None:
     r = client.get(f"/blog/{slug}")
     assert r.status_code == 200
-    inline_scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>", r.text)
+    # Executable inline scripts are forbidden by the CSP; a JSON-LD data block is not one.
+    inline_scripts = re.findall(r"<script(?![^>]*\bsrc=)(?![^>]*application/ld\+json)[^>]*>", r.text)
     assert inline_scripts == []
 
 
@@ -141,9 +142,9 @@ def test_new_post_has_no_inline_script(client, slug) -> None:
 def test_new_post_jsonld_parses_with_expected_types(client, slug) -> None:
     r = client.get(f"/blog/{slug}")
     assert r.status_code == 200
-    blocks = re.findall(r"data-jsonld='([^']*)'", r.text)
-    assert blocks, f"no data-jsonld block found for {slug}"
-    ld = json.loads(html.unescape(blocks[0]))
+    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', r.text, re.S)
+    assert blocks, f"no static ld+json block found for {slug}"
+    ld = json.loads(blocks[0])
     types = {node["@type"] for node in ld["@graph"]}
     assert {"BreadcrumbList", "BlogPosting", "FAQPage"} <= types
     faq_node = next(n for n in ld["@graph"] if n["@type"] == "FAQPage")
@@ -231,7 +232,8 @@ def test_sitemap_lists_the_quotation_page(client) -> None:
 
 def test_static_and_public_pages_are_gzipped(client) -> None:
     hdr = {"Accept-Encoding": "gzip"}
-    for path in ("/static/app.css", "/about", "/blog", f"/blog/{blog.all_posts()[0].slug}", "/sitemap.xml"):
+    for path in ("/static/app.css", "/", "/aml-law", "/pricing", "/about", "/privacy", "/blog",
+                 f"/blog/{blog.all_posts()[0].slug}", "/sitemap.xml"):
         r = client.get(path, headers=hdr)
         assert r.status_code == 200, path
         assert r.headers.get("content-encoding") == "gzip", path
@@ -242,7 +244,7 @@ def test_static_and_public_pages_are_gzipped(client) -> None:
 def test_secret_bearing_pages_are_not_gzipped(client) -> None:
     """Login/forms embed CSRF tokens -- compressing them would enable BREACH."""
     hdr = {"Accept-Encoding": "gzip"}
-    for path in ("/login", "/privacy", "/apply"):
+    for path in ("/login", "/apply"):
         r = client.get(path, headers=hdr)
         assert r.headers.get("content-encoding") is None, path
     # Public page requested with a session cookie is left uncompressed too.
@@ -267,3 +269,40 @@ def test_share_image_is_the_branded_card(client) -> None:
         assert 'property="og:image" content="https://groaml.grovisor.ae/static/img/og-card.png"' in html_, path
         assert 'name="twitter:image" content="https://groaml.grovisor.ae/static/img/og-card.png"' in html_, path
     assert client.get("/static/img/og-card.png").status_code == 200
+
+
+PUBLIC_PAGES = ("/", "/aml-law", "/pricing", "/about", "/privacy", "/apply", "/blog")
+
+
+def test_public_page_titles_and_descriptions_fit_search_snippets(client) -> None:
+    """Ahrefs flags titles over 60 and descriptions over 160 characters."""
+    paths = PUBLIC_PAGES + tuple(f"/blog/{p.slug}" for p in blog.all_posts())
+    for path in paths:
+        text = client.get(path).text
+        title = html.unescape(re.search(r"<title>(.*?)</title>", text, re.S).group(1))
+        desc = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1))
+        assert len(title) <= 60, (path, len(title), title)
+        assert len(desc) <= 160, (path, len(desc), desc)
+
+
+def test_landing_page_ships_static_software_schema(client) -> None:
+    text = client.get("/").text
+    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', text, re.S)
+    assert blocks, "landing page has no static ld+json block"
+    types = {n["@type"] for n in json.loads(blocks[0])["@graph"]}
+    assert {"WebSite", "SoftwareApplication"} <= types
+
+
+def test_public_pages_answer_head_without_a_body(client) -> None:
+    for path in PUBLIC_PAGES + ("/robots.txt", "/sitemap.xml"):
+        get = client.get(path)
+        head = client.head(path)
+        assert head.status_code == get.status_code == 200, path
+        assert head.content == b"", path
+        assert head.headers["content-type"] == get.headers["content-type"], path
+
+
+def test_head_is_not_mapped_onto_side_effecting_get_routes(client) -> None:
+    """/verify-email consumes a one-time token on GET; a HEAD must never reach it."""
+    assert client.head("/verify-email?token=x").status_code == 405
+    assert client.head("/setup?token=x").status_code == 405

@@ -49,7 +49,7 @@
     }
   ]
 } %}
-{% block json_ld %}<div hidden data-jsonld='{{ ld | tojson }}'></div>{% endblock %}
+{% block json_ld %}<script type="application/ld+json">{{ ld | tojson }}</script>{% endblock %}
 
 {% macro card(p, dup=false) -%}
 <a class="bl-card" href="/blog/{{ p.slug }}" data-bl-card="{{ (p.title ~ ' ' ~ p.description ~ ' ' ~ p.topic_obj.name ~ ' ' ~ p.audience | join(' ')) | lower }}"{% if dup %} data-bl-dup hidden{% endif %}>

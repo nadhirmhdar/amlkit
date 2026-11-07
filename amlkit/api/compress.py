@@ -5,9 +5,10 @@ attacker-influenced text opens the BREACH side channel, so the app does
 not compress every response. Only these are compressed:
 
 * ``/static/*``, ``/robots.txt`` and ``/sitemap.xml`` -- never contain secrets.
-* The public marketing pages (``/about``, ``/blog``, ``/blog/<slug>``) when the
-  request carries no session cookie. Their only token (the logout form in the
-  signed-in nav) is rendered for signed-in users alone.
+* The public marketing pages (``/``, ``/aml-law``, ``/pricing``, ``/about``,
+  ``/privacy``, ``/blog``, ``/blog/<slug>``) when the request carries no session
+  cookie. They contain no form of their own; the only token (the logout form in
+  the signed-in nav) is rendered for signed-in users alone.
 
 Everything else (login, forms, case files, downloads) is sent as before.
 """
@@ -19,7 +20,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from ..auth import SESSION_COOKIE
 
 _ALWAYS_PATHS = frozenset({"/robots.txt", "/sitemap.xml"})
-_PUBLIC_PAGES = frozenset({"/about", "/blog"})
+_PUBLIC_PAGES = frozenset({"/", "/aml-law", "/pricing", "/about", "/privacy", "/blog"})
 
 
 def _has_session_cookie(scope: Scope) -> bool:

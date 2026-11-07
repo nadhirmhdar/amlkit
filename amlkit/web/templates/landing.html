@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% set nav = 'home' %}
 {% set og_title = 'groAML by Grovisor: AML/CFT compliance software for UAE DNFBPs' %}{% set og_description = 'Screening, CDD, risk assessment and goAML reporting in one workspace for UAE DNFBPs.' %}
-{% block title %}groAML by Grovisor | AML/CFT compliance software for UAE DNFBPs{% endblock %}
-{% block meta_description %}<meta name="description" content="Sanctions and PEP screening, customer due diligence, risk assessment and goAML reporting in one workspace for UAE DNFBPs: auditors, accountants, real-estate brokers, dealers in precious metals and stones, corporate service providers and lawyers.">{% endblock %}
+{% block title %}groAML by Grovisor | UAE AML/CFT Compliance Software{% endblock %}
+{% block meta_description %}<meta name="description" content="Sanctions and PEP screening, CDD, risk assessment and goAML reporting in one workspace for UAE DNFBPs, with Arabic-aware name matching.">{% endblock %}
 {% block body %}
 <main id="main-content" tabindex="-1">
 
@@ -98,3 +98,16 @@
 
 </main>
 {% endblock %}
+{% set ld = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {"@type": "WebSite", "@id": public_base_url ~ "/#website", "url": public_base_url ~ "/", "name": "groAML by Grovisor",
+     "inLanguage": "en", "publisher": {"@id": "https://grovisor.ae/#organization"}},
+    {"@type": "SoftwareApplication", "@id": public_base_url ~ "/#software", "name": "groAML", "url": public_base_url ~ "/",
+     "applicationCategory": "BusinessApplication", "operatingSystem": "Web",
+     "description": "AML/CFT compliance software for UAE DNFBPs: sanctions and PEP screening, customer due diligence, risk assessment and goAML reporting.",
+     "areaServed": {"@type": "Country", "name": "United Arab Emirates"}, "inLanguage": "en",
+     "provider": {"@id": "https://grovisor.ae/#organization"}}
+  ]
+} %}
+{% block json_ld %}<script type="application/ld+json">{{ ld | tojson }}</script>{% endblock %}

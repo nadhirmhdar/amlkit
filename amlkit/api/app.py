@@ -28,6 +28,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from .compress import SelectiveGZipMiddleware
+from .head import HeadAsGetMiddleware
 from .limits import limiter
 from .deps import (
     db_path,
@@ -140,6 +141,7 @@ app = FastAPI(title="groAML by Grovisor", docs_url=None, redoc_url=None, openapi
 app.state.limiter = limiter
 # Compress static assets and anonymous public pages only (see compress.py: BREACH).
 app.add_middleware(SelectiveGZipMiddleware)
+app.add_middleware(HeadAsGetMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # JSON API for the native mobile app -- bearer-token auth, no CSRF, no HTML.

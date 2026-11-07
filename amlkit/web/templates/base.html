@@ -312,15 +312,14 @@
   <button type="button" data-action="dismiss-cookie-notice">Got it</button>
 </div>
 
-{# schema.org JSON-LD: pages set this block to a hidden [data-jsonld] div,
-   never a script tag -- CSP here is script-src 'self' with no exceptions.
-   jsonld.js turns it into a real ld+json tag at runtime, which crawlers that
-   render JS (Googlebot included) still pick up. #}
+{# schema.org JSON-LD: pages fill this block with a static
+   <script type="application/ld+json">. It is a data block, not executable, so the
+   script-src 'self' CSP does not apply to it -- and it is in the served HTML,
+   so crawlers that do not run JavaScript (Ahrefs, Bing, most AI crawlers) see it. #}
 {% block json_ld %}{% endblock %}
 
 <script src="/static/js/countries.js"></script>
 <script src="/static/js/app.js"></script>
-<script src="/static/js/jsonld.js" defer></script>
 {% block scripts_extra %}{% endblock %}
 {% if session %}<script src="/static/js/search-palette.js"></script>{% endif %}
 </body>
