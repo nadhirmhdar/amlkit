@@ -55,6 +55,21 @@ NARRATIVE_REQUIRED = ("true_positive", "escalated")
 # Reason codes that cannot stand alone whatever the disposition.
 NARRATIVE_REQUIRED_CODES = ("other", "insufficient_data")
 
+# Which structured reason codes are coherent with which disposition (L-120 BD1).
+# Without this a PEP alert could be cleared as false_positive with the reason
+# "confirmed_match", leaving a status that says cleared and a reason that says
+# confirmed. insufficient_data means "cannot clear": it may keep an alert open
+# or escalate it, never close it as a false positive or confirm a true positive.
+ALLOWED_REASON_CODES: dict[str, tuple[str, ...]] = {
+    "false_positive": (
+        "different_dob", "different_nationality", "name_coincidence",
+        "different_entity_type", "other",
+    ),
+    "true_positive": ("confirmed_match", "other"),
+    "escalated": ("confirmed_match", "insufficient_data", "other"),
+    "open": ("insufficient_data", "other"),
+}
+
 PENDING = "pending_review"
 
 
@@ -247,6 +262,11 @@ def _validate(status: str, reason_code: str, narrative: str) -> None:
     if reason_code not in REASON_CODES:
         raise ReviewError(
             f"invalid reason code {reason_code!r}; expected one of {sorted(REASON_CODES)}"
+        )
+    if reason_code not in ALLOWED_REASON_CODES[status]:
+        raise ReviewError(
+            f"reason code {reason_code!r} does not fit the disposition {status!r}; "
+            f"allowed for {status}: {', '.join(ALLOWED_REASON_CODES[status])}"
         )
     narrative = (narrative or "").strip()
     if status in NARRATIVE_REQUIRED and not narrative:
