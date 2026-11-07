@@ -1,0 +1,3 @@
+req1 threshold: 55000.0
+stale (55,000 instead of 10,000) on 0/200 fresh connections; id reused from req1: False
+NaN threshold rejected/crashed: ValueError large cash threshold aed must be a finite number
