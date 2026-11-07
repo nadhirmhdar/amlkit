@@ -24,8 +24,11 @@ class TestCSPNoInlineScripts:
 
         for template in templates_dir.glob("**/*.html"):
             content = template.read_text(encoding="utf-8")
-            # Match <script> tags without src attribute
-            inline_scripts = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>', content)
+            # Match <script> tags without src attribute. A JSON-LD block is a data
+            # block (type application/ld+json), never executed, so script-src does
+            # not apply to it; any other inline type is still a violation.
+            inline_scripts = re.findall(
+                r'<script(?![^>]*\bsrc=)(?![^>]*type="application/ld\+json")[^>]*>', content)
             if inline_scripts:
                 violations.append(f"{template.name}: {len(inline_scripts)} inline script(s)")
 
