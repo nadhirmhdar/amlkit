@@ -53,7 +53,7 @@
     {"@type": "FAQPage", "mainEntity": ld_faq}
   ]
 } -%}
-<div hidden data-jsonld='{{ ld | tojson }}'></div>
+<script type="application/ld+json">{{ ld | tojson }}</script>
 {% endblock %}
 
 {% macro toc_list() -%}
