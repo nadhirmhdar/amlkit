@@ -249,7 +249,7 @@ class TestConfiguredMailFailureDoesNotLeakTheToken:
         }, follow_redirects=True)
         assert r.status_code == 200
         assert "/verify-email?token=" not in r.text
-        assert "could not be sent" in r.text
+        assert "We could not send the verification email right now" in r.text
 
     def test_failed_delivery_is_recorded_in_the_audit_log(
         self, client, failing_smtp

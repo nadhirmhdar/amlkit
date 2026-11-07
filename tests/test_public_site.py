@@ -57,15 +57,27 @@ def stripe_on(monkeypatch):
 
 
 def _self_serve_signup(c, org="Fresh Firm", email="owner@fresh.ae"):
-    """Register without an invite code and follow the dev verification link."""
+    """Register without an invite code and follow the verification link.
+
+    Open sign-up never shows the link on the page (L-115), so the token is
+    captured from the verification mail the app would have sent."""
+    from unittest import mock
+
+    from amlkit import mail
+    sent = {}
+
+    def fake_send(to_email, name, token):
+        sent["token"] = token
+        return mail.SENT
+
     c.get("/register-organization")
-    r = c.post("/register-organization", data={
-        "org_name": org, "name": "Owner One", "email": email,
-        "password": "A-strong-password-1", "csrf_token": _csrf(c),
-    }, follow_redirects=True)
+    with mock.patch.object(mail, "send_verification_email", fake_send):
+        r = c.post("/register-organization", data={
+            "org_name": org, "name": "Owner One", "email": email,
+            "password": "A-strong-password-1", "csrf_token": _csrf(c),
+        }, follow_redirects=True)
     assert "Check your email" in r.text, r.text[:400]
-    m = re.search(r"/verify-email\?token=([^\"&<\s]+)", r.text)
-    return c.get(f"/verify-email?token={m.group(1)}", follow_redirects=False)
+    return c.get(f"/verify-email?token={sent['token']}", follow_redirects=False)
 
 
 def _org_by_name(name):

@@ -15,7 +15,7 @@ from fastapi import Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ... import auth, queries, uaepass
-from ...billing.limits import BillingLimitError, check_limit
+from ...billing.limits import BillingLimitError, check_limit, check_scan_allowed
 from ..limits import limiter, operator_rate_limit_key
 from ...cases.manager import (
     EXIT_REASONS,
@@ -223,6 +223,14 @@ def customer_create(
         )
     return back(f"/customers/{result.customer_id}", msg=note)
 
+def _refuse_scan_if_unpaid(db, org_id: int) -> None:
+    """402 with the payment prompt for an org that has not added payment details."""
+    from fastapi import HTTPException
+    try:
+        check_scan_allowed(db, org_id)
+    except BillingLimitError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+
 def _read_scan_upload(upload: UploadFile) -> bytes:
     """Read + validate a scan upload (size, type, pixel count) or raise HTTPException 413/415."""
     from fastapi import HTTPException
@@ -252,6 +260,7 @@ def customer_scan_passport(
     except PermissionError as exc:
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail=str(exc))
+    _refuse_scan_if_unpaid(db, session.org_id)
 
     import io
     from ...cases.ocr import extract_passport_data
@@ -289,6 +298,7 @@ def customer_scan_trade_licence(
     except PermissionError as exc:
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail=str(exc))
+    _refuse_scan_if_unpaid(db, session.org_id)
 
     import io
     from ...cases.ocr import extract_trade_licence_data

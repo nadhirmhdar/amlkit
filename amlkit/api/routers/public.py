@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from ... import auth, changelog, queries
+from ... import auth, changelog, queries, uaepass
 from ...web import blog
 from ..limits import limiter
 from ..deps import (
@@ -36,6 +36,14 @@ router = APIRouter()
 
 
 # ----------------------------------------------------------------- health
+def _uaepass_live() -> bool:
+    """Public copy may mention UAE PASS only when it is real: configured AND
+    pointed at production. The staging sandbox accepts POC credentials only,
+    so real customers cannot complete it (L-118)."""
+    cfg = uaepass.load_config()
+    return cfg is not None and cfg.environment == "production"
+
+
 @router.get("/health")
 def health_check(db: DB):
     from fastapi.responses import JSONResponse
@@ -144,7 +152,8 @@ def home(request: Request, db: DB):
         session = require_session(request, db)
     except PermissionError:
         if current_session(request, db) is None:
-            return render(request, "landing.html", {"session": None, "nav": "home"}, db)
+            return render(request, "landing.html", {"session": None, "nav": "home",
+                                                     "uaepass_live": _uaepass_live()}, db)
         return RedirectResponse("/login", status_code=303)
 
     first_name = (session.operator_name or "").split()
@@ -163,7 +172,8 @@ def home(request: Request, db: DB):
 # tenant data is read by any of these.
 @router.get("/aml-law", response_class=HTMLResponse)
 def aml_law_view(request: Request, db: DB):
-    return render(request, "aml_law.html", {"session": current_session(request, db)}, db)
+    return render(request, "aml_law.html", {"session": current_session(request, db),
+                                             "uaepass_live": _uaepass_live()}, db)
 
 @router.get("/pricing", response_class=HTMLResponse)
 def pricing(request: Request, db: DB):

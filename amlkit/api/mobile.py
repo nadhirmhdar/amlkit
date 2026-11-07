@@ -43,7 +43,7 @@ from pydantic import BaseModel, Field, field_validator
 from .. import auth, mail, queries, storage
 from ..datamodel import MAX_NAME_LENGTH
 from .limits import limiter, login_rate_limit_key, operator_rate_limit_key
-from ..billing.limits import BillingLimitError, check_limit
+from ..billing.limits import BillingLimitError, check_limit, check_scan_allowed
 from ..cases.manager import (
     ADVERSE_MEDIA_BATCH_LIMIT,
     EXIT_REASONS,
@@ -716,6 +716,13 @@ def _scan_document(content: bytes, extractor) -> dict:
     return result
 
 
+def _refuse_scan_if_unpaid(db, org_id: int) -> None:
+    try:
+        check_scan_allowed(db, org_id)
+    except BillingLimitError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+
+
 def _read_scan_upload(upload: UploadFile) -> bytes:
     """Read + validate a scan upload (size, type, pixel count) or raise 413/415."""
     from ..validation import IMAGE_MIMES, PDF, UploadRejected, read_capped, validate_upload
@@ -730,7 +737,8 @@ def _read_scan_upload(upload: UploadFile) -> bytes:
 
 @router.post("/customers/scan-passport")
 @limiter.limit("10/minute", key_func=operator_rate_limit_key)
-def api_scan_passport(request: Request, session: Session, passport_file: UploadFile):
+def api_scan_passport(request: Request, db: DB, session: Session, passport_file: UploadFile):
+    _refuse_scan_if_unpaid(db, session.org_id)
     from ..cases.ocr import extract_passport_data
 
     content = _read_scan_upload(passport_file)
@@ -739,7 +747,8 @@ def api_scan_passport(request: Request, session: Session, passport_file: UploadF
 
 @router.post("/customers/scan-emirates-id")
 @limiter.limit("10/minute", key_func=operator_rate_limit_key)
-def api_scan_emirates_id(request: Request, session: Session, emirates_id_file: UploadFile):
+def api_scan_emirates_id(request: Request, db: DB, session: Session, emirates_id_file: UploadFile):
+    _refuse_scan_if_unpaid(db, session.org_id)
     from ..cases.ocr import extract_emirates_id_data
 
     content = _read_scan_upload(emirates_id_file)

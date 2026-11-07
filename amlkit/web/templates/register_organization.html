@@ -14,11 +14,14 @@
     <div class="panel">
       {% if pending_email %}
         <h2 style="text-transform:none; font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--ink);">Check your email</h2>
+        {% if not send_failed %}
         <p class="muted small mt-0">
-          We sent a verification link to <strong>{{ pending_email }}</strong>.
-          Open it to activate your account and sign in — the link expires in
-          3 days.
+          We sent an email to <strong>{{ pending_email }}</strong>. If this is a
+          new registration, open the verification link in it to activate your
+          account and sign in — the link expires in 3 days. If the address
+          already has an account, the email says so and explains how to sign in.
         </p>
+        {% endif %}
         {% if dev_verify_url %}
         <p class="muted small" style="border-top:1px solid var(--line); padding-top:12px;">
           No mail server is configured on this deployment yet, so here is the
