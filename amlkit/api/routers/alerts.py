@@ -174,6 +174,8 @@ def alerts_bulk_dismiss(
         )
     except (PermissionError, ReviewError) as exc:
         return back(back_to, err=str(exc))
+    if not outcome.dismissed and not outcome.pending_review:
+        return back(back_to, err="No open alerts to dismiss for this customer; nothing was changed.")
     if outcome.pending_review:
         msg = (
             f"Dismissed {outcome.dismissed} alert(s). {outcome.pending_review} sanctions/PF "

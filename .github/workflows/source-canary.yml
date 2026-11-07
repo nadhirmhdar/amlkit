@@ -541,9 +541,10 @@ jobs:
           echo "Deployed: $URL"
           echo "### Deployed to $URL" >> "$GITHUB_STEP_SUMMARY"
 
-      # Every 20 hours: safely inside the 24-hour EOCN rule with margin for a
-      # slow/retried run, same reasoning as the in-process scheduler's 23-hour
-      # interval (see app.py's _lifespan) but reliable across Cloud Run
+      # Every 4 hours ("0 */4 * * *"): the former 20-hour cron fired only
+      # at 00:00 and 20:00 UTC (a 20 h gap), so the cadence is 4-hourly to keep
+      # the worst-case list age far inside the 24-hour EOCN rule, with margin
+      # for a slow/retried run. Reliable across Cloud Run
       # scaling to zero, which the in-process one is not. continue-on-error:
       # the deploy service account may not (yet) hold Cloud Scheduler IAM --
       # this step's own failure must not block a deploy that otherwise
@@ -576,7 +577,7 @@ jobs:
             # '--clear-headers'?") -- it takes --update-headers instead.
             gcloud scheduler jobs update http "$JOB_NAME" \
               --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
-              --schedule "0 */20 * * *" \
+              --schedule "0 */4 * * *" \
               --uri "${REFRESH_BASE}/system/refresh" \
               --http-method POST \
               --message-body "{}" \
@@ -588,7 +589,7 @@ jobs:
           else
             gcloud scheduler jobs create http "$JOB_NAME" \
               --location "${{ vars.GCP_REGION }}" --project "${{ vars.GCP_PROJECT_ID }}" \
-              --schedule "0 */20 * * *" \
+              --schedule "0 */4 * * *" \
               --uri "${REFRESH_BASE}/system/refresh" \
               --http-method POST \
               --message-body "{}" \

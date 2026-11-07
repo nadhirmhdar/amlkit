@@ -365,7 +365,7 @@ def _persist(
         for h in res.hits:
             # An alert already covering this exact entity against this exact
             # customer/UBO means the match is known -- rescreen_all runs this
-            # same query again after every dataset refresh (roughly every 20h
+            # same query again after every dataset refresh (roughly every 4h
             # in production), so without this check a match nobody has
             # resolved accumulates a fresh duplicate on every refresh. The
             # screening row above is still recorded either way -- "checked

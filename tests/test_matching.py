@@ -243,7 +243,7 @@ class TestScreeningEngine:
 
 class TestAlertDedup:
     """rescreen_all() re-runs the same query for every customer after every
-    dataset refresh (roughly every 20h in production) -- a match nobody has
+    dataset refresh (roughly every 4h in production) -- a match nobody has
     reviewed yet must not accumulate a fresh duplicate alert on every run."""
 
     def test_rescreen_does_not_duplicate_open_alert(self, conn, org_id, customer_id) -> None:
