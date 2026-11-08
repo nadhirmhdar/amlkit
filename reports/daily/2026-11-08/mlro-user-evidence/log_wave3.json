@@ -1,0 +1,167 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "screen: Cyrillic \u0430/\u0435/\u043e homoglyphs in a Latin name",
+  "status": "info",
+  "detail": "matches=1"
+ },
+ {
+  "step": "screen: split token 'Al Hasnawi' vs 'Al-Hasnawi'",
+  "status": "info",
+  "detail": "matches=1"
+ },
+ {
+  "step": "screen: joined token 'AlHasnawi'",
+  "status": "info",
+  "detail": "matches=1"
+ },
+ {
+  "step": "screen: extra middle token",
+  "status": "info",
+  "detail": "matches=1"
+ },
+ {
+  "step": "screen: Arabic with Urdu yeh (\u06cc) for \u064a",
+  "status": "info",
+  "detail": "matches=1"
+ },
+ {
+  "step": "screen: Arabic with Persian kaf (\u06a9)",
+  "status": "info",
+  "detail": "matches=1"
+ },
+ {
+  "step": "screen: unrelated common name",
+  "status": "info",
+  "detail": "matches=none"
+ },
+ {
+  "step": "rename operator '<script>alert(1)</sc'",
+  "status": "info",
+  "detail": "['Renamed Omar Officer to &lt;script&gt;alert(1)&lt;/script&gt;.']"
+ },
+ {
+  "step": "rename operator 'Name\\nWith Newline'",
+  "status": "info",
+  "detail": "['Name must not contain control characters.']"
+ },
+ {
+  "step": "rename operator 'AAAAAAAAAAAAAAAAAAAA'",
+  "status": "info",
+  "detail": "['Name must be 120 characters or fewer.']"
+ },
+ {
+  "step": "rename operator '   '",
+  "status": "info",
+  "detail": "['Enter a name.']"
+ },
+ {
+  "step": "rename operator 'Omar\\u202eEvil'",
+  "status": "info",
+  "detail": "['Renamed &lt;script&gt;alert(1)&lt;/script&gt; to OmarEvil.']"
+ },
+ {
+  "step": "rename operator \"=cmd|' /C calc'!A0\"",
+  "status": "info",
+  "detail": "['Renamed OmarEvil to =cmd|&#39; /C calc&#39;!A0.']"
+ },
+ {
+  "step": "UBO 'Gulf Holdings LLC' 30",
+  "status": "info",
+  "detail": "['A customer cannot be recorded as its own beneficial owner. Record the natural persons or other entities that own or control it.']"
+ },
+ {
+  "step": "UBO 'GULF HOLDINGS L.L.C.' 20",
+  "status": "info",
+  "detail": "['Beneficial owner added and screened clear.']"
+ },
+ {
+  "step": "UBO 'Gulf  Holdings  LLC ' 10",
+  "status": "info",
+  "detail": "['A customer cannot be recorded as its own beneficial owner. Record the natural persons or other entities that own or control it.']"
+ },
+ {
+  "step": "UBO 'Real Person' 40",
+  "status": "info",
+  "detail": "['Beneficial owner added and screened clear.']"
+ },
+ {
+  "step": "UBO rows accepted before cap",
+  "status": "info",
+  "detail": "60"
+ },
+ {
+  "step": "unlock mails sent",
+  "status": "info",
+  "detail": "1"
+ },
+ {
+  "step": "GET unlock link (what an email scanner does)",
+  "status": "info",
+  "detail": "200 Unlock your account \u2014 groAML Skip to content gr AML Unlock your account Confirm that you want to lift the temporary sign-in lock on your gro"
+ },
+ {
+  "step": "GET again (still live?)",
+  "status": "info",
+  "detail": "200 live"
+ },
+ {
+  "step": "still locked after GET only",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "POST confirm",
+  "status": "info",
+  "detail": "303 /login"
+ },
+ {
+  "step": "POST again",
+  "status": "info",
+  "detail": "200 None"
+ },
+ {
+  "step": "login after POST",
+  "status": "info",
+  "detail": "303 /"
+ }
+]
