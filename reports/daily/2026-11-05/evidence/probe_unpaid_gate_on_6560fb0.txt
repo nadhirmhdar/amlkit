@@ -1,0 +1,20 @@
+org: ('none', 'pending_payment') | datasets fresh: True
+ mobile POST /customers (natural)               -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ mobile POST /customers (legal)                 -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ web POST /customers                            -> 303 ''
+ mobile POST /admin/operators                   -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ web POST /admin/operators                      -> 303 ''
+ customers stored for the unpaid org: 0 | operators: 1
+ mobile POST /screen (still allowed? SS2)       -> 200 '{"query":"Some Person","clear":true,"unscreenable":false,"candidates":0,"threshold":0.85,"low_confidence":fals'
+/tmp/claude-0/-home-user-amlkit/e617beec-4f0b-5ae7-94d4-35e414e8435f/scratchpad/venv/lib/python3.11/site-packages/passporteye/mrz/image.py:37: FutureWarning: The plugin infrastructure in `skimage.io` and the parameter `plugin` are deprecated since version 0.25 and will be removed in 0.27 (or later). To avoid this warning, please do not use the parameter `plugin`. Instead, use `imageio` or other I/O packages directly. See also `imread`.
+  img = skimage_io.imread(file, as_gray=self.as_gray, plugin='imageio')
+/tmp/claude-0/-home-user-amlkit/e617beec-4f0b-5ae7-94d4-35e414e8435f/scratchpad/venv/lib/python3.11/site-packages/passporteye/mrz/image.py:89: FutureWarning: `square` is deprecated since version 0.25 and will be removed in version 0.27. Use `skimage.morphology.footprint_rectangle` instead.
+  m = morphology.square(self.square_size)
+ mobile POST /customers/scan-passport (unpaid)  -> 200 '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender":null,"id'
+/tmp/claude-0/-home-user-amlkit/e617beec-4f0b-5ae7-94d4-35e414e8435f/scratchpad/venv/lib/python3.11/site-packages/passporteye/mrz/image.py:37: FutureWarning: The plugin infrastructure in `skimage.io` and the parameter `plugin` are deprecated since version 0.25 and will be removed in 0.27 (or later). To avoid this warning, please do not use the parameter `plugin`. Instead, use `imageio` or other I/O packages directly. See also `imread`.
+  img = skimage_io.imread(file, as_gray=self.as_gray, plugin='imageio')
+/tmp/claude-0/-home-user-amlkit/e617beec-4f0b-5ae7-94d4-35e414e8435f/scratchpad/venv/lib/python3.11/site-packages/passporteye/mrz/image.py:89: FutureWarning: `square` is deprecated since version 0.25 and will be removed in version 0.27. Use `skimage.morphology.footprint_rectangle` instead.
+  m = morphology.square(self.square_size)
+ web POST /customers/scan-passport (unpaid)     -> 200 '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender":null,"id'
+ web POST /customers/scan-trade-licence (unpaid) -> 200 '{"full_name":null,"id_number":null,"legal_type":null,"issue_date":null,"expiry_date":null,"issuing_authority":'
+ web POST /feedback (unpaid)                    -> 200 '{"success":true,"message":"Thank you for your feedback!"}'

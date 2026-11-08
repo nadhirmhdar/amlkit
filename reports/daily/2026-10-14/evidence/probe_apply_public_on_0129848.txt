@@ -1,0 +1,14 @@
+== 1. CRLF / header-injection attempts (SMTP sink receives the real notice) ==
+ CRLF + Bcc in org_name             -> 303 /apply/thanks
+ CRLF + Bcc in contact_name         -> 303 /apply/thanks
+ CRLF + Bcc in email                -> 200 
+ quoted-local-part email trick      -> 200 
+ comma list in email                -> 200 
+ RLO + markup in names              -> 303 /apply/thanks
+ message with header-like lines     -> 303 /apply/thanks
+ 2000-char fields                   -> 303 /apply/thanks
+ stored rows: [(1, 'Acme Bcc: attacker@evil.test', 'Jane Doe', 'jane@acme.ae'), (2, 'Acme LLC', 'Jane Bcc: attacker@evil.test', 'jane@acme.ae'), (3, 'Acme\u202e<script>alert(1)</script>', '<img src=x onerror=alert(1)>', 'jane@acme.ae'), (4, 'Acme LLC', 'Jane Doe', 'jane@acme.ae'), (5, 'AAAAAAAAAAAAA
+== 2. rate limits (5/hour, 30/day per IP) and honeypot ==
+ 7 valid submissions: [303, 303, 303, 303, 303, 429, 429]
+ honeypot filled -> 303 /apply/thanks | new rows: 0
+ no CSRF token -> 200 | rows unchanged: True
