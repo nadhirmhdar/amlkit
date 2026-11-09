@@ -1,0 +1,15 @@
+/tmp/claude-0/-home-user-amlkit/e617beec-4f0b-5ae7-94d4-35e414e8435f/scratchpad/venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+== 1. IP ceiling, no proxy trust (AMLKIT_BEHIND_PROXY unset), rotating X-Forwarded-For ==
+ statuses: [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 429, 429, 429, 429] | first 429 at attempt: 11
+== 2. same, AMLKIT_BEHIND_PROXY=1, proxy appends real client at the right (spoofed hop on the left) ==
+ statuses: [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 429, 429, 429, 429] | first 429 at attempt: 11
+== 3. BEHIND_PROXY=1 but no trusted proxy hop (direct hit with a single spoofed XFF value) ==
+ statuses: [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200] | 429 seen: False (a bypass here needs a path to the app that skips the Google front end)
+== 4. account-lockout DoS against the MLRO (limiter budget 3/min per ip+email, so time is simulated with limiter.reset()) ==
+ attacker with NO credentials: 3 wrong guesses per simulated minute; after 3 minutes -> (8, '2026-11-01T01:17:49+00:00')
+ real MLRO signs in with the CORRECT password -> 200 None (a 200 re-render of the login form = refused; a valid login redirects 303 -- control: fresh DB, same password, gives 303)
+== 5. Set-Cookie flags on a successful login with AMLKIT_BEHIND_PROXY=1 ==
+ login status: 303 /
+   amlkit_session=<v>; HttpOnly; Max-Age=1209600; Path=/; SameSite=strict; Secure
+   amlkit_csrf=<v>; HttpOnly; Max-Age=1209600; Path=/; SameSite=lax; Secure

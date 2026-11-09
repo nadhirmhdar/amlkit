@@ -1,0 +1,25 @@
+messages received by the sink: 6
+ 4 x to=fresh@victim.test subject='Someone tried to register a groAML account with your email'
+ 1 x to=fresh@victim.test subject='Verify your groAML account'
+ 1 x to=owner@victim.test subject='Verify your groAML account'
+any Bcc header line (start of header block, not body): False
+--- sample ---
+b'Subject: Verify your groAML account'
+b'From: groAML by Grovisor <no-reply@groaml.grovisor.ae>'
+b'To: fresh@victim.test'
+b'Content-Type: text/plain; charset="utf-8"'
+b'Content-Transfer-Encoding: quoted-printable'
+b'MIME-Version: 1.0'
+b'X-Peer: 127.0.0.1'
+b''
+b'Hi Mallory <b>bold</b> https://evil.test/pay,'
+b''
+b'Confirm this email address to activate your groAML account:'
+b''
+b'  http://127.0.0.1:8000/verify-email?token=3D0lrJYY3TVQhETX5QpJvvwPckIybUOUEx='
+b'QH5U4aqeNxE'
+b''
+b"This link expires in 3 days. If you didn't request this, ignore this email."
+done; inspect sink log
+CRLF in name on a new address -> 200 | form error shown: True
+3000-char name -> 200
