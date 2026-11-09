@@ -1,0 +1,97 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "report-type options on builder",
+  "status": "info",
+  "detail": "[] | all selects: ['', 'male', 'female', '', 'Wire Transfer', 'Cash Deposit', 'Real Estate Buy', 'Virtual Asset']"
+ },
+ {
+  "step": "GET builder report_type=DPMSR",
+  "status": "info",
+  "detail": "200 None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Oblig"
+ },
+ {
+  "step": "GET builder report_type=REAR",
+  "status": "info",
+  "detail": "200 None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Oblig"
+ },
+ {
+  "step": "GET builder report_type=HRCA",
+  "status": "info",
+  "detail": "200 None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Oblig"
+ },
+ {
+  "step": "GET builder report_type=HRCT",
+  "status": "info",
+  "detail": "200 None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Oblig"
+ },
+ {
+  "step": "GET builder report_type=CNMR",
+  "status": "info",
+  "detail": "200 None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Oblig"
+ },
+ {
+  "step": "GET builder report_type=FFR",
+  "status": "info",
+  "detail": "200 None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Oblig"
+ },
+ {
+  "step": "GET builder report_type=SAR",
+  "status": "info",
+  "detail": "200 None Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Oblig"
+ },
+ {
+  "step": "save a DPMSR draft",
+  "status": "info",
+  "detail": "303 /reports ['Report type &#39;DPMSR&#39; is not supported. Supported types: STR, SAR.']"
+ },
+ {
+  "step": "save a REAR draft",
+  "status": "info",
+  "detail": "303 /reports ['Report type &#39;REAR&#39; is not supported. Supported types: STR, SAR.']"
+ },
+ {
+  "step": "reports list",
+  "status": "info",
+  "detail": "Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies Log out Compliance Reports Suspicious Transaction Reports (STRs), Suspicious Activity Reports (SARs)"
+ }
+]
