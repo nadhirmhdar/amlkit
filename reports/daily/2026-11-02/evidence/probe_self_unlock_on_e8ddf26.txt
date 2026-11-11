@@ -1,0 +1,25 @@
+== 1. lock -> one mail per lock window ==
+ mails after 8 failures: 1 | to: {'mlro@bravo.ae'}
+ mails after 5 more failures while locked: 1
+ correct password while locked -> 200 (303 = signed in; 200 = refused)
+== 2. redeem ==
+ first GET /unlock/<token> -> 303 /login | locked_until now: [(0, None)]
+ reuse -> 200 generic page: True
+ correct password now -> 303
+== 3. enumeration / garbage ==
+ token ''               -> 404 generic=False
+ token 'x'              -> 200 generic=True
+ token 'AAAAAAAAAAAA'   -> 200 generic=True
+ token '%00'            -> 200 generic=True
+ token '../etc/passw'   -> 404 generic=False
+ token 'ü'              -> 200 generic=True
+== 4. expiry / deactivated / scope ==
+ expired token -> ok
+ deactivated operator -> refused
+ MFA lock after unlock link: [(5, 1)] (must stay locked)
+== 5. concurrency: 20 threads redeem one token ==
+ statuses: {200: 9, 429: 10, 303: 1} | audit self_unlock rows for this operator: 3
+== 6. A1 residual: attacker re-locks after every unlock ==
+ relock after unlock -> mails: 1 | victim password login: 200 (200 = refused until the victim redeems the new mail)
+== 7. tenant: org A operator's token cannot unlock org B (token is per operator) ==
+ org A token used; org B MLRO still locked: 1

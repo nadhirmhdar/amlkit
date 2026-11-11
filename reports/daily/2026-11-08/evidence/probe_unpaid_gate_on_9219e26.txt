@@ -1,0 +1,12 @@
+org: ('none', 'pending_payment') | datasets fresh: True
+ mobile POST /customers (natural)               -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ mobile POST /customers (legal)                 -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ web POST /customers                            -> 303 ''
+ mobile POST /admin/operators                   -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ web POST /admin/operators                      -> 303 ''
+ customers stored for the unpaid org: 0 | operators: 1
+ mobile POST /screen (still allowed? SS2)       -> 200 '{"query":"Some Person","clear":true,"unscreenable":false,"candidates":0,"threshold":0.85,"low_confidence":fals'
+ mobile POST /customers/scan-passport (unpaid)  -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ web POST /customers/scan-passport (unpaid)     -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ web POST /customers/scan-trade-licence (unpaid) -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ web POST /feedback (unpaid)                    -> 200 '{"success":true,"message":"Thank you for your feedback!"}'

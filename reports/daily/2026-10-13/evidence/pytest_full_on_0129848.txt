@@ -1,0 +1,4 @@
+git: 0129848  command: pytest tests -q -p no:cacheprovider  (venv: requirements.txt + pytest/httpx; AMLKIT_REGISTRATION_INVITE_CODE=test-invite)
+2170 passed, 3 skipped, 53 warnings in 1175.19s (0:19:35)
+exit=0
+FAILED-or-ERROR lines: 0

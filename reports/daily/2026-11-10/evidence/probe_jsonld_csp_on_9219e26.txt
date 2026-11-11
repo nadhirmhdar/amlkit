@@ -1,0 +1,13 @@
+ /                                            200 ld+json blocks=1 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /about                                       200 ld+json blocks=0 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /aml-law                                     200 ld+json blocks=0 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /pricing                                     200 ld+json blocks=0 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /privacy                                     200 ld+json blocks=0 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /apply                                       200 ld+json blocks=0 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /blog                                        200 ld+json blocks=1 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /blog/uae-dnfbp-cdd-kyc-beneficial-ownership 200 ld+json blocks=1 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /blog/uae-goaml-str-sar-filing-guide         200 ld+json blocks=1 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /blog/uae-dnfbp-aml-risk-assessment-risk-scoring 200 ld+json blocks=1 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /blog/uae-aml-cft-regulatory-updates         200 ld+json blocks=1 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+ /blog/uae-sanctions-screening-24-hour-rule   200 ld+json blocks=1 parse_ok=True inline_exec_scripts=0 script-src unsafe-inline=False
+problems: 0
