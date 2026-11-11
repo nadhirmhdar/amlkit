@@ -1,0 +1,277 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "mobile save: valid",
+  "status": "info",
+  "detail": "200 {\"report_id\":1}"
+ },
+ {
+  "step": "mobile save: bad email",
+  "status": "info",
+  "detail": "200 {\"report_id\":2}"
+ },
+ {
+  "step": "mobile save: birth date in the future",
+  "status": "info",
+  "detail": "200 {\"report_id\":3}"
+ },
+ {
+  "step": "mobile save: garbage birth date",
+  "status": "info",
+  "detail": "200 {\"report_id\":4}"
+ },
+ {
+  "step": "mobile save: transaction date in the future",
+  "status": "info",
+  "detail": "200 {\"report_id\":5}"
+ },
+ {
+  "step": "mobile save: nationality ZZ",
+  "status": "info",
+  "detail": "200 {\"report_id\":6}"
+ },
+ {
+  "step": "mobile save: gender 'attack helicopter'",
+  "status": "info",
+  "detail": "200 {\"report_id\":7}"
+ },
+ {
+  "step": "mobile save: IBAN with spaces/lowercase",
+  "status": "info",
+  "detail": "200 {\"report_id\":8}"
+ },
+ {
+  "step": "mobile save: invalid IBAN",
+  "status": "info",
+  "detail": "200 {\"report_id\":9}"
+ },
+ {
+  "step": "mobile save: vertical tab in narrative",
+  "status": "info",
+  "detail": "200 {\"report_id\":10}"
+ },
+ {
+  "step": "mobile save: 2,000-char narrative",
+  "status": "info",
+  "detail": "200 {\"report_id\":11}"
+ },
+ {
+  "step": "mobile save: script in names",
+  "status": "info",
+  "detail": "200 {\"report_id\":12}"
+ },
+ {
+  "step": "mobile save: amount NaN",
+  "status": "info",
+  "detail": "EXCEPTION ValueError: Out of range float values are not JSON compliant: nan"
+ },
+ {
+  "step": "mobile save: amount 1e30",
+  "status": "info",
+  "detail": "200 {\"report_id\":13}"
+ },
+ {
+  "step": "mobile save: empty reason",
+  "status": "info",
+  "detail": "200 {\"report_id\":14}"
+ },
+ {
+  "step": "mobile save: empty entity reference",
+  "status": "info",
+  "detail": "200 {\"report_id\":15}"
+ },
+ {
+  "step": "mobile finalise: valid",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: valid",
+  "status": "info",
+  "detail": "200 well-formed len=2044"
+ },
+ {
+  "step": "mobile finalise: bad email",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: bad email",
+  "status": "info",
+  "detail": "200 well-formed len=2035"
+ },
+ {
+  "step": "mobile finalise: birth date in the future",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: birth date in the future",
+  "status": "info",
+  "detail": "200 well-formed len=2044"
+ },
+ {
+  "step": "mobile finalise: garbage birth date",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: garbage birth date",
+  "status": "info",
+  "detail": "200 well-formed len=2043"
+ },
+ {
+  "step": "mobile finalise: transaction date in the future",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: transaction date in the future",
+  "status": "info",
+  "detail": "200 well-formed len=2044"
+ },
+ {
+  "step": "mobile finalise: nationality ZZ",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: nationality ZZ",
+  "status": "info",
+  "detail": "200 well-formed len=2044"
+ },
+ {
+  "step": "mobile finalise: gender 'attack helicopter'",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: gender 'attack helicopter'",
+  "status": "info",
+  "detail": "200 well-formed len=2044"
+ },
+ {
+  "step": "mobile finalise: invalid IBAN",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: invalid IBAN",
+  "status": "info",
+  "detail": "200 well-formed len=2026"
+ },
+ {
+  "step": "mobile finalise: empty reason",
+  "status": "info",
+  "detail": "422 {\"detail\":\"Cannot finalize report: the goAML export requires reason for suspicion (narrative). The report is still a dra"
+ },
+ {
+  "step": "mobile export: empty reason",
+  "status": "info",
+  "detail": "400 NOT well-formed: not well-formed (invalid token): line 1, column 0 len=98"
+ },
+ {
+  "step": "mobile finalise: empty entity reference",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: empty entity reference",
+  "status": "info",
+  "detail": "200 well-formed len=2044"
+ },
+ {
+  "step": "mobile finalise: vertical tab in narrative",
+  "status": "info",
+  "detail": "422 {\"detail\":\"Cannot finalize report: these fields contain characters that are not allowed in the goAML XML (control charac"
+ },
+ {
+  "step": "mobile export: vertical tab in narrative",
+  "status": "info",
+  "detail": "200 well-formed len=2016"
+ },
+ {
+  "step": "mobile finalise: script in names",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: script in names",
+  "status": "info",
+  "detail": "200 well-formed len=2075"
+ },
+ {
+  "step": "mobile finalise: IBAN with spaces/lowercase",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: IBAN with spaces/lowercase",
+  "status": "info",
+  "detail": "200 well-formed len=2049"
+ },
+ {
+  "step": "mobile finalise: amount 1e30",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: amount 1e30",
+  "status": "info",
+  "detail": "200 well-formed len=2042"
+ },
+ {
+  "step": "mobile finalise: 2,000-char narrative",
+  "status": "info",
+  "detail": "200 {\"ok\":true,\"finalized\":true,\"fiu_transmission\":\"manual\",\"message\":\"Report finalized. Download the goAML XML and upload i"
+ },
+ {
+  "step": "mobile export: 2,000-char narrative",
+  "status": "info",
+  "detail": "200 well-formed len=4005"
+ },
+ {
+  "step": "officer finalises a report",
+  "status": "info",
+  "detail": "403 {\"detail\":\"This action requires the mlro role; your account is officer.\"}"
+ }
+]
