@@ -34,7 +34,7 @@ Carried findings: no code changed, so every 11-11 verdict stands (RP1/gender rew
 
 ## What the team missed
 1. **Duplicate discovery is now routine.** LM1 is MA1 two days later, and RP1 web is RP1 mobile one day later. The roles do not read each other's reports before probing. A shared findings register that each role reads first (the repo already has one, per #449's `reports/findings.csv`) would turn those probe-days into new areas.
-2. **The fix for MA1/LM1 is one function and all four roles agree it is needed;** nothing has been done in five days, because master has not moved. The pattern of "found, reported daily, nobody owns the fix" is the same one I raised on 10-04 and 11-01 (when a fix wave did land). If the lead wants the loop to be useful, the open Medium list (MA1, RP1 and the gender rewrite, SS5, RT1, CR1) is short enough to schedule as one wave.
+2. **The fix for MA1/LM1 is one function and all four roles agree it is needed;** master has not moved since 11-07, so nothing has been done. The pattern of "found, reported daily, nobody owns the fix" is the same one I raised on 10-04 and 11-01 (when a fix wave did land). If the lead wants the loop to be useful, the open Medium list (MA1, RP1 and the gender rewrite, SS5, RT1, CR1) is short enough to schedule as one wave.
 3. **The recovery path for a tenant with no MLRO is undocumented.** Four reports describe the consequence ("out-of-band operator access"); none says what that is. The admin API secret exists (`/system/create-operator`), but a runbook step saying who holds it and how a tenant asks for it is the real mitigation until MA1 is fixed.
 
 ## BLOCKED / not checked
