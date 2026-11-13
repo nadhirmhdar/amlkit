@@ -1,0 +1,4 @@
+mobile_emirates_png: status 400 in 24.3s, maxrss 1209 MB, body: '{"detail":"tesseract is not installed or it\'s not in your PATH. See README file for more information'
+web_passport_png: status 200 in 26.5s, maxrss 1594 MB, body: '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender'
+web_passport_junk: status 200 in 2.0s, maxrss 200 MB, body: '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender'
+mobile_pdf_hugepage: status 200 in 6.7s, maxrss 732 MB, body: '{"full_name":null,"name_arabic":null,"nationality":null,"birth_date":null,"expiry_date":null,"gender'
