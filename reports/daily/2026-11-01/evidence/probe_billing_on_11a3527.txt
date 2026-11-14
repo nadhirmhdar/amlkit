@@ -1,0 +1,24 @@
+== 1. inert when STRIPE_SECRET_KEY is unset ==
+ GET  /pricing             -> 404
+ GET  /billing             -> 404
+ POST /billing/webhook     -> 404
+ POST /billing/checkout    -> 404
+ GET  /billing/success     -> 404
+== 2. webhook signature edge cases (configured) ==
+ no header                -> 400 {"error":"invalid signature"}
+ garbage header           -> 400 {"error":"invalid signature"}
+ wrong secret             -> 400 {"error":"invalid signature"}
+ stale timestamp (1h)     -> 400 {"error":"invalid signature"}
+ future timestamp (+1h)   -> 400 {"error":"invalid signature"}
+ valid                    -> 200 {"status":"stored"}
+ valid + junk v1          -> 200 {"status":"duplicate"}
+ empty v1 only            -> 400 {"error":"invalid signature"}
+ t missing                -> 400 {"error":"invalid signature"}
+ body tampered            -> 400 {"error":"invalid signature"}
+ replay of the valid event -> 200 {"status":"duplicate"}
+ webhook secret unset but key set; signed with empty secret -> 503
+== 3. authz / CSRF on /billing* ==
+ anon GET /billing -> 303 /login
+ officer GET /billing -> 303 /dashboard | officer POST checkout (no csrf) -> 303
+ MLRO POST checkout, no csrf -> 303 | portal no csrf -> 303
+ MLRO checkout bogus tier + valid csrf -> 303

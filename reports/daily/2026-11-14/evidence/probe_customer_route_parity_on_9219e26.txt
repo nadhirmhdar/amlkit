@@ -1,0 +1,24 @@
+OK   note: normal                                 web: status 303 stored 1 | mobile: status 200 stored 1
+OK   note: empty                                  web: status 303 stored 0 | mobile: status 400 stored 0
+OK   note: 1 MB                                   web: status 303 stored 1 | mobile: status 200 stored 1
+OK   note: NUL + RLO                              web: status 303 stored 1 | mobile: status 200 stored 1
+OK   note: 10k chars                              web: status 303 stored 1 | mobile: status 200 stored 1
+OK   ubo: 30%                                     web: status 303 stored 1 | mobile: status 200 stored 1
+OK   ubo: 150%                                    web: status 303 stored 0 | mobile: status 422 stored 0
+OK   ubo: -5%                                     web: status 303 stored 0 | mobile: status 422 stored 0
+OK   ubo: 45% (seed already holds 60%) total>100  web: status 303 stored 0 | mobile: status 422 stored 0
+OK   ubo: blank name                              web: status 303 stored 0 | mobile: status 422 stored 0
+OK   ubo: 5000-char name                          web: status 303 stored 1 | mobile: status 200 stored 1
+OK   ubo: self as owner (customer's own name)     web: status 303 stored 0 | mobile: status 422 stored 0
+OK   txn: normal cash in 1,000                    web: status 303 stored 1 | mobile: status 200 stored 1
+OK   txn: negative                                web: status 303 stored 0 | mobile: status 400 stored 0
+OK   txn: zero                                    web: status 303 stored 0 | mobile: status 400 stored 0
+OK   txn: bad direction                           web: status 303 stored 1 | mobile: status 200 stored 1
+OK   txn: bad method                              web: status 303 stored 0 | mobile: status 400 stored 0
+OK   txn: bad currency 'XXXXXX'                   web: status 303 stored 0 | mobile: status 400 stored 0
+OK   txn: 1e30                                    web: status 303 stored 0 | mobile: status 400 stored 0
+OK   txn: future date 2099                        web: status 303 stored 1 | mobile: status 200 stored 1
+OK   txn: garbage date                            web: status 303 stored 0 | mobile: status 400 stored 0
+OK   close: valid reason                          web: status 303 stored 0 | mobile: status 400 stored 0
+OK   close: bogus reason                          web: status 303 stored 0 | mobile: status 400 stored 0
+OK   close: empty reason                          web: status 303 stored 0 | mobile: status 400 stored 0
