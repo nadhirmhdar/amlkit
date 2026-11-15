@@ -1,0 +1,4 @@
+req1 threshold: 55000.0
+stale (55,000 instead of 10,000) on 200/200 fresh connections; id reused from req1: True
+NaN threshold ACCEPTED by save_rule_config
+effective after NaN: 55000.0

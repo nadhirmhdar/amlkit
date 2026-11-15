@@ -1,0 +1,71 @@
+amlkit/api/mobile.py:482 ['setup_tokens']
+    UPDATE setup_tokens SET used_at=? WHERE id=? AND used_at IS NULL
+amlkit/api/mobile.py:1669 ['operators']
+    UPDATE operators SET is_active=0 WHERE id=?
+amlkit/api/mobile.py:474 ['operators']
+    SELECT 1 FROM operators WHERE lower(email)=?
+amlkit/api/mobile.py:1796 ['reports']
+    UPDATE reports SET reference=? WHERE id=?
+amlkit/api/routers/account.py:76 ['operators']
+    SELECT password_hash FROM operators WHERE id=?
+amlkit/api/routers/account.py:176 ['operators']
+    SELECT id, password_hash FROM operators WHERE id=?
+amlkit/api/routers/admin.py:555 ['operators']
+    UPDATE operators SET is_active=0 WHERE id=?
+amlkit/auth.py:609 ['operators']
+    UPDATE operators SET failed_login_count=0, locked_until=NULL WHERE id=?
+amlkit/auth.py:679 ['operators']
+    UPDATE operators SET password_hash=?, failed_login_count=0, locked_until=NULL WHERE id=?
+amlkit/auth.py:773 ['operators']
+    UPDATE operators SET failed_login_count=0, locked_until=NULL WHERE id=?
+amlkit/auth.py:865 ['operators']
+    UPDATE operators SET email_verified_at=? WHERE id=? AND email_verified_at IS NULL
+amlkit/auth.py:1275 ['operators']
+    UPDATE operators SET uaepass_uuid=? WHERE id=? AND uaepass_uuid IS NULL
+amlkit/auth.py:1353 ['uaepass_states']
+    UPDATE uaepass_states SET consumed_at=? WHERE id=? AND consumed_at IS NULL
+amlkit/auth.py:558 ['operators']
+    UPDATE operators SET failed_login_count=0, locked_until=NULL WHERE id=?
+amlkit/auth.py:581 ['operators']
+    UPDATE operators SET failed_login_count=?{} WHERE id=?
+amlkit/auth.py:635 ['operators']
+    SELECT locked_until FROM operators WHERE id=?
+amlkit/auth.py:738 ['operators']
+    SELECT t.used_at, t.expires_at, o.is_active FROM unlock_tokens t JOIN operators o ON o.id = t.operator_id WHERE t.token_hash=?
+amlkit/auth.py:962 ['operators']
+    SELECT email FROM operators WHERE id=?
+amlkit/auth.py:1289 ['operators']
+    SELECT uaepass_uuid FROM operators WHERE id=?
+amlkit/billing/service.py:204 ['billing_events']
+    SELECT id, processed_at FROM billing_events WHERE stripe_event_id=?
+amlkit/cases/manager.py:670 ['ubo_links']
+    DELETE FROM ubo_links WHERE id=?
+amlkit/cases/operators.py:232 ['setup_tokens']
+    UPDATE setup_tokens SET used_at=? WHERE id=? AND used_at IS NULL
+amlkit/cases/operators.py:414 ['operators']
+    UPDATE operators SET super_admin=? WHERE id=?
+amlkit/cases/operators.py:222 ['operators']
+    SELECT 1 FROM operators WHERE lower(email)=?
+amlkit/cases/reports.py:187 ['reports']
+    UPDATE reports SET reference=? WHERE id=?
+amlkit/changelog.py:52 ['operators']
+    SELECT changelog_seen FROM operators WHERE id=?
+amlkit/db.py:1272 ['customers']
+    UPDATE customers SET retention_until = date(substr(COALESCE(updated_at, onboarded_at), 1, 10), '+' || ? || ' years') WHERE status = 'closed' AND retention_until IS NULL A
+amlkit/db.py:1280 ['customers']
+    UPDATE customers SET retention_until = date(substr(onboarded_at, 1, 10), '+' || ? || ' years') WHERE status != 'closed' AND retention_until IS NULL AND onboarded_at IS NO
+amlkit/db.py:1288 ['screenings']
+    UPDATE screenings SET retention_until = date(substr(run_at, 1, 10), '+' || ? || ' years') WHERE customer_id IS NULL AND retention_until IS NULL AND run_at IS NOT NULL
+amlkit/db.py:1299 ['customers']
+    UPDATE customers SET exit_date = date(substr(updated_at, 1, 10)), exit_reason = COALESCE(exit_reason, 'unspecified') WHERE status = 'closed' AND exit_date IS NULL
+amlkit/db.py:1459 ['operators']
+    UPDATE operators SET email_verified_at=created_at WHERE password_hash IS NOT NULL AND email_verified_at IS NULL
+amlkit/db.py:1473 ['customers']
+    UPDATE customers SET nationalities=? WHERE id=?
+amlkit/db.py:1497 ['transactions']
+    UPDATE transactions SET amount_units=?, amount_nanos=? WHERE id=?
+amlkit/db.py:1467 ['customers']
+    SELECT id, nationality FROM customers WHERE nationalities IS NULL
+amlkit/db.py:1486 ['transactions']
+    SELECT id, amount_aed FROM transactions WHERE amount_units IS NULL
+35

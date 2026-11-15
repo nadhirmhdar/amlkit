@@ -1,0 +1,4 @@
+active MLROs in org B: [(3, 1)]
+web   deactivate the last MLRO (self) -> 303 /admin | still active: [(1,)]
+mobile deactivate the last MLRO (self) -> 200 {"ok":true} | still active: [(0,)]
+active MLROs now: 0 | sessions of that MLRO still valid: 401

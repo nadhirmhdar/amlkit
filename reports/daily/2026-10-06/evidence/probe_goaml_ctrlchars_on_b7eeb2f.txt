@@ -1,0 +1,5 @@
+ VT (\x0b)                          saved id=3; submit -> 303 status=submitted; export -> 200 NOT well-formed (not well-formed (invalid token): line 16, column 28)
+ NUL (\x00)                         saved id=4; submit -> 303 status=submitted; export -> 200 NOT well-formed (not well-formed (invalid token): line 16, column 28)
+ U+FFFE                             saved id=5; submit -> 303 status=submitted; export -> 200 NOT well-formed (not well-formed (invalid token): line 16, column 28)
+ lone surrogate-ish U+D800 via json saved id=6; submit -> 303 status=submitted; export -> 200 NOT well-formed (reference to invalid character number: line 16, column 28)
+ ordinary                           saved id=7; submit -> 303 status=submitted; export -> 200 well-formed

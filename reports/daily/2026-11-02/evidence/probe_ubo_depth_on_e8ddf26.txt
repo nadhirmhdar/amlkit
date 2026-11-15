@@ -1,0 +1,19 @@
+customer 4 limit 1000
+ depth   100 (built in 0.2s): ownership_state -> fully_transparent | GET /customers/4 -> 200
+ depth   900 (built in 0.7s): ownership_state -> fully_transparent | GET /customers/4 -> 200
+ depth  1100 (built in 0.6s): ownership_state -> RecursionError | GET /customers/4 -> 200
+ page time at depth 1100: 0.6s, status 200, bytes 1930497
+== impact at depth 1100 ==
+ mobile POST /customers/{id}/risk -> 500 Internal Server Error
+ mobile POST transaction -> 422 {"detail":[{"type":"missing","loc":["body","method"],"msg":"Field required","input":{"amount":100,"c
+ mobile GET customer -> 200
+== direct callers of ownership_state at this depth ==
+ reassess_risk: RecursionError
+ reassess_transaction_risk: RecursionError
+ reassess_adverse_media: RecursionError
+== determinism: ownership_state called 3x more at this depth ==
+  -> RecursionError
+  -> RecursionError
+  -> RecursionError
+ reassess_risk wraps ownership_state in try/except: False
+ rows order from query (first 5 ids): [2, 3, 4, 5, 6] | EXPLAIN: SEARCH ubo_links USING INDEX ix_ubo_org (org_id=?)
