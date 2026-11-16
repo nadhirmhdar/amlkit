@@ -1,0 +1,5 @@
+# HELD proposal 2026-11-16 (N3c) -- not applied, no application code edited
+## N3c letter-fold table in amlkit/names/arabic.py (`_ARABIC_LETTER_MAP`, ~L44-62) misses common non-Arabic-block letter forms
+Single-letter substitutions that drop an Arabic name below the 0.85 alert threshold (scores 0.35-0.60 for 2-token names): Urdu heh `ہ` (U+06C1) and its forms, Sindhi kaf `ڪ`, veh `ڤ`, Kurdish reh `ڕ` and lam `ڵ`, peh `پ`, zheh `ژ`, noon ghunna `ں`. (`ی ک ے ھ` are already mapped and pass.) Add folds: `ہ`,`ۃ`,`ۂ`->`ه`; `ڪ`,`ڭ`,`ݣ`->`ك`; `ڤ`->`ف`; `ڕ`->`ر`; `ڵ`->`ل`; `ں`->`ن`; and decide by policy whether `پ`->`ب`, `چ`->`ج`, `ژ`->`ز`, `گ`->`ك`/`ق` should fold (they stand for different sounds, so folding them raises false positives; the alternative is to score them as near-matches rather than equal).
+Lower priority, both phonetic spellings rather than encodings: `ة`->`ت` (final teh marbuta typed as teh) and `ط`->`ت`.
+Regression test: for every letter in the fold table, replace one letter of 20 common Arabic names and assert the score stays above the threshold (the probe in `repro_redteam/probe_arabic_letter_variants.py` does this).

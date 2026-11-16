@@ -1,0 +1,9 @@
+[mobile] officer proposes -> 200 alert: pending_review
+[mobile] SAME officer confirms -> (400, '{"detail":"independent review requires a different operator than the o') alert: pending_review (pending_review = refused)
+[mobile] DIFFERENT operator (MLRO) confirms -> (200, '{"alert_id":3,"status":"false_positive","awaiting_second_review":false') alert: false_positive
+[mobile] confirm again after it is closed -> (400, '{"detail":"alert 3 is not awaiting review (status=false_positive)"}') alert: false_positive
+[web] officer proposes -> 200 alert: pending_review
+[web] SAME officer confirms -> (200, '') alert: pending_review (pending_review = refused)
+[web] DIFFERENT operator (MLRO) confirms -> (200, '') alert: false_positive
+[web] confirm again after it is closed -> (200, '') alert: false_positive
+[mobile] confirm on an alert nobody proposed -> 400 {"detail":"alert 3 has no proposed disposition to confirm"} alert: open

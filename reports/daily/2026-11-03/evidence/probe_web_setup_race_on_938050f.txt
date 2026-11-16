@@ -1,0 +1,5 @@
+== 1. race: 20 threads, one token, own connection each ==
+ outcomes: {'ok': 1, 'ValueError': 19} | operators created from one token: 1
+== 2. edge cases ==
+ existing email -> ValueError 
+ invalid email -> PasswordComplexityError Password must contain at least one uppercase letter
