@@ -1,0 +1,26 @@
+== 1. open registration (no invite code) ==
+ GET form mentions invite field: False
+ register without invite -> 200 | org: [('Evil Co', 'none', 'pending_payment')] | verify mail queued to: ['eve@evil.test']
+== 2. account enumeration through the public form ==
+
+========================================================================
+amlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- an existing-account
+sign-up notice was not emailed.
+========================================================================
+
+ existing email  -> 200 | says exists: False
+ unknown email   -> 200 | says exists: False (difference = enumeration oracle)
+== 3. mail to a third party (victim) ==
+ verification mail queued to victim@bank.test: True | carries attacker-chosen name: ('Eve',)
+== 4. what can an unpaid (pending_payment) org still do? ==
+ verify email -> 303 /mfa/setup | session cookie: True
+ operator: (1, 1, 'mlro') | org plan: [('none', 'pending_payment')]
+ mobile POST /screen (ad-hoc screening)       -> 200 '{"query":"Mohammed Al Testlisted","clear":true,"unscreenable":false,"candidates"'
+ mobile POST /customers (onboard)             -> 503 '{"detail":"Cannot onboard: no fresh mandatory sanctions dataset available. Ask a'
+ mobile POST /admin/operators                 -> 402 '{"detail":"Add payment details on /billing to start your 14-day trial"}'
+ mobile GET /customers                        -> 200 '{"customers":[]}'
+ web POST /screen (ad-hoc)                    -> 200 '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewp'
+ ad-hoc screenings stored for the unpaid org after 30 calls: 30
+ screenings + audit rows are written under the unpaid org: yes
+== 5. registration rate limit (per IP) ==
+ 8 rapid registrations: [200, 200, 200, 200, 200, 429, 429, 429] | orgs now: 8

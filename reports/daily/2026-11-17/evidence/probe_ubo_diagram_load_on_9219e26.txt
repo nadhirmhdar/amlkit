@@ -1,0 +1,5 @@
+hostile owners stored: 10
+ubo rows now: 200
+diagram render: 0.43s, 261 KB, starts with: '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<!DOC'
+raw <script> in svg: False | onload/onerror attrs: False | external hrefs: []
+5 more renders: 0.2s

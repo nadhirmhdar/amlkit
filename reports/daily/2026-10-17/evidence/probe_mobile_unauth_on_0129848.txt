@@ -1,0 +1,10 @@
+== 1. limiter headroom on unauthenticated mobile routes ==
+ 120 x /api/v1/auth/verify-email -> [400]
+ 120 x /api/v1/auth/resend-verification -> [200]
+ 120 x GET /auth/setup bad token -> [400]
+== 2. setup claim edge cases ==
+ existing email -> 500 Internal Server Error | token still unused: 1
+ invalid email string -> 200 | operator created: True
+ weak pw + blank name -> 200 | created: True
+== 3. double-claim race on one setup token (20 threads) ==
+ status codes: [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200] | operators created from one token: 20

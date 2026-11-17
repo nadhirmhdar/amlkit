@@ -1,0 +1,24 @@
+== 1. alert paging edge cases (as MLRO B) ==
+                                            -> 200 {'total': 1, 'limit': 200, 'offset': 0, 'truncated': False}
+ ?limit=0                                   -> 200 {'total': 1, 'limit': 1, 'offset': 0, 'truncated': False}
+ ?limit=-5                                  -> 200 {'total': 1, 'limit': 1, 'offset': 0, 'truncated': False}
+ ?limit=999999                              -> 200 {'total': 1, 'limit': 200, 'offset': 0, 'truncated': False}
+ ?offset=-1                                 -> 200 {'total': 1, 'limit': 200, 'offset': 0, 'truncated': False}
+ ?offset=1000000000000                      -> 200 {'total': 1, 'limit': 200, 'offset': 1000000000000, 'truncated': False}
+ ?offset=99999999999999999999               -> EXC OverflowError: Python int too large to convert to SQLite INTEGER
+ ?limit=99999999999999999999                -> 200 {'total': 1, 'limit': 200, 'offset': 0, 'truncated': False}
+ ?limit=abc                                 -> 422 {'detail': [{'type': 'int_parsing', 'loc': ['query', 'limit'], 'msg': 
+ ?offset=1.5                                -> 422 {'detail': [{'type': 'int_parsing', 'loc': ['query', 'offset'], 'msg':
+ ?status=all                                -> 200 {'total': 2, 'limit': 200, 'offset': 0, 'truncated': False}
+ ?status=x'%20OR%20'1'='1                   -> 200 {'total': 0, 'limit': 200, 'offset': 0, 'truncated': False}
+ ?status=open&limit=1&offset=1              -> 200 {'total': 1, 'limit': 1, 'offset': 1, 'truncated': False}
+== 1b. paging never crosses tenants ==
+ B sees 2 alerts; any ALPHA in payload: False
+ DB count for org B: 2
+== 2. auth matrix: no token / locked MLRO / officer / MLRO, every /api/v1 route ==
+ routes tested: 41; reachable with NO token: none
+ reachable with MFA-LOCKED MLRO token: none
+ routes where OFFICER is refused (403) -> MLRO-only: ['GET /audit', 'GET /admin', 'POST /admin/threshold', 'POST /admin/operators/{operator_id}/reset-password', 'POST /admin/operators', 'POST /admin/operators/{operator_id}/deactivate', 'GET /audit/export']
+ officer 2xx on mutating routes: ['POST /screen', 'POST /customers/{customer_id}/risk', 'PATCH /customers/{customer_id}/risk-factors', 'POST /customers/{customer_id}/ubo', 'POST /customers/{customer_id}/notes', 'POST /customers/{customer_id}/transactions', 'POST /alerts/{alert_id}/disposition', 'POST /alerts/{alert_id}/assign']
+ 5xx/EXC anywhere: none
+ full matrix: /tmp/tmpolj1m97r/matrix.json

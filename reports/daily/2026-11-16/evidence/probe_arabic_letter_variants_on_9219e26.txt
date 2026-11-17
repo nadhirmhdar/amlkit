@@ -1,0 +1,17 @@
+baseline 'محمد عبد الله الكاظمي': 1.00
+baseline 'يوسف كريم الحسيني': 1.00
+baseline 'خالد بن هاشم القحطاني': 1.00
+baseline 'فاطمة الزهراء': 1.00
+
+86 variants scored; below the 0.85 alert threshold: 11
+  MISS 0.60  beh->peh                     (from 'محمد عبد الله الكاظمي')
+  MISS 0.60  Sindhi kaf                   (from 'يوسف كريم الحسيني')
+  MISS 0.60  feh->veh                     (from 'يوسف كريم الحسيني')
+  MISS 0.60  Kurdish reh                  (from 'يوسف كريم الحسيني')
+  MISS 0.60  Urdu heh                     (from 'خالد بن هاشم القحطاني')
+  MISS 0.60  Kurdish lam                  (from 'خالد بن هاشم القحطاني')
+  MISS 0.35  Urdu heh                     (from 'فاطمة الزهراء')
+  MISS 0.45  teh marbuta->teh             (from 'فاطمة الزهراء')
+  MISS 0.35  zain->zheh                   (from 'فاطمة الزهراء')
+  MISS 0.45  feh->veh                     (from 'فاطمة الزهراء')
+  MISS 0.45  tah->teh                     (from 'فاطمة الزهراء')
