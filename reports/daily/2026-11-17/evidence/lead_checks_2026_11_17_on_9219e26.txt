@@ -1,0 +1,11 @@
+setup open alerts in DB: web org=205 mobile org=205
+QU1w  /alerts distinct alert ids=200 cap-notice=False; dashboard says 205 waiting
+QU1c  web /alerts.csv status=200 data rows=200
+QU1m  mobile /api/v1/alerts.csv status=200 data rows=200
+QU2   ?status=bogus shows 'Unknown filter ignored.'=True; ?page=2 shows it=False (control, not counted)
+TD2   1 MB note with NUL+U+202E stored unchanged=True (len=1048584)
+QU1w  reproduces=True
+QU1c  reproduces=True
+QU1m  reproduces=True
+TD2   reproduces=True
+4/4 reproduce
