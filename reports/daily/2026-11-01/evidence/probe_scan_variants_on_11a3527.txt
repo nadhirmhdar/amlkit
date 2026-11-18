@@ -1,0 +1,3 @@
+web_passport_junk: status 415 in 2.2s, maxrss 199 MB, body: '{"detail":"File type not allowed or unrecognised. Allowed types: PDF, JPEG, PNG."}'
+web_licence_junk: status 415 in 2.0s, maxrss 199 MB, body: '{"detail":"File type not allowed or unrecognised. Allowed types: PDF, JPEG, PNG."}'
+web_licence_png: status 413 in 2.7s, maxrss 200 MB, body: '{"detail":"Image dimensions are too large (maximum 25 megapixels)."}'

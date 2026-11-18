@@ -1,0 +1,7 @@
+routes old/new: 199 200
+missing in new: []
+added in new: [('POST', '/unlock/{token}')]
+rate-limit differences: 0 []
+middleware old: ['BaseHTTPMiddleware', 'BaseHTTPMiddleware', 'BaseHTTPMiddleware', 'SelectiveGZipMiddleware']
+middleware new: ['BaseHTTPMiddleware', 'BaseHTTPMiddleware', 'BaseHTTPMiddleware', 'SelectiveGZipMiddleware']
+limited routes old/new: 33 34

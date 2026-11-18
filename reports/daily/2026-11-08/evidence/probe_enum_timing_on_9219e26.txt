@@ -1,0 +1,20 @@
+mail function: send_application_notice
+mail function: send_existing_account_notice
+status existing/new: {200} {200}
+bodies identical after masking: True
+headers (set-cookie/location) equal: False
+timing existing median 12 ms  vs new 74 ms  (a gap > ~50 ms is a usable oracle)
+verification mails queued: ['new0@acme.test', 'new1@acme.test', 'new2@acme.test', 'new3@acme.test', 'new4@acme.test', 'new5@acme.test']
+== gzip/BREACH on pages now compressed (#460/#462) with Stripe ON ==
+ /          200 enc=gzip vary=Accept-Encoding secrets/forms in body: []
+ /aml-law   200 enc=gzip vary=Accept-Encoding secrets/forms in body: []
+ /pricing   200 enc=gzip vary=Accept-Encoding secrets/forms in body: []
+ /about     200 enc=gzip vary=Accept-Encoding secrets/forms in body: []
+ /privacy   200 enc=gzip vary=Accept-Encoding secrets/forms in body: ['session_cookie_name']
+ /blog      200 enc=gzip vary=Accept-Encoding secrets/forms in body: ['form']
+ /pricing?x reflected: False
+ HEAD /about -> 200 gzip
+== header detail ==
+ existing  {'content-length': '4146'} len(body) 4142 len(masked) 4064
+ new       {'content-length': '4144'} len(body) 4140 len(masked) 4064
+ masked body diff lines: []

@@ -1,0 +1,17 @@
+== 1. re-enrolment of an ENROLLED operator from a locked (password-only) session ==
+ GET /mfa/setup -> 303 /mfa/verify | secret unchanged: True
+ POST /mfa/setup bogus code -> 303 /mfa/setup | session verified: False | secret unchanged: True
+== 2. TOTP replay: same code on two different locked sessions ==
+ first use  -> 303 / verified: True
+ replay     -> 303 / verified: True
+== 3. backup code single-use ==
+ first use  -> verified: True
+ reuse      -> verified: False
+== 4. lockout ==
+ after 5 misses -> 303 /mfa/verify
+ correct code while locked -> verified: False
+ correct code, NEW session, while locked -> verified: False (lockout is per operator, so a password-holder can lock the real MLRO out)
+== 5. trusted-device cookie scoping ==
+ valid for same operator: True | for other operator in same org: False | for org A MLRO: False
+ wrong token: False | None: False
+ after revoke_trusted_devices_for: False

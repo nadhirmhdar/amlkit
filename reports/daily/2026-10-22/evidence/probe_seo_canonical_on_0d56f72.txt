@@ -1,0 +1,21 @@
+== 1. path injection into canonical / og:url ==
+ /%22%3E%3Cscript%3Ealert(1)%3C/script%3E       -> 404  raw-markup-in-html: False  canonical: []
+ /%27%20onload%3D%27alert(1)                    -> 404  raw-markup-in-html: False  canonical: []
+ /blog/%22%3E%3Cimg%20src%3Dx%20onerror%3Dale   -> 404  raw-markup-in-html: False  canonical: []
+ /%3C!--                                        -> 404  raw-markup-in-html: False  canonical: []
+ /about/%22%3E%3Csvg%20onload%3Dalert(1)%3E     -> 404  raw-markup-in-html: False  canonical: []
+== 2. canonical / robots on public + private pages ==
+ /                          303  canonical=False  noindex=False  loc=/login
+ /about                     200  canonical=True  noindex=False  loc=
+ /privacy                   200  canonical=True  noindex=False  loc=
+ /apply                     200  canonical=True  noindex=False  loc=
+ /login                     200  canonical=True  noindex=True  loc=
+ /register-organization     200  canonical=True  noindex=True  loc=
+ /blog                      200  canonical=True  noindex=False  loc=
+ /blog?q=x                  200  canonical=True  noindex=True  loc=
+ /blog?topic=sanctions      200  canonical=True  noindex=True  loc=
+ /dashboard                 303  canonical=False  noindex=False  loc=/login
+ /customers                 303  canonical=False  noindex=False  loc=/login
+ /sitemap.xml               200  canonical=False  noindex=False  loc=
+== 3. query-string handling (canonical must not echo query) ==
+ canonical: ['rel="canonical" href="https://groaml.grovisor.ae/about"'] | raw script: False

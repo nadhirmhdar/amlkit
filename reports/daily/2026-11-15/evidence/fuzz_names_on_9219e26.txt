@@ -1,0 +1,37 @@
+== property fuzz ==
+ canonical_tokens never raises      OK  (4000 cases, 2.0s)
+ canonical form idempotent          FAIL AssertionError: first counterexample ('canonical form idempotent', 'assert', "'0B'", "''", "not idempotent ['b'] -> []")
+ score within [0,1], never NaN      OK  (4000 cases, 2.1s)
+ identical names score 1.0          OK  (4000 cases, 1.9s)
+ score roughly symmetric (<0.35)    FAIL AssertionError: first counterexample ('score roughly symmetric (<0.35)', 'assert', "'A'", "'A:C'", 'asym 0.80 vs 0.43')
+ huge input (200k Arabic + 200k combining) took 0.86s
+== what canonicalises to nothing (unscreenable) or changes on a second pass ==
+ single Latin letters that vanish: b
+  'b'              -> []
+  '0B'             -> ['b']   (2nd pass: [])
+  'B.'             -> []
+  'b.'             -> []
+  'Ahmed B Ali'    -> ['ahmed', 'ali']
+  'Ahmed b. Ali'   -> ['ahmed', 'ali']
+  'bin'            -> []
+  'ibn'            -> []
+  'al'             -> []
+  'el'             -> []
+  'abu'            -> []
+  'Abd'            -> ['abd']
+  'Al Bin'         -> []
+  'Bin Bin'        -> []
+  'Al-'            -> []
+  'of'             -> ['of']
+  'the'            -> ['θ']   (2nd pass: [])
+  'de'             -> []
+  'van'            -> []
+  'الـ'            -> []
+  'بن'             -> []
+  'ابن'            -> ['abn']
+  'أبو'            -> []
+  'ال ال'          -> []
+  'عبد'            -> ['abd']
+  'عبد الله'       -> ['abdullah']
+  'Abdullah'       -> ['abdullah']
+  'Abd Allah'      -> ['abdullah']
