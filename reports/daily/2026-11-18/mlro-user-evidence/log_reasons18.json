@@ -1,0 +1,67 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "alerts raised",
+  "status": "info",
+  "detail": "[1, 2, 3]"
+ },
+ {
+  "step": "alert 1 panel (200)",
+  "status": "info",
+  "detail": " AHMED ABD AL-JALEEL AL-HASNAWI Ahmed Abd Al-Jaleel Al-Hasnawi \u00b7 E-001 \u00d7 Dataset UAE Local Terrorist List Matched name AHMED ABD AL-JALEEL AL-HASNAWI Score 1.000 Category sanction Status Open Created 2026-11-18 01:41:17 Assign to me View customer "
+ },
+ {
+  "step": "alert 2 panel (200)",
+  "status": "info",
+  "detail": " Viktor Petrovich Sokolov Viktor Sokolov \u00b7 E-004 \u00d7 Dataset OFAC SDN Matched name Viktor Petrovich Sokolov Score 0.867 Category sanction Status Open Created 2026-11-18 01:41:17 Assign to me View customer "
+ },
+ {
+  "step": "alert 3 panel (200)",
+  "status": "info",
+  "detail": " Hassan Rouhani Test Hassan Rouhani \u00b7 E-005 \u00d7 Dataset CIA World Leaders Matched name Hassan Rouhani Test Score 0.867 Category pep Status Open Created 2026-11-18 01:41:17 Assign to me View customer "
+ },
+ {
+  "step": "queue row text (first 700)",
+  "status": "info",
+  "detail": "Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies Log out Queue Alerts Ordered by category then score. Proliferation surfaces first \u2014 the least familiar category, so it is never buried under ordinary sanctions hits. Negative-news findings are reviewed separately: Adverse media . Open Awaiting review Dismissed Confirmed Escalated All Group by customer Export CSV AHMED ABD AL-JALEEL AL-HASNAWI sanction 1.000 Person \u00b7 UAE Local Terrorist List \u00b7 DOB 1975-03-12 \u00b7 AE Unassigned Assign to me Matched against Ahmed Abd Al-Jaleel Al-Hasnawi \u00b7 E-001 Also "
+ }
+]
