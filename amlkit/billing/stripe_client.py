@@ -3,10 +3,15 @@
 Pure functions plus config loading: no database access, no FastAPI imports.
 Routes in `api/billing.py` call in here; `billing/service.py` owns the DB.
 
-Inert unless STRIPE_SECRET_KEY is set: `load_config()` returns None and the
-whole billing feature (routes, pricing page, nav link) stays switched off.
+Inert unless billing is switched ON *and* STRIPE_SECRET_KEY is set:
+`load_config()` returns None and the whole billing feature (routes, pricing
+page, nav link, limit checks, self-serve sign-up) stays switched off. The switch
+(AMLKIT_BILLING_ENABLED) is OFF by default, so Stripe stays out of the product
+even when its keys are present in the environment, until someone turns it on.
 
 Env:
+  AMLKIT_BILLING_ENABLED       Master switch: 1/true/yes/on turns billing on.
+                               Unset or anything else => billing is off.
   STRIPE_SECRET_KEY            API key (sk_...). Unset => billing disabled.
   STRIPE_WEBHOOK_SECRET        Signing secret (whsec_...) for /billing/webhook.
   STRIPE_PRICE_<TIER>          Stripe Price ID per tier (STARTER, PROFESSIONAL,
@@ -58,9 +63,21 @@ class StripeConfig:
         return None
 
 
+ENABLE_FLAG = "AMLKIT_BILLING_ENABLED"
+
+
+def billing_switched_on() -> bool:
+    """The master switch. Off by default: billing is a deliberate go-live step."""
+    return os.environ.get(ENABLE_FLAG, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def load_config() -> StripeConfig | None:
     from .plans import TIERS
 
+    # Every billing route, template flag, limit check and the self-serve sign-up
+    # mode go through here, so this one check turns the whole feature off.
+    if not billing_switched_on():
+        return None
     key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
     if not key:
         return None

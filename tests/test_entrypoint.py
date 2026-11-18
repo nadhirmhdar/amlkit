@@ -33,7 +33,10 @@ case "$mode" in
   malformed) echo "Error: database disk image is malformed" >&2; exit 1 ;;
   unopenable) echo "Error: unable to open database file" >&2; exit 1 ;;
   hang) exec sleep 30 ;;
-  ignore_term) trap '' TERM; sleep 30 ;;
+  # exec: the ignored-TERM disposition survives exec, so the process that
+  # ignores SIGTERM is the one SIGKILLed -- no orphaned sleep holding the
+  # output pipe open for 30s (which made this test time out on slow runners).
+  ignore_term) trap '' TERM; exec sleep 30 ;;
 esac
 """
 
