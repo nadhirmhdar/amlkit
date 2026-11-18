@@ -2,7 +2,15 @@
 
 Goal: switch on paid self-serve sign-up for groAML (annual plans, 14-day trial) in
 Stripe **test mode** first, then live. Nothing below needs a code change. Billing stays
-completely off (and /pricing shows "Contact us") until `STRIPE_SECRET_KEY` is set.
+completely off (and /pricing shows "Contact us") until **both** the master switch and
+`STRIPE_SECRET_KEY` are set.
+
+**Current state (2026-11-18): billing is switched OFF.** The Stripe option was taken out of
+the product for now at the owner's request. It is controlled by one repo variable,
+`AMLKIT_BILLING_ENABLED` (step 5): unset = off, even if the Stripe secrets below are in
+GitHub. Organisations that signed up while it was on and are still `pending_payment`
+are not blocked while it is off (limits are not enforced), and a live subscription would
+stop syncing (the webhook returns 404) until it is turned back on.
 
 Plans: Starter AED 499 / year, Professional AED 1,499 / year, Consultant "Contact us"
 (no Stripe Price, not purchasable online).
@@ -36,7 +44,9 @@ Secrets tab (5):
 - `STRIPE_PRICE_PROFESSIONAL` (`price_...`)
 - `STRIPE_PRICE_CONSULTANT` (leave unset: Consultant stays "Contact us")
 
-Variables tab (4):
+Variables tab (5):
+- `AMLKIT_BILLING_ENABLED` = `1` **(the master switch; leave it unset until you are ready
+  to go live, and billing stays off even with all the secrets above in place)**
 - `STRIPE_DISPLAY_PRICE_STARTER` = `AED 499 / year`
 - `STRIPE_DISPLAY_PRICE_PROFESSIONAL` = `AED 1,499 / year`
 - `STRIPE_DISPLAY_PRICE_CONSULTANT` (leave unset)
@@ -51,6 +61,8 @@ canary > Re-run all jobs). Wait for `Deploy to Cloud Run` to succeed, then check
 `https://groaml.grovisor.ae/health` returns 200.
 
 ## 6. Verify /pricing
+(With `AMLKIT_BILLING_ENABLED` unset you should instead see "Contact us" and "Request
+access" everywhere, and `/billing` should 404: that is the off state.)
 Open https://groaml.grovisor.ae/pricing while signed out. Expect: Starter and Professional
 show their prices, Consultant shows "Contact us", every card's button reads
 **Start free trial** (before Stripe was configured it read "Request access").
@@ -79,6 +91,7 @@ show their prices, Consultant shows "Contact us", every card's button reads
    live-mode 100%-off coupon check before announcing.
 
 ## Rollback
-Delete or empty `STRIPE_SECRET_KEY` in GitHub and redeploy: billing goes inert again
+Unset (or empty) the `AMLKIT_BILLING_ENABLED` repo variable, or delete/empty `STRIPE_SECRET_KEY`,
+in GitHub and redeploy: billing goes inert again
 (/billing* 404, no limits enforced; /pricing shows the "Request access" button).
 Existing organisations keep their stored plan state.

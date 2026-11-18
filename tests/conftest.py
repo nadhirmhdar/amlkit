@@ -29,6 +29,17 @@ def register_org(client, org_name, name, email, password="A-strong-password-1", 
 
 
 @pytest.fixture(autouse=True)
+def _billing_switch_on_for_stripe_tests(monkeypatch):
+    """Production keeps billing OFF unless AMLKIT_BILLING_ENABLED is set (see
+    billing/stripe_client.py), so Stripe stays out of the product even when its
+    keys are present. The billing tests exercise the Stripe-configured behaviour
+    by setting STRIPE_SECRET_KEY, so the switch is on for the suite; they stay
+    inert without the key. tests/test_billing_master_switch.py deletes it to
+    test the real default."""
+    monkeypatch.setenv("AMLKIT_BILLING_ENABLED", "1")
+
+
+@pytest.fixture(autouse=True)
 def _invite_code_and_limiter_reset(monkeypatch):
     """Every test gets AMLKIT_REGISTRATION_INVITE_CODE set, purge enabled for test assertions, and a fresh rate-limiter."""
     monkeypatch.setenv("AMLKIT_REGISTRATION_INVITE_CODE", INVITE_CODE)

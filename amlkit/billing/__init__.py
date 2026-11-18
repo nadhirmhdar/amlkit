@@ -1,5 +1,6 @@
-"""Self-serve subscription billing (Stripe). Optional and inert unless
-STRIPE_SECRET_KEY is set -- see CLAUDE.md, "Billing (Stripe)"."""
+"""Self-serve subscription billing (Stripe). Switched OFF by default and inert
+unless AMLKIT_BILLING_ENABLED is on and STRIPE_SECRET_KEY is set -- see
+CLAUDE.md, "Billing (Stripe)"."""
 
 from __future__ import annotations
 
@@ -12,9 +13,9 @@ PENDING_STATUS = "pending_payment"
 def self_serve_enabled() -> bool:
     """Single switch for the public sign-up mode.
 
-    True  (Stripe configured): CTA "Start free trial" -> /register-organization,
+    True  (billing switched on and Stripe configured): CTA "Start free trial" -> /register-organization,
           no invite code, new orgs start `pending_payment` until Checkout.
-    False (no Stripe): CTA "Request access" -> /apply and the existing
+    False (the default; billing off or no Stripe): CTA "Request access" -> /apply and the existing
           AMLKIT_REGISTRATION_INVITE_CODE gate on /register-organization.
     Read per call (env), like stripe_client.load_config().
     """
