@@ -21,6 +21,7 @@ from typing import Any
 
 from rapidfuzz.distance import JaroWinkler
 
+from ..countries import to_alpha2
 from ..names.arabic import canonical_token, canonical_tokens, tokenize
 
 # --- feature weights (OpenSanctions logic-v2) ------------------------------
@@ -215,6 +216,27 @@ def _score_tokens(qt: list[str], ct: list[str]) -> tuple[float, dict[str, Any]]:
     return score, detail
 
 
+def _countries_contradict(query_countries: list[str], cand_countries: list[str]) -> bool:
+    """True only when both sides name countries and provably share none.
+
+    Customers hold ISO codes ("IN") while most lists publish English names
+    ("India"), so each value is resolved to an alpha-2 code first; comparing the
+    raw strings called every Indian customer's match on an Indian minister a
+    country mismatch. A value that cannot be resolved means "cannot tell", which
+    must never count against the match: any unresolved value on either side
+    (after the raw-text comparison also fails) withholds the penalty.
+    """
+    q_raw = {c.strip().lower() for c in query_countries if c and c.strip()}
+    c_raw = {c.strip().lower() for c in cand_countries if c and c.strip()}
+    if not q_raw or not c_raw or (q_raw & c_raw):
+        return False
+    q_codes = {to_alpha2(c) for c in query_countries if c and c.strip()}
+    c_codes = {to_alpha2(c) for c in cand_countries if c and c.strip()}
+    if None in q_codes or None in c_codes:
+        return False
+    return not (q_codes & c_codes)
+
+
 def _year(d: str | None) -> str | None:
     return d[:4] if d and len(d) >= 4 else None
 
@@ -264,9 +286,7 @@ def score_entity(
 
     all_countries = query_countries or ([query_country] if query_country else [])
     if all_countries and cand_countries:
-        qc_set = {c.strip().lower() for c in all_countries if c}
-        cc = {c.strip().lower() for c in cand_countries if c}
-        if qc_set and cc and not (qc_set & cc):
+        if _countries_contradict(all_countries, cand_countries):
             adjustments["country_mismatch"] = P_COUNTRY_MISMATCH
 
     if query_birth_date and cand_birth_date:
