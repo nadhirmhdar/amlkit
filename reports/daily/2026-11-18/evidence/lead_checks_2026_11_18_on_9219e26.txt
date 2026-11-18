@@ -1,0 +1,26 @@
+# lead checks on 9219e2623b3a3ba7e73a20e44c703ab80df7e900, 2026-11-18T03:50:20Z
+setup variant 0: customer DOB=1981-01-02 nat=IN -> alert=None
+setup variant 1: customer DOB=1981-01-02 nat=LY -> alert=1
+setup variant 2: customer DOB=1975-03-13 nat=LY -> alert=None
+EX1   /alerts listed DOB shown=True customer DOB shown=False customer nationality 'IN' token shown=False
+EX1   panel status=200 listed DOB=False customer DOB=False
+EX3   queue row: DOB=True reason=True; panel: DOB=False reason=False
+EX2   queue shows 'precision'=False 'recall'=False (not counted)
+DOB1  scorer: +1 day=(0.75, {'dob_day_mismatch': -0.25})  DD/MM swap=(0.75, {'dob_day_mismatch': -0.25})  6 years=(0.85, {'dob_year_mismatch': -0.15})  threshold=0.85
+GV1   hung dot stub: generate_ubo_diagram returned svg after 6.0s
+EX1   reproduces=True
+EX3   reproduces=True
+DOB1  reproduces=True
+GV1   reproduces=True
+4/4 reproduce
+exit=0
+
+# end-to-end onboard() probe, fresh DB per row (scratch script, not committed)
+1975-03-13 LY NO ALERT 
+1975-03-12 LY alert 1.0
+1981-01-02 LY alert 0.85
+1975-03-12 IN NO ALERT 
+None LY alert 1.0
+None None alert 1.0
+1975-12-31 LY NO ALERT 
+1976-03-12 LY alert 0.85
