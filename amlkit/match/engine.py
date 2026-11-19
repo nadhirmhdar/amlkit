@@ -11,9 +11,9 @@ from typing import Any
 
 from .. import notifications
 from ..db import audit, utcnow
-from ..names.arabic import blocking_keys, clean_name_text
+from ..names.arabic import blocking_keys, canonical_tokens, clean_name_text
 from ..screening.pf import classify_programs, obligation_for_category, triage_category
-from .scorer import DEFAULT_THRESHOLD, ScoreResult, score_entity
+from .scorer import DEFAULT_THRESHOLD, ScoreResult, _countries_contradict, score_entity
 
 log = logging.getLogger(__name__)
 
@@ -209,6 +209,49 @@ def _identifiers_for(conn: sqlite3.Connection, entity_id: int) -> list[tuple[str
     ]
 
 
+def _pep_name_key(caption: str) -> tuple[str, ...]:
+    return tuple(sorted(canonical_tokens(caption or "")))
+
+
+def collapse_pep_duplicates(
+    hits: list[Hit], countries_by_entity: dict[int, list[str]],
+) -> list[Hit]:
+    """One hit per politically exposed person, however many lists carry them.
+
+    The CIA World Leaders and Wikidata lists overlap (and CIA lists a person
+    once per post), so one minister used to raise three alerts. A hit is folded
+    into an earlier one only when BOTH are PEP-only (no sanctions topic -- every
+    sanctions list can carry its own freeze obligation, so those are never
+    merged), they name the same person (same canonical name tokens) and their
+    countries do not contradict. The kept hit is the highest-scoring one
+    (ties: dataset key, then entity id, so the choice is stable between runs)
+    and records what it absorbed under detail["also_listed"], so nothing the
+    other lists said is lost from the alert's evidence.
+    """
+    kept: list[Hit] = []
+    for h in hits:  # already sorted best-first
+        key = _pep_name_key(h.caption)
+        target = None
+        if key and h.is_pep and not h.is_sanction:
+            for k in kept:
+                if (k.is_pep and not k.is_sanction and _pep_name_key(k.caption) == key
+                        and not _countries_contradict(
+                            countries_by_entity.get(k.entity_id, []),
+                            countries_by_entity.get(h.entity_id, []))):
+                    target = k
+                    break
+        if target is None:
+            kept.append(h)
+            continue
+        target.detail.setdefault("also_listed", []).append({
+            "entity_id": h.entity_id,
+            "dataset": h.dataset,
+            "caption": h.caption,
+            "score": round(h.score, 3),
+        })
+    return kept
+
+
 def screen(
     conn: sqlite3.Connection,
     name: str,
@@ -253,6 +296,7 @@ def screen(
 
     rows = _candidates(conn, name)
     hits: list[Hit] = []
+    entity_countries: dict[int, list[str]] = {}
 
     all_countries = countries or ([country] if country else None)
     for row in rows:
@@ -269,6 +313,7 @@ def screen(
             cand_identifiers=_identifiers_for(conn, row["id"]),
         )
         if result.score >= threshold:
+            entity_countries[row["id"]] = json.loads(row["countries"] or "[]")
             hits.append(
                 Hit(
                     entity_id=row["id"],
@@ -283,7 +328,8 @@ def screen(
                 )
             )
 
-    hits.sort(key=lambda h: h.score, reverse=True)
+    hits.sort(key=lambda h: (-h.score, h.dataset, h.entity_id))
+    hits = collapse_pep_duplicates(hits, entity_countries)
     out = ScreeningResult(
         query=name, trigger=trigger, threshold=threshold, candidates=len(rows), hits=hits
     )

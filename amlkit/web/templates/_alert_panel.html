@@ -17,6 +17,9 @@
   <table class="small">
     <tr><td class="muted" style="width:120px;">Dataset</td><td>{{ a.dataset_title }}</td></tr>
     <tr><td class="muted">Matched name</td><td>{{ a.matched_name }}</td></tr>
+    {% if a.detail and a.detail.also_listed %}
+    <tr><td class="muted">Also listed on</td><td>{{ a.detail.also_listed|map(attribute='dataset')|unique|join(', ') }}</td></tr>
+    {% endif %}
     <tr><td class="muted">Score</td><td>{{ '%.3f'|format(a.score) }}</td></tr>
     <tr><td class="muted">Category</td><td><span class="tag {{ a.category }}">{{ a.category }}</span></td></tr>
     <tr><td class="muted">Status</td><td>{{ a.status.replace('_',' ')|title }}</td></tr>
