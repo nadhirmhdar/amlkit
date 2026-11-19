@@ -28,6 +28,10 @@ from ..names.arabic import canonical_token, canonical_tokens, tokenize
 W_IDENTIFIER_MATCH = 0.95   # exact LEI/BIC/passport/tax hit
 P_COUNTRY_MISMATCH = -0.20
 P_DOB_DAY_MISMATCH = -0.25
+# Same year and either the same month or the day/month swapped (03-12 vs 12-03):
+# the usual shape of a typo or a dd/mm mix-up, not of a different person, so it
+# must not silence an otherwise exact name match (0.85 alert threshold).
+P_DOB_NEAR_MISS = -0.10
 P_DOB_YEAR_MISMATCH = -0.15
 P_GENDER_MISMATCH = -0.20
 
@@ -237,6 +241,16 @@ def _countries_contradict(query_countries: list[str], cand_countries: list[str])
     return not (q_codes & c_codes)
 
 
+def _dob_near_miss(a: str, b: str) -> bool:
+    """Same year, and the same month or a day/month swap (YYYY-MM-DD strings)."""
+    try:
+        ya, ma, da = a.split("-")
+        yb, mb, db = b.split("-")
+    except ValueError:
+        return False
+    return ya == yb and (ma == mb or (ma == db and da == mb))
+
+
 def _year(d: str | None) -> str | None:
     return d[:4] if d and len(d) >= 4 else None
 
@@ -294,7 +308,10 @@ def score_entity(
             adjustments["dob_year_mismatch"] = P_DOB_YEAR_MISMATCH
         elif len(query_birth_date) >= 10 and len(cand_birth_date) >= 10:
             if query_birth_date[:10] != cand_birth_date[:10]:
-                adjustments["dob_day_mismatch"] = P_DOB_DAY_MISMATCH
+                if _dob_near_miss(query_birth_date[:10], cand_birth_date[:10]):
+                    adjustments["dob_near_miss"] = P_DOB_NEAR_MISS
+                else:
+                    adjustments["dob_day_mismatch"] = P_DOB_DAY_MISMATCH
 
     if query_gender and cand_gender:
         if query_gender.strip().lower()[:1] != cand_gender.strip().lower()[:1]:
