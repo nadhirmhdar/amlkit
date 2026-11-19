@@ -64,6 +64,9 @@
               {{ h.schema_type }} · {{ h.dataset }}
               {% if h.programs %} · programme {{ h.programs|join(', ') }}{% endif %}
             </div>
+            {% if h.detail.also_listed %}
+            <div class="muted small">Same person also listed on: {{ h.detail.also_listed|map(attribute='dataset')|unique|join(', ') }}</div>
+            {% endif %}
             {{ aliases(h.aliases) }}
             <div class="obligation {{ h.category }}">{{ h.obligation }}</div>
             <details class="evidence">
