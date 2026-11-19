@@ -1,0 +1,5 @@
+with dot on PATH    : page 200 in 0.95s, diagram present: True
+no dot: generate_ubo_diagram returned NoneType 'None' in 0.00s
+no dot: customer page -> 200 in 0.01s, page body 33701 bytes, mentions diagram problem: False
+hanging dot (sleep 30): customer page -> 200 after 30.0s
+failing dot (exit 1)  : customer page -> 200 after 0.0s
