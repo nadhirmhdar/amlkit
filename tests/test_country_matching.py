@@ -99,3 +99,39 @@ class _Fixed(WikidataPEPAdapter):
 
     def fetch(self):
         return self._payload
+
+
+# ------------------------------------------------- DOB near-miss (S4 residual)
+from amlkit.match.scorer import P_DOB_DAY_MISMATCH, P_DOB_NEAR_MISS  # noqa: E402
+
+
+def _dob(query, cand):
+    r = score_entity("Bilal Ali Al Wafi", ["Bilal Ali Al Wafi"],
+                     query_birth_date=query, cand_birth_date=cand)
+    return r.score, r.features.get("adjustments", {})
+
+
+@pytest.mark.parametrize("query, cand", [
+    ("1975-03-13", "1975-03-12"),   # off by a day
+    ("1975-03-31", "1975-03-01"),   # typo in the day
+    ("1975-12-03", "1975-03-12"),   # day/month swapped
+])
+def test_dob_typo_or_dd_mm_swap_still_alerts_on_exact_name(query, cand):
+    score, adj = _dob(query, cand)
+    assert adj == {"dob_near_miss": P_DOB_NEAR_MISS}
+    assert score >= 0.85
+
+
+@pytest.mark.parametrize("query, cand", [
+    ("1975-09-09", "1975-03-12"),   # same year, different month and day
+    ("1975-03-12", "1975-11-12"),   # same day, different month
+])
+def test_dob_with_a_real_contradiction_keeps_the_full_penalty(query, cand):
+    score, adj = _dob(query, cand)
+    assert adj == {"dob_day_mismatch": P_DOB_DAY_MISMATCH}
+    assert score < 0.85
+
+
+def test_dob_different_year_unchanged_and_exact_dob_unpenalised():
+    assert "dob_year_mismatch" in _dob("1976-03-12", "1975-03-12")[1]
+    assert _dob("1975-03-12", "1975-03-12")[1] == {}
