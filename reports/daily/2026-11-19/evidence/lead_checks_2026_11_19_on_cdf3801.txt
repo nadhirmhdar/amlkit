@@ -1,0 +1,59 @@
+# lead 2026-11-19, master cdf38011da60cb8eadf5c5fc7290e92bf96f124a, Python Python 3.11.18
+## checks_2026_11_19 on cdf3801
+CS27  IN/India=1.0  IR/'Iran, Islamic Republic of'=1.0  RU/'Russian Federation'=1.0  AE/'United Arab Emirates'=1.0  IN/Pakistan=0.8 (info; FIXED when the first four are 1.0)
+CT1   KP vs 'Korea'=0.8  CD vs 'Congo'=0.8  VG vs 'Virgin Islands'=0.8
+CT1   reproduces=True
+CT2   int country in list record raises AttributeError: 'int' object has no attribute 'strip'
+CT2   reproduces=True
+L158  same country (IN/India): DOB +1 day=0.75, DOB +6 years=0.85, threshold=0.85
+L158  reproduces=True
+3/3 reproduce
+exit=0
+## checks_2026_11_19 on 9219e26 (pre-#464)
+CS27  IN/India=0.8  IR/'Iran, Islamic Republic of'=0.8  RU/'Russian Federation'=0.8  AE/'United Arab Emirates'=0.8  IN/Pakistan=0.8 (info; FIXED when the first four are 1.0)
+CT1   KP vs 'Korea'=0.8  CD vs 'Congo'=0.8  VG vs 'Virgin Islands'=0.8
+CT1   reproduces=True
+CT2   int country in list record raises AttributeError: 'int' object has no attribute 'strip'
+CT2   reproduces=True
+L158  same country (IN/India): DOB +1 day=0.55, DOB +6 years=0.65, threshold=0.85
+L158  reproduces=False
+2/3 reproduce
+exit=0
+## probe_lookback_rescreen: onboard on 9219e26, rescreen_all on cdf3801
+code tree: /tmp/claude-0/-home-user-amlkit/56538464-57cd-5f87-8e31-2564a8d62e39/scratchpad/old
+onboard: alerts=0
+exit=0
+code tree: /home/user/amlkit
+rescreen_all: None new; alerts=[(1.0, 'open')]
+exit=0
+## probe_dual_nat_rescreen (L-164)
+onboard (IN+PK): [1.0]
+rescreen_all result: {'screened': 1, 'alerts': 0, 'unscreenable': 0} alerts: []
+L164 reproduces=True
+exit=0
+## control: same probe, nationality PK only
+onboard (IN+PK): [1.0]
+rescreen_all result: {'screened': 1, 'alerts': 1, 'unscreenable': 0} alerts: [1.0]
+L164 reproduces=False
+## checks_l162_caps (owed L-162)
+T1  transaction_alert_queue open: 200 of 250 (no total/next returned)
+T2  dashboard 'oldest' shown=['2026-02-23', '2026-02-24', '2026-02-25', '2026-02-26', '2026-02-27'] true oldest=['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05']
+A1  adverse_media_queue open: 200 of 250
+X1  transactions_for_customer: 200 of 250
+4/4 reproduce
+exit=0
+## carried lead checks on cdf3801 (copied from their lead branches, run, not re-committed)
+checks_2026_11_18 exit=0 4/4 reproduce
+checks_2026_11_17 exit=0 4/4 reproduce
+checks_2026_11_16 exit=0 6/6 reproduce
+checks_2026_11_13 exit=0 5/5 reproduce
+checks_2026_11_11 exit=0 2/2 reproduce
+checks_2026_11_10 exit=0 1/1 reproduce
+checks_2026_11_09 exit=0 3/3 reproduce
+checks_2026_11_08 exit=0 2/4 reproduce   (SS1b, SS3b reproduces=False: billing now OFF by default, #463 -> dormant)
+checks_2026_11_08 AMLKIT_BILLING_ENABLED=1 -> 4/4 reproduce
+checks_2026_11_07 exit=1 AttributeError: 'NoneType' object has no attribute 'tier_for_price' (billing off; script setup needs billing config)
+checks_2026_11_07 AMLKIT_BILLING_ENABLED=1 -> exit=0 4/4 reproduce
+checks_2026_11_03 exit=0 2/2 reproduce
+probe_dob_onboard_2026_11_18 exit=0 (1975-03-13 LY NO ALERT; 1981-01-02 LY alert 0.85; unchanged)
+Note: the probe_lookback 'onboard' line labels and the control's "(IN+PK)" label are hard-coded text; the control customer is PK only.
