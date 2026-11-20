@@ -1,0 +1,87 @@
+# Lead checks 2026-11-20 on bfb0253 (Python 3.11.18 scratch venv, PYTHONPATH=., OCR not exercised)
+
+## repro_lead/checks_2026_11_20.py
+DB1   month typo=0.75  wrong year=0.85  threshold=0.85
+CR49  UN entry with DOBs 1961-02-14 + 1961-09-20 stored birth_date='1961-02-14'; customer born on the listed alternate 1961-09-20 scores 0.75
+PC1   two PEP hits 'John Smith' (GB vs no country) -> 1 hit(s); also_listed=['wikidata_peps']
+DB1   reproduces=True
+CR49  reproduces=True
+PC1   reproduces=True
+3/3 reproduce
+exit=0
+
+## Carried and role scripts (first run; checks_17/_18 re-run from repro_lead/ so tests/ resolves)
+##### dob_penalty_matrix
+same date                                      1975-03-04  score 1.00  ALERT
+day typo, same month (04->07)                  1975-03-07  score 0.90  ALERT
+day and month swapped (03-04 -> 04-03)         1975-04-03  score 0.90  ALERT
+MONTH typo, same day (03->08)                  1975-08-04  score 0.75  silent
+month and day both different                   1975-08-21  score 0.75  silent
+YEAR different by one                          1976-03-04  score 0.85  ALERT
+YEAR different by 20                           1995-03-04  score 0.85  ALERT
+completely different date                      1992-11-02  score 0.85  ALERT
+exit=0
+##### probe_dob_tolerance
+ ALERT  0.90  dd/mm swap (03-12 -> 12-03)              '1970-12-03'   {'dob_near_miss': -0.1}
+ silent 0.75  month typo (03->08), same day            '1970-08-12'   {'dob_day_mismatch': -0.25}
+ silent 0.75  month+day both different                 '1970-07-30'   {'dob_day_mismatch': -0.25}
+ ALERT  0.85  year off by one                          '1971-03-12'   {'dob_year_mismatch': -0.15}
+ ALERT  0.85  year digit transposition (1970->1907)    '1907-03-12'   {'dob_year_mismatch': -0.15}
+ ALERT  0.85  different year, same month/day           '1980-03-12'   {'dob_year_mismatch': -0.15}
+ ALERT  0.85  completely different                     '1985-11-02'   {'dob_year_mismatch': -0.15}
+ ALERT  1.00  year only (no month/day)                 '1970'         {}
+ ALERT  1.00  year-month only                          '1970-03'      {}
+ silent 0.75  Jan 1 placeholder                        '1970-01-01'   {'dob_day_mismatch': -0.25}
+ ALERT  1.00  empty                                    ''             {}
+ silent 0.75  invalid month 13                         '1970-13-12'   {'dob_day_mismatch': -0.25}
+ ALERT  0.85  dd/mm/yyyy text                          '12/03/1970'   {'dob_year_mismatch': -0.15}
+ ALERT  0.85  garbage                                  'not-a-date'   {'dob_year_mismatch': -0.15}
+exit=0
+##### probe_pep_collapse
+   elapsed 0.17s
+ markup caption                                          in=2 out=2 also=[]
+FileNotFoundError: [Errno 2] No such file or directory: '/home/user/amlkit/web/templates/_alert_panel.html'
+exit=1
+##### checks_2026_11_19
+CS27  IN/India=1.0  IR/'Iran, Islamic Republic of'=1.0  RU/'Russian Federation'=1.0  AE/'United Arab Emirates'=1.0  IN/Pakistan=0.8 (info; FIXED when the first four are 1.0)
+CT1   KP vs 'Korea'=0.8  CD vs 'Congo'=0.8  VG vs 'Virgin Islands'=0.8
+CT1   reproduces=True
+CT2   int country in list record raises AttributeError: 'int' object has no attribute 'strip'
+CT2   reproduces=True
+L158  same country (IN/India): DOB +1 day=0.9, DOB +6 years=0.85, threshold=0.85
+L158  reproduces=False
+2/3 reproduce
+exit=0
+##### checks_l162_caps_2026_11_19
+T1  transaction_alert_queue open: 200 of 250 (no total/next returned)
+T2  dashboard 'oldest' shown=['2026-02-23', '2026-02-24', '2026-02-25', '2026-02-26', '2026-02-27'] true oldest=['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05']
+A1  adverse_media_queue open: 200 of 250
+X1  transactions_for_customer: 200 of 250
+4/4 reproduce
+exit=0
+##### probe_dual_nat_rescreen_2026_11_19
+onboard (IN+PK): [1.0]
+rescreen_all result: {'screened': 1, 'alerts': 0, 'unscreenable': 0} alerts: []
+L164 reproduces=True
+exit=0
+##### checks_2026_11_18
+exit=1
+##### probe_dob_onboard_2026_11_18
+1975-03-13 LY alert 0.9
+1975-03-12 LY alert 1.0
+1981-01-02 LY alert 0.85
+1975-03-12 IN NO ALERT 
+None LY alert 1.0
+None None alert 1.0
+1975-12-31 LY NO ALERT 
+1976-03-12 LY alert 0.85
+exit=1
+##### checks_2026_11_17
+exit=1
+
+## Note: the exit=1 for checks_2026_11_18 / checks_2026_11_17 above is the path error
+## (ModuleNotFoundError test_api when run outside repro_lead/). Re-run from repro_lead/:
+checks_2026_11_18: EX1 reproduces=True, EX3 reproduces=True, DOB1 reproduces=False, GV1 reproduces=True -> 3/4 reproduce exit=0
+checks_2026_11_17: QU1w/QU1c/QU1m/TD2 reproduce -> 4/4 reproduce exit=0 (205 open alerts, /alerts shows 200)
+probe_pep_collapse (red-team) exit=1: scenarios ran; it crashed only on its template-read step (path assumes repro_redteam/ location)
+probe_dob_onboard_2026_11_18 exit=1: its primary case (1975-03-13, +1 day) now alerts 0.9 (fixed by #466); 1975-12-31 LY still NO ALERT
