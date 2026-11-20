@@ -1,0 +1,18 @@
+threshold 0.85; listed DOB 1970-03-12; exact name match
+ ALERT  1.00  identical                                '1970-03-12'   {}
+ ALERT  0.90  day typo, same month (12->21)            '1970-03-21'   {'dob_near_miss': -0.1}
+ ALERT  0.90  day off by one                           '1970-03-13'   {'dob_near_miss': -0.1}
+ ALERT  0.90  dd/mm swap (03-12 -> 12-03)              '1970-12-03'   {'dob_near_miss': -0.1}
+ silent 0.75  month typo (03->08), same day            '1970-08-12'   {'dob_day_mismatch': -0.25}
+ silent 0.75  month+day both different                 '1970-07-30'   {'dob_day_mismatch': -0.25}
+ ALERT  0.85  year off by one                          '1971-03-12'   {'dob_year_mismatch': -0.15}
+ ALERT  0.85  year digit transposition (1970->1907)    '1907-03-12'   {'dob_year_mismatch': -0.15}
+ ALERT  0.85  different year, same month/day           '1980-03-12'   {'dob_year_mismatch': -0.15}
+ ALERT  0.85  completely different                     '1985-11-02'   {'dob_year_mismatch': -0.15}
+ ALERT  1.00  year only (no month/day)                 '1970'         {}
+ ALERT  1.00  year-month only                          '1970-03'      {}
+ silent 0.75  Jan 1 placeholder                        '1970-01-01'   {'dob_day_mismatch': -0.25}
+ ALERT  1.00  empty                                    ''             {}
+ silent 0.75  invalid month 13                         '1970-13-12'   {'dob_day_mismatch': -0.25}
+ ALERT  0.85  dd/mm/yyyy text                          '12/03/1970'   {'dob_year_mismatch': -0.15}
+ ALERT  0.85  garbage                                  'not-a-date'   {'dob_year_mismatch': -0.15}

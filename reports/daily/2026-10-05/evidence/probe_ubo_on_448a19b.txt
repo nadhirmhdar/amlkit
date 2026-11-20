@@ -1,0 +1,8 @@
+24.99% owner                        rescreen -> screened=1 alerts=0   is_ubo=0
+nominee flag                        rescreen -> screened=1 alerts=0   is_ubo=0
+director (control_type=director)    rescreen -> screened=1 alerts=0   is_ubo=0
+25% owner (UBO)                     rescreen -> screened=2 alerts=1   is_ubo=1
+child ok 2
+parent 1 accepted
+parent 9999 -> parent_ubo_id 9999 not found for customer 1
+no code path UPDATEs ubo_links.parent_ubo_id => cycles unreachable
