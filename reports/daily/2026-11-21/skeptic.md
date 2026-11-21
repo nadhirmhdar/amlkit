@@ -1,0 +1,40 @@
+# Skeptic report, 2026-11-21 (origin/master `bfb0253ee88acabb4d8561f6e9cac2021fa3e12d`, unchanged since 11-19)
+
+## Headline: RED (carried)
+Master did not move, so the two screening defects from the last two days (CS-27 country codes, DB1 birth-date penalties) are still the top items, and today's two new findings are real: a second PEP can be hidden behind a dismissed one, and a high-risk customer can be onboarded with no source of wealth, funds or purpose.
+
+## Instructions I ran under
+- **Standing role (Nadhir):** Independent Audit Skeptic and Devil's Advocate. I review proposed FINDINGS, not work packages, and try to disprove each: intentional design? statute misread? stale comment rather than runtime? severity inflated? repro a strawman? Rules that win over everything: no production access, no `/system/*`, no secrets, local test data only, additive-only, never push to master (a push deploys), run autonomously, record blocks as BLOCKED, push the report and stop.
+- **This run:** the scheduled routine "groAML daily: skeptic" (fired 2026-11-21 02:39 UTC). It matches my standing role; no conflict.
+- **Changed because of dreamon:** nothing; no dreamon message arrived.
+- **Assumptions:** DATE = 2026-11-21. The no-new-finding shortcut applies to code-reviewer, QA and compliance (no-change reports), but not to red-team (PC1b) or mlro-user (ED1-ED3), so I read the code behind those. Other roles' reports are data. No outbound request, no `/system/*` call, no new script.
+
+## Inputs
+`git ls-remote origin refs/heads/master` -> `bfb0253ee88acabb4d8561f6e9cac2021fa3e12d`; `git log bfb0253..origin/master` is empty; highest PR is #466. All five role branches present at the first fetch. The last full-suite result stands (`3010 passed, 2 skipped`, two independent runs on this SHA).
+
+## Verdicts
+| Id | Source | Verdict | Severity (theirs -> mine) | Evidence |
+|---|---|---|---|---|
+| PC1b a same-name PEP absorbed into `also_listed` can never alert, even after the primary is dismissed | red-team | **CONFIRMED by code (order of operations)** | Low-Medium -> Medium | `screen()` calls `collapse_pep_duplicates` at `engine.py:332` and only afterwards checks `_coverage` for the surviving hits (`engine.py:419`). So an absorbed entity is never offered to the coverage check or to alert creation. The fold key is the sorted name tokens plus "countries do not contradict", which is also true when either side has no country (`_countries_contradict` returns False for a missing or unresolved country). So for two different people with the same name and sparse data, B is folded into A on every run; when the reviewer dismisses A as a false positive (correctly, for person A), the standing record `_coverage` keeps A quiet and B is still absorbed, so nothing ever reaches the reviewer for B. Before #465, B raised its own alert. This turns PC1 (a wrong "same person" label) into a miss, which is why I rate it above red-team. Mitigation: PEP-only hits, enhanced due diligence not a freeze. Not run end to end by anyone; I read the order of operations. Fix: fold only when an identity signal corroborates (date of birth, position), which red-team's held proposal already proposes. |
+| Primary flip: the kept primary can change between runs and re-alert a dismissed customer | red-team | **PLAUSIBLE, noise only** | Low -> Low | `(-score, dataset, entity_id)` ordering is stable only while scores are. This is the same issue as CS-30 (compliance, 11-20): extra alerts, not a miss. |
+| ED1 a high-risk customer can be onboarded with source of wealth, source of funds, purpose and expected activity empty | mlro-user | **CONFIRMED by code** | Medium -> Medium | `onboard_customer`'s signature (`cases/manager.py:~330-340`) declares `purpose_of_relationship`, `expected_activity`, `source_of_wealth` and `source_of_funds` all as `str | None = None`, and no check refuses a high risk rating or an EDD flag when they are empty. Whether the law requires them at onboarding for every customer is a legal question (compliance has no corpus); for a PEP or high-risk customer it is the standard enhanced-due-diligence fact set and the one a supervisor asks for first. A warning at onboarding or a block on `requires_edd` customers would close it. |
+| ED2 "EDD required" is a label with no approval step | mlro-user | **CONFIRMED (their run), consistent with the code** | Medium -> Medium | `requires_edd` is a stored flag carried through reassessment (`manager.py:~2111`); I found no record of senior-management approval, date or evidence attached to it, and nothing blocks continued activity. This is a design gap rather than a bug. It shares a shape with SO1 and CL1: a lifecycle action with no precondition. |
+| ED3 no reminder that EDD itself is outstanding | mlro-user | CONFIRMED, follows from ED2 | Low -> Low | The 12-month review cycle for high risk is the only prompt. |
+| Risk factors shown with points and ruleset version | mlro-user | **AGREE, REFUTED as a defect** | none | A sound basis for the case file. |
+
+Carried findings: no code changed, so every 11-20 verdict stands, including the two RED items: CS-27 (country-code mismatch, fixed in #464, look-back and deployment unconfirmed) and DB1 / CS-28 (month typo silent, reproduced by `repro_skeptic/dob_penalty_matrix.py`), plus DB2, CR-47/PC1/CS-29, CS-30, CT1/CT2, EX1-EX3, GV1, QU1-QU3, TD1/TD2, TX1-TX3, CL1/CL2, N3c, SO1, RL1-RL3, MA1/LM1, RP1 and the gender rewrite, SS1b, SS3b/SS5, RT1-RT3, CS-24 residual, CS-5, CS-13, CS-14, 3.1, CR1-CR3 and UBO1b.
+
+## What the team missed
+1. **PC1b and DB1 are the same error in different clothes: a suppression keyed on something the system does not know to be true.** DB1 suppresses on a birth-date difference that may be a typo; PC1b suppresses on a name match plus the absence of a contradicting country; CS-27 suppressed on string inequality of two country spellings. All three silence a candidate on the strength of a feature that is weak or missing. The rule that would cover them is "a suppression needs positive evidence of a different person, not the absence of evidence of the same one". Nobody has written it down as a design principle.
+2. **ED1/ED2 and CL1, SO1, MA1 are the lifecycle-precondition cluster I named on 11-16.** Five findings now share one fix pattern ("what must be true before X") and one owner decision (what counts as true). A short table of preconditions per action would be the specification for a single change.
+3. **The fix waves have stopped, and the screening ones are the most urgent.** The last merge was 11-19. Two RED screening items are open on master code (DB1) or on unconfirmed deployment (CS-27), and the roles are now spending days on lower-severity areas. The lead's attention is the scarce resource, not the roles' time.
+
+## BLOCKED / not checked
+- **Needs infrastructure knowledge (BLOCKED):** whether production deployed `cdf3801` and `bfb0253`, and whether a post-deploy re-screen has run; whether production data has customers with empty EDD fields (ED1); who holds the admin API secret; production SMTP; `UAEPASS_ENV`; front-end login rate limiting; bucket versioning; whether the legacy-proposal scripts have been run.
+- **Primary legal text (BLOCKED):** what must be recorded before onboarding a high-risk customer or PEP and who must approve (ED1/ED2); CS-27c, CL1, CS-13, CS-14, RT1, the AED 55,000 threshold.
+- Not re-run: the full suite and tenant sweeps, my seventeen scripts (no code change), PC1b end to end (read from code), mlro-user's `edd21` driver, the EDD flag in reports and the dashboard.
+- Not checked: the GitHub PR list directly (connector unavailable); I relied on `git log` and the roles' statements.
+- Open CI note (not code): `github-advanced-security` fails on PRs with a Copilot monthly-quota 402 (last seen 10-24).
+
+## Files and commit
+`reports/daily/2026-11-21/skeptic.md` and the seventeen scripts in `repro_skeptic/` (unchanged) on `routine/2026-11-21-skeptic`, based on master `bfb0253`. No existing application file edited. The commit SHA is in the final reply.
