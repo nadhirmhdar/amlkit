@@ -1,0 +1,107 @@
+# lead checks 2026-11-21 on master bfb0253 (scratch venv Python 3.11.18; OCR not exercised)
+## repro_lead/checks_2026_11_21.py
+PC1b  onboarding alerts: [(1, 1)]  (A=1, B=2)
+PC1b  alert 1 disposed -> false_positive
+PC1b  re-screen: hits=[(1, 'us_cia_world_leaders')] also_listed=[2] rescreen_all={'screened': 1, 'alerts': 0, 'unscreenable': 0}; alerts ever on B=0
+CS30  after A delisted: hits=[(2, 'wikidata_ministers')] rescreen_all={'screened': 1, 'alerts': 1, 'unscreenable': 0}; alerts on B=[(1, 'open')]
+DL1   false_positive alert rows left after delisting A: 0; alert.* audit rows: 1
+GEN1  G-1 gender=female hits=0 alerts=0
+GEN1  G-2 gender=male hits=1 alerts=1
+PC1b  reproduces=True
+CS30  reproduces=True
+GEN1  reproduces=True
+3/3 reproduce
+exit=0
+## repro_lead/checks_2026_11_20.py
+DB1   month typo=0.75  wrong year=0.85  threshold=0.85
+CR49  UN entry with DOBs 1961-02-14 + 1961-09-20 stored birth_date='1961-02-14'; customer born on the listed alternate 1961-09-20 scores 0.75
+PC1   two PEP hits 'John Smith' (GB vs no country) -> 1 hit(s); also_listed=['wikidata_peps']
+DB1   reproduces=True
+CR49  reproduces=True
+PC1   reproduces=True
+3/3 reproduce
+exit=0
+## carried lead checks (copied from routine/2026-11-{03..19}-lead, run, then removed)
+===== repro_lead/checks_2026_11_03.py 
+UBO1b reproduces=True (3 suffix variants accepted)
+N8b   propose by op 1; proposal operator_id set NULL; confirm by op 1 -> accepted (proposer confirmed own legacy proposal) -> reproduces=True
+2/2 reproduce
+exit=0
+===== repro_lead/checks_2026_11_07.py AMLKIT_BILLING_ENABLED=1
+BL1  reproduces=True
+CR1  reproduces=True
+CR2  reproduces=True
+CR3  reproduces=True
+4/4 reproduce
+exit=0
+===== repro_lead/checks_2026_11_08.py AMLKIT_BILLING_ENABLED=1
+SS1b  reproduces=True
+SS3b  reproduces=True
+CS24  reproduces=True
+CS5d  reproduces=True
+4/4 reproduce
+exit=0
+===== repro_lead/checks_2026_11_09.py 
+SS5   reproduces=True
+RT1   reproduces=True
+RT2   reproduces=True
+3/3 reproduce
+exit=0
+===== repro_lead/checks_2026_11_10.py 
+MA1   reproduces=True
+1/1 reproduce
+exit=0
+===== repro_lead/checks_2026_11_11.py 
+RP1   reproduces=True (6/6 invalid values finalise and export)
+RP1g  reproduces=True (rewritten to F: ['M', 'other', 'unknown', 'attack helicopter'])
+2/2 reproduce
+exit=0
+===== repro_lead/checks_2026_11_13.py 
+SO1  active_operators=3 single_operator before=False after=True msg_on_page=True  reproduces=True
+RL1  role-change routes=[] 'SET role' in source=False 'Promote another' message present=True  reproduces=True
+RL2  officer signed in while deactivated=False; after reactivate with OLD password=True  reproduces=True
+RL2d trusted-device token minted before deactivation still valid after reactivation=True  reproduces=True
+RL3  reactivate already-active officer: success msg=True audit rows 1 -> 2  reproduces=True
+5/5 reproduce
+exit=0
+===== repro_lead/checks_2026_11_16.py 
+CL1   reproduces=True
+CL2   reproduces=True
+TD1   reproduces=True
+TX1   reproduces=True
+TX2   reproduces=True
+N3c   reproduces=True
+6/6 reproduce
+exit=0
+===== repro_lead/checks_2026_11_17.py 
+QU1w  reproduces=True
+QU1c  reproduces=True
+QU1m  reproduces=True
+TD2   reproduces=True
+4/4 reproduce
+exit=0
+===== repro_lead/checks_2026_11_18.py 
+EX1   reproduces=True
+EX3   reproduces=True
+DOB1  reproduces=False
+GV1   reproduces=True
+3/4 reproduce
+exit=0
+===== repro_lead/probe_dob_onboard_2026_11_18.py 
+1975-03-12 IN NO ALERT 
+1975-12-31 LY NO ALERT 
+exit=1
+===== repro_lead/checks_2026_11_19.py 
+CT1   reproduces=True
+CT2   reproduces=True
+L158  reproduces=False
+2/3 reproduce
+exit=0
+===== repro_lead/checks_l162_caps_2026_11_19.py 
+4/4 reproduce
+exit=0
+===== repro_lead/probe_dual_nat_rescreen_2026_11_19.py 
+L164 reproduces=True
+exit=0
+===== repro_lead/probe_lookback_rescreen_2026_11_19.py 
+exit=1
