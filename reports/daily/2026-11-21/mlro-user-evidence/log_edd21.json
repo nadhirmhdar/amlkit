@@ -1,0 +1,77 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "onboard PEP, IR, real estate, blank SoW/SoF/purpose",
+  "status": "info",
+  "detail": "303 /customers/1 ['Onboarded. Risk rating: high.']"
+ },
+ {
+  "step": "risk panel",
+  "status": "info",
+  "detail": "Risk assessment high score 115 EDD required pep domestic_pep +30 jurisdiction fatf_blacklist +60 sector real_estate +25 Ruleset 2025.12.2 \u00b7 assessed 2026-11-21 \u00b7 next review 2027-11-16 Outcome No change Risk changed (re-assess) Exit the relationship Review note (min. 10 characters) Complete periodic review Periodic reviews No periodic review recorded. UBO ownership & control diagram %3 cust_1 Hassan Rouhani Test NATURAL ENTITY no_ubos No Beneficial Owners Registered Alerts on this customer Hassan Rouhani Test pep 1"
+ },
+ {
+  "step": "EDD / approval wording on the case file",
+  "status": "info",
+  "detail": "{'edd': True, 'senior management': False, 'senior-management': True, 'approval': True, 'approve': False, 'source of wealth': True, 'enhanced due diligence': True}"
+ },
+ {
+  "step": "POST actions on the case file",
+  "status": "info",
+  "detail": "['/customers/1/adverse-media', '/customers/1/close', '/customers/1/notes', '/customers/1/periodic-review', '/customers/1/signatures', '/customers/1/transactions', '/customers/1/ubo']"
+ },
+ {
+  "step": "risk row",
+  "status": "info",
+  "detail": "{'score': 115.0, 'rating': 'high', 'factors': '{\"pep\": {\"value\": \"domestic_pep\", \"points\": 30}, \"jurisdiction\": {\"value\": \"fatf_blacklist\", \"points\": 60}, \"sector\": {\"value\": \"real_estate\", \"points\": 25}, \"ownership_opacity\": {\"value\": \"fully_transparent\", \"points\": 0}, \"delivery_channel\": {\"value\": \"face_to_face\", \"points\": 0}, \"cash_intensity\": {\"value\": \"non_cash\", \"points\": 0}, \"adverse_media\": {\"value\": \"none\", \"points\": 0}, \"structure\": {\"value\": \"natural_person\", \"points\": 0}}', 'next_review': '2027-11-16'}"
+ },
+ {
+  "step": "record AED 300,000 cash from IR before any EDD step",
+  "status": "info",
+  "detail": "['Transaction recorded. 2 rule(s) triggered: large_cash, high_risk_country']"
+ },
+ {
+  "step": "dashboard high-risk KPI",
+  "status": "info",
+  "detail": "High-risk customers 2 Transaction alerts open Alerts by category 1 waiting for a decision one dot per alert or finding O"
+ }
+]
