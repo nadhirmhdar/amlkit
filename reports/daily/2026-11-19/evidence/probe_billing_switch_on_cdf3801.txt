@@ -1,0 +1,63 @@
+ flag=None       switched_on=False self_serve=False | signup form shows invite field: True  | open sign-up without invite works: False | webhook 404 /billing 404 /pricing 200
+ flag=''         switched_on=False self_serve=False | signup form shows invite field: True  | open sign-up without invite works: False | webhook 404 /billing 404 /pricing 200
+ flag='0'        switched_on=False self_serve=False | signup form shows invite field: True  | open sign-up without invite works: False | webhook 404 /billing 404 /pricing 200
+ flag='false'    switched_on=False self_serve=False | signup form shows invite field: True  | open sign-up without invite works: False | webhook 404 /billing 404 /pricing 200
+ flag='no'       switched_on=False self_serve=False | signup form shows invite field: True  | open sign-up without invite works: False | webhook 404 /billing 404 /pricing 200
+ flag='off'      switched_on=False self_serve=False | signup form shows invite field: True  | open sign-up without invite works: False | webhook 404 /billing 404 /pricing 200
+ flag='maybe'    switched_on=False self_serve=False | signup form shows invite field: True  | open sign-up without invite works: False | webhook 404 /billing 404 /pricing 200
+ flag='2'        switched_on=False self_serve=False | signup form shows invite field: True  | open sign-up without invite works: False | webhook 404 /billing 404 /pricing 200
+
+========================================================================
+amlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- printing the
+verification link for 1277600765328386160@x.test instead of emailing it.
+
+  http://127.0.0.1:8000/verify-email?token=y9Stc29L7XNmxRJxzCu0jI0U6QvV3jppg5Nud3kjo6E
+
+Set AMLKIT_SMTP_HOST (and friends) to send this for real.
+========================================================================
+
+ flag='1'        switched_on=True  self_serve=True  | signup form shows invite field: False | open sign-up without invite works: True  | webhook 400 /billing 303 /pricing 200
+
+========================================================================
+amlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- printing the
+verification link for 6463561816350188254@x.test instead of emailing it.
+
+  http://127.0.0.1:8000/verify-email?token=CsQJRNXZmPMcsmqHZvqfivhHtYP4FIxpMHb9FMRi4xI
+
+Set AMLKIT_SMTP_HOST (and friends) to send this for real.
+========================================================================
+
+ flag='true'     switched_on=True  self_serve=True  | signup form shows invite field: False | open sign-up without invite works: True  | webhook 400 /billing 303 /pricing 200
+
+========================================================================
+amlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- printing the
+verification link for 3947364221779192209@x.test instead of emailing it.
+
+  http://127.0.0.1:8000/verify-email?token=hHx2j5b4_MmtEY4F0wgdYkr6mKr8jsqJDik25sOewyU
+
+Set AMLKIT_SMTP_HOST (and friends) to send this for real.
+========================================================================
+
+ flag='YES'      switched_on=True  self_serve=True  | signup form shows invite field: False | open sign-up without invite works: True  | webhook 400 /billing 303 /pricing 200
+
+========================================================================
+amlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- printing the
+verification link for 2710178193371788726@x.test instead of emailing it.
+
+  http://127.0.0.1:8000/verify-email?token=mBibOqVTIJ3_UgB16RjOh0ix17ti1cYLNsJ6H6KH-zw
+
+Set AMLKIT_SMTP_HOST (and friends) to send this for real.
+========================================================================
+
+ flag=' on '     switched_on=True  self_serve=True  | signup form shows invite field: False | open sign-up without invite works: True  | webhook 400 /billing 303 /pricing 200
+
+========================================================================
+amlkit: no SMTP configured (AMLKIT_SMTP_HOST unset) -- printing the
+verification link for 5792250448036160908@x.test instead of emailing it.
+
+  http://127.0.0.1:8000/verify-email?token=iij0qHMA9vfkPXtwAjW9CvpKCME87BR_Wre839kD31M
+
+Set AMLKIT_SMTP_HOST (and friends) to send this for real.
+========================================================================
+
+ flag='On'       switched_on=True  self_serve=True  | signup form shows invite field: False | open sign-up without invite works: True  | webhook 400 /billing 303 /pricing 200

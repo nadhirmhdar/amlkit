@@ -1,0 +1,14 @@
+== probe_unicode_bypass
+ onboard('Иван Петров') -> OnboardingResult {'customer_id': 1, 'unscreenable': True}
+ persisted screening row: {'hits': 0, 'candidates': 0, 'datasets_used': '[]'}
+screen(): name has no screenable tokens; flagged unscreenable
+ persisted screen(): clear = False | alerts_created = 0 | summary: UNSCREENABLE  'Иван Петров' - no screenable name tokens; manual review required
+screen(): name has no screenable tokens; flagged unscreenable
+ rescreen_all: {'screened': 1, 'alerts': 0, 'unscreenable': 1}
+== probe_country_compare
+ ALERT 1.00  IR vs Iran
+ ALERT 1.00  SY
+ ALERT 1.00  MM vs Burma
+== 3. table sanity: every alias resolves uniquely; no alias collides across codes ==
+ collisions across codes: none
+ codes in table: 250 | aliases: 368

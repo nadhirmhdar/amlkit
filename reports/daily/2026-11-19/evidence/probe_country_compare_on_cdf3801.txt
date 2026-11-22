@@ -1,0 +1,25 @@
+== 1. crash resistance of _countries_contradict / to_alpha2 ==
+ 529 combinations; exceptions: 262 [('None', '12', 'AttributeError'), ('None', '1.5', 'AttributeError'), ('None', 'True', 'AttributeError'), ('None', "('IN',)", 'AttributeError'), ('None', "{'IN'}", 'AttributeError'), ('None', '<object object at 0x', 'AttributeError')]
+== 2. behaviour (exact name match; threshold 0.85, penalty -0.20) ==
+ ALERT 1.00  customer IN vs list 'India' (the fixed case)
+ below 0.80  IN vs Pakistan (true mismatch)
+ ALERT 1.00  AE vs full name
+ ALERT 1.00  RU vs OFAC name
+ ALERT 1.00  KP vs 'Korea, North'
+ below 0.80  KP vs bare 'Korea' (ambiguous alias -> KR)
+ ALERT 1.00  KR vs bare 'Korea'
+ ALERT 1.00  unresolvable list value
+ ALERT 1.00  list with both
+ ALERT 1.00  joined string in one value
+ ALERT 1.00  customer typo
+ ALERT 1.00  native name
+ ALERT 1.00  GE vs Georgia
+ below 0.80  US vs Georgia (state vs country)
+ ALERT 1.00  invalid code ZZ
+ ALERT 1.00  empty customer country
+ ALERT 1.00  IR vs Iran
+ ALERT 1.00  SY
+ ALERT 1.00  MM vs Burma
+== 3. table sanity: every alias resolves uniquely; no alias collides across codes ==
+ collisions across codes: none
+ codes in table: 250 | aliases: 368
