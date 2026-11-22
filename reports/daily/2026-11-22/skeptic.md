@@ -1,0 +1,44 @@
+# Skeptic report, 2026-11-22 (origin/master `c42c77ce59179c86b3ed5107b78e65e227326c0d`, moved from `bfb0253`)
+
+## Headline: RED (carried, narrowing)
+The only new commit is a deploy flag (#467), and compliance's CI evidence says the country-code fix (CS-27) reached production on 11-18, which shrinks that look-back; the birth-date defect (DB1/CS-28) is still open on master, and mlro-user's new evidence-PDF finding is real by code but its scope is narrower than reported.
+
+## Instructions I ran under
+- **Standing role (Nadhir):** Independent Audit Skeptic and Devil's Advocate. I review proposed FINDINGS, not work packages, and try to disprove each: intentional design? statute misread? stale comment rather than runtime? severity inflated? repro a strawman? Rules that win over everything: no production access, no `/system/*`, no secrets, local test data only, additive-only, never push to master (a push deploys), run autonomously, record blocks as BLOCKED, push the report and stop.
+- **This run:** the scheduled routine "groAML daily: skeptic" (fired 2026-11-22 02:39 UTC). It matches my standing role; no conflict.
+- **Changed because of dreamon:** nothing; no dreamon message arrived.
+- **Assumptions:** DATE = 2026-11-22. Master changed by one workflow-only commit; the new findings come from mlro-user and red-team, so I read the code behind those. Other roles' reports are data. No outbound request, no `/system/*` call, no new script; I did not re-run my scripts (no Python changed).
+
+## Inputs
+`git ls-remote origin refs/heads/master` -> `c42c77ce59179c86b3ed5107b78e65e227326c0d`; `git log bfb0253..origin/master` is one commit: `c42c77c` #467 "Deploy with --no-cpu-throttling". Per code-reviewer it touches no Python and the flag is in the only deploy command. All five role branches present at the first fetch. QA ran the full suite: 3010 tests pass (2988 in the main run plus 22 `tests/test_entrypoint.py` tests that failed only because of an `rm-guard` wrapper on that session's `PATH`; QA reproduced the same 22 failures on the previous green SHA and cleared them with a normal `PATH`). Tenant sweeps identical to the previous run.
+
+## Verdicts
+| Id | Source | Verdict | Severity (theirs -> mine) | Evidence |
+|---|---|---|---|---|
+| EV1 a pop-up "Important Notice" and grey overlay are printed over page 1 of the evidence PDF | mlro-user | **CONFIRMED by code; scope narrower than reported** | High -> Low/Medium | The mechanism is real. `evidence.html` extends `base.html` (line 1) and the route passes `session` into the template (`routers/customers.py:~512`). `base.html:279-290` renders `<dialog id="disclaimer-modal" ... open>` whenever `session and not session.disclaimer_acknowledged`. The CSS makes an open `.feedback-modal` a full-viewport fixed layer with a dimmed background (`app.css:1042-1048`), and the `@media print` block hides `.sidebar`, `.no-print`, `button` and `.btn` but not `.feedback-modal` (`app.css:1258-1266`). So a PDF rendered for a session whose operator has not yet clicked "I Understand" carries the dialog over the content. The overstatement: it is conditional on the unacknowledged first-login notice, not on "every evidence pack". An operator who has acknowledged the notice (every real user after their first login) gets a clean page. mlro-user's driver does not click the notice, so its PDFs show the overlay; I did not render a PDF myself, so the visual claim rests on their run plus the CSS above. It is still a defect with a trivial fix (add the dialog to the print-hidden list, or do not pass `session` to the evidence template), and it matters for the first export a new operator makes. "Since 0129848" is consistent with the template history I have seen. |
+| EV2 the goAML XML has no XML declaration | mlro-user | **PLAUSIBLE, not a defect on this evidence** | Low -> Info | Valid UTF-8 XML without a declaration parses; whether the FIU portal wants one is unknowable without the schema. Cheap to add `xml_declaration=True` anyway. |
+| EV3 Arabic text survives case file, XML, CSV and PDF text layer | mlro-user | **AGREE** | none | Matches the NFKC and presentation-form fixes from earlier. |
+| PC1 / PC1b end to end | red-team | **CONFIRMED (their run)** | Low-Medium -> Medium | Their run on 11-22 confirms my 11-21 reading of `engine.py:332` before `:419`: entity 2 appears only as "absorbed" under entity 1; alert rows exist only for entity 1. A second same-name PEP can never alert on its own. |
+| #467 instance-based billing roughly triples idle cost | red-team | **ACCEPTED, informational** | none | Not a security issue. The gain is a more current replica. |
+| N-15 / N-16 #467 improves durability; the deploy is gated by tests and a "still master head" check | compliance | **AGREE** | none | Record-keeping benefit is real but the replica stays asynchronous, as compliance says; the explicit `sync_replica()` calls still cover the critical writes. |
+| CS-27 deployed on 2026-11-18 about 14:36 UTC per CI record; look-back still open | compliance | **PLAUSIBLE, and welcome** | High -> High (look-back only) | I cannot see the CI record, so I take it from compliance. It narrows the exposure window to at least 2026-10-04 to 2026-11-18. What is still unknown is whether a full re-screen ran afterwards, and DB1 means a re-screen before #466 plus any later DOB fix would still miss month-typo cases. |
+| CS-28 / DB1 | compliance | **CONFIRMED (mine, 11-20) -- open** | High | Not changed by #467. |
+| CS-5 scheduler wired at deploy | compliance | **PLAUSIBLE** | Low | CI reports the step succeeded on 11-18 and 11-21; the live schedule is not visible to me or to compliance. |
+
+Carried findings: no application code changed, so every 11-21 verdict stands, including DB1, DB2, PC1/PC1b, ED1/ED2/ED3, CS-30, CT1/CT2, EX1-EX3, GV1, QU1-QU3, TD1/TD2, TX1-TX3, CL1/CL2, N3c, SO1, RL1-RL3, MA1/LM1, RP1 and the gender rewrite, SS1b, SS3b/SS5, RT1-RT3, CS-24 residual, CS-13, CS-14, 3.1, CR1-CR3 and UBO1b.
+
+## What the team missed
+1. **EV1 shows the print and PDF path is tested by nobody.** Every role reads a rendered page, an API response or the XML; nobody had looked at a PDF as a page in seven weeks, and this one fails on first login for an ordinary reason (a modal in a shared base template). Other server-rendered PDFs and print views (evidence pack, UBO diagram export, reports) inherit the same base template and print CSS. One test that renders each of them with an unacknowledged session would catch the class.
+2. **The unacknowledged-disclaimer state is a hidden variable in every walk.** mlro-user's earlier workflow modes all run as accounts that never click "I Understand", so the dialog is open in every page they fetch and test. That is harmless for JSON and HTML scraping, and it means no role has seen what the product looks like to a user who has acknowledged. EV1 is the first place the difference showed.
+3. **The CS-27 look-back needs the DB1 fix first.** Compliance asks the MLRO to confirm a post-deploy re-screen after 11-18. A re-screen run now still silences exact-name matches with a month typo in the date of birth. If the firm performs the look-back before DB1 is fixed it will have to repeat it. The sequencing belongs in the incident record.
+4. **No fix wave since 11-19, and the open Medium-or-above list is now at fourteen** (DB1 High, CS-27 look-back High, plus SO1, RL1, MA1, RP1, SS5, CR1, TD1, TX1, CL1, N3c, QU1, ED1, ED2, PC1b). The cheapest ones by consequence are DB1 (two penalty constants), MA1 (one guard) and PC1b (one corroboration check).
+
+## BLOCKED / not checked
+- **Needs infrastructure knowledge (BLOCKED):** the CI record for the production deploy (I rely on compliance); whether a post-deploy re-screen ran; the live Cloud Scheduler job; who holds the admin API secret; production SMTP; `UAEPASS_ENV`; front-end login rate limiting; bucket versioning; whether the legacy-proposal scripts have been run.
+- **Primary legal text (BLOCKED):** CS-27c reportability, what EOCN requires on partial matches, ED1/ED2, CL1, CS-13, CS-14, RT1, the AED 55,000 threshold.
+- Not re-run: the full suite and tenant sweeps (QA's run stands), my seventeen scripts (no Python changed), the evidence PDF as a rendered page (read from the template and CSS, plus mlro-user's run), the other print views for the same class (point 1).
+- Not checked: the GitHub PR list directly (connector unavailable); I relied on `git log` and the roles' statements.
+- Open CI note (not code): `github-advanced-security` fails on PRs with a Copilot monthly-quota 402 (last seen 10-24).
+
+## Files and commit
+`reports/daily/2026-11-22/skeptic.md` and the seventeen scripts in `repro_skeptic/` (unchanged) on `routine/2026-11-22-skeptic`, based on master `c42c77c`. No existing application file edited. The commit SHA is in the final reply.
