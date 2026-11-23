@@ -1,0 +1,62 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "'Important Notice' in the HTML evidence page",
+  "status": "info",
+  "detail": "found=True"
+ },
+ {
+  "step": "surrounding markup",
+  "status": "info",
+  "detail": "for=\"feedback-message\">Your message</label> <textarea id=\"feedback-message\" name=\"message\" rows=\"5\" maxlength=\"4000\" placeholder=\"Your feedback...\" required></textarea> <div class=\"btn-pair\"> <button type=\"submit\">Send</button> <button type=\"button\" class=\"secondary\" data-action=\"close-feedback\">Cancel</button> </div> </form> <div id=\"feedback-result\" style=\"margin-top:12px;\" aria-live=\"polite\"></div> </div> </dialog> <dialog id=\"disclaimer-modal\" class=\"feedback-modal\" aria-labelledby=\"disclaimer-modal-title\" open> <div class=\"feedback-modal-content\"> <h3 id=\"disclaimer-modal-title\">Important Notice</h3> <p>Screening results are decision support, not legal advice. A UAE-qualified adviser should sign off the risk model and reporting workflow before use on real client files.</p> <form method=\"post\" action=\"/acknowledge-disclaimer\"> <input type=\"hidden\" name=\"csrf_token\" value=\"zHI80SLBOqi0dDwS7DkzAY24JdsxRz4w\"> <button type=\"submit\">I Understand</button> </form> </div> </dialog> </main> </div> </div> <div id=\"c"
+ },
+ {
+  "step": "scripts/styles that could hide it",
+  "status": "info",
+  "detail": "{'<dialog': True, 'role=\"dialog\"': False, 'hidden attr near notice': False, 'inline <script>': True}"
+ },
+ {
+  "step": "pdf",
+  "status": "info",
+  "detail": "200 bytes=28634"
+ }
+]

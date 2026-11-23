@@ -1,0 +1,97 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "disclaimer dialog before acknowledging",
+  "status": "info",
+  "detail": "True"
+ },
+ {
+  "step": "POST /acknowledge-disclaimer",
+  "status": "info",
+  "detail": "303 /"
+ },
+ {
+  "step": "disclaimer dialog after acknowledging",
+  "status": "info",
+  "detail": "False"
+ },
+ {
+  "step": "pdf after acknowledging",
+  "status": "info",
+  "detail": "200 bytes=18913"
+ },
+ {
+  "step": "disclaimer on / for a fresh user vs acknowledged",
+  "status": "info",
+  "detail": "False"
+ },
+ {
+  "step": "disclaimer on /dashboard for a fresh user vs acknowledged",
+  "status": "info",
+  "detail": "False"
+ },
+ {
+  "step": "disclaimer on /customers for a fresh user vs acknowledged",
+  "status": "info",
+  "detail": "False"
+ },
+ {
+  "step": "disclaimer on /alerts for a fresh user vs acknowledged",
+  "status": "info",
+  "detail": "False"
+ },
+ {
+  "step": "disclaimer on /reports for a fresh user vs acknowledged",
+  "status": "info",
+  "detail": "False"
+ },
+ {
+  "step": "fresh officer sees the disclaimer on /customers",
+  "status": "info",
+  "detail": "True"
+ },
+ {
+  "step": "officer (not acknowledged) evidence pdf",
+  "status": "info",
+  "detail": "200"
+ }
+]
