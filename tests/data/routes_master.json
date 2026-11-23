@@ -733,6 +733,10 @@
  ],
  [
   "POST",
+  "/system/grant-trial"
+ ],
+ [
+  "POST",
   "/system/super-admin"
  ],
  [
