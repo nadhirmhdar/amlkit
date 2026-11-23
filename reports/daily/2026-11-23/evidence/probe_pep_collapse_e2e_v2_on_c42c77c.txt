@@ -1,0 +1,7 @@
+run 1 (customer has no country): hits=1 alerts_created=1 alert rows=[(1, 1, 'open')]
+   absorbed: [(2, 'wikidata_ministers')]
+run 2 after dismissing A: hits=1 alerts_created=0 alert rows=[(1, 1, 'false_positive')]
+   absorbed: [(2, 'wikidata_ministers')]
+entities: [(1, 'John Smith'), (2, 'John Smith')]
+run 3 after A removed from list: hits=1 alerts_created=1 alert rows=[(1, 2, 'open')]
+   absorbed: []
