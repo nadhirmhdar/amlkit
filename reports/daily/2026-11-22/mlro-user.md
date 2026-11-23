@@ -1,5 +1,7 @@
 # mlro-user daily report — 2026-11-22
 
+> **CORRECTION (added 2026-11-23):** the evidence-PDF overlay described below only appears for an operator who has not yet clicked "I Understand" on the first-use notice. After acknowledging, the PDF is clean. EV1 is therefore low-medium, not high, and the headline should read AMBER, not RED. See `reports/daily/2026-11-23/mlro-user.md`.
+
 **Headline: RED** — master only gained a deploy-setting change (c42c77c), but looking at the evidence PDF as a page rather than as bytes shows a pop-up "Important Notice" box and a grey overlay printed over the customer's reference, name, type and sector on page 1 of every evidence pack.
 
 ## Instructions I ran under
