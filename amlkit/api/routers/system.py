@@ -197,6 +197,43 @@ async def system_create_operator(request: Request):
     finally:
         conn.close()
 
+@router.post("/system/grant-trial")
+async def system_grant_trial(request: Request):
+    """Create an organisation on a dated N-day trial plus its first MLRO,
+    without Stripe Checkout (owner-granted / sales-led trials). Same
+    ADMIN_API_SECRET gate as /system/create-operator."""
+    secret = os.environ.get("ADMIN_API_SECRET", "").strip()
+    if not secret:
+        return JSONResponse({"error": "endpoint disabled — set ADMIN_API_SECRET"}, status_code=403)
+    if not bearer_ok(request.headers.get("Authorization", ""), secret):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    from ...db import connect
+    from ...cases.operators import grant_trial
+
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    conn = connect(db_path())
+    try:
+        result = grant_trial(
+            conn,
+            org_name=(body.get("org_name") or "").strip(),
+            operator_name=(body.get("name") or "").strip(),
+            email=(body.get("email") or "").strip().lower(),
+            password=body.get("password") or "",
+            days=body.get("days", 14),
+        )
+        return JSONResponse({"status": "created", **result})
+    except ValueError as exc:
+        status = 409 if "already exists" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status)
+    finally:
+        conn.close()
+
 @router.post("/system/super-admin")
 async def system_super_admin(request: Request):
     """Grant or revoke super_admin on an existing operator without a browser

@@ -333,6 +333,73 @@ def provision_operator(
     }
 
 
+TRIAL_DAYS_MAX = 90
+
+
+def grant_trial(
+    conn: sqlite3.Connection,
+    org_name: str,
+    operator_name: str,
+    email: str,
+    password: str,
+    days: int,
+    actor: str = "system",
+) -> dict[str, Any]:
+    """Provision a new organisation on a dated trial with its first MLRO.
+
+    Owner-granted trial (sales-led, no card): the org is plan 'trial',
+    plan_status 'trialing', trial_ends_at = now + `days`, so billing.limits
+    gives it the Starter limits until then (plus the usual grace) whenever
+    billing is switched on. The operator is created with a verified email so
+    it can sign in at once (MLRO: MFA enrolment on first login).
+
+    Raises ValueError on bad input, duplicate email or duplicate org name.
+    """
+    if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= TRIAL_DAYS_MAX:
+        raise ValueError(f"days must be a whole number from 1 to {TRIAL_DAYS_MAX}")
+    auth.check_new_password(password)
+    clean_name, clean_email = auth.check_operator_identity(operator_name, email)
+    org_name = auth.check_org_name(org_name)
+    if _existing_operator(conn, clean_email) is not None:
+        raise ValueError("an operator with that email already exists")
+    slug = make_org_slug(conn, org_name)
+
+    from datetime import datetime, timedelta, timezone
+    now = utcnow()
+    trial_ends_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat(timespec="seconds")
+    try:
+        cur = conn.execute(
+            "INSERT INTO organizations (name, slug, status, created_at, plan, plan_status, trial_ends_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (org_name, slug, "active", now, "trial", "trialing", trial_ends_at),
+        )
+        org_id = cur.lastrowid
+        cur2 = conn.execute(
+            """INSERT INTO operators
+                   (org_id, name, email, password_hash, role, is_active, email_verified_at, created_at)
+               VALUES (?,?,?,?,?,1,?,?)""",
+            (org_id, clean_name, clean_email, auth.hash_password(password), "mlro", now, now),
+        )
+    except sqlite3.IntegrityError as exc:
+        conn.rollback()
+        raise ValueError("an organization or operator with those details already exists") from exc
+    operator_id = cur2.lastrowid
+    audit(conn, actor, "billing.trial_granted", "organization", org_id,
+          {"days": days, "trial_ends_at": trial_ends_at, "email": clean_email}, org_id=org_id)
+    audit(conn, actor, "operator.create", "operator", operator_id,
+          {"email": clean_email, "role": "mlro", "via": "grant_trial"}, org_id=org_id)
+    conn.commit()
+    return {
+        "org_id": org_id,
+        "org_slug": slug,
+        "organization": org_name,
+        "operator_id": operator_id,
+        "email": clean_email,
+        "role": "mlro",
+        "trial_ends_at": trial_ends_at,
+    }
+
+
 OPERATOR_NAME_MAX = auth.OPERATOR_NAME_MAX
 
 
