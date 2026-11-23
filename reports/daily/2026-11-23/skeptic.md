@@ -25,7 +25,7 @@ Carried findings: no code changed, so every 11-22 verdict stands (DB1/CS-28, DB2
 
 ## What the team missed
 1. **A correction from a reporter is the loop working, and it is worth noting what made it possible:** mlro-user rechecked their own High finding after I scoped it, found the acknowledged-notice condition, and lowered it. The same habit applied to the open Mediums (re-reading the code behind a claim before restating it each day) would stop the daily reports repeating carried items at their original severity.
-2. **No findings today does not mean fewer risks.** The open list is sixteen items at Medium or above. Four consecutive days of "master unchanged" show the loop is no longer the constraint; whoever owns the fix decisions is. The one piece of cheap leverage the roles can still add is ordering the list by consequence, which my 11-22 report does: DB1, MA1, PC1b first.
+2. **No findings today does not mean fewer risks.** The open list is sixteen items at Medium or above. Since 11-19 the only merge is a deploy flag (#467), which suggests the loop is no longer the constraint; whoever owns the fix decisions is. The one piece of cheap leverage the roles can still add is ordering the list by consequence, which my 11-22 report does: DB1, MA1, PC1b first.
 
 ## BLOCKED / not checked
 - **Needs infrastructure knowledge (BLOCKED):** whether a post-deploy re-screen ran after the CS-27 deploy, the live Cloud Scheduler job, who holds the admin API secret, production SMTP, `UAEPASS_ENV`, front-end login rate limiting, bucket versioning, whether the legacy-proposal scripts have been run.
