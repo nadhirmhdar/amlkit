@@ -1,0 +1,572 @@
+# Lead checks 2026-11-24 on f3c8227121fbec1d4c3860c63b4a383a4656f975 (scratch venv Python 3.11.18, PYTHONPATH=., scratch SQLite, no network; console-mail lines stripped)
+# ev1/checks_18/checks_17 first failed with ModuleNotFoundError test_api (harness: run from outside repro_lead/); re-run from repro_lead/ in the repo, results below
+===== checks_2026_11_21
+PC1b  onboarding alerts: [(1, 1)]  (A=1, B=2)
+PC1b  alert 1 disposed -> false_positive
+PC1b  re-screen: hits=[(1, 'us_cia_world_leaders')] also_listed=[2] rescreen_all={'screened': 1, 'alerts': 0, 'unscreenable': 0}; alerts ever on B=0
+CS30  after A delisted: hits=[(2, 'wikidata_ministers')] rescreen_all={'screened': 1, 'alerts': 1, 'unscreenable': 0}; alerts on B=[(1, 'open')]
+DL1   false_positive alert rows left after delisting A: 0; alert.* audit rows: 1
+GEN1  G-1 gender=female hits=0 alerts=0
+GEN1  G-2 gender=male hits=1 alerts=1
+PC1b  reproduces=True
+CS30  reproduces=True
+GEN1  reproduces=True
+3/3 reproduce
+exit=0
+===== checks_2026_11_20
+DB1   month typo=0.75  wrong year=0.85  threshold=0.85
+CR49  UN entry with DOBs 1961-02-14 + 1961-09-20 stored birth_date='1961-02-14'; customer born on the listed alternate 1961-09-20 scores 0.75
+PC1   two PEP hits 'John Smith' (GB vs no country) -> 1 hit(s); also_listed=['wikidata_peps']
+DB1   reproduces=True
+CR49  reproduces=True
+PC1   reproduces=True
+3/3 reproduce
+exit=0
+===== dl1b_delist_true_positive_2026_11_22
+DL1b  before delisting: alert 1 status=true_positive; alert_reviews=1; freeze_obligations=[(1, 1, 'pending_execution')]
+DL1b  after delisting: alert row left=0; alert_reviews left=0; freeze_obligations=[(1, None, 'pending_execution', 'sanctions')]; alert.* audit rows=1
+DL1b  true_positive alert cascade-deleted=True; freeze row kept but alert_id NULL=True
+exit=0
+===== ev1_evidence_pdf_disclaimer_overlay_2026_11_22
+Traceback (most recent call last):
+  File "/tmp/claude-0/-home-user-amlkit/8706c388-9eae-52f2-b928-dfb9fe36ed0d/scratchpad/carried/repro_lead/ev1_evidence_pdf_disclaimer_overlay_2026_11_22.py", line 29, in <module>
+    from test_api import _csrf, _register, _seed_sanctions_data  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'test_api'
+exit=1
+===== dl1c_delisted_freeze_overdue_2026_11_23
+Overdue freeze obligation(s) in org 1 but no active MLRO to notify
+DL1c  before delisting: in_scope UN=True OFAC=False; overdue ids=[1]
+Overdue freeze obligation(s) in org 1 but no active MLRO to notify
+DL1c  after delisting: freeze rows=[(1, None, 'pending_execution'), (2, None, 'pending_execution')]; in_scope UN=True OFAC=True; overdue ids=[1, 2]
+DL1c  delisted UN freeze still overdue/pending=True; legacy OFAC freeze flipped into scope=True
+DL1d  resolve as 'delisted' refused: Cannot resolve freeze obligation 1 with reason 'delisted': obligation not executed. Use 'false_positive' to resolve without execution.
+DL1d  resolve as 'false_positive' on a four-eyes-confirmed (now deleted) true_positive -> ('resolved', 'false_positive')
+DL1d  only exit is mislabelling a confirmed match as false_positive=True
+exit=0
+===== checks_2026_11_19
+CS27  IN/India=1.0  IR/'Iran, Islamic Republic of'=1.0  RU/'Russian Federation'=1.0  AE/'United Arab Emirates'=1.0  IN/Pakistan=0.8 (info; FIXED when the first four are 1.0)
+CT1   KP vs 'Korea'=0.8  CD vs 'Congo'=0.8  VG vs 'Virgin Islands'=0.8
+CT1   reproduces=True
+CT2   int country in list record raises AttributeError: 'int' object has no attribute 'strip'
+CT2   reproduces=True
+L158  same country (IN/India): DOB +1 day=0.9, DOB +6 years=0.85, threshold=0.85
+L158  reproduces=False
+2/3 reproduce
+exit=0
+===== checks_l162_caps_2026_11_19
+T1  transaction_alert_queue open: 200 of 250 (no total/next returned)
+T2  dashboard 'oldest' shown=['2026-02-23', '2026-02-24', '2026-02-25', '2026-02-26', '2026-02-27'] true oldest=['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05']
+A1  adverse_media_queue open: 200 of 250
+X1  transactions_for_customer: 200 of 250
+4/4 reproduce
+exit=0
+===== probe_dual_nat_rescreen_2026_11_19
+onboard (IN+PK): [1.0]
+rescreen_all result: {'screened': 1, 'alerts': 0, 'unscreenable': 0} alerts: []
+L164 reproduces=True
+exit=0
+===== checks_2026_11_18
+Traceback (most recent call last):
+  File "/tmp/claude-0/-home-user-amlkit/8706c388-9eae-52f2-b928-dfb9fe36ed0d/scratchpad/carried/repro_lead/checks_2026_11_18.py", line 45, in <module>
+    from test_api import LISTED, _register, _seed_sanctions_data  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'test_api'
+exit=1
+===== probe_dob_onboard_2026_11_18
+1975-03-13 LY alert 0.9
+1975-03-12 LY alert 1.0
+1981-01-02 LY alert 0.85
+1975-03-12 IN NO ALERT 
+None LY alert 1.0
+None None alert 1.0
+1975-12-31 LY NO ALERT 
+1976-03-12 LY alert 0.85
+exit=1
+===== checks_2026_11_17
+Traceback (most recent call last):
+  File "/tmp/claude-0/-home-user-amlkit/8706c388-9eae-52f2-b928-dfb9fe36ed0d/scratchpad/carried/repro_lead/checks_2026_11_17.py", line 39, in <module>
+    from test_api import LISTED, _register, _seed_sanctions_data  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'test_api'
+exit=1
+===== ev1_evidence_pdf_disclaimer_overlay_2026_11_22
+/tmp/claude-0/-home-user-amlkit/8706c388-9eae-52f2-b928-dfb9fe36ed0d/scratchpad/venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+verification link for ev1@test.ae instead of emailing it.
+Set AMLKIT_SMTP_HOST (and friends) to send this for real.
+EV1  operator disclaimer_acknowledged_at before export: None
+EV1  unacknowledged PDF page 1 contains 'Important Notice': True
+EV1  POST /acknowledge-disclaimer -> 303
+EV1  acknowledged PDF page 1 contains 'Important Notice': False
+EV1  page 1 text near 'Fatima' (unacked): 'CUSTOMER DUE DILIGENCE RECORD\r\nReference EV1-REF\r\nName Fatima Khan\r\nType natural\r\nSector other\r'
+EV1 reproduces (scoped to unacknowledged session)
+exit=0
+===== checks_2026_11_18
+/tmp/claude-0/-home-user-amlkit/8706c388-9eae-52f2-b928-dfb9fe36ed0d/scratchpad/venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+verification link for mlro@leadex.ae instead of emailing it.
+Set AMLKIT_SMTP_HOST (and friends) to send this for real.
+setup variant 0: customer DOB=1981-01-02 nat=IN -> alert=None
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+setup variant 1: customer DOB=1981-01-02 nat=LY -> alert=1
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+setup variant 2: customer DOB=1975-03-13 nat=LY -> alert=2
+EX1   /alerts listed DOB shown=True customer DOB shown=False customer nationality 'IN' token shown=False
+EX1   panel status=200 listed DOB=False customer DOB=False
+EX3   queue row: DOB=True reason=True; panel: DOB=False reason=False
+EX2   queue shows 'precision'=False 'recall'=False (not counted)
+DOB1  scorer: +1 day=(0.9, {'dob_near_miss': -0.1})  DD/MM swap=(0.9, {'dob_near_miss': -0.1})  6 years=(0.85, {'dob_year_mismatch': -0.15})  threshold=0.85
+GV1   hung dot stub: generate_ubo_diagram returned svg after 6.0s
+EX1   reproduces=True
+EX3   reproduces=True
+DOB1  reproduces=False
+GV1   reproduces=True
+3/4 reproduce
+exit=0
+===== checks_2026_11_17
+/tmp/claude-0/-home-user-amlkit/8706c388-9eae-52f2-b928-dfb9fe36ed0d/scratchpad/venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+verification link for mlro@leadq.ae instead of emailing it.
+Set AMLKIT_SMTP_HOST (and friends) to send this for real.
+verification link for mlro@leadwq.ae instead of emailing it.
+Set AMLKIT_SMTP_HOST (and friends) to send this for real.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+No SMTP configured (AMLKIT_SMTP_HOST unset) -- printing to console only.
+setup open alerts in DB: web org=205 mobile org=205
+QU1w  /alerts distinct alert ids=200 cap-notice=False; dashboard says 205 waiting
+QU1c  web /alerts.csv status=200 data rows=200
+QU1m  mobile /api/v1/alerts.csv status=200 data rows=200
+QU2   ?status=bogus shows 'Unknown filter ignored.'=True; ?page=2 shows it=False (control, not counted)
+TD2   1 MB note with NUL+U+202E stored unchanged=True (len=1048584)
+QU1w  reproduces=True
+QU1c  reproduces=True
+QU1m  reproduces=True
+TD2   reproduces=True
+4/4 reproduce
+exit=0
+===== probe_dob_onboard_2026_11_18
+1975-03-13 LY alert 0.9
+1975-03-12 LY alert 1.0
+1981-01-02 LY alert 0.85
+1975-03-12 IN NO ALERT 
+None LY alert 1.0
+None None alert 1.0
+1975-12-31 LY NO ALERT 
+1976-03-12 LY alert 0.85
+exit=1
+### f1_disposition_race_2026_11_24 (new)
+F1  op B in the gap: true_positive; freeze rows=[(1, 1, 'pending_execution')]
+F1  op A after B: pending_review (no error raised)
+F1  op C confirms: false_positive; final alert status=false_positive; freeze rows=[(1, 1, 'pending_execution')]
+F1  alert_reviews trail=[('opB', 'propose', 'true_positive'), ('opA', 'propose', 'false_positive'), ('opC', 'confirm', 'false_positive')]
+F1  confirmed true_positive overwritten to false_positive with live freeze obligation=True
+exit=0
