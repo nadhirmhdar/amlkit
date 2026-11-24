@@ -1,0 +1,97 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "alerts at onboarding",
+  "status": "info",
+  "detail": "0"
+ },
+ {
+  "step": "listed person added to the UAE list after onboarding",
+  "status": "info",
+  "detail": "KARIM NASSER AL-FAHIM, 1979-09-09, UAE"
+ },
+ {
+  "step": "dashboard before any re-screen",
+  "status": "info",
+  "detail": "dverse media 0 Queue empty. No alert is waiting for a decision. TFS Freeze Obligations \u25bc Targeted financial sanctions: f"
+ },
+ {
+  "step": "Re-screen all",
+  "status": "info",
+  "detail": "['Re-screened 2 name(s) across customers and related parties.']"
+ },
+ {
+  "step": "alerts after re-screen",
+  "status": "info",
+  "detail": "[]"
+ },
+ {
+  "step": "dashboard after",
+  "status": "info",
+  "detail": "dverse media 0 Queue empty. No alert is waiting for a decision. TFS Freeze Obligations \u25bc Targeted financial sanctions: f"
+ },
+ {
+  "step": "notification for the new hit",
+  "status": "info",
+  "detail": "Notifications \u2014 groAML Skip to content \u2630 gr AML Grovisor Test DNFBP Home Dashboard Screen a name Customers Reports groAML 0 L Layla MLRO mlro Grovisor Test DNFBP Reports Audit trail Policies Admin Feedback Freeze Obligations Transaction rules Ops status What's new About Privacy & Cookies Log out Hom"
+ },
+ {
+  "step": "Re-screen all again (idempotent?)",
+  "status": "info",
+  "detail": "['Re-screened 2 name(s) across customers and related parties.']"
+ },
+ {
+  "step": "ad-hoc screen of the newly listed name",
+  "status": "info",
+  "detail": "no match text: Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin F"
+ },
+ {
+  "step": "onboard a NEW customer with the listed name",
+  "status": "info",
+  "detail": "['Onboarded. Risk rating: low.']"
+ },
+ {
+  "step": "entity row is in the database",
+  "status": "info",
+  "detail": "[('KARIM NASSER AL-FAHIM', '[\"United Arab Emirates\"]')]"
+ }
+]
