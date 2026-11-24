@@ -1,0 +1,37 @@
+== days
+ OK   days=1                                     org=1 ends=2026-11-25T01:01:53+00:00
+ OK   days=90                                    org=2 ends=2027-02-22T01:01:53+00:00
+ ERR  days=0                                     ValueError: days must be a whole number from 1 to 90
+ ERR  days=91                                    ValueError: days must be a whole number from 1 to 90
+ ERR  days=-5                                    ValueError: days must be a whole number from 1 to 90
+ ERR  days=True                                  ValueError: days must be a whole number from 1 to 90
+ ERR  days=False                                 ValueError: days must be a whole number from 1 to 90
+ ERR  days=14.0                                  ValueError: days must be a whole number from 1 to 90
+ ERR  days='14'                                  ValueError: days must be a whole number from 1 to 90
+ ERR  days=None                                  ValueError: days must be a whole number from 1 to 90
+ ERR  days=1000000000000                         ValueError: days must be a whole number from 1 to 90
+ ERR  days=9223372036854775808                   ValueError: days must be a whole number from 1 to 90
+== identity / uniqueness
+ OK   base                                       org=3 ends=2026-12-08T01:01:53+00:00
+ ERR  same email again                           ValueError: an operator with that email already exists
+ ERR  email case variant                         ValueError: an operator with that email already exists
+ ERR  same org name, new email                   ValueError: An organization with a similar name already exists.
+ ERR  org slug collision 'ACME-co!'              ValueError: An organization with a similar name already exists.
+ ERR  weak password                              PasswordComplexityError: Password must be at least 10 characters long
+ OK   password 1MB                               org=4 ends=2026-12-08T01:01:53+00:00
+ ERR  CRLF in name                               IdentityError: Name must not contain control characters.
+ ERR  CRLF in email                              IdentityError: Enter a valid email address.
+ OK   markup org                                 org=5 ends=2026-12-08T01:01:53+00:00
+ ERR  5000-char org                              IdentityError: Organisation name must be 200 characters or fewer.
+ ERR  blank org                                  IdentityError: Enter an organisation name.
+ ERR  NUL in org                                 IdentityError: Organisation name must not contain control characters.
+== resulting rows
+   (1, 'd835422610313313696', 'trial', 'trialing', '2026-11-25T01:01:53+00:00', 1)
+   (2, 'd5974527404537172482', 'trial', 'trialing', '2027-02-22T01:01:53+00:00', 1)
+   (3, 'acme-co', 'trial', 'trialing', '2026-12-08T01:01:53+00:00', 1)
+   (4, 'w2', 'trial', 'trialing', '2026-12-08T01:01:53+00:00', 1)
+   (5, 'script-alert-1-script', 'trial', 'trialing', '2026-12-08T01:01:53+00:00', 1)
+ orphan orgs: 0
+ audit actions: [('billing.trial_granted', 5), ('operator.create', 5)]
+ billing=off: check_limit(operators) allowed
+ billing=1: check_limit(operators) allowed
