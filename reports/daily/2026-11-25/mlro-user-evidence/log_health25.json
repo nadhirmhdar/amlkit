@@ -1,0 +1,77 @@
+[
+ {
+  "step": "register org",
+  "status": "worked",
+  "detail": "status=200 verify_link_on_page=True"
+ },
+ {
+  "step": "verify email",
+  "status": "info",
+  "detail": "status=303 loc=/mfa/setup"
+ },
+ {
+  "step": "mfa setup page",
+  "status": "info",
+  "detail": "status=200 loc=None"
+ },
+ {
+  "step": "mfa enrol",
+  "status": "worked",
+  "detail": "status=200"
+ },
+ {
+  "step": "save goAML profile",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add officer",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "add 2nd MLRO",
+  "status": "info",
+  "detail": "303 {}"
+ },
+ {
+  "step": "operators listed with Rename",
+  "status": "info",
+  "detail": "ids=['1', '2', '3']"
+ },
+ {
+  "step": "baseline /admin/compliance",
+  "status": "info",
+  "detail": "200 Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies Log out Admin Compliance Health Dashboard Sanctions source freshness and error monitoring. \u2190 Back to Admin Dataset Health UAE EOCN requires sanctions lists to be refreshed within 24 hours of a new designation. Datasets marked BREACH are mandatory sources past their refresh window. Source Name Status"
+ },
+ {
+  "step": "baseline /admin/ops",
+  "status": "info",
+  "detail": "200 Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies Log out Admin Ops status Data freshness, replication and work queues. Build dev . \u2190 Back to Admin Sanctions and reference datasets Compliance health \u2192 All datasets are within their refresh window. No successful load recorded yet. Dataset Status Age Window Entities UAE Local Terrorist List (mandatory"
+ },
+ {
+  "step": "baseline /dashboard",
+  "status": "info",
+  "detail": "200 Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies Log out Wednesday \u00b7 25 November 2026 Good morning, Layla Sanctions lists refreshed within the 24-hour window \u00b7 oldest under 1 h ago Freeze Obligations Get started with groAML 4 of 5 done. Each step ticks automatically. Dismiss &#10003; Add a second operator (done) Four-eyes review needs two people. "
+ },
+ {
+  "step": "open alerts",
+  "status": "info",
+  "detail": "[] rows=0"
+ },
+ {
+  "step": "degraded /admin/compliance",
+  "status": "info",
+  "detail": "200 Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies Log out Admin Compliance Health Dashboard Sanctions source freshness and error monitoring. \u2190 Back to Admin Dataset Health UAE EOCN requires sanctions lists to be refreshed within 24 hours of a new designation. Datasets marked BREACH are mandatory sources past their refresh window. Source Name Status Last Refresh Entities Last Error Error Time UAE Local Terrorist List (mandatory) BREACH 121.7h ago 1 \u2014 \u2014 CIA World Leaders (mandatory) BREACH 121.7h ago 1 \u2014 \u2014 OFAC SDN (mandatory) BREACH 121.7h ago 1 \u2014 \u2014 UN Consolidated (mandatory) BREACH 121.7h ago 1 \u2014 \u2014 Force Refresh All Lists Takes 30\u201360 seconds. Downloads latest data and re-screens all customers. Independent review is required before dismissi"
+ },
+ {
+  "step": "degraded /admin/ops",
+  "status": "info",
+  "detail": "200 Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies Log out Admin Ops status Data freshness, replication and work queues. Build dev . \u2190 Back to Admin Sanctions and reference datasets Compliance health \u2192 4 dataset(s) past their refresh window. No successful load recorded yet. Dataset Status Age Window Entities UAE Local Terrorist List (mandatory) BREACH 5.1 days 24 h 1 CIA World Leaders (mandatory) BREACH 5.1 days 24 h 1 OFAC SDN (mandatory) BREACH 5.1 days 24 h 1 UN Consolidated (mandatory) BREACH 5.1 days 24 h 1 Replication Replica configured No Synchronous sync after critical writes Off Last confirmed sync (this instance) none since this instance started Replica state unknown no confirmed sync yet Your organisation's queues Open alerts 0 ol"
+ },
+ {
+  "step": "degraded /dashboard",
+  "status": "info",
+  "detail": "200 Log out Home Dashboard Screen Customers 0 L Layla MLRO mlro Grovisor Test DNFBP What's new Audit Trails Policies Admin Feedback Freeze Obligations Transaction rules Ops status About Privacy & Cookies Log out 24-HOUR RULE BREACHED. UAE Local Terrorist List, CIA World Leaders, OFAC SDN, UN Consolidated have not been refreshed within 24 hours. EOCN requires list updates to be implemented within that window \u2014 screening against these lists is not currently reliable. An MLRO can fix this now from Admin \u2192 Refresh sanctions lists now . Wednesday \u00b7 25 November 2026 Good morning, Layla Sanctions list refresh is overdue Freeze Obligations Get started with groAML 4 of 5 done. Each step ticks automatically. Dismiss &#10003; Add a second operator (done) Four-eyes review needs two people. &#10003; Refresh the sanctions lists (done) Screening is only as good as the lists behind it. &#9675; Onboard your "
+ }
+]
