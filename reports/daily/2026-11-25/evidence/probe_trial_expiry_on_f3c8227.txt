@@ -1,0 +1,24 @@
+== operators
+  allowed                            ends in 1 day                      '2026-11-26T01:02:11+00:00'
+  allowed                            ended 1 day ago                    '2026-11-24T01:02:11+00:00'
+  allowed                            ended 6d23h ago (inside grace)     '2026-11-18T02:02:11+00:00'
+  REFUSED BillingLimitError          ended 7d1h ago (past grace)        '2026-11-18T00:02:11+00:00'
+  REFUSED BillingLimitError          ended 400 days ago                 '2025-10-21T01:02:11+00:00'
+  REFUSED BillingLimitError          naive timestamp, past              '2026-10-26T01:02:11'
+  REFUSED BillingLimitError          date only, past                    '2026-10-26'
+  REFUSED BillingLimitError          with Z suffix, past                '2026-10-26T01:02:11Z'
+  allowed                            garbage                            'tomorrow'
+  allowed                            empty string                       ''
+  allowed                            NULL                               None
+== customers
+  allowed                            ends in 1 day                      '2026-11-26T01:02:11+00:00'
+  allowed                            ended 1 day ago                    '2026-11-24T01:02:11+00:00'
+  allowed                            ended 6d23h ago (inside grace)     '2026-11-18T02:02:11+00:00'
+  REFUSED BillingLimitError          ended 7d1h ago (past grace)        '2026-11-18T00:02:11+00:00'
+  REFUSED BillingLimitError          ended 400 days ago                 '2025-10-21T01:02:11+00:00'
+  REFUSED BillingLimitError          naive timestamp, past              '2026-10-26T01:02:11'
+  REFUSED BillingLimitError          date only, past                    '2026-10-26'
+  REFUSED BillingLimitError          with Z suffix, past                '2026-10-26T01:02:11Z'
+  allowed                            garbage                            'tomorrow'
+  allowed                            empty string                       ''
+  allowed                            NULL                               None
