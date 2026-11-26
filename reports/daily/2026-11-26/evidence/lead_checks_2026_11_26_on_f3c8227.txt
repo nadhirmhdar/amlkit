@@ -1,0 +1,21 @@
+$ PYTHONPATH=. python repro_lead/st1_adhoc_screen_on_stale_lists_2026_11_26.py
+ST1 datasets_fresh after backdating to 2026-01-01: False
+ST1 onboard on stale lists: refused (Cannot onboard: no fresh mandatory sanctions dataset available. Ask an MLRO to run Admin → Refresh sources)
+ST1 ad-hoc screen on stale lists: CLEAR  'Zainab Omar Khalid' - 0 candidates, no hits >= 0.85
+ST1 ScreeningResult fields=['query', 'trigger', 'threshold', 'candidates', 'hits', 'screening_id', 'alerts_created', 'unscreenable'] stale/fresh flag present=False
+ST1 static checks: {'web /screen checks freshness': False, 'mobile /screen checks freshness': False, 'screen.html mentions freshness': False}
+ST1 onboarding fails closed but ad-hoc screen returns CLEAR on stale lists=True
+exit=0
+$ PYTHONPATH=. python repro_lead/f1_disposition_race_2026_11_24.py
+F1  op B in the gap: true_positive; freeze rows=[(1, 1, 'pending_execution')]
+F1  op A after B: pending_review (no error raised)
+F1  op C confirms: false_positive; final alert status=false_positive; freeze rows=[(1, 1, 'pending_execution')]
+F1  alert_reviews trail=[('opB', 'propose', 'true_positive'), ('opA', 'propose', 'false_positive'), ('opC', 'confirm', 'false_positive')]
+F1  confirmed true_positive overwritten to false_positive with live freeze obligation=True
+exit=0
+$ PYTHONPATH=. python repro_lead/f2_onboard_commit_before_screen_2026_11_25.py
+F2  onboard raised: database is locked (simulated)
+F2  customer rows=[(1, 'active')] screenings=0 risk_assessments=0 alerts=0
+F2  retry with same reference: IntegrityError: UNIQUE constraint failed: customers.org_id, customers.reference
+F2  active customer left unscreened and unrated (UN-listed name)=True
+exit=0
