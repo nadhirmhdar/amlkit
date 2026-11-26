@@ -1,0 +1,7 @@
+tests/test_system_endpoints.py: 45 warnings
+  /tmp/claude-0/-home-user-amlkit/e617beec-4f0b-5ae7-94d4-35e414e8435f/scratchpad/venv/lib/python3.11/site-packages/httpx/_models.py:408: DeprecationWarning: Use 'content=<...>' to upload raw bytes/text content.
+    headers, stream = encode_request(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2999 passed, 2 skipped, 57 warnings in 858.38s (0:14:18)
+done
