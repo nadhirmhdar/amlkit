@@ -1,0 +1,26 @@
+master f3c8227121fbec1d4c3860c63b4a383a4656f975	refs/heads/master
+app code diff vs master: 0 lines
+== ds1_partial_stale_gate_2026_11_27
+DS1 datasets: [('ae_local_terrorists', True, True), ('un_sc_sanctions', True, False)]
+DS1 UAE list stale (2026-01-01), UN fresh -> datasets_fresh=True, UAE breach=True
+DS1 onboard with UAE list stale: accepted (customer OnboardingResult(customer_id=1, reference='DS1-1', screening=ScreeningResult(query='Zainab Omar Khalid', trigger='onboarding', threshold=0.85, candidates=1, hits=[], screening_id=1, alerts_created=0, unscreenable=False), ubo_screenings=[], risk=RiskAssessment(score=5.0, rating='low', requires_edd=False, factors={'jurisdiction': {'value': 'standar
+DS1 gate passes on one fresh list while the UAE list is in breach=True
+exit=0
+== st1_adhoc_screen_on_stale_lists_2026_11_26
+ST1 ad-hoc screen on stale lists: CLEAR  'Zainab Omar Khalid' - 0 candidates, no hits >= 0.85
+ST1 ScreeningResult fields=['query', 'trigger', 'threshold', 'candidates', 'hits', 'screening_id', 'alerts_created', 'unscreenable'] stale/fresh flag present=False
+ST1 static checks: {'web /screen checks freshness': False, 'mobile /screen checks freshness': False, 'screen.html mentions freshness': False}
+ST1 onboarding fails closed but ad-hoc screen returns CLEAR on stale lists=True
+exit=0
+== f1_disposition_race_2026_11_24
+F1  op A after B: pending_review (no error raised)
+F1  op C confirms: false_positive; final alert status=false_positive; freeze rows=[(1, 1, 'pending_execution')]
+F1  alert_reviews trail=[('opB', 'propose', 'true_positive'), ('opA', 'propose', 'false_positive'), ('opC', 'confirm', 'false_positive')]
+F1  confirmed true_positive overwritten to false_positive with live freeze obligation=True
+exit=0
+== f2_onboard_commit_before_screen_2026_11_25
+F2  onboard raised: database is locked (simulated)
+F2  customer rows=[(1, 'active')] screenings=0 risk_assessments=0 alerts=0
+F2  retry with same reference: IntegrityError: UNIQUE constraint failed: customers.org_id, customers.reference
+F2  active customer left unscreened and unrated (UN-listed name)=True
+exit=0
