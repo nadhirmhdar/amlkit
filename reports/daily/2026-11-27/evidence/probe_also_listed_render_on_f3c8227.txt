@@ -1,0 +1,6 @@
+autoescape for .html templates: True
+_alert_panel.html: forced-autoescape output = '&lt;img src=x onerror=alert(1)&gt;&#34;&#39;&amp;, wikidata_ministers'; raw '<img' present: False
+   file wraps the expression in |safe or autoescape off? safe=False noescape_block=False
+screen.html: forced-autoescape output = '&lt;img src=x onerror=alert(1)&gt;&#34;&#39;&amp;, wikidata_ministers'; raw '<img' present: False
+   file wraps the expression in |safe or autoescape off? safe=False noescape_block=False
+_alert_panel.html real render needs more context: UndefinedError 'session' is undefined
