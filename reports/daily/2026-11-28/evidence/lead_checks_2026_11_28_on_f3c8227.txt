@@ -1,0 +1,43 @@
+Python 3.11.18
+=== ds1_partial_stale_gate_2026_11_27.py
+DS1 datasets: [('ae_local_terrorists', True, True), ('un_sc_sanctions', True, False)]
+DS1 UAE list stale (2026-01-01), UN fresh -> datasets_fresh=True, UAE breach=True
+DS1 onboard with UAE list stale: accepted (customer OnboardingResult(customer_id=1, reference='DS1-1', screening=ScreeningResult(query='Zainab Omar Khalid', trigger='onboarding', threshold=0.85, candidates=1, hits=[], screening_id=1, alerts_created=0, unscreenable=False), ubo_screenings=[], risk=RiskAssessment(score=5.0, rating='low', requires_edd=False, factors={'jurisdiction': {'value': 'standard', 'points': 0}, 'sector': {'value': 'other', 'points': 5}, 'ownership_opacity': {'value': 'fully_transparent', 'points': 0}, 'delivery_channel': {'value': 'face_to_face', 'points': 0}, 'cash_intensity': {'value': 'non_cash', 'points': 0}, 'adverse_media': {'value': 'none', 'points': 0}, 'structure': {'value': 'natural_person', 'points': 0}}, ruleset_version='2025.12.2', next_review='2029-11-12'), blocked=False, unscreenable_names=[]))
+DS1 gate passes on one fresh list while the UAE list is in breach=True
+exit=0
+=== f1_disposition_race_2026_11_24.py
+F1  op B in the gap: true_positive; freeze rows=[(1, 1, 'pending_execution')]
+F1  op A after B: pending_review (no error raised)
+F1  op C confirms: false_positive; final alert status=false_positive; freeze rows=[(1, 1, 'pending_execution')]
+F1  alert_reviews trail=[('opB', 'propose', 'true_positive'), ('opA', 'propose', 'false_positive'), ('opC', 'confirm', 'false_positive')]
+F1  confirmed true_positive overwritten to false_positive with live freeze obligation=True
+exit=0
+=== f2_onboard_commit_before_screen_2026_11_25.py
+F2  onboard raised: database is locked (simulated)
+F2  customer rows=[(1, 'active')] screenings=0 risk_assessments=0 alerts=0
+F2  retry with same reference: IntegrityError: UNIQUE constraint failed: customers.org_id, customers.reference
+F2  active customer left unscreened and unrated (UN-listed name)=True
+exit=0
+=== st1_adhoc_screen_on_stale_lists_2026_11_26.py
+ST1 datasets_fresh after backdating to 2026-01-01: False
+ST1 onboard on stale lists: refused (Cannot onboard: no fresh mandatory sanctions dataset available. Ask an MLRO to run Admin → Refresh sources)
+ST1 ad-hoc screen on stale lists: CLEAR  'Zainab Omar Khalid' - 0 candidates, no hits >= 0.85
+ST1 ScreeningResult fields=['query', 'trigger', 'threshold', 'candidates', 'hits', 'screening_id', 'alerts_created', 'unscreenable'] stale/fresh flag present=False
+ST1 static checks: {'web /screen checks freshness': False, 'mobile /screen checks freshness': False, 'screen.html mentions freshness': False}
+ST1 onboarding fails closed but ad-hoc screen returns CLEAR on stale lists=True
+exit=0
+=== skeptic_psg.py
+mandatory keys: ['ae_local_terrorists', 'un_sc_consolidated', 'ofac_sdn']
+stale: ['ae_local_terrorists', 'un_sc_consolidated'] fresh: ofac_sdn
+datasets_fresh -> True
+exit=0
+
+=== true exit codes (previous 'exit=' lines above were tail's, superseded):
+ds1_partial_stale_gate_2026_11_27.py exit=0
+f1_disposition_race_2026_11_24.py exit=0
+f2_onboard_commit_before_screen_2026_11_25.py exit=0
+st1_adhoc_screen_on_stale_lists_2026_11_26.py exit=0
+skeptic_psg.py exit=0
+=== mobile.py refresh route on master:
+558:def api_screen(request: Request, body: ScreenRequest, db: DB, session: Session):
+1679:@router.post("/admin/refresh")
