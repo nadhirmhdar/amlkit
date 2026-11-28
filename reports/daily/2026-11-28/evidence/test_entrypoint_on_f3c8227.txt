@@ -1,0 +1,10 @@
+FAILED tests/test_entrypoint.py::test_restore_duration_is_logged_and_slow_restores_warn
+FAILED tests/test_entrypoint.py::test_seed_from_source_replica_when_target_is_empty
+FAILED tests/test_entrypoint.py::test_seed_without_txid_restores_the_source_head
+FAILED tests/test_entrypoint.py::test_seed_is_ignored_when_target_already_has_a_replica
+FAILED tests/test_entrypoint.py::test_seed_restore_failure_refuses_to_start
+FAILED tests/test_entrypoint.py::test_seed_that_fails_verification_refuses_to_start
+FAILED tests/test_entrypoint.py::test_transient_restore_failure_is_retried - ...
+22 failed, 2 passed in 1.76s
+........................                                                 [100%]
+24 passed in 10.37s
